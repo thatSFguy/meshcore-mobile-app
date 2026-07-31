@@ -47,6 +47,7 @@ fun RemoteSettingsForm(
     keyHex: String,
     contact: ContactEntity?,
     role: NodeRole,
+    isAdmin: Boolean = true,
 ) {
     val scope = rememberCoroutineScope()
     val engineState by vm.engineState.collectAsState()
@@ -101,6 +102,7 @@ fun RemoteSettingsForm(
 
     /** Immediate-apply switch (matches the local Settings tab's switches). */
     fun applySwitch(id: String, on: Boolean, onText: String = "on", offText: String = "off") {
+        if (!isAdmin) return
         values[id] = if (on) onText else offText
         scope.launch { vm.cliQuery(keyHex, "set $id ${if (on) onText else offText}") }
     }
@@ -114,13 +116,19 @@ fun RemoteSettingsForm(
         if (!isReady) {
             HintText("Connect to your radio to administer this node.")
         }
+        if (!isAdmin) {
+            HintText(
+                "Read-only session: values can be fetched, but saving and destructive " +
+                    "actions need an admin login.",
+            )
+        }
 
         RemoteSection(
             title = "Basic",
             isReady = isReady,
             fetchIds = listOf("name", "owner.info"),
             fetch = ::fetch,
-            saveEnabled = dirty["name"] == true || dirty["owner.info"] == true,
+            saveEnabled = isAdmin && (dirty["name"] == true || dirty["owner.info"] == true),
             buildSaves = {
                 buildList {
                     values["name"]?.trim()?.takeIf { it.isNotEmpty() && dirty["name"] == true }
@@ -142,7 +150,7 @@ fun RemoteSettingsForm(
             isReady = isReady,
             fetchIds = listOf("radio", "tx"),
             fetch = ::fetch,
-            saveEnabled = listOf("radio.freq", "radio.bw", "radio.sf", "radio.cr", "tx")
+            saveEnabled = isAdmin && listOf("radio.freq", "radio.bw", "radio.sf", "radio.cr", "tx")
                 .any { dirty[it] == true },
             buildSaves = {
                 buildList {
@@ -196,7 +204,7 @@ fun RemoteSettingsForm(
             isReady = isReady,
             fetchIds = listOf("lat", "lon"),
             fetch = ::fetch,
-            saveEnabled = dirty["lat"] == true || dirty["lon"] == true,
+            saveEnabled = isAdmin && (dirty["lat"] == true || dirty["lon"] == true),
             buildSaves = {
                 buildList {
                     values["lat"]?.trim()?.toDoubleOrNull()?.takeIf {
@@ -226,8 +234,9 @@ fun RemoteSettingsForm(
             isReady = isReady,
             fetchIds = listOf("advert.interval", "flood.advert.interval"),
             fetch = ::fetch,
-            saveEnabled = dirty["advert.interval"] == true ||
-                dirty["flood.advert.interval"] == true,
+            saveEnabled = isAdmin && (
+                dirty["advert.interval"] == true || dirty["flood.advert.interval"] == true
+                ),
             buildSaves = {
                 buildList {
                     for (id in listOf("advert.interval", "flood.advert.interval")) {
@@ -267,7 +276,7 @@ fun RemoteSettingsForm(
                 isReady = isReady,
                 fetchIds = listOf("repeat", "flood.max", "rxdelay", "txdelay", "direct.txdelay"),
                 fetch = ::fetch,
-                saveEnabled = listOf("flood.max", "rxdelay", "txdelay", "direct.txdelay")
+                saveEnabled = isAdmin && listOf("flood.max", "rxdelay", "txdelay", "direct.txdelay")
                     .any { dirty[it] == true },
                 buildSaves = {
                     buildList {
@@ -313,8 +322,10 @@ fun RemoteSettingsForm(
             isReady = isReady,
             fetchIds = if (role == NodeRole.Room) listOf("allow.read.only") else emptyList(),
             fetch = ::fetch,
-            saveEnabled = !values["password.new"].isNullOrBlank() ||
-                !values["guest.password.new"].isNullOrBlank(),
+            saveEnabled = isAdmin && (
+                !values["password.new"].isNullOrBlank() ||
+                    !values["guest.password.new"].isNullOrBlank()
+                ),
             buildSaves = {
                 buildList {
                     values["password.new"]?.trim()?.takeIf { it.isNotEmpty() }
@@ -351,7 +362,7 @@ fun RemoteSettingsForm(
             isReady = isReady,
             fetchIds = listOf("radio.rxgain", "dutycycle", "multi.acks", "int.thresh"),
             fetch = ::fetch,
-            saveEnabled = listOf("radio.rxgain", "dutycycle", "int.thresh")
+            saveEnabled = isAdmin && listOf("radio.rxgain", "dutycycle", "int.thresh")
                 .any { dirty[it] == true },
             buildSaves = {
                 buildList {
@@ -403,7 +414,7 @@ fun RemoteSettingsForm(
                     }
                 }
             }
-            ButtonFlowRow {
+            if (isAdmin) ButtonFlowRow {
                 for ((label, command) in listOf(
                     "Reboot" to "reboot",
                     "Clear stats" to "clear stats",

@@ -20,15 +20,22 @@ class SecretsRepository(
 
     // --- Repeater/room login passwords (per repeater pubkey) ---
 
-    suspend fun storeLoginPassword(repeaterKeyHex: String, password: String): Boolean =
-        putSecret("login_$repeaterKeyHex", password.encodeToByteArray())
+    /** [guest] selects the read-only credential slot for this node. */
+    suspend fun storeLoginPassword(
+        repeaterKeyHex: String,
+        password: String,
+        guest: Boolean = false,
+    ): Boolean = putSecret(slot(repeaterKeyHex, guest), password.encodeToByteArray())
 
-    suspend fun loginPassword(repeaterKeyHex: String): String? =
-        getSecret("login_$repeaterKeyHex")?.decodeToString()
+    suspend fun loginPassword(repeaterKeyHex: String, guest: Boolean = false): String? =
+        getSecret(slot(repeaterKeyHex, guest))?.decodeToString()
 
-    fun forgetLoginPassword(repeaterKeyHex: String) {
-        prefs.putSealed("login_$repeaterKeyHex", null)
+    fun forgetLoginPassword(repeaterKeyHex: String, guest: Boolean = false) {
+        prefs.putSealed(slot(repeaterKeyHex, guest), null)
     }
+
+    private fun slot(keyHex: String, guest: Boolean) =
+        if (guest) "guest_$keyHex" else "login_$keyHex"
 
     // --- Community secrets (32-byte K per community id) ---
 

@@ -604,18 +604,36 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
     // Repeater admin
     // ------------------------------------------------------------------
 
-    fun repeaterLogin(keyHex: String, password: String, savePassword: Boolean) {
+    /** Session role per node — drives which commands the admin UI offers. */
+    private val _adminSessions = MutableStateFlow<Map<String, Boolean>>(emptyMap())
+    val adminSessions: StateFlow<Map<String, Boolean>> = _adminSessions
+
+    fun isAdminSession(keyHex: String): Boolean = _adminSessions.value[keyHex] ?: false
+
+    fun repeaterLogin(
+        keyHex: String,
+        password: String,
+        savePassword: Boolean,
+        guest: Boolean = false,
+    ) {
         val svc = _service.value ?: return
         val key = hexToBytesOrNull(keyHex) ?: return
         viewModelScope.launch {
-            if (savePassword) svc.secrets.storeLoginPassword(keyHex, password)
+            if (savePassword) svc.secrets.storeLoginPassword(keyHex, password, guest)
             val ok = runCatching { svc.engine.sendLogin(key, password) }.getOrDefault(false)
-            transientMessage.value = if (ok) "Login accepted" else "Login failed"
+            // Only an accepted ADMIN login unlocks state-changing commands;
+            // a guest session stays read-only in the UI regardless.
+            _adminSessions.value = _adminSessions.value + (keyHex to (ok && !guest))
+            transientMessage.value = when {
+                !ok -> "Login failed"
+                guest -> "Guest (read-only) session"
+                else -> "Admin session"
+            }
         }
     }
 
-    suspend fun savedLoginPassword(keyHex: String): String? =
-        _service.value?.secrets?.loginPassword(keyHex)
+    suspend fun savedLoginPassword(keyHex: String, guest: Boolean = false): String? =
+        _service.value?.secrets?.loginPassword(keyHex, guest)
 
     fun sendCli(keyHex: String, command: String) {
         val svc = _service.value ?: return
@@ -743,8 +761,10 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun forgetLoginPassword(keyHex: String) {
-        _service.value?.secrets?.forgetLoginPassword(keyHex)
-        transientMessage.value = "Saved password removed"
+        _service.value?.secrets?.forgetLoginPassword(keyHex, guest = false)
+        _service.value?.secrets?.forgetLoginPassword(keyHex, guest = true)
+        _adminSessions.value = _adminSessions.value - keyHex
+        transientMessage.value = "Saved passwords removed"
     }
 
     fun sendSelfAdvert(flood: Boolean) =

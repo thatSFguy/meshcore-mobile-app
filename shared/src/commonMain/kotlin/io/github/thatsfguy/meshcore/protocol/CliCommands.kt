@@ -48,6 +48,20 @@ data class CliCommand(
      *  (frame/command) the app uses instead of CLI text. */
     val companionEquivalent: String? = null,
 ) {
+    /**
+     * True when this command changes node state — anything a guest
+     * (read-only) session must not be offered. Reads (`get x`, info
+     * actions like `ver`) stay available to guests.
+     */
+    val adminOnly: Boolean
+        get() = kind == CliKind.GetSet || kind == CliKind.ActionWithArg ||
+            requiresConfirm || sensitive || id in MUTATING_ACTIONS
+
+    private companion object {
+        /** Bare actions that still change state on the node. */
+        val MUTATING_ACTIONS = setOf("advert", "clock sync", "log start", "log stop")
+    }
+
     /** The `get` command string, for kinds that support it. */
     fun getCommand(): String {
         check(kind == CliKind.GetOnly || kind == CliKind.GetSet) { "$id has no get form" }
@@ -347,13 +361,19 @@ object CliCatalog {
         ),
     )
 
-    /** Commands applicable to [role], catalog order preserved. */
-    fun forRole(role: NodeRole): List<CliCommand> = all.filter { role in it.roles }
+    /**
+     * Commands applicable to [role], catalog order preserved. With
+     * [admin] false (a guest / read-only session) every state-changing
+     * command is filtered out, so the UI can't offer what the node
+     * would refuse.
+     */
+    fun forRole(role: NodeRole, admin: Boolean = true): List<CliCommand> =
+        all.filter { role in it.roles && (admin || !it.adminOnly) }
 
     /** [forRole] grouped by category, catalog order preserved. */
-    fun forRoleByCategory(role: NodeRole): Map<String, List<CliCommand>> {
+    fun forRoleByCategory(role: NodeRole, admin: Boolean = true): Map<String, List<CliCommand>> {
         val out = LinkedHashMap<String, MutableList<CliCommand>>()
-        for (c in forRole(role)) out.getOrPut(c.category) { mutableListOf() }.add(c)
+        for (c in forRole(role, admin)) out.getOrPut(c.category) { mutableListOf() }.add(c)
         return out
     }
 

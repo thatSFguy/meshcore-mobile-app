@@ -77,11 +77,12 @@ fun RepeaterAdminScreen(vm: MeshCoreViewModel, nav: NavController, keyHex: Strin
     var password by remember { mutableStateOf("") }
     var savePassword by remember { mutableStateOf(true) }
     var passwordPrefilled by remember { mutableStateOf(false) }
-    LaunchedEffect(keyHex) {
-        vm.savedLoginPassword(keyHex)?.let {
-            password = it
-            passwordPrefilled = true
-        }
+    var guestLogin by remember { mutableStateOf(false) }
+    val adminSessions by vm.adminSessions.collectAsState()
+    val isAdmin = adminSessions[keyHex] ?: false
+    LaunchedEffect(keyHex, guestLogin) {
+        password = vm.savedLoginPassword(keyHex, guestLogin) ?: ""
+        passwordPrefilled = password.isNotEmpty()
     }
 
     var tab by remember { mutableIntStateOf(0) } // 0 = Console, 1 = Settings
@@ -125,7 +126,7 @@ fun RepeaterAdminScreen(vm: MeshCoreViewModel, nav: NavController, keyHex: Strin
                 )
                 Spacer(Modifier.width(8.dp))
                 OutlinedButton(onClick = {
-                    vm.repeaterLogin(keyHex, password, savePassword)
+                    vm.repeaterLogin(keyHex, password, savePassword, guest = guestLogin)
                 }) { Text("Login") }
             }
             Row(
@@ -133,8 +134,19 @@ fun RepeaterAdminScreen(vm: MeshCoreViewModel, nav: NavController, keyHex: Strin
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Checkbox(checked = savePassword, onCheckedChange = { savePassword = it })
-                Text("Keep password in device keystore", style = MaterialTheme.typography.bodySmall)
+                Text("Keep password in keystore", style = MaterialTheme.typography.bodySmall)
+                Spacer(Modifier.width(12.dp))
+                Checkbox(checked = guestLogin, onCheckedChange = { guestLogin = it })
+                Text("Guest (read-only)", style = MaterialTheme.typography.bodySmall)
             }
+            Text(
+                if (isAdmin) "Admin session — settings unlocked"
+                else "Read-only: log in as admin to change settings",
+                style = MaterialTheme.typography.labelSmall,
+                color = if (isAdmin) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 12.dp),
+            )
 
             // --- Console / Settings switch ---
             SingleChoiceSegmentedButtonRow(
@@ -154,7 +166,7 @@ fun RepeaterAdminScreen(vm: MeshCoreViewModel, nav: NavController, keyHex: Strin
                     RepeaterStatusPanel(vm, keyHex)
                 }
                 1 -> androidx.compose.foundation.layout.Box(Modifier.weight(1f)) {
-                    RemoteSettingsForm(vm, keyHex, contact, role)
+                    RemoteSettingsForm(vm, keyHex, contact, role, isAdmin)
                 }
                 else -> CliConsole(vm, keyHex, messages)
             }

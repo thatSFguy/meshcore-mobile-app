@@ -195,6 +195,39 @@ class CliCatalogTest {
     // ------------------------------------------------------------------
 
     @Test
+    fun guestSessionsSeeOnlyReadCommands() {
+        val guest = CliCatalog.forRole(NodeRole.Repeater, admin = false)
+        assertTrue(guest.isNotEmpty())
+        // Nothing that changes node state.
+        for (c in guest) {
+            assertTrue(!c.adminOnly, "'${'$'}{c.id}' is admin-only but offered to guests")
+            assertTrue(c.kind == CliKind.GetOnly || c.kind == CliKind.Action)
+        }
+        val ids = guest.map { it.id }.toSet()
+        // Reads survive…
+        assertTrue("ver" in ids)
+        assertTrue("role" in ids)
+        assertTrue("acl" in ids)
+        assertTrue("clock" in ids)
+        // …mutations don't.
+        for (id in listOf("password", "prv.key", "reboot", "erase", "freq", "name", "advert")) {
+            assertTrue(id !in ids, "'${'$'}id' must not be offered to guests")
+        }
+        // Guest view is a strict subset of the admin view.
+        assertTrue(CliCatalog.forRole(NodeRole.Repeater).map { it.id }.containsAll(ids))
+    }
+
+    @Test
+    fun adminOnlyFlagCoversMutations() {
+        assertTrue(CliCatalog.byId("freq")!!.adminOnly)        // get/set
+        assertTrue(CliCatalog.byId("time")!!.adminOnly)        // action w/ arg
+        assertTrue(CliCatalog.byId("reboot")!!.adminOnly)      // destructive
+        assertTrue(CliCatalog.byId("advert")!!.adminOnly)      // bare but mutating
+        assertTrue(!CliCatalog.byId("ver")!!.adminOnly)
+        assertTrue(!CliCatalog.byId("public.key")!!.adminOnly)
+    }
+
+    @Test
     fun secretCarryingCommandsAreMarkedSensitive() {
         for (id in listOf("password", "guest.password", "prv.key", "bridge.secret")) {
             assertTrue(CliCatalog.byId(id)!!.sensitive, "'$id' must be sensitive")
