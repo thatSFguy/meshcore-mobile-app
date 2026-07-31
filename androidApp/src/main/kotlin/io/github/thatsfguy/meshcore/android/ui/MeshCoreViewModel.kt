@@ -586,6 +586,24 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
 
     suspend fun deviceTime(): Long? = _service.value?.engine?.deviceTime()
 
+    // Awaitable queries for the settings query-on-expand pattern: each
+    // returns once the radio answered (or timed out) so the section can
+    // drop its loading spinner. No-ops when not connected.
+    suspend fun querySelfInfo() {
+        if (engineState.value != EngineState.Ready) return
+        runCatching { _service.value?.engine?.refreshSelfInfo() }
+    }
+
+    suspend fun queryAutoAddConfig() {
+        if (engineState.value != EngineState.Ready) return
+        runCatching { _service.value?.engine?.requestAutoAddConfig() }
+    }
+
+    suspend fun queryCustomVars() {
+        if (engineState.value != EngineState.Ready) return
+        runCatching { _service.value?.engine?.requestCustomVars() }
+    }
+
     fun syncContactsNow() {
         val svc = _service.value ?: return
         viewModelScope.launch { runCatching { svc.engine.syncContacts() } }

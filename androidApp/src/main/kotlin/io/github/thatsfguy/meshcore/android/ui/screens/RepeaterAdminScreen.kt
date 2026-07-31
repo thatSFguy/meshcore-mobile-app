@@ -128,8 +128,10 @@ fun RepeaterAdminScreen(vm: MeshCoreViewModel, nav: NavController, keyHex: Strin
                 Text("Keep password in device keystore", style = MaterialTheme.typography.bodySmall)
             }
 
-            // --- Quick settings / status chips (CLI-backed) ---
-            Row(
+            // --- Quick settings / status chips (CLI-backed). FlowRow so
+            //     chips wrap instead of squeezing on narrow screens. ---
+            @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+            androidx.compose.foundation.layout.FlowRow(
                 Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {

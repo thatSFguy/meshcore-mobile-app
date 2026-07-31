@@ -4,7 +4,11 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -113,14 +117,27 @@ fun SettingsScreen(vm: MeshCoreViewModel) {
                     },
                 )
             }
+            // "Get"-backed sections: collapsed by default, and expanding
+            // queries the radio first (spinner until the answer lands) so
+            // the values shown are what the node reports NOW.
             ExpandableSection("Node identity") {
-                IdentitySection(vm, onShowSelfQr = { showSelfQr = true })
+                QueryOnExpand(vm, query = { vm.querySelfInfo() }) {
+                    IdentitySection(vm, onShowSelfQr = { showSelfQr = true })
+                }
             }
-            ExpandableSection("Radio") { RadioSection(vm) }
+            ExpandableSection("Radio") {
+                QueryOnExpand(vm, query = { vm.querySelfInfo() }) { RadioSection(vm) }
+            }
             ExpandableSection("Clock") { ClockSection(vm) }
-            ExpandableSection("Mesh policies") { PoliciesSection(vm) }
-            ExpandableSection("Auto-add contacts") { AutoAddSection(vm) }
-            ExpandableSection("Custom variables") { CustomVarsSection(vm) }
+            ExpandableSection("Mesh policies") {
+                QueryOnExpand(vm, query = { vm.querySelfInfo() }) { PoliciesSection(vm) }
+            }
+            ExpandableSection("Auto-add contacts") {
+                QueryOnExpand(vm, query = { vm.queryAutoAddConfig() }) { AutoAddSection(vm) }
+            }
+            ExpandableSection("Custom variables") {
+                QueryOnExpand(vm, query = { vm.queryCustomVars() }) { CustomVarsSection(vm) }
+            }
             ExpandableSection("Channels") { ChannelsSection(vm, onEdit = { editChannel = it }) }
             ExpandableSection("App") { AppSection(vm) }
             Spacer(Modifier.height(32.dp))
@@ -203,6 +220,43 @@ private fun ExpandableSection(
     }
 }
 
+/**
+ * Query-on-expand: runs [query] against the radio when the section's
+ * content enters composition (i.e. on every expand — AnimatedVisibility
+ * disposes collapsed content) and shows a spinner until it answers.
+ * When no radio is connected the query is skipped and the section's own
+ * "connect first" hint shows immediately.
+ */
+@Composable
+private fun QueryOnExpand(
+    vm: MeshCoreViewModel,
+    query: suspend () -> Unit,
+    content: @Composable () -> Unit,
+) {
+    val engineState by vm.engineState.collectAsState()
+    var loading by remember { mutableStateOf(engineState == EngineState.Ready) }
+    LaunchedEffect(Unit) {
+        if (engineState == EngineState.Ready) query()
+        loading = false
+    }
+    if (loading) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(vertical = 12.dp),
+        ) {
+            CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+            Spacer(Modifier.width(12.dp))
+            Text(
+                "Querying radio…",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    } else {
+        content()
+    }
+}
+
 @Composable
 private fun SettingRow(label: String, checked: Boolean, enabled: Boolean = true, onChange: (Boolean) -> Unit) {
     Row(
@@ -223,7 +277,9 @@ private fun HintText(text: String) {
     )
 }
 
-/** Single-choice chip row (used for the small enumerated policies). */
+/** Single-choice chip row (used for the small enumerated policies).
+ *  FlowRow so chips wrap as whole units on narrow screens. */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ChoiceChips(
     options: List<String>,
@@ -231,7 +287,7 @@ private fun ChoiceChips(
     enabled: Boolean = true,
     onSelect: (Int) -> Unit,
 ) {
-    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         options.forEachIndexed { i, label ->
             FilterChip(
                 selected = selected == i,
@@ -241,6 +297,18 @@ private fun ChoiceChips(
             )
         }
     }
+}
+
+/** Buttons that must never be squeezed into vertical text: lay out as a
+ *  wrapping row — each button keeps its intrinsic width and overflow
+ *  moves to the next line, whatever the screen size. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ButtonFlowRow(content: @Composable () -> Unit) {
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.fillMaxWidth(),
+    ) { content() }
 }
 
 // ----------------------------------------------------------------------
@@ -279,7 +347,7 @@ private fun ConnectionSection(vm: MeshCoreViewModel, onAddNode: () -> Unit) {
         Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
     }
     Spacer(Modifier.height(4.dp))
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    ButtonFlowRow {
         OutlinedButton(onClick = onAddNode) { Text("Add / connect node") }
         if (engineState != EngineState.Detached) {
             OutlinedButton(onClick = { vm.disconnect() }) { Text("Disconnect") }
@@ -370,7 +438,7 @@ private fun IdentitySection(vm: MeshCoreViewModel, onShowSelfQr: () -> Unit) {
             }
         }) { Text("Set") }
     }
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    ButtonFlowRow {
         OutlinedButton(onClick = { vm.sendSelfAdvert(flood = false) }) { Text("Advert (0-hop)") }
         OutlinedButton(onClick = { vm.sendSelfAdvert(flood = true) }) { Text("Advert (flood)") }
         OutlinedButton(onClick = onShowSelfQr) { Text("Share QR") }
@@ -442,21 +510,34 @@ private fun RadioSection(vm: MeshCoreViewModel) {
 private fun ClockSection(vm: MeshCoreViewModel) {
     val engineState by vm.engineState.collectAsState()
     var radioTime by remember { mutableStateOf<Long?>(null) }
+    var loading by remember { mutableStateOf(true) }
     var refresh by remember { mutableIntStateOf(0) }
     LaunchedEffect(engineState, refresh) {
-        if (engineState == EngineState.Ready) radioTime = vm.deviceTime()
+        if (engineState == EngineState.Ready) {
+            loading = true
+            radioTime = vm.deviceTime()
+        }
+        loading = false
     }
     if (engineState != EngineState.Ready) {
         HintText("Connect to a radio to read its clock.")
+        return
+    }
+    if (loading) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 12.dp)) {
+            CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+            Spacer(Modifier.width(12.dp))
+            HintText("Querying radio…")
+        }
         return
     }
     Text(
         "Radio clock: " + (radioTime?.let {
             DateFormat.getDateTimeInstance().format(Date(it * 1000)) +
                 "  (skew ${it - System.currentTimeMillis() / 1000}s)"
-        } ?: "reading…"),
+        } ?: "no answer"),
     )
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    ButtonFlowRow {
         OutlinedButton(onClick = {
             vm.syncDeviceClock()
             refresh++
@@ -635,7 +716,7 @@ private fun AppSection(vm: MeshCoreViewModel) {
     var theme by remember { mutableStateOf(vm.prefs.theme) }
     var diagnostics by remember { mutableStateOf(vm.prefs.diagnosticsEnabled) }
 
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    ButtonFlowRow {
         for (option in listOf("system", "light", "dark")) {
             OutlinedButton(
                 onClick = {

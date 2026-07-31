@@ -671,6 +671,12 @@ class MeshCoreEngine(
         sendOnly(Frames.reboot())
     }
 
+    /** Re-query SELF_INFO from the radio (name/GPS/radio params/policy
+     *  bytes). Used by settings sections that must show fresh values
+     *  when opened. */
+    suspend fun refreshSelfInfo(): Boolean =
+        sendAndAwait(Frames.appStart(appName)) { it is DeviceEvent.SelfInfoReceived } is DeviceEvent.SelfInfoReceived
+
     /** Read the radio's RTC (epoch seconds), or null on timeout. */
     suspend fun deviceTime(): Long? {
         val ev = sendAndAwait(Frames.getDeviceTime()) { it is DeviceEvent.CurrentTime }
