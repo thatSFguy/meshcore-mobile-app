@@ -57,15 +57,20 @@ jobs:
         run: ./gradlew :androidApp:assembleDebug
 
       - name: Upload debug APK
+        # Non-fatal: account-level artifact-storage quota exhaustion
+        # (hit on the very first run — shared with the other repos'
+        # artifacts) must not fail an otherwise-green build.
+        continue-on-error: true
         uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
         with:
           name: meshcore-mobile-debug
           path: androidApp/build/outputs/apk/debug/*.apk
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 7
 
       - name: Upload test reports on failure
         if: failure()
+        continue-on-error: true
         uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
         with:
           name: test-reports
