@@ -128,7 +128,12 @@ class MeshCoreService : Service() {
             postMessageNotification(kind, peerKey, senderName, text)
         }
 
-        registerReceiver(usbDetachReceiver, IntentFilter(UsbManager.ACTION_USB_DEVICE_DETACHED))
+        androidx.core.content.ContextCompat.registerReceiver(
+            this,
+            usbDetachReceiver,
+            IntentFilter(UsbManager.ACTION_USB_DEVICE_DETACHED),
+            androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
         startAsForeground()
 
         // Cold-start auto-reconnect from the persisted last connection.
@@ -360,6 +365,18 @@ class MeshCoreService : Service() {
             .setContentIntent(intent)
             .setAutoCancel(true)
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+            // Message bodies stay off the lock screen; the public
+            // version says only that something arrived.
+            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+            .setPublicVersion(
+                NotificationCompat.Builder(this, MSG_CHANNEL)
+                    .setSmallIcon(android.R.drawable.stat_notify_chat)
+                    .setContentTitle("MeshCore")
+                    .setContentText("New message")
+                    .setContentIntent(intent)
+                    .setAutoCancel(true)
+                    .build(),
+            )
             .build()
 
         // Stable id per thread: repeated messages update one entry

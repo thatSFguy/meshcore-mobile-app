@@ -97,7 +97,10 @@ class BufferReader(private val buffer: ByteArray) {
     }
 
     private fun ensure(count: Int) {
-        if (pointer + count > buffer.size) {
+        // count is derived from attacker-controlled length fields; a
+        // negative or huge value must fail as truncation, not escape as
+        // some other exception type into the RX collector.
+        if (count < 0 || count > remaining) {
             throw TruncatedFrameException(
                 "Read of $count bytes at offset $pointer overruns buffer of ${buffer.size}",
             )

@@ -648,8 +648,9 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
         val svc = _service.value ?: return
         val key = hexToBytesOrNull(keyHex) ?: return
         viewModelScope.launch {
-            if (savePassword) svc.secrets.storeLoginPassword(keyHex, password, guest)
             val ok = runCatching { svc.engine.sendLogin(key, password) }.getOrDefault(false)
+            // Only seal a credential the node actually accepted.
+            if (ok && savePassword) svc.secrets.storeLoginPassword(keyHex, password, guest)
             // Only an accepted ADMIN login unlocks state-changing commands;
             // a guest session stays read-only in the UI regardless.
             _adminSessions.value = _adminSessions.value + (keyHex to (ok && !guest))
@@ -668,8 +669,14 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
         val svc = _service.value ?: return
         val key = hexToBytesOrNull(keyHex) ?: return
         viewModelScope.launch {
+            // The console row is durable and unencrypted, so the stored
+            // copy is redacted the same way the diagnostics log is — the
+            // clear text exists only in the outbound frame.
             val rowId = svc.repository.recordOutgoingDm(
-                keyHex, command, System.currentTimeMillis() / 1000, txtType = 1,
+                keyHex,
+                io.github.thatsfguy.meshcore.android.storage.DiagnosticsLog.redact(command),
+                System.currentTimeMillis() / 1000,
+                txtType = 1,
             )
             val sent = runCatching { svc.engine.sendCliCommand(key, command) }.getOrNull()
             svc.repository.markOutgoingResult(rowId, sent != null, sent?.ackHash)
@@ -807,11 +814,16 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
                 }
                 append("</gpx>\n")
             }
-            val dir = java.io.File(app.cacheDir, "exports").apply { mkdirs() }
+            val dir = java.io.File(app.cacheDir, "exports").apply {
+                // Clear previous exports — an old GPX is node names, keys
+                // and GPS sitting around for no reason.
+                deleteRecursively()
+                mkdirs()
+            }
             val file = java.io.File(dir, "meshcore-nodes.gpx")
             file.writeText(gpx)
             val uri = androidx.core.content.FileProvider.getUriForFile(
-                app, "${'$'}{app.packageName}.fileprovider", file,
+                app, "${app.packageName}.fileprovider", file,
             )
             val share = Intent(Intent.ACTION_SEND).apply {
                 type = "application/gpx+xml"
@@ -821,7 +833,7 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
             app.startActivity(Intent.createChooser(share, "Export nodes").apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             })
-            transientMessage.value = "Exported ${'$'}{nodes.size} nodes"
+            transientMessage.value = "Exported ${nodes.size} nodes"
         }
     }
 

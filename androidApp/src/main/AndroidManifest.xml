@@ -40,10 +40,6 @@
          app still installs on phones without USB-OTG. -->
     <uses-feature android:name="android.hardware.usb.host" android:required="false" />
 
-    <!-- Battery-optimization exemption prompt for the long-lived radio
-         link (vendor battery managers kill foreground services). -->
-    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
-
     <!--
         Auto Backup disabled: the app stores the node identity seed and
         (via Room) message history; secrets live in the Android Keystore

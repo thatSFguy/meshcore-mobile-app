@@ -27,6 +27,9 @@ object ChannelCrypto {
      * Returns the plaintext or null on MAC mismatch / malformed input.
      */
     fun decrypt(crypto: CryptoProvider, psk: ByteArray, encrypted: ByteArray): ByteArray? {
+        // A short/corrupt PSK would silently become a zero-padded weak
+        // key; refuse it instead.
+        if (psk.size != Codes.CIPHER_BLOCK_SIZE) return null
         if (encrypted.size <= Codes.CIPHER_MAC_SIZE) return null
         val mac = encrypted.copyOfRange(0, Codes.CIPHER_MAC_SIZE)
         val ciphertext = encrypted.copyOfRange(Codes.CIPHER_MAC_SIZE, encrypted.size)
@@ -34,8 +37,12 @@ object ChannelCrypto {
 
         val expected = crypto.hmacSha256(hmacKey(psk), ciphertext)
         // Only 2 MAC bytes cross the wire — a ~1-in-65536 forgery bound,
-        // inherent to the protocol.
-        if (expected[0] != mac[0] || expected[1] != mac[1]) return null
+        // inherent to the protocol. Compared without short-circuiting.
+        var diff = 0
+        for (i in 0 until Codes.CIPHER_MAC_SIZE) {
+            diff = diff or (expected[i].toInt() xor mac[i].toInt())
+        }
+        if (diff != 0) return null
 
         return try {
             crypto.aesEcbDecrypt(aesKey(psk), ciphertext)

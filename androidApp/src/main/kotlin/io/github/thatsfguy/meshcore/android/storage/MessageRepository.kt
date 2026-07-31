@@ -96,13 +96,20 @@ class MessageRepository(
         when (event) {
             is MeshEvent.DirectMessageReceived -> {
                 val peer = event.senderKeyHex ?: event.senderPrefixHex
+                // CLI replies can echo secrets (`get guest.password`,
+                // `get prv.key`); redact before they become durable rows.
+                val storedText = if (event.txtType == 1) {
+                    DiagnosticsLog.redact(event.text)
+                } else {
+                    event.text
+                }
                 db.messages().insert(
                     MessageEntity(
                         selfKey = self,
                         kind = KIND_DM,
                         peerKey = peer,
                         senderName = null,
-                        text = event.text,
+                        text = storedText,
                         timestamp = event.timestamp,
                         receivedAt = System.currentTimeMillis(),
                         outgoing = false,

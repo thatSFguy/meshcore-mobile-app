@@ -1,6 +1,7 @@
 package io.github.thatsfguy.meshcore.protocol
 
 import io.github.thatsfguy.meshcore.crypto.CryptoProvider
+import io.github.thatsfguy.meshcore.util.sanitizeDisplayName
 import io.github.thatsfguy.meshcore.util.toHex
 
 /**
@@ -64,7 +65,10 @@ object Advert {
             val flags = r.readByte()
             var lat: Double? = null
             var lon: Double? = null
-            if ((flags and FLAG_HAS_LOCATION) != 0 && r.remaining >= 8) {
+            if ((flags and FLAG_HAS_LOCATION) != 0) {
+                // Claimed location with too few bytes left: reject rather
+                // than fall through and read the coordinates as the name.
+                if (r.remaining < 8) return null
                 lat = r.readInt32LE() / 1e6
                 lon = r.readInt32LE() / 1e6
             }
@@ -72,7 +76,7 @@ object Advert {
                 (kotlin.math.abs(lat) > 1e-6 || kotlin.math.abs(lon) > 1e-6) &&
                 lat in -90.0..90.0 && lon in -180.0..180.0
             val name = if ((flags and FLAG_HAS_NAME) != 0 && r.remaining > 0) {
-                r.readCString()
+                sanitizeDisplayName(r.readCString(Codes.MAX_NAME_SIZE))
             } else {
                 ""
             }

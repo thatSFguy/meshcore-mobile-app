@@ -175,8 +175,19 @@ class MeshCoreEngine(
     // Contact sync accumulator (CONTACTS_START … CONTACT* … END_OF_CONTACTS).
     private var syncingContacts: MutableMap<String, Contact>? = null
 
-    // Serialized message-queue drain (MSG_WAITING → SYNC_NEXT_MESSAGE loop).
+    // Serialized message-queue drain (MSG_WAITING → SYNC_NEXT_MESSAGE
+    // loop). Written from the RX collector and from the drain coroutine
+    // on a multi-threaded dispatcher, so it must be volatile.
+    @kotlin.concurrent.Volatile
     private var drainingQueue = false
+
+    /**
+     * Last time (ms) we refreshed each contact after an advert/path
+     * push. A hostile peer can replay adverts at line rate; without a
+     * debounce every one would spawn a coroutine and a radio command.
+     */
+    private val lastContactRefresh = HashMap<String, Long>()
+    private val refreshMutex = Mutex()
 
     val isReady: Boolean get() = _state.value == EngineState.Ready
 
@@ -197,9 +208,17 @@ class MeshCoreEngine(
 
         rxJob = scope.launch {
             t.incoming.collect { incoming ->
-                val event = ResponseParser.parse(incoming.frame) ?: return@collect
-                _events.tryEmit(event)
-                handleEvent(event)
+                // A hostile frame must never kill the RX path: anything
+                // thrown below (including Errors from a not-yet-bridged
+                // platform crypto stub) is logged and dropped, not
+                // propagated out of the collector.
+                try {
+                    val event = ResponseParser.parse(incoming.frame) ?: return@collect
+                    if (!_events.tryEmit(event)) log("Diagnostics event dropped (buffer full)")
+                    handleEvent(event)
+                } catch (t: Throwable) {
+                    log("RX frame handling failed: ${t::class.simpleName}: ${t.message}")
+                }
             }
         }
         stateJob = scope.launch {
@@ -328,8 +347,19 @@ class MeshCoreEngine(
             is DeviceEvent.ContactReceived -> {
                 val c = event.contact
                 val syncing = syncingContacts
+                val cap = (_deviceInfo.value?.maxContacts?.takeIf { it > 0 } ?: MAX_TRACKED_CONTACTS)
+                    .coerceAtMost(MAX_TRACKED_CONTACTS)
                 if (syncing != null && !event.fromPush) {
+                    // A hostile link can stream contact records forever;
+                    // stop accumulating past what the radio can hold.
+                    if (syncing.size >= cap) {
+                        log("Contact sync exceeded $cap records — abandoning sync")
+                        syncingContacts = null
+                        return
+                    }
                     syncing[c.publicKeyHex] = c
+                } else if (_contacts.value.size >= cap && !_contacts.value.containsKey(c.publicKeyHex)) {
+                    log("Contact map at capacity ($cap) — dropping ${c.publicKeyHex.take(12)}")
                 } else {
                     // Single fetch, or a NEW_ADVERT push (the radio has
                     // already accepted it as a contact record).
@@ -359,10 +389,14 @@ class MeshCoreEngine(
 
             is DeviceEvent.ContactMessage -> {
                 val prefixHex = event.senderPrefix.toHex()
-                val resolved = _contacts.value.values.firstOrNull {
+                // A 6-byte prefix can collide; if it matches more than
+                // one contact, leave the sender unresolved rather than
+                // attributing the message to an arbitrary identity.
+                val matches = _contacts.value.values.filter {
                     it.publicKeyHex.startsWith(prefixHex)
                 }
-                _meshEvents.tryEmit(
+                val resolved = matches.singleOrNull()
+                emitMeshEvent(
                     MeshEvent.DirectMessageReceived(
                         senderPrefixHex = prefixHex,
                         senderKeyHex = resolved?.publicKeyHex,
@@ -387,16 +421,8 @@ class MeshCoreEngine(
                 MeshEvent.LoginResult(false, null, null),
             )
 
-            is DeviceEvent.AdvertReheard -> {
-                // Known contact re-heard: refresh its record. Launched —
-                // handleEvent runs on the RX collector, and a suspending
-                // send here would deadlock against a held command mutex
-                // whose waiter needs this very collector to keep running.
-                scope.launch { sendOnly(Frames.getContactByKey(event.publicKey)) }
-            }
-            is DeviceEvent.PathUpdated -> {
-                scope.launch { sendOnly(Frames.getContactByKey(event.publicKey)) }
-            }
+            is DeviceEvent.AdvertReheard -> refreshContactDebounced(event.publicKey)
+            is DeviceEvent.PathUpdated -> refreshContactDebounced(event.publicKey)
 
             is DeviceEvent.LogRxData -> handleRxLog(event)
 
@@ -426,18 +452,56 @@ class MeshCoreEngine(
         return crypto.sha256(keyInput).copyOfRange(0, 8).toHex()
     }
 
+    /**
+     * Refresh a contact record at most once per [REFRESH_DEBOUNCE_MS].
+     * Launched (not awaited) because handleEvent runs on the RX
+     * collector and a suspending send would deadlock against a held
+     * command mutex whose waiter needs this collector to keep running.
+     */
+    private fun refreshContactDebounced(pubKey: ByteArray) {
+        val hex = pubKey.toHex()
+        scope.launch {
+            val now = nowSeconds() * 1000
+            val proceed = refreshMutex.withLock {
+                val last = lastContactRefresh[hex] ?: 0L
+                if (now - last < REFRESH_DEBOUNCE_MS) {
+                    false
+                } else {
+                    lastContactRefresh[hex] = now
+                    // Bound the debounce map itself.
+                    if (lastContactRefresh.size > MAX_TRACKED_CONTACTS) {
+                        lastContactRefresh.clear()
+                    }
+                    true
+                }
+            }
+            if (proceed) sendOnly(Frames.getContactByKey(pubKey))
+        }
+    }
+
     private fun emitChannelMessage(
         channelIndex: Int,
         senderName: String,
         text: String,
         timestamp: Long,
     ) {
-        _meshEvents.tryEmit(
+        emitMeshEvent(
             MeshEvent.ChannelMessageReceived(
                 channelIndex, senderName, text, timestamp,
                 channelContentKey(channelIndex, timestamp, senderName, text),
             ),
         )
+    }
+
+    /**
+     * Emit a domain event, surfacing (rather than silently swallowing) a
+     * dropped emission — a dropped message event means the message is
+     * never persisted.
+     */
+    private fun emitMeshEvent(event: MeshEvent) {
+        if (!_meshEvents.tryEmit(event)) {
+            log("DROPPED mesh event ${event::class.simpleName} — consumer too slow")
+        }
     }
 
     private fun handleRxLog(event: DeviceEvent.LogRxData) {
@@ -679,7 +743,11 @@ class MeshCoreEngine(
             val waiter = async(start = CoroutineStart.UNDISPATCHED) {
                 withTimeoutOrNull(timeoutMs) {
                     meshEvents.first { ev ->
+                        // Must be a CLI-typed reply from THIS node — a
+                        // queued chat message from the same node is not
+                        // an answer to our query.
                         ev is MeshEvent.DirectMessageReceived &&
+                            ev.txtType == Codes.TXT_TYPE_CLI_DATA &&
                             (ev.senderKeyHex == targetHex ||
                                 targetHex.startsWith(ev.senderPrefixHex))
                     }
@@ -968,6 +1036,12 @@ class MeshCoreEngine(
 
     companion object {
         private const val DEFAULT_TIMEOUT_MS = 6_000L
+
+        /** Minimum gap between contact-record refreshes per node. */
+        private const val REFRESH_DEBOUNCE_MS = 30_000L
+
+        /** Hard ceiling on tracked contacts, independent of firmware. */
+        private const val MAX_TRACKED_CONTACTS = 1024
         private const val DEFAULT_MAX_CHANNELS = 8
 
         /**

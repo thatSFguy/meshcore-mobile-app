@@ -117,14 +117,17 @@ class IosCryptoProvider : CryptoProvider {
 
     override fun generateEd25519Seed(): ByteArray = randomBytes(32)
 
-    override fun ed25519PublicKey(seed: ByteArray): ByteArray =
-        throw NotImplementedError("iOS Ed25519 pending CryptoKit bridge (see iosCryptoBridge plan)")
+    // Ed25519 needs the CryptoKit bridge. Until it lands these FAIL
+    // CLOSED rather than throwing: a throw from ed25519Verify would
+    // escape the RX collector (NotImplementedError is an Error, not an
+    // Exception) and one hostile advert would deafen the app. Verify
+    // returning false means adverts are simply never trusted on iOS.
+    override fun ed25519PublicKey(seed: ByteArray): ByteArray = ByteArray(0)
 
-    override fun ed25519Sign(message: ByteArray, seed: ByteArray): ByteArray =
-        throw NotImplementedError("iOS Ed25519 pending CryptoKit bridge (see iosCryptoBridge plan)")
+    override fun ed25519Sign(message: ByteArray, seed: ByteArray): ByteArray = ByteArray(0)
 
     override fun ed25519Verify(signature: ByteArray, message: ByteArray, publicKey: ByteArray): Boolean =
-        throw NotImplementedError("iOS Ed25519 pending CryptoKit bridge (see iosCryptoBridge plan)")
+        false
 
     override fun randomBytes(length: Int): ByteArray {
         val out = ByteArray(length)

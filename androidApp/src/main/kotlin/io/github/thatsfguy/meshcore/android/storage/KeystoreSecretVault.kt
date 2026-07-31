@@ -126,9 +126,9 @@ internal class KeystoreSecretVault : SecretVault {
      *
      * The tiers downgrade the on-device security guarantee but
      * never compromise the wire-format — the key is still in the
-     * TEE on tiers 1-3. Tier 4 throws; the Repository catches and
-     * falls back to plaintext-column storage (same threat model as
-     * pre-1.1.27, app stays usable).
+     * TEE on tiers 1-3. Tier 4 throws; SecretsRepository then
+     * simply DOES NOT STORE the secret — there is no plaintext
+     * fallback, by design.
      */
     private fun getOrCreateKey(): SecretKey {
         getKeyOrNull()?.let { return it }

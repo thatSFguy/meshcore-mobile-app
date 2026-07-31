@@ -5,6 +5,7 @@ import io.github.thatsfguy.meshcore.model.Channel
 import io.github.thatsfguy.meshcore.model.Contact
 import io.github.thatsfguy.meshcore.model.DeviceInfo
 import io.github.thatsfguy.meshcore.model.SelfInfo
+import io.github.thatsfguy.meshcore.util.sanitizeDisplayName
 
 /**
  * Radio → client frame parser. One entry point, [parse], that never
@@ -174,7 +175,7 @@ object ResponseParser {
         val flags = r.readByte()
         val pathLen = r.readInt8()
         val path = r.readBytes(64)
-        val name = r.readFixedCString(32)
+        val name = sanitizeDisplayName(r.readFixedCString(32))
         val timestamp = r.readUInt32LE()
         val lat = r.readInt32LE() / 1e6
         val lon = r.readInt32LE() / 1e6
@@ -353,10 +354,11 @@ object ResponseParser {
         if (colonIndex in 1 until minOf(text.length - 1, 50)) {
             val potentialSender = text.substring(0, colonIndex)
             if (!potentialSender.any { it == ':' || it == '[' || it == ']' }) {
+                // Sender names are unauthenticated; strip spoofing chars.
                 val offset =
                     if (colonIndex + 1 < text.length && text[colonIndex + 1] == ' ') colonIndex + 2
                     else colonIndex + 1
-                return potentialSender to text.substring(offset)
+                return sanitizeDisplayName(potentialSender) to text.substring(offset)
             }
         }
         return "Unknown" to text
