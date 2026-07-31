@@ -285,25 +285,10 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
 
     fun sendDirectMessage(peerKeyHex: String, text: String) {
         val svc = _service.value ?: return
-        val keyBytes = hexToBytesOrNull(peerKeyHex) ?: return
-        viewModelScope.launch {
-            val ts = System.currentTimeMillis() / 1000
-            // Optimistic Pending row first — the bubble shows instantly;
-            // the radio's receipt resolves it to Sent/Failed.
-            val rowId = svc.repository.recordOutgoingDm(peerKeyHex, text, ts)
-            val sent = runCatching { svc.engine.sendDirectMessage(keyBytes, text) }.getOrNull()
-            svc.repository.markOutgoingResult(rowId, sent != null, sent?.ackHash)
-            // Credit/debit the route this message went out on.
-            if (sent != null) {
-                val c = svc.engine.contacts.value[peerKeyHex]
-                val pathHex = if (c != null && c.pathLen in 1..64 && c.pathLen <= c.path.size) {
-                    c.path.copyOfRange(0, c.pathLen).toHex()
-                } else {
-                    ""   // flood
-                }
-                svc.repository.attributeAck(sent.ackHash, peerKeyHex, pathHex)
-            }
-            if (sent == null) transientMessage.value = "Radio did not accept the message"
+        // Retry lives in the service-scoped repository so it survives
+        // leaving the conversation screen.
+        svc.scope.launch {
+            svc.repository.sendDirectWithRetry(svc.engine, peerKeyHex, text)
         }
     }
 

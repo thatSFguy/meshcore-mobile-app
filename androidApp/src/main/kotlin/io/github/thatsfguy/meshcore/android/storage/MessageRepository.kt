@@ -231,6 +231,79 @@ class MessageRepository(
         )
     }
 
+    /**
+     * Send a direct message with automatic retry — LoRa loses first
+     * attempts routinely, so a single failed ACK is not a failed
+     * message. Each attempt carries an incrementing `attempt` byte (the
+     * receiving radio dedups on it), waits the radio's own suggested
+     * ACK timeout, and backs off before retrying. Path success/failure
+     * is scored per attempt so the routing sheet learns which routes
+     * actually work.
+     */
+    suspend fun sendDirectWithRetry(
+        engine: MeshCoreEngine,
+        peerKeyHex: String,
+        text: String,
+        maxAttempts: Int = 3,
+    ) {
+        val self = selfKey
+        val key = peerKeyHex.chunked(2).mapNotNull { it.toIntOrNull(16)?.toByte() }.toByteArray()
+        if (key.size < 6) return
+        val timestamp = System.currentTimeMillis() / 1000
+        val rowId = recordOutgoingDm(peerKeyHex, text, timestamp)
+
+        // The path in force right now — what we credit or blame.
+        val contact = engine.contacts.value[peerKeyHex]
+        val pathHex = if (contact != null && contact.pathLen in 1..64 &&
+            contact.pathLen <= contact.path.size
+        ) {
+            contact.path.copyOfRange(0, contact.pathLen).joinToString("") { "%02x".format(it) }
+        } else {
+            ""
+        }
+
+        var attempt = 0
+        while (attempt < maxAttempts) {
+            val sent = runCatching {
+                engine.sendDirectMessage(key, text, attempt = attempt, timestampSeconds = timestamp)
+            }.getOrNull()
+            if (sent == null) {
+                // The radio didn't even accept it — no point retrying fast.
+                db.messages().updateResult(rowId, MessageStatus.Failed.ordinal, null)
+                return
+            }
+            db.messages().updateResult(rowId, MessageStatus.Sent.ordinal, sent.ackHash)
+            db.messages().setAttempts(rowId, attempt + 1)
+
+            // Trust the radio's own airtime-derived timeout, with a floor.
+            val timeout = sent.timeoutMs.coerceIn(3_000L, 60_000L)
+            if (engine.awaitDelivery(sent.ackHash, timeout)) {
+                db.messages().updateResult(rowId, MessageStatus.Delivered.ordinal, sent.ackHash)
+                if (pathHex.isNotEmpty() || attempt == 0) scorePathDirect(peerKeyHex, pathHex, true)
+                return
+            }
+            scorePathDirect(peerKeyHex, pathHex, false)
+            attempt++
+            if (attempt < maxAttempts) kotlinx.coroutines.delay(1_000L * attempt)
+        }
+        db.messages().updateResult(rowId, MessageStatus.Failed.ordinal, null)
+    }
+
+    /** Score a path directly (retry path knows its route without an ack map). */
+    private suspend fun scorePathDirect(contactKey: String, pathHex: String, delivered: Boolean) {
+        val row = db.paths().get(selfKey, contactKey, pathHex) ?: PathHistoryEntity(
+            selfKey = selfKey, contactKey = contactKey, pathHex = pathHex,
+            hops = pathHex.length / 2,
+        )
+        db.paths().upsert(
+            if (delivered) {
+                row.copy(successes = row.successes + 1, lastWorkedAt = System.currentTimeMillis())
+            } else {
+                row.copy(failures = row.failures + 1)
+            },
+        )
+    }
+
     // --- Path attribution -------------------------------------------
     // Which path each in-flight ack was sent over, so a delivery (or a
     // failure) can be credited to the route that carried it.

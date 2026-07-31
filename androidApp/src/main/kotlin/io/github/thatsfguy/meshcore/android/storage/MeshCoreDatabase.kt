@@ -10,7 +10,7 @@ import androidx.room.RoomDatabase
         MessageEntity::class, ContactEntity::class, ChannelEntity::class,
         PathHistoryEntity::class,
     ],
-    version = 2,
+    version = 3,
     exportSchema = true,
 )
 abstract class MeshCoreDatabase : RoomDatabase() {
@@ -36,13 +36,20 @@ abstract class MeshCoreDatabase : RoomDatabase() {
             }
         }
 
+        /** v3 adds messages.attempts (retry counter). */
+        private val MIGRATION_2_3 = object : androidx.room.migration.Migration(2, 3) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `messages` ADD COLUMN `attempts` INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
         fun get(context: Context): MeshCoreDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
                     context.applicationContext,
                     MeshCoreDatabase::class.java,
                     "meshcore.db",
-                ).addMigrations(MIGRATION_1_2)
+                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                     .fallbackToDestructiveMigrationOnDowngrade()
                     .build().also { instance = it }
             }

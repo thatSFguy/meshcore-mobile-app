@@ -31,6 +31,9 @@ interface MessageDao {
     @Query("UPDATE messages SET status = :status, ackHash = :ackHash WHERE id = :id")
     suspend fun updateResult(id: Long, status: Int, ackHash: Long?)
 
+    @Query("UPDATE messages SET attempts = :attempts WHERE id = :id")
+    suspend fun setAttempts(id: Long, attempts: Int)
+
     @Query(
         "UPDATE messages SET status = :status WHERE selfKey = :selfKey AND contentKey = :contentKey " +
             "AND outgoing = 1",

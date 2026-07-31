@@ -248,6 +248,8 @@ private fun MessageBubble(m: MessageEntity, showSender: Boolean) {
                                     else -> "  …"
                                 },
                             )
+                            // Surface retries so a struggling route is visible.
+                            if (m.attempts > 1) append(" (try ${m.attempts})")
                         }
                     },
                     style = MaterialTheme.typography.labelSmall,

@@ -42,6 +42,8 @@ data class MessageEntity(
     val snr: Double?,
     /** txt_type — CLI replies (1) render differently in repeater admin. */
     val txtType: Int = 0,
+    /** Send attempts made so far (retry service). */
+    val attempts: Int = 0,
 )
 
 enum class MessageStatus { Pending, Sent, Delivered, Failed }

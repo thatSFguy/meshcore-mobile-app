@@ -523,13 +523,29 @@ class MeshCoreEngine(
      * Delivery is only real on a later [MeshEvent.MessageDelivered] with
      * the same ack hash — never infer it from anything else (§12).
      */
-    suspend fun sendDirectMessage(recipientPubKey: ByteArray, text: String): DeviceEvent.Sent? {
+    suspend fun sendDirectMessage(
+        recipientPubKey: ByteArray,
+        text: String,
+        attempt: Int = 0,
+        timestampSeconds: Long = nowSeconds(),
+    ): DeviceEvent.Sent? {
         val ev = sendAndAwait(
-            Frames.sendTextMessage(recipientPubKey, text, nowSeconds()),
+            Frames.sendTextMessage(recipientPubKey, text, timestampSeconds, attempt),
             timeoutMs = 10_000,
         ) { it is DeviceEvent.Sent }
         return ev as? DeviceEvent.Sent
     }
+
+    /**
+     * Wait for the end-to-end ACK of [ackHash]. Returns true when
+     * PUSH_CODE_SEND_CONFIRMED arrives within [timeoutMs] — the ONLY
+     * evidence of delivery the protocol offers (§12: never infer it
+     * from anything else).
+     */
+    suspend fun awaitDelivery(ackHash: Long, timeoutMs: Long): Boolean =
+        withTimeoutOrNull(timeoutMs) {
+            meshEvents.first { it is MeshEvent.MessageDelivered && it.ackHash == ackHash }
+        } != null
 
     /**
      * Send a channel message ("name: text" prefixing happens on the
