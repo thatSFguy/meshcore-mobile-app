@@ -135,3 +135,25 @@ interface PathHistoryDao {
     @Query("DELETE FROM path_history WHERE selfKey = :selfKey AND contactKey = :contactKey")
     suspend fun clear(selfKey: String, contactKey: String)
 }
+
+@Dao
+interface DiscoveredDao {
+    @Upsert
+    suspend fun upsert(node: DiscoveredEntity)
+
+    @Query("SELECT * FROM discovered WHERE selfKey = :selfKey ORDER BY lastHeardAt DESC")
+    fun all(selfKey: String): Flow<List<DiscoveredEntity>>
+
+    @Query("SELECT * FROM discovered WHERE selfKey = :selfKey AND keyHex = :keyHex")
+    suspend fun get(selfKey: String, keyHex: String): DiscoveredEntity?
+
+    @Query("DELETE FROM discovered WHERE selfKey = :selfKey AND keyHex = :keyHex")
+    suspend fun delete(selfKey: String, keyHex: String)
+
+    @Query("DELETE FROM discovered WHERE selfKey = :selfKey")
+    suspend fun clear(selfKey: String)
+
+    /** Drop anything that has since become a real contact. */
+    @Query("DELETE FROM discovered WHERE selfKey = :selfKey AND keyHex IN (:contactKeys)")
+    suspend fun deleteKnown(selfKey: String, contactKeys: List<String>)
+}

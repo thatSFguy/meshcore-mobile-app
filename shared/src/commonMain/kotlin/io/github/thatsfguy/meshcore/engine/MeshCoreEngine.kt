@@ -78,8 +78,17 @@ sealed class MeshEvent {
     /** End-to-end ACK (PUSH_CODE_SEND_CONFIRMED). */
     data class MessageDelivered(val ackHash: Long, val tripMs: Long) : MeshEvent()
 
-    /** A signature-verified advert heard over the air. */
-    data class VerifiedAdvertHeard(val advert: AdvertInfo, val snr: Double, val rssi: Int) : MeshEvent()
+    /**
+     * A signature-verified advert heard over the air. [payload] is the
+     * raw advert payload, kept so the node can be imported as a contact
+     * later (CMD_IMPORT_CONTACT) without waiting to hear it again.
+     */
+    data class VerifiedAdvertHeard(
+        val advert: AdvertInfo,
+        val snr: Double,
+        val rssi: Int,
+        val payload: ByteArray,
+    ) : MeshEvent()
 
     /** Repeater/room login outcome. */
     data class LoginResult(
@@ -452,7 +461,9 @@ class MeshCoreEngine(
                 val info = Advert.parseVerified(crypto, packet.payload) ?: return
                 val selfKey = _selfInfo.value?.publicKey
                 if (selfKey != null && info.publicKey.contentEquals(selfKey)) return
-                _meshEvents.tryEmit(MeshEvent.VerifiedAdvertHeard(info, event.snr, event.rssi))
+                _meshEvents.tryEmit(
+                    MeshEvent.VerifiedAdvertHeard(info, event.snr, event.rssi, packet.payload),
+                )
             }
             else -> Unit
         }

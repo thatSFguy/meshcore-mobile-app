@@ -52,6 +52,8 @@ class MessageRepository(
                             rememberPath(self, c.publicKeyHex, c.path.copyOfRange(0, len))
                         }
                     }
+                    // Anything that became a contact leaves the inbox.
+                    db.discovered().deleteKnown(self, contacts.keys.toList())
                     db.contacts().upsertAll(
                         contacts.values.map { c ->
                             val prev = existing[c.publicKeyHex]
@@ -146,6 +148,29 @@ class MessageRepository(
                         event.senderName, event.text,
                     )
                 }
+            }
+
+            is MeshEvent.VerifiedAdvertHeard -> {
+                val keyHex = event.advert.publicKeyHex
+                // Only nodes the radio hasn't accepted as contacts.
+                if (engine.contacts.value.containsKey(keyHex)) return
+                val now = System.currentTimeMillis()
+                val prev = db.discovered().get(self, keyHex)
+                db.discovered().upsert(
+                    DiscoveredEntity(
+                        selfKey = self,
+                        keyHex = keyHex,
+                        name = event.advert.name,
+                        type = event.advert.type,
+                        latitude = event.advert.latitude,
+                        longitude = event.advert.longitude,
+                        firstHeardAt = prev?.firstHeardAt ?: now,
+                        lastHeardAt = now,
+                        snr = event.snr,
+                        rssi = event.rssi,
+                        advertHex = event.payload.joinToString("") { "%02x".format(it) },
+                    ),
+                )
             }
 
             is MeshEvent.MessageDelivered -> {

@@ -8,9 +8,9 @@ import androidx.room.RoomDatabase
 @Database(
     entities = [
         MessageEntity::class, ContactEntity::class, ChannelEntity::class,
-        PathHistoryEntity::class,
+        PathHistoryEntity::class, DiscoveredEntity::class,
     ],
-    version = 3,
+    version = 4,
     exportSchema = true,
 )
 abstract class MeshCoreDatabase : RoomDatabase() {
@@ -18,6 +18,7 @@ abstract class MeshCoreDatabase : RoomDatabase() {
     abstract fun contacts(): ContactDao
     abstract fun channels(): ChannelDao
     abstract fun paths(): PathHistoryDao
+    abstract fun discovered(): DiscoveredDao
 
     companion object {
         @Volatile private var instance: MeshCoreDatabase? = null
@@ -43,13 +44,27 @@ abstract class MeshCoreDatabase : RoomDatabase() {
             }
         }
 
+        /** v4 adds the discovery inbox. */
+        private val MIGRATION_3_4 = object : androidx.room.migration.Migration(3, 4) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `discovered` (" +
+                        "`selfKey` TEXT NOT NULL, `keyHex` TEXT NOT NULL, `name` TEXT NOT NULL, " +
+                        "`type` INTEGER NOT NULL, `latitude` REAL, `longitude` REAL, " +
+                        "`firstHeardAt` INTEGER NOT NULL, `lastHeardAt` INTEGER NOT NULL, " +
+                        "`snr` REAL NOT NULL, `rssi` INTEGER NOT NULL, `advertHex` TEXT NOT NULL, " +
+                        "PRIMARY KEY(`selfKey`, `keyHex`))",
+                )
+            }
+        }
+
         fun get(context: Context): MeshCoreDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
                     context.applicationContext,
                     MeshCoreDatabase::class.java,
                     "meshcore.db",
-                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                     .fallbackToDestructiveMigrationOnDowngrade()
                     .build().also { instance = it }
             }

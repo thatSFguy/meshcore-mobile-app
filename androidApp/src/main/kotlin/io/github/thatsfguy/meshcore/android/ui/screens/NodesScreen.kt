@@ -106,7 +106,8 @@ fun NodesScreen(vm: MeshCoreViewModel, nav: NavController) {
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
             // Selection persists across tab switches and restarts.
-            var tab by remember { mutableIntStateOf(vm.prefs.nodesTab.coerceIn(0, 2)) }
+            var tab by remember { mutableIntStateOf(vm.prefs.nodesTab.coerceIn(0, 3)) }
+            val discovered by vm.discovered.collectAsState()
             // Contacts tab folds in sensors/unknown types.
             val tabContacts = when (tab) {
                 1 -> contacts.filter { it.type == Codes.ADV_TYPE_REPEATER }
@@ -123,7 +124,11 @@ fun NodesScreen(vm: MeshCoreViewModel, nav: NavController) {
             )
 
             TabRow(selectedTabIndex = tab) {
-                for ((i, label) in listOf("Contacts", "Repeaters", "Rooms").withIndex()) {
+                val labels = listOf(
+                    "Contacts", "Repeaters", "Rooms",
+                    if (discovered.isEmpty()) "New" else "New (${discovered.size})",
+                )
+                for ((i, label) in labels.withIndex()) {
                     Tab(
                         selected = tab == i,
                         onClick = {
@@ -135,7 +140,30 @@ fun NodesScreen(vm: MeshCoreViewModel, nav: NavController) {
                 }
             }
 
-            if (tabContacts.isEmpty()) {
+            if (tab == 3) {
+                // Discovery inbox — heard over the air, not yet contacts.
+                if (discovered.isEmpty()) {
+                    EmptyHint(
+                        text = "Nothing new heard yet.\nNodes whose signed adverts reach this radio " +
+                            "but aren't in its contact list show up here.",
+                    )
+                } else {
+                    LazyColumn(Modifier.fillMaxSize()) {
+                        items(discovered, key = { it.keyHex }) { d ->
+                            DiscoveredRow(
+                                node = d,
+                                onAdd = { vm.addDiscovered(d.keyHex) },
+                                onDismiss = { vm.dismissDiscovered(d.keyHex) },
+                            )
+                        }
+                        item(key = "clear_all") {
+                            TextButton(onClick = { vm.clearDiscovered() }) {
+                                Text("Dismiss all", color = MaterialTheme.colorScheme.error)
+                            }
+                        }
+                    }
+                }
+            } else if (tabContacts.isEmpty()) {
                 EmptyHint(
                     text = when (tab) {
                         1 -> "No repeaters heard yet."
@@ -171,6 +199,39 @@ fun NodesScreen(vm: MeshCoreViewModel, nav: NavController) {
                 nav.navigate("repeater/${contact.keyHex}")
             },
         )
+    }
+}
+
+@Composable
+private fun DiscoveredRow(
+    node: io.github.thatsfguy.meshcore.android.storage.DiscoveredEntity,
+    onAdd: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        NodeAvatar(
+            seed = node.keyHex,
+            label = node.name.ifBlank { node.keyHex },
+            type = node.type,
+        )
+        Spacer(Modifier.size(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                node.name.ifBlank { node.keyHex.take(12) },
+                style = MaterialTheme.typography.bodyLarge,
+            )
+            Text(
+                "${typeLabel(node.type).dropLast(1)} · ${"%.1f".format(node.snr)} dB · " +
+                    DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(node.lastHeardAt)),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        TextButton(onClick = onAdd) { Text("Add") }
+        TextButton(onClick = onDismiss) { Text("×", color = MaterialTheme.colorScheme.error) }
     }
 }
 

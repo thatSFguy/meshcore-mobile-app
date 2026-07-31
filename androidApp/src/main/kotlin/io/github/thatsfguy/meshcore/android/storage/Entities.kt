@@ -118,3 +118,25 @@ data class PathHistoryEntity(
     val lastWorkedAt: Long = 0,
     val lastUsedAt: Long = 0,
 )
+
+/**
+ * A node whose signature-verified advert we heard over the air but that
+ * is NOT in the radio's contact list — the discovery inbox. Keeping the
+ * advert blob means "Add" can import it immediately instead of waiting
+ * to hear the node again.
+ */
+@Entity(tableName = "discovered", primaryKeys = ["selfKey", "keyHex"])
+data class DiscoveredEntity(
+    val selfKey: String,
+    val keyHex: String,
+    val name: String,
+    val type: Int,
+    val latitude: Double?,
+    val longitude: Double?,
+    val firstHeardAt: Long,
+    val lastHeardAt: Long,
+    val snr: Double,
+    val rssi: Int,
+    /** Raw advert payload, hex — replayed to CMD_IMPORT_CONTACT. */
+    val advertHex: String,
+)

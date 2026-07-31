@@ -153,6 +153,37 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
         if (key.isEmpty()) flowOf(emptyList()) else db.contacts().all(key)
     }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
+    /** Discovery inbox: verified adverts that aren't contacts yet. */
+    val discovered: StateFlow<List<io.github.thatsfguy.meshcore.android.storage.DiscoveredEntity>> =
+        selfKey.flatMapLatest { key ->
+            if (key.isEmpty()) flowOf(emptyList()) else db.discovered().all(key)
+        }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    /** Add a discovered node as a contact by replaying its advert. */
+    fun addDiscovered(keyHex: String) {
+        val svc = _service.value ?: return
+        viewModelScope.launch {
+            val row = db.discovered().get(selfKey.value, keyHex) ?: return@launch
+            val blob = hexToBytesOrNull(row.advertHex)
+            val ok = blob != null &&
+                runCatching { svc.engine.importContact(blob) }.getOrDefault(false)
+            if (ok) {
+                db.discovered().delete(selfKey.value, keyHex)
+                transientMessage.value = "Added ${row.name.ifBlank { keyHex.take(12) }}"
+            } else {
+                transientMessage.value = "Import failed (bad signature?)"
+            }
+        }
+    }
+
+    fun dismissDiscovered(keyHex: String) {
+        viewModelScope.launch { db.discovered().delete(selfKey.value, keyHex) }
+    }
+
+    fun clearDiscovered() {
+        viewModelScope.launch { db.discovered().clear(selfKey.value) }
+    }
+
     val dbChannels: StateFlow<List<ChannelEntity>> = selfKey.flatMapLatest { key ->
         if (key.isEmpty()) flowOf(emptyList()) else db.channels().all(key)
     }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
