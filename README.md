@@ -1,65 +1,176 @@
 # MeshCore Mobile App
 
-*A minimal, native MeshCore client — off-grid encrypted messaging over LoRa, built the way
-[reticulum-mobile-app](https://github.com/thatSFguy/reticulum-mobile-app) is: no servers,
-no accounts, no Google Play Services, no analytics, smallest attack surface I can keep
-secure and reason about.*
+*A minimal, native [MeshCore](https://meshcore.co.uk/) client for Android — off-grid encrypted
+messaging over LoRa, with no servers, no accounts, and no app-store lock-in.*
 
-## Why this exists
+Native Kotlin Multiplatform client for the MeshCore mesh, built in the mold of its sibling
+[reticulum-mobile-app](https://github.com/thatSFguy/reticulum-mobile-app): a real native app —
+foreground service for a persistent radio link, system notifications on incoming messages — with
+the smallest attack surface I can keep secure and reason about.
 
-The existing MeshCore clients are either the official cross-platform app (feature-rich,
-web-tech) or [MeshCore Open](https://github.com/meshcore-dev) (Flutter, kitchen-sink).
-Neither is a lean, native, security-first client in the mold of `reticulum-mobile-app`.
-This fills that gap for the MeshCore network the same way that app filled it for Reticulum.
+**No external dependencies.** No accounts, no API keys, no central server, no analytics, no Google
+Play Services, no Firebase. All crypto runs locally; secrets live in the Android Keystore;
+persistence is Room (SQLite). The **only** outbound HTTP the app ever makes is OpenStreetMap tile
+fetches on the Map tab — everything else is MeshCore frames over the transport you attach
+(BLE / USB, or TCP if you deliberately turn it on).
 
-**Scope is deliberately small** — direct + channel messaging over a MeshCore radio, done
-solidly, with a static attack surface. Not a Swiss-army knife.
+[![Latest release](https://img.shields.io/github/v/release/thatSFguy/meshcore-mobile-app?label=latest&sort=semver&color=blue)](https://github.com/thatSFguy/meshcore-mobile-app/releases/latest)
+[![Android CI](https://github.com/thatSFguy/meshcore-mobile-app/actions/workflows/android-ci.yml/badge.svg)](https://github.com/thatSFguy/meshcore-mobile-app/actions/workflows/android-ci.yml)
 
-## Approach
+## Project scope — personal app, shared in the open
 
-MeshCore and `reticulum-mobile-app` share the **same transport layer**, so this reuses that
-app's foundation and swaps only the protocol:
+This is a **personal app, released in the open**. It does what I need an off-grid MeshCore client to
+do, and it is deliberately **closed to new feature requests**. The goal is the opposite of feature
+growth: the smallest, most static attack surface I can keep secure and reason about. You are very
+welcome to:
 
-| Transport | Shared |
-|---|---|
-| BLE Nordic UART Service (`6e400001-…`) | ✅ (identical to the RNode BLE path) |
-| Direct TCP to `host:port` | ✅ |
-| USB serial (start-byte + length framed, CDC-ACM/CP210x) | ✅ |
-| Foreground service · notifications · reconnect · identity/QR | ✅ patterns |
+- **Use it** — install the signed APK, attach your own MeshCore radio over BLE or USB, and message
+  people. No account, no server, no telemetry.
+- **Fork it** — build your own version with whatever features you want; that's what a fork is for.
+- **Report security issues** — vulnerability reports are the one kind of report I actively want.
+- **Report bugs** in the *existing* feature set — a focused bug report is welcome.
 
-What differs is the framed **companion protocol** spoken to the radio, plus the small bit
-of over-the-air packet decoding a client needs (adverts, channel messages).
+What I'm **not** taking: feature requests, "please add X" issues, or feature PRs — they'll be closed
+unmerged. Not because they're bad ideas, but because every added surface works against the security
+goal. Fork away instead.
 
-## Status
+## Install
 
-**v1 implemented (Android); iOS is a Phase-1 skeleton.** Kotlin Multiplatform:
+### Via Obtainium (recommended for ongoing updates)
 
-- **`shared/`** — `protocol/` (frames, parsers, advert Ed25519 verify, channel crypto,
-  identity), `engine/` (session/handshake/sync/messaging), `transport/` (BLE NUS, USB
-  serial, TCP behind the off-by-default toggle) — all built from
-  **[`MESHCORE_PROTOCOL.md`](MESHCORE_PROTOCOL.md)** and unit-tested against a scripted
-  fake radio (advert-signature round-trip, channel-decrypt vectors, malformed-frame
-  guards).
-- **`androidApp/`** — the full v1 UI: chats (DMs + channels), nodes + contact detail,
-  osmdroid node map, repeater/room admin (login → keystore, CLI), settings (radio params,
-  transports with the stern TCP plaintext warning, redaction-aware diagnostics log).
-  `./gradlew :androidApp:assembleDebug` builds; `testDebugUnitTest` is green.
-- **`iosApp/`** — SwiftUI skeleton (XcodeGen), see `iosApp/README.md` for the staged
-  bring-up plan (needs a Mac).
+<a href='obtainium://app/{"id":"io.github.thatsfguy.meshcore.native","url":"https://github.com/thatSFguy/meshcore-mobile-app","author":"thatSFguy","name":"MeshCore","preferredApkIndex":0,"additionalSettings":"{\"includePrereleases\":false,\"fallbackToOlderReleases\":true,\"filterReleaseTitlesByRegEx\":\"\",\"filterReleaseNotesByRegEx\":\"\",\"verifyLatestTag\":false,\"dontSortReleasesList\":false,\"useLatestAssetDateAsReleaseDate\":false,\"trackOnly\":false,\"versionExtractionRegEx\":\"\",\"matchGroupToUse\":\"\",\"versionDetection\":true,\"releaseDateAsVersion\":false,\"useVersionCodeAsOSVersion\":false,\"apkFilterRegEx\":\"MeshCore-Android-.*-release\\\\.apk\\\$\",\"invertAPKFilter\":false,\"autoApkFilterByArch\":true,\"appName\":\"MeshCore\",\"shizukuPretendToBeGooglePlay\":false,\"allowInsecure\":false,\"exemptFromBackgroundUpdates\":false,\"skipUpdateNotifications\":false,\"about\":\"\"}"}'>
+  <img src="https://raw.githubusercontent.com/ImranR98/Obtainium/main/assets/graphics/badge_obtainium.png" alt="Get it on Obtainium" height="80">
+</a>
 
-The `MESHCORE_PROTOCOL.md` §12 security notes capture the specific mistakes to *not* repeat
-(verify advert signatures, never trust channel sender names, keystore for secrets, guard
-every parse, TCP is plaintext) — each is enforced in code, not just documented.
+[Obtainium](https://obtainium.imranr.dev/) pulls APKs straight from GitHub releases and notifies you
+of updates, without going through Google Play.
 
-**Not yet validated against real hardware.** The protocol layer is built from the spec +
-reference client; the first on-radio session may surface framing/ordering quirks.
+**One-tap setup:** tap the badge above on a device that already has Obtainium installed, and accept
+the import sheet.
 
-## Scope
+**Manual setup** (Obtainium → **Add App**):
 
-See **[`SCOPE.md`](SCOPE.md)** for the locked v1 feature set (pruned from MeshCore Open's
-full inventory). In v1: connect (BLE/TCP/USB), direct + channel messaging (with community
-QR join), node map, repeater/room admin, settings. **Non-goals:** on-device LLM
-translation, GIF picker / remote media, LXST-style voice, remote-monitoring dashboards.
+- **App source URL:** `https://github.com/thatSFguy/meshcore-mobile-app`
+- **Filter APKs by Regex** (optional): `MeshCore-Android-.*-release\.apk$` — explicit; Obtainium
+  skips the `.aab` regardless.
+- Leave *Include prereleases* off.
 
-The in-app node map is the one feature that makes outbound HTTP (tile downloads);
-everything else stays offline (mesh packets only).
+### Manual APK
+
+Download `MeshCore-Android-<version>-release.apk` from the
+[latest release](https://github.com/thatSFguy/meshcore-mobile-app/releases/latest) and install it.
+Every release is built and signed by CI from a tagged commit; `versionName` / `versionCode` are
+derived from the git tag, so what you install matches what the release page advertises.
+
+Requires **Android 8.0 (API 26)** or newer.
+
+## Quick start
+
+1. **Grant permissions** on first launch — Bluetooth (to reach the radio) and notifications.
+2. **Connect your radio**: *Settings → Connection → Add / connect node* → pick your MeshCore radio
+   from the BLE scan (or plug it in over USB-OTG). The app remembers it and reconnects
+   automatically from then on.
+3. **Message someone**: contacts appear on the **Nodes** tab as their adverts arrive; tap one →
+   *Open conversation*. Nodes heard but not yet added show under the **New** tab — tap *Add*.
+4. **Join a channel**: **Chats** tab → **+** → name it (a `#hashtag` name derives its own key), or
+   scan a community QR.
+5. **See the mesh**: the **Map** tab plots every node advertising GPS.
+
+| Chats | Nodes | Map |
+|---|---|---|
+| ![Chats](docs/screenshots/01-chats.png) | ![Nodes](docs/screenshots/02-nodes.png) | ![Map](docs/screenshots/04-map.png) |
+
+| Repeaters | Node detail | Settings |
+|---|---|---|
+| ![Repeaters](docs/screenshots/03-repeaters.png) | ![Node detail](docs/screenshots/07-contact-sheet.png) | ![Settings](docs/screenshots/05-settings.png) |
+
+## Features
+
+**Transports** — BLE (Nordic UART Service) and USB serial (CDC-ACM / CP210x) by default, each with
+its own enable toggle: a disabled transport is never started, so it never scans, connects, or feeds
+bytes to a parser. **TCP is off by default** behind a one-time stern warning — the MeshCore TCP link
+is unencrypted and unauthenticated, and the UI keeps flagging it while connected. Saved-node list,
+automatic reconnect with backoff, foreground service so the link survives backgrounding.
+
+**Messaging** — direct messages and channels, with **automatic retry**: each attempt waits the
+radio's own airtime-derived ACK timeout, backs off, and only reports failure after the budget is
+spent. Delivery ticks come exclusively from real end-to-end ACKs. Paged scrollback, long-press for
+copy / quote / message details (SNR, attempts, ack hash), mark-unread, per-channel mute.
+
+**Channels** — 16-byte PSKs, `#hashtag` key derivation, private channels with generated keys, and
+**community QR join** (the community secret is stored in the Keystore and its channels derived from
+it). Channels are presented as *obfuscated, not secure* — see the security note below.
+
+**Nodes** — Contacts / Repeaters / Rooms tabs plus a **discovery inbox** of signature-verified
+adverts you haven't added yet. Favourites, search, hash-colored avatars, QR share/import, rename.
+
+**Routing** — per-contact **Auto / Flood / Manual** routing, a hop-by-hop manual path editor, a
+record of every path seen or used with success/failure quality labels, and a **path trace** showing
+each hop with its SNR.
+
+**Map** — every node advertising GPS, with type-specific markers and always-visible name labels.
+Filter by node type, export nodes as GPX, clear the tile cache. Tiles are the only HTTP the app
+makes; they cache in app-private storage.
+
+**Repeater / room administration** — admin **or guest (read-only)** login with the password sealed
+in the Keystore, a decoded **Status** panel (battery, uptime, queue, RSSI/SNR, airtime, packet and
+duplicate counts, channel utilisation) plus Cayenne-LPP telemetry, a form-based **Settings** editor
+that fetches live values over the CLI and saves only what you changed, and a raw **Console**.
+Commands are filtered by node role and by session role — a guest is never offered a command the
+node would refuse.
+
+**Device settings** — collapsible sections covering the full companion-command surface: identity,
+radio parameters, clock, mesh policies (advert location, multi-acks, telemetry permissions,
+path-hash width, flood scope), auto-add policy, custom variables, channels, theme, and a
+redaction-aware diagnostics log that is **off by default**.
+
+## Security posture
+
+The protocol spec ([`MESHCORE_PROTOCOL.md`](MESHCORE_PROTOCOL.md)) was reverse-engineered from a
+security review of the MeshCore Open client, and §12 lists the mistakes that review found. Each is
+enforced here in code, not just documented:
+
+- **Advert Ed25519 signatures are verified** before any node is imported, mapped, or shown in the
+  discovery inbox — an unsigned or forged advert can't spoof an identity or a GPS position.
+- **Channel sender names are never trusted** for identity, contact mutation, or echo suppression;
+  they're attacker-controllable display text.
+- **Secrets live in the Android Keystore** (AES-GCM, key in the TEE/StrongBox): login passwords
+  (separate admin and guest slots), channel PSKs, community secrets. If the Keystore is unavailable
+  the app declines to store them rather than falling back to plaintext.
+- **Every frame parse is bounds-checked** — truncated or hostile frames degrade to "unknown frame"
+  instead of crashing the RX path, and the test suite sweeps every response code at every short
+  length.
+- **Delivery is never inferred** from anything but a well-formed ACK.
+- **Channel crypto is presented as obfuscation, not security** — the protocol mandates AES-ECB with
+  a 2-byte MAC, which the app labels plainly in the channel UI rather than implying privacy it
+  can't provide.
+- The diagnostics log **redacts** `set prv.key`, passwords, and long hex blobs before a line is
+  stored, and it is off by default.
+- Auto Backup is disabled so message history and identity never reach a cloud backup.
+
+## Build from source
+
+```bash
+git clone https://github.com/thatSFguy/meshcore-mobile-app
+cd meshcore-mobile-app
+echo "sdk.dir=/path/to/android/sdk" > local.properties
+./gradlew :shared:testDebugUnitTest :androidApp:testDebugUnitTest   # tests
+./gradlew :androidApp:assembleDebug                                  # APK
+```
+
+Requires JDK 17+ and the Android SDK (compileSdk 34).
+
+## Project docs
+
+- **[`MESHCORE_PROTOCOL.md`](MESHCORE_PROTOCOL.md)** — the companion + over-the-air wire spec
+  (frames, command/response/push codes, advert signatures, channel crypto, PSK derivation).
+- **[`SCOPE.md`](SCOPE.md)** — the locked v1 feature set, and what's deliberately deferred or cut.
+- **[`REUSE.md`](REUSE.md)** — the file-by-file map of what was carried over from
+  reticulum-mobile-app.
+- **[`CLAUDE.md`](CLAUDE.md)** — orientation for a fresh contributor (or agent).
+
+## Platform status
+
+**Android is the shipping platform.** `iosApp/` holds a Phase-1 SwiftUI skeleton (XcodeGen project,
+TCP transport, store bridge); BLE and Ed25519 on iOS still need the CoreBluetooth transport and a
+CryptoKit bridge, and it can only be built on a Mac. See [`iosApp/README.md`](iosApp/README.md).
