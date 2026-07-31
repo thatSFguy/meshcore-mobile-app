@@ -717,9 +717,18 @@ class MeshCoreEngine(
         return ok
     }
 
-    /** On-air path-hash width: mode 0..3 → (mode+1) bytes per hop. */
-    suspend fun setPathHashMode(mode: Int): Boolean =
-        sendAndAwait(Frames.setPathHashMode(mode)) { it is DeviceEvent.Ok } is DeviceEvent.Ok
+    /** Re-query DEVICE_INFO (fw version, slot counts, path-hash width). */
+    suspend fun refreshDeviceInfo(): Boolean =
+        sendAndAwait(Frames.deviceQuery()) { it is DeviceEvent.DeviceInfoReceived } is DeviceEvent.DeviceInfoReceived
+
+    /** On-air path-hash width: mode 0..3 → (mode+1) bytes per hop. The
+     *  radio reports the active width in DEVICE_INFO, so re-read it after
+     *  a change to keep [deviceInfo] truthful. */
+    suspend fun setPathHashMode(mode: Int): Boolean {
+        val ok = sendAndAwait(Frames.setPathHashMode(mode)) { it is DeviceEvent.Ok } is DeviceEvent.Ok
+        if (ok) refreshDeviceInfo()
+        return ok
+    }
 
     /** Write a custom var ("key:value", e.g. "gps:1"), then re-read all. */
     suspend fun setCustomVar(keyValue: String): Boolean {

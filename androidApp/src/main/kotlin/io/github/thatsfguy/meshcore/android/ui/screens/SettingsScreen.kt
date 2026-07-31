@@ -130,7 +130,12 @@ fun SettingsScreen(vm: MeshCoreViewModel) {
             }
             ExpandableSection("Clock") { ClockSection(vm) }
             ExpandableSection("Mesh policies") {
-                QueryOnExpand(vm, query = { vm.querySelfInfo() }) { PoliciesSection(vm) }
+                // Policies span two frames: SELF_INFO (telemetry/advert/
+                // multi-ack bytes) and DEVICE_INFO (path-hash width).
+                QueryOnExpand(vm, query = {
+                    vm.querySelfInfo()
+                    vm.queryDeviceInfo()
+                }) { PoliciesSection(vm) }
             }
             ExpandableSection("Auto-add contacts") {
                 QueryOnExpand(vm, query = { vm.queryAutoAddConfig() }) { AutoAddSection(vm) }
@@ -589,9 +594,10 @@ private fun PoliciesSection(vm: MeshCoreViewModel) {
     Spacer(Modifier.height(8.dp))
     Text("On-air path hash width", style = MaterialTheme.typography.labelLarge)
     HintText("Bytes per hop in packet paths (mode 0–3 → 1–4 bytes). All nodes on a mesh must match; firmware v10+.")
-    var pathMode by remember { mutableIntStateOf(0) }
+    // The active width is radio truth (DEVICE_INFO), not local state.
+    val deviceInfo by vm.deviceInfo.collectAsState()
+    val pathMode = ((deviceInfo?.pathHashByteWidth ?: 1) - 1).coerceIn(0, 3)
     ChoiceChips(listOf("1 B", "2 B", "3 B", "4 B"), pathMode) {
-        pathMode = it
         vm.setPathHashMode(it)
     }
 

@@ -594,6 +594,11 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
         runCatching { _service.value?.engine?.refreshSelfInfo() }
     }
 
+    suspend fun queryDeviceInfo() {
+        if (engineState.value != EngineState.Ready) return
+        runCatching { _service.value?.engine?.refreshDeviceInfo() }
+    }
+
     suspend fun queryAutoAddConfig() {
         if (engineState.value != EngineState.Ready) return
         runCatching { _service.value?.engine?.requestAutoAddConfig() }
