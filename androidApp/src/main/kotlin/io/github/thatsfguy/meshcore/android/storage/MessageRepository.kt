@@ -130,7 +130,12 @@ class MessageRepository(
         }
     }
 
-    suspend fun recordOutgoingDm(peerKeyHex: String, text: String, timestamp: Long, ackHash: Long?) {
+    /**
+     * Optimistic outgoing DM row (status Pending) — insert BEFORE the
+     * radio round-trip so the bubble appears instantly; resolve with
+     * [markOutgoingResult] once the radio answers.
+     */
+    suspend fun recordOutgoingDm(peerKeyHex: String, text: String, timestamp: Long): Long =
         db.messages().insert(
             MessageEntity(
                 selfKey = selfKey,
@@ -141,22 +146,35 @@ class MessageRepository(
                 timestamp = timestamp,
                 receivedAt = System.currentTimeMillis(),
                 outgoing = true,
-                status = if (ackHash != null) MessageStatus.Sent.ordinal else MessageStatus.Failed.ordinal,
-                ackHash = ackHash,
+                status = MessageStatus.Pending.ordinal,
+                ackHash = null,
                 contentKey = null,
                 snr = null,
             ),
         )
+
+    suspend fun markOutgoingResult(rowId: Long, accepted: Boolean, ackHash: Long?) {
+        db.messages().updateResult(
+            rowId,
+            if (accepted) MessageStatus.Sent.ordinal else MessageStatus.Failed.ordinal,
+            ackHash,
+        )
     }
 
+    /**
+     * Optimistic outgoing channel row. [contentKey] MUST be the engine's
+     * channelContentKey for the same (idx, timestamp, selfName, text) —
+     * the radio echoes our own channel messages back through the sync
+     * path, and the unique (selfKey, contentKey) index swallows that
+     * echo only if the outgoing row is already there under the same key.
+     */
     suspend fun recordOutgoingChannel(
         channelIndex: Int,
         selfName: String,
         text: String,
         timestamp: Long,
-        ackHash: Long?,
-        contentKey: String?,
-    ) {
+        contentKey: String,
+    ): Long =
         db.messages().insert(
             MessageEntity(
                 selfKey = selfKey,
@@ -167,11 +185,17 @@ class MessageRepository(
                 timestamp = timestamp,
                 receivedAt = System.currentTimeMillis(),
                 outgoing = true,
-                status = if (ackHash != null) MessageStatus.Sent.ordinal else MessageStatus.Failed.ordinal,
-                ackHash = ackHash,
+                status = MessageStatus.Pending.ordinal,
+                ackHash = null,
                 contentKey = contentKey,
                 snr = null,
             ),
+        )
+
+    suspend fun markChannelResult(contentKey: String, accepted: Boolean) {
+        db.messages().updateStatusByContentKey(
+            selfKey, contentKey,
+            if (accepted) MessageStatus.Sent.ordinal else MessageStatus.Failed.ordinal,
         )
     }
 

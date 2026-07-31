@@ -215,6 +215,37 @@ class MeshCoreEngineTest {
     }
 
     @Test
+    fun channelSendAcceptsGenericOk() = runTest {
+        // Real firmware answers a group send with RESP_CODE_OK, not
+        // RESP_CODE_SENT (first-hardware-session finding, 2026-07-31).
+        val radio = FakeRadio()
+        radio.responder = { frame ->
+            when (frame[0].toInt() and 0xFF) {
+                Codes.CMD_SEND_CHANNEL_TXT_MSG ->
+                    listOf(byteArrayOf(Codes.RESP_CODE_OK.toByte()))
+                else -> standardResponder(radio)(frame)
+            }
+        }
+        val engine = MeshCoreEngine(backgroundScope, crypto, { now })
+        engine.attach(radio)
+        radio.connect()
+        engine.awaitReady()
+
+        assertTrue(engine.sendChannelMessage(0, "hello", now))
+        // Frame carries the caller's timestamp so echo dedup keys match.
+        val frame = radio.sentFrames.last { it[0].toInt() == Codes.CMD_SEND_CHANNEL_TXT_MSG }
+        val r = io.github.thatsfguy.meshcore.protocol.BufferReader(frame)
+        r.skipBytes(3)
+        assertEquals(now, r.readUInt32LE())
+
+        // Same inputs → same content key (what the echo will hash to).
+        assertEquals(
+            engine.channelContentKey(0, now, "MyNode", "hello"),
+            engine.channelContentKey(0, now, "MyNode", "hello"),
+        )
+    }
+
+    @Test
     fun loginSucceedsAgainstFakeRepeater() = runTest {
         val radio = FakeRadio()
         radio.responder = standardResponder(radio)

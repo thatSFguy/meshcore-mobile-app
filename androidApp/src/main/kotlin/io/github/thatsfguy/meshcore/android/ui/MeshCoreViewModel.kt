@@ -283,8 +283,11 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
         val keyBytes = hexToBytesOrNull(peerKeyHex) ?: return
         viewModelScope.launch {
             val ts = System.currentTimeMillis() / 1000
+            // Optimistic Pending row first — the bubble shows instantly;
+            // the radio's receipt resolves it to Sent/Failed.
+            val rowId = svc.repository.recordOutgoingDm(peerKeyHex, text, ts)
             val sent = runCatching { svc.engine.sendDirectMessage(keyBytes, text) }.getOrNull()
-            svc.repository.recordOutgoingDm(peerKeyHex, text, ts, sent?.ackHash)
+            svc.repository.markOutgoingResult(rowId, sent != null, sent?.ackHash)
             if (sent == null) transientMessage.value = "Radio did not accept the message"
         }
     }
@@ -294,9 +297,16 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             val ts = System.currentTimeMillis() / 1000
             val selfName = svc.engine.selfInfo.value?.name ?: "me"
-            val sent = runCatching { svc.engine.sendChannelMessage(channelIndex, text) }.getOrNull()
-            svc.repository.recordOutgoingChannel(channelIndex, selfName, text, ts, sent?.ackHash, null)
-            if (sent == null) transientMessage.value = "Radio did not accept the message"
+            // The frame timestamp and the content key must agree — the
+            // radio echoes our own message back, and the echo dedups
+            // against this key (first-hardware-session finding).
+            val contentKey = svc.engine.channelContentKey(channelIndex, ts, selfName, text)
+            svc.repository.recordOutgoingChannel(channelIndex, selfName, text, ts, contentKey)
+            val accepted = runCatching {
+                svc.engine.sendChannelMessage(channelIndex, text, ts)
+            }.getOrDefault(false)
+            svc.repository.markChannelResult(contentKey, accepted)
+            if (!accepted) transientMessage.value = "Radio did not accept the message"
         }
     }
 
@@ -510,10 +520,11 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
         val svc = _service.value ?: return
         val key = hexToBytesOrNull(keyHex) ?: return
         viewModelScope.launch {
-            val sent = runCatching { svc.engine.sendCliCommand(key, command) }.getOrNull()
-            svc.repository.recordOutgoingDm(
-                keyHex, command, System.currentTimeMillis() / 1000, sent?.ackHash,
+            val rowId = svc.repository.recordOutgoingDm(
+                keyHex, command, System.currentTimeMillis() / 1000,
             )
+            val sent = runCatching { svc.engine.sendCliCommand(key, command) }.getOrNull()
+            svc.repository.markOutgoingResult(rowId, sent != null, sent?.ackHash)
         }
     }
 

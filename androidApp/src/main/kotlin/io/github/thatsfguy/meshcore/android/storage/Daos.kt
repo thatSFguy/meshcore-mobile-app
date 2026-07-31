@@ -28,6 +28,15 @@ interface MessageDao {
     @Query("UPDATE messages SET status = :status WHERE selfKey = :selfKey AND ackHash = :ackHash")
     suspend fun updateStatusByAck(selfKey: String, ackHash: Long, status: Int): Int
 
+    @Query("UPDATE messages SET status = :status, ackHash = :ackHash WHERE id = :id")
+    suspend fun updateResult(id: Long, status: Int, ackHash: Long?)
+
+    @Query(
+        "UPDATE messages SET status = :status WHERE selfKey = :selfKey AND contentKey = :contentKey " +
+            "AND outgoing = 1",
+    )
+    suspend fun updateStatusByContentKey(selfKey: String, contentKey: String, status: Int): Int
+
     @Query(
         "UPDATE messages SET status = :failed WHERE selfKey = :selfKey AND status = :pending " +
             "AND receivedAt < :olderThanMillis",

@@ -376,14 +376,18 @@ class MeshCoreEngine(
         }
     }
 
-    private fun emitChannelMessage(
+    /**
+     * Dedup key for a channel message — mirrors the reference client's
+     * content hash. The same message can arrive via companion sync AND
+     * the RX log, and your OWN messages echo back through both; an
+     * outgoing row stored under the same key suppresses the echo.
+     */
+    fun channelContentKey(
         channelIndex: Int,
+        timestamp: Long,
         senderName: String,
         text: String,
-        timestamp: Long,
-    ) {
-        // Content key mirrors the reference client's dedup hash: the same
-        // message can arrive via companion sync AND the RX log.
+    ): String {
         val keyInput = ByteArray(5).also {
             it[0] = channelIndex.toByte()
             it[1] = (timestamp and 0xFF).toByte()
@@ -391,9 +395,20 @@ class MeshCoreEngine(
             it[3] = ((timestamp shr 16) and 0xFF).toByte()
             it[4] = ((timestamp shr 24) and 0xFF).toByte()
         } + "$senderName: $text".encodeToByteArray()
-        val contentKey = crypto.sha256(keyInput).copyOfRange(0, 8).toHex()
+        return crypto.sha256(keyInput).copyOfRange(0, 8).toHex()
+    }
+
+    private fun emitChannelMessage(
+        channelIndex: Int,
+        senderName: String,
+        text: String,
+        timestamp: Long,
+    ) {
         _meshEvents.tryEmit(
-            MeshEvent.ChannelMessageReceived(channelIndex, senderName, text, timestamp, contentKey),
+            MeshEvent.ChannelMessageReceived(
+                channelIndex, senderName, text, timestamp,
+                channelContentKey(channelIndex, timestamp, senderName, text),
+            ),
         )
     }
 
@@ -501,13 +516,27 @@ class MeshCoreEngine(
         return ev as? DeviceEvent.Sent
     }
 
-    /** Send a channel message ("name: text" prefixing happens on the radio). */
-    suspend fun sendChannelMessage(channelIndex: Int, text: String): DeviceEvent.Sent? {
+    /**
+     * Send a channel message ("name: text" prefixing happens on the
+     * radio). Pass [timestampSeconds] when the caller pre-computed a
+     * content key — the frame timestamp must match it for echo dedup.
+     *
+     * Hardware note (Galaxy A42 + real radio, 2026-07-31): firmware
+     * answers a group send with a generic RESP_CODE_OK, not
+     * RESP_CODE_SENT — the reference client accepts either
+     * (`expectsGenericAck: true`), so we do too. Flood group messages
+     * have no end-to-end ACK; "accepted by radio" is the terminal state.
+     */
+    suspend fun sendChannelMessage(
+        channelIndex: Int,
+        text: String,
+        timestampSeconds: Long = nowSeconds(),
+    ): Boolean {
         val ev = sendAndAwait(
-            Frames.sendChannelTextMessage(channelIndex, text, nowSeconds()),
+            Frames.sendChannelTextMessage(channelIndex, text, timestampSeconds),
             timeoutMs = 10_000,
-        ) { it is DeviceEvent.Sent }
-        return ev as? DeviceEvent.Sent
+        ) { it is DeviceEvent.Sent || it is DeviceEvent.Ok }
+        return ev is DeviceEvent.Sent || ev is DeviceEvent.Ok
     }
 
     // ------------------------------------------------------------------

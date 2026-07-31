@@ -118,7 +118,11 @@ final class MeshCoreStore: ObservableObject {
     func sendChannelMessage(index: Int32, text: String) {
         guard let engine else { return }
         Task {
-            _ = try? await engine.sendChannelMessage(channelIndex: index, text: text)
+            // K/N doesn't export Kotlin default params — pass the
+            // timestamp explicitly (it must match any dedup key).
+            _ = try? await engine.sendChannelMessage(
+                channelIndex: index, text: text,
+                timestampSeconds: Int64(Date().timeIntervalSince1970))
             self.append(thread: "ch|\(index)", message: UiMessage(
                 senderName: selfName, text: text,
                 timestamp: Int64(Date().timeIntervalSince1970), outgoing: true))
