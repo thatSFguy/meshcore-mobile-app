@@ -7,9 +7,18 @@ below are locked for v1; "Deferred" items are post-v1, "Cut" items are not plann
 ## In v1
 
 **Connection**
-- Unified **"Add node"** flow over **BLE (Nordic UART Service)**, **TCP**, and **USB serial**
-  (COBS) — auto-detect transport where possible, saved-node list, event-driven reconnect.
-  (Reuses the reticulum-mobile-app transport layer nearly verbatim — same transports.)
+- Unified **"Add node"** flow over **BLE (Nordic UART Service)** and **USB serial** (COBS) —
+  auto-detect transport where possible, saved-node list, event-driven reconnect. (Reuses the
+  reticulum-mobile-app transport layer nearly verbatim — same transports.)
+- **Per-transport enable toggles** (Settings → Connection → Transports), same as the
+  reticulum app: a disabled transport is never started, so it never scans, connects, or
+  feeds bytes to a parser — the runtime surface is only the paths you actually use.
+- **TCP transport is OFF by default, behind a feature toggle.** Enabling it requires a
+  one-time **stern warning + confirmation**: the link is *unencrypted and unauthenticated* —
+  message text and the repeater login password cross the network in the clear, and anyone
+  who can reach `host:port` can drive your radio. Only for reaching a WiFi/Ethernet MeshCore
+  node on a trusted network; never over untrusted WiFi or the open internet. While enabled,
+  the connection status should keep flagging the link as unencrypted.
 
 **Messaging**
 - **Direct messages** — contact list + 1:1 conversation threads.
