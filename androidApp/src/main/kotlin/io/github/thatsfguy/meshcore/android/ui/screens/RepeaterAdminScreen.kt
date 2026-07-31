@@ -85,8 +85,6 @@ fun RepeaterAdminScreen(vm: MeshCoreViewModel, nav: NavController, keyHex: Strin
     }
 
     var tab by remember { mutableIntStateOf(0) } // 0 = Console, 1 = Settings
-    var pendingCommand by remember { mutableStateOf<CliCommand?>(null) }
-    var pendingIsSet by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -157,37 +155,11 @@ fun RepeaterAdminScreen(vm: MeshCoreViewModel, nav: NavController, keyHex: Strin
             if (tab == 0) {
                 CliConsole(vm, keyHex, messages)
             } else {
-                CliSettingsEditor(
-                    role = role,
-                    onGet = { vm.sendCli(keyHex, it.getCommand()) },
-                    onInvoke = { cmd, asSet ->
-                        when (cmd.kind) {
-                            CliKind.Action ->
-                                if (cmd.requiresConfirm) {
-                                    pendingCommand = cmd; pendingIsSet = false
-                                } else {
-                                    vm.sendCli(keyHex, cmd.buildCommand())
-                                }
-                            else -> {
-                                pendingCommand = cmd
-                                pendingIsSet = asSet
-                            }
-                        }
-                    },
-                )
+                androidx.compose.foundation.layout.Box(Modifier.weight(1f)) {
+                    RemoteSettingsForm(vm, keyHex, contact, role)
+                }
             }
         }
-    }
-
-    pendingCommand?.let { cmd ->
-        CliCommandDialog(
-            command = cmd,
-            onDismiss = { pendingCommand = null },
-            onSend = { value ->
-                vm.sendCli(keyHex, cmd.buildCommand(value))
-                pendingCommand = null
-            },
-        )
     }
 }
 
@@ -246,152 +218,4 @@ private fun androidx.compose.foundation.layout.ColumnScope.CliConsole(
             Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send CLI command")
         }
     }
-}
-
-/** Catalog-driven settings editor, grouped by category for [role]. */
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun androidx.compose.foundation.layout.ColumnScope.CliSettingsEditor(
-    role: NodeRole,
-    onGet: (CliCommand) -> Unit,
-    onInvoke: (CliCommand, Boolean) -> Unit,
-) {
-    val grouped = remember(role) { CliCatalog.forRoleByCategory(role) }
-    LazyColumn(
-        modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp),
-    ) {
-        for ((category, commands) in grouped) {
-            item(key = "cat_$category") {
-                Text(
-                    category,
-                    style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(top = 12.dp, bottom = 4.dp),
-                )
-            }
-            items(commands, key = { it.id }) { cmd ->
-                Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-                    Text(cmd.label, style = MaterialTheme.typography.bodyMedium)
-                    Text(
-                        cmd.description,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        when (cmd.kind) {
-                            CliKind.Action -> {
-                                TextButton(onClick = { onInvoke(cmd, false) }) {
-                                    Text(
-                                        "Run",
-                                        color = if (cmd.requiresConfirm) {
-                                            MaterialTheme.colorScheme.error
-                                        } else {
-                                            MaterialTheme.colorScheme.primary
-                                        },
-                                    )
-                                }
-                            }
-                            CliKind.GetOnly -> {
-                                TextButton(onClick = { onGet(cmd) }) { Text("Get") }
-                            }
-                            CliKind.GetSet -> {
-                                TextButton(onClick = { onGet(cmd) }) { Text("Get") }
-                                TextButton(onClick = { onInvoke(cmd, true) }) {
-                                    Text(
-                                        "Set…",
-                                        color = if (cmd.requiresConfirm) {
-                                            MaterialTheme.colorScheme.error
-                                        } else {
-                                            MaterialTheme.colorScheme.primary
-                                        },
-                                    )
-                                }
-                            }
-                            CliKind.ActionWithArg -> {
-                                TextButton(onClick = { onInvoke(cmd, true) }) { Text("Run…") }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        item(key = "footer") {
-            Text(
-                "Replies appear in the Console tab. Log in first — most commands need an " +
-                    "authenticated session.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(vertical = 12.dp),
-            )
-        }
-    }
-}
-
-/** Value/confirmation dialog for Set…/Run…/destructive commands. */
-@Composable
-private fun CliCommandDialog(
-    command: CliCommand,
-    onDismiss: () -> Unit,
-    onSend: (String?) -> Unit,
-) {
-    val needsValue = command.kind == CliKind.GetSet || command.kind == CliKind.ActionWithArg
-    var value by remember(command.id) {
-        mutableStateOf(
-            // Prefill the one arg we can know better than the user.
-            if (command.id == "time") (System.currentTimeMillis() / 1000).toString() else "",
-        )
-    }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(command.label) },
-        text = {
-            Column {
-                Text(command.description, style = MaterialTheme.typography.bodySmall)
-                if (command.requiresConfirm) {
-                    Spacer(Modifier.padding(4.dp))
-                    Text(
-                        "⚠ This action is destructive / hard to undo.",
-                        color = MaterialTheme.colorScheme.error,
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                }
-                if (needsValue) {
-                    OutlinedTextField(
-                        value = value,
-                        onValueChange = { value = it },
-                        label = { Text(command.argHint ?: "value") },
-                        singleLine = true,
-                        visualTransformation = if (command.sensitive) {
-                            PasswordVisualTransformation()
-                        } else {
-                            VisualTransformation.None
-                        },
-                    )
-                }
-                if (command.sensitive) {
-                    Text(
-                        "Sensitive value — it is never written to the diagnostics log.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = { onSend(if (needsValue) value.trim() else null) },
-                enabled = !needsValue || value.isNotBlank(),
-            ) {
-                Text(
-                    "Send",
-                    color = if (command.requiresConfirm) {
-                        MaterialTheme.colorScheme.error
-                    } else {
-                        MaterialTheme.colorScheme.primary
-                    },
-                )
-            }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-    )
 }

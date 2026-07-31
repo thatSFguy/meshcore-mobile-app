@@ -582,6 +582,40 @@ class MeshCoreEngine(
         sendOnly(Frames.sendStatusRequest(repeaterPubKey))
     }
 
+    /**
+     * Send a CLI command and await the repeater's TEXT reply (which
+     * arrives as a direct message from that node). Correlation is
+     * next-reply-from-target — callers must serialize their queries
+     * (the form-based settings UI fetches one value at a time, like
+     * the reference client). Returns null on timeout / not accepted.
+     */
+    suspend fun sendCliAndAwaitReply(
+        repeaterPubKey: ByteArray,
+        command: String,
+        timeoutMs: Long = 15_000,
+    ): String? {
+        val targetHex = repeaterPubKey.toHex()
+        return coroutineScope {
+            // Subscribe to the reply BEFORE sending so a fast (0-hop)
+            // response can't slip between send and collect.
+            val waiter = async(start = CoroutineStart.UNDISPATCHED) {
+                withTimeoutOrNull(timeoutMs) {
+                    meshEvents.first { ev ->
+                        ev is MeshEvent.DirectMessageReceived &&
+                            (ev.senderKeyHex == targetHex ||
+                                targetHex.startsWith(ev.senderPrefixHex))
+                    }
+                }
+            }
+            val sent = sendCliCommand(repeaterPubKey, command)
+            if (sent == null) {
+                waiter.cancel()
+                return@coroutineScope null
+            }
+            (waiter.await() as? MeshEvent.DirectMessageReceived)?.text
+        }
+    }
+
     // ------------------------------------------------------------------
     // Contacts
     // ------------------------------------------------------------------

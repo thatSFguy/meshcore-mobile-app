@@ -359,3 +359,46 @@ object CliCatalog {
 
     fun byId(id: String): CliCommand? = all.firstOrNull { it.id == id }
 }
+
+/**
+ * Helpers for CLI reply text. Firmware GET replies are `> <value>`
+ * (CommonCLI.cpp formats replies as `sprintf(reply, "> %s", …)`).
+ */
+object CliReplies {
+
+    /** First `> value` line of [response], trimmed; null when absent. */
+    fun extractGetValue(response: String): String? {
+        for (line in response.split('\n')) {
+            val trimmed = line.trim()
+            if (trimmed.startsWith(">")) {
+                val value = trimmed.substring(1).trim()
+                if (value.isNotEmpty()) return value
+            }
+        }
+        return null
+    }
+
+    /** Parsed `get radio` value: "freq,bw,sf,cr" (freq MHz, bw kHz). */
+    data class RadioCsv(val freqMhz: Double, val bwKhz: Double, val sf: Int, val cr: Int) {
+        /** The matching `set radio` argument. */
+        fun toCsv(): String = "${trimNum(freqMhz)},${trimNum(bwKhz)},$sf,$cr"
+
+        private fun trimNum(v: Double): String =
+            if (v == v.toLong().toDouble()) v.toLong().toString() else v.toString()
+    }
+
+    /** Parse a radio CSV ("910.525,250,10,5"); null on malformed input. */
+    fun parseRadioCsv(value: String): RadioCsv? {
+        val parts = value.split(',').map { it.trim() }
+        if (parts.size < 4) return null
+        val freq = parts[0].toDoubleOrNull() ?: return null
+        val bw = parts[1].toDoubleOrNull() ?: return null
+        val sf = parts[2].toIntOrNull() ?: return null
+        val cr = parts[3].toIntOrNull() ?: return null
+        return RadioCsv(freq, bw, sf, cr)
+    }
+
+    /** Truthy CLI values ("1", "on", "true", "yes"). */
+    fun isTruthy(value: String): Boolean =
+        value.trim().lowercase() in setOf("1", "on", "true", "yes", "enabled")
+}

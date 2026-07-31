@@ -246,6 +246,48 @@ class MeshCoreEngineTest {
     }
 
     @Test
+    fun cliQueryAwaitsTheRepeatersTextReply() = runTest {
+        // The form-based admin UI depends on: send "get freq" → radio
+        // ACKs (RESP_CODE_SENT) → repeater's reply arrives later as a
+        // contact message from that node → returned as the value.
+        val radio = FakeRadio()
+        radio.responder = { frame ->
+            when (frame[0].toInt() and 0xFF) {
+                Codes.CMD_SEND_TXT_MSG -> {
+                    val sent = BufferWriter().apply {
+                        writeByte(Codes.RESP_CODE_SENT)
+                        writeByte(0)
+                        writeUInt32LE(1L)
+                        writeUInt32LE(1000L)
+                    }.toBytes()
+                    val reply = BufferWriter().apply {
+                        writeByte(Codes.RESP_CODE_CONTACT_MSG_RECV)
+                        writeBytes(peerKey.copyOfRange(0, 6))
+                        writeByte(0)
+                        writeByte(Codes.TXT_TYPE_CLI_DATA)
+                        writeUInt32LE(now)
+                        writeString("> 910.525")
+                        writeByte(0)
+                    }.toBytes()
+                    listOf(sent, reply)
+                }
+                else -> standardResponder(radio)(frame)
+            }
+        }
+        val engine = MeshCoreEngine(backgroundScope, crypto, { now })
+        engine.attach(radio)
+        radio.connect()
+        engine.awaitReady()
+
+        val reply = engine.sendCliAndAwaitReply(peerKey, "get freq")
+        assertEquals("> 910.525", reply)
+        assertEquals(
+            "910.525",
+            io.github.thatsfguy.meshcore.protocol.CliReplies.extractGetValue(reply!!),
+        )
+    }
+
+    @Test
     fun loginSucceedsAgainstFakeRepeater() = runTest {
         val radio = FakeRadio()
         radio.responder = standardResponder(radio)

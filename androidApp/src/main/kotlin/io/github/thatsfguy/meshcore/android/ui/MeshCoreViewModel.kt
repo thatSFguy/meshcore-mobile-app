@@ -534,6 +534,14 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch { runCatching { svc.engine.requestStatus(key) } }
     }
 
+    /** Awaitable CLI round-trip for the form-based remote settings:
+     *  sends [command] and returns the node's text reply (or null). */
+    suspend fun cliQuery(keyHex: String, command: String): String? {
+        val svc = _service.value ?: return null
+        val key = hexToBytesOrNull(keyHex) ?: return null
+        return runCatching { svc.engine.sendCliAndAwaitReply(key, command) }.getOrNull()
+    }
+
     // ------------------------------------------------------------------
     // Device settings
     // ------------------------------------------------------------------
