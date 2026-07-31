@@ -1,0 +1,273 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 1,
+    "identityHash": "32c6ec77c3c52b6543079d3cfc72a3f6",
+    "entities": [
+      {
+        "tableName": "messages",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `selfKey` TEXT NOT NULL, `kind` TEXT NOT NULL, `peerKey` TEXT NOT NULL, `senderName` TEXT, `text` TEXT NOT NULL, `timestamp` INTEGER NOT NULL, `receivedAt` INTEGER NOT NULL, `outgoing` INTEGER NOT NULL, `status` INTEGER NOT NULL, `ackHash` INTEGER, `contentKey` TEXT, `snr` REAL, `txtType` INTEGER NOT NULL)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "selfKey",
+            "columnName": "selfKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "kind",
+            "columnName": "kind",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "peerKey",
+            "columnName": "peerKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "senderName",
+            "columnName": "senderName",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "text",
+            "columnName": "text",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "timestamp",
+            "columnName": "timestamp",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "receivedAt",
+            "columnName": "receivedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "outgoing",
+            "columnName": "outgoing",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "status",
+            "columnName": "status",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "ackHash",
+            "columnName": "ackHash",
+            "affinity": "INTEGER",
+            "notNull": false
+          },
+          {
+            "fieldPath": "contentKey",
+            "columnName": "contentKey",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "snr",
+            "columnName": "snr",
+            "affinity": "REAL",
+            "notNull": false
+          },
+          {
+            "fieldPath": "txtType",
+            "columnName": "txtType",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_messages_selfKey_kind_peerKey_timestamp",
+            "unique": false,
+            "columnNames": [
+              "selfKey",
+              "kind",
+              "peerKey",
+              "timestamp"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_messages_selfKey_kind_peerKey_timestamp` ON `${TABLE_NAME}` (`selfKey`, `kind`, `peerKey`, `timestamp`)"
+          },
+          {
+            "name": "index_messages_selfKey_contentKey",
+            "unique": true,
+            "columnNames": [
+              "selfKey",
+              "contentKey"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_messages_selfKey_contentKey` ON `${TABLE_NAME}` (`selfKey`, `contentKey`)"
+          }
+        ],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "contacts",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`selfKey` TEXT NOT NULL, `keyHex` TEXT NOT NULL, `name` TEXT NOT NULL, `type` INTEGER NOT NULL, `flags` INTEGER NOT NULL, `pathLen` INTEGER NOT NULL, `latitude` REAL, `longitude` REAL, `lastSeen` INTEGER NOT NULL, `lastModified` INTEGER NOT NULL, `unread` INTEGER NOT NULL, `lastMessageAt` INTEGER NOT NULL, PRIMARY KEY(`selfKey`, `keyHex`))",
+        "fields": [
+          {
+            "fieldPath": "selfKey",
+            "columnName": "selfKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "keyHex",
+            "columnName": "keyHex",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "type",
+            "columnName": "type",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "flags",
+            "columnName": "flags",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "pathLen",
+            "columnName": "pathLen",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "latitude",
+            "columnName": "latitude",
+            "affinity": "REAL",
+            "notNull": false
+          },
+          {
+            "fieldPath": "longitude",
+            "columnName": "longitude",
+            "affinity": "REAL",
+            "notNull": false
+          },
+          {
+            "fieldPath": "lastSeen",
+            "columnName": "lastSeen",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastModified",
+            "columnName": "lastModified",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "unread",
+            "columnName": "unread",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastMessageAt",
+            "columnName": "lastMessageAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "selfKey",
+            "keyHex"
+          ]
+        },
+        "indices": [],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "channels",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`selfKey` TEXT NOT NULL, `idx` INTEGER NOT NULL, `name` TEXT NOT NULL, `pskSealed` BLOB NOT NULL, `unread` INTEGER NOT NULL, `lastMessageAt` INTEGER NOT NULL, PRIMARY KEY(`selfKey`, `idx`))",
+        "fields": [
+          {
+            "fieldPath": "selfKey",
+            "columnName": "selfKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "idx",
+            "columnName": "idx",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "pskSealed",
+            "columnName": "pskSealed",
+            "affinity": "BLOB",
+            "notNull": true
+          },
+          {
+            "fieldPath": "unread",
+            "columnName": "unread",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastMessageAt",
+            "columnName": "lastMessageAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "selfKey",
+            "idx"
+          ]
+        },
+        "indices": [],
+        "foreignKeys": []
+      }
+    ],
+    "views": [],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '32c6ec77c3c52b6543079d3cfc72a3f6')"
+    ]
+  }
+}

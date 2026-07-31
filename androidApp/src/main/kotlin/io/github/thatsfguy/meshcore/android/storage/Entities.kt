@@ -1,0 +1,95 @@
+package io.github.thatsfguy.meshcore.android.storage
+
+import androidx.room.Entity
+import androidx.room.Index
+import androidx.room.PrimaryKey
+
+/**
+ * One message row — direct or channel. All rows are scoped by
+ * [selfKey] (the attached radio's pubkey hex) so switching radios
+ * switches history, mirroring MeshCore Open's per-node stores.
+ */
+@Entity(
+    tableName = "messages",
+    indices = [
+        Index(value = ["selfKey", "kind", "peerKey", "timestamp"]),
+        // Channel dedup: the same message arrives via companion sync AND
+        // the RX log; insert with IGNORE bounces the duplicate.
+        Index(value = ["selfKey", "contentKey"], unique = true),
+    ],
+)
+data class MessageEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val selfKey: String,
+    /** "dm" or "ch". */
+    val kind: String,
+    /** DM: contact pubkey hex. Channel: the channel index as a string. */
+    val peerKey: String,
+    /** Channel messages only — UNAUTHENTICATED display name. */
+    val senderName: String?,
+    val text: String,
+    /** Epoch seconds (sender-claimed for inbound). */
+    val timestamp: Long,
+    /** Epoch millis when this row was written — stable local ordering. */
+    val receivedAt: Long,
+    val outgoing: Boolean,
+    /** MessageStatus ordinal. */
+    val status: Int,
+    /** Radio's expected-ack hash for outgoing messages. */
+    val ackHash: Long?,
+    /** Dedup key (channel messages); null for DMs. */
+    val contentKey: String?,
+    val snr: Double?,
+    /** txt_type — CLI replies (1) render differently in repeater admin. */
+    val txtType: Int = 0,
+)
+
+enum class MessageStatus { Pending, Sent, Delivered, Failed }
+
+/**
+ * Cached contact record (the radio owns the authoritative list; this
+ * cache renders instantly on launch and feeds the map offline).
+ */
+@Entity(
+    tableName = "contacts",
+    primaryKeys = ["selfKey", "keyHex"],
+)
+data class ContactEntity(
+    val selfKey: String,
+    val keyHex: String,
+    val name: String,
+    val type: Int,
+    val flags: Int,
+    val pathLen: Int,
+    val latitude: Double?,
+    val longitude: Double?,
+    val lastSeen: Long,       // advert timestamp, epoch seconds
+    val lastModified: Long,
+    val unread: Int = 0,
+    val lastMessageAt: Long = 0,
+)
+
+/**
+ * Cached channel slot. The PSK is SEALED through [SecretVault] before
+ * it touches this row — never plaintext at rest (SCOPE.md security
+ * carry-over).
+ */
+@Entity(
+    tableName = "channels",
+    primaryKeys = ["selfKey", "idx"],
+)
+data class ChannelEntity(
+    val selfKey: String,
+    val idx: Int,
+    val name: String,
+    val pskSealed: ByteArray,
+    val unread: Int = 0,
+    val lastMessageAt: Long = 0,
+) {
+    override fun equals(other: Any?): Boolean =
+        other is ChannelEntity && selfKey == other.selfKey && idx == other.idx &&
+            name == other.name && pskSealed.contentEquals(other.pskSealed) &&
+            unread == other.unread && lastMessageAt == other.lastMessageAt
+
+    override fun hashCode(): Int = selfKey.hashCode() * 31 + idx
+}

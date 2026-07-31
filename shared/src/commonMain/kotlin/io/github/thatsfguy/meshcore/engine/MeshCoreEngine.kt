@@ -631,6 +631,11 @@ class MeshCoreEngine(
         sendOnly(Frames.reboot())
     }
 
+    /** Escape hatch for commands without a 1:1 wrapper (e.g. contact
+     *  rename via CMD_ADD_UPDATE_CONTACT). Sends and awaits OK. */
+    suspend fun sendRaw(frame: ByteArray): Boolean =
+        sendAndAwait(frame) { it is DeviceEvent.Ok } is DeviceEvent.Ok
+
     private suspend fun okAndRefreshSelf(frame: ByteArray): Boolean {
         val ok = sendAndAwait(frame) { it is DeviceEvent.Ok } is DeviceEvent.Ok
         if (ok) {
