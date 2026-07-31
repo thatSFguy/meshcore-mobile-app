@@ -16,7 +16,11 @@ import io.github.thatsfguy.meshcore.protocol.PathCodec
 import io.github.thatsfguy.meshcore.protocol.RoutingMode
 import io.github.thatsfguy.meshcore.protocol.TracePath
 import io.github.thatsfguy.meshcore.protocol.TraceResult
+import io.github.thatsfguy.meshcore.protocol.CayenneLpp
 import io.github.thatsfguy.meshcore.protocol.RawPacket
+import io.github.thatsfguy.meshcore.protocol.RepeaterStatus
+import io.github.thatsfguy.meshcore.protocol.StatusCodec
+import io.github.thatsfguy.meshcore.protocol.TelemetryReading
 import io.github.thatsfguy.meshcore.protocol.ResponseParser
 import io.github.thatsfguy.meshcore.transport.Transport
 import io.github.thatsfguy.meshcore.transport.TransportState
@@ -611,6 +615,49 @@ class MeshCoreEngine(
 
     suspend fun requestStatus(repeaterPubKey: ByteArray) {
         sendOnly(Frames.sendStatusRequest(repeaterPubKey))
+    }
+
+    /**
+     * Ask a repeater/room for its status and decode the reply. The
+     * response is correlated by the 6-byte sender prefix the firmware
+     * echoes, so a status push from another node can't be mistaken for
+     * this one's.
+     */
+    suspend fun repeaterStatus(
+        repeaterPubKey: ByteArray,
+        timeoutMs: Long = 30_000,
+    ): RepeaterStatus? {
+        val prefix = repeaterPubKey.copyOfRange(0, 6).toHex()
+        val ev = sendAndAwait(
+            Frames.sendStatusRequest(repeaterPubKey),
+            timeoutMs = timeoutMs,
+        ) {
+            it is DeviceEvent.StatusResponse &&
+                StatusCodec.parse(statusFrame(it))?.senderPrefixHex == prefix
+        }
+        return (ev as? DeviceEvent.StatusResponse)?.let { StatusCodec.parse(statusFrame(it)) }
+    }
+
+    private fun statusFrame(ev: DeviceEvent.StatusResponse): ByteArray =
+        byteArrayOf(Codes.PUSH_CODE_STATUS_RESPONSE.toByte()) + ev.payload
+
+    /** Request Cayenne-LPP telemetry from a node; empty on timeout. */
+    suspend fun requestTelemetry(
+        pubKey: ByteArray,
+        timeoutMs: Long = 30_000,
+    ): List<TelemetryReading> {
+        val ev = sendAndAwait(
+            Frames.sendBinaryRequest(pubKey, byteArrayOf(Codes.REQ_TYPE_GET_TELEMETRY.toByte(), 0, 0, 0, 0)),
+            timeoutMs = timeoutMs,
+        ) { it is DeviceEvent.TelemetryResponse || it is DeviceEvent.BinaryResponse }
+        val payload = when (ev) {
+            is DeviceEvent.TelemetryResponse -> ev.payload
+            is DeviceEvent.BinaryResponse -> ev.payload
+            else -> return emptyList()
+        }
+        // Skip the 6-byte sender prefix the firmware prepends, when present.
+        val body = if (payload.size > 7) payload.copyOfRange(6, payload.size) else payload
+        return CayenneLpp.parse(body)
     }
 
     /**

@@ -43,6 +43,11 @@ class BufferReader(private val buffer: ByteArray) {
         return v
     }
 
+    fun readInt16LE(): Int {
+        val v = readUInt16LE()
+        return if (v >= 0x8000) v - 0x10000 else v
+    }
+
     fun readUInt32LE(): Long {
         ensure(4)
         val v = (buffer[pointer].toLong() and 0xFF) or

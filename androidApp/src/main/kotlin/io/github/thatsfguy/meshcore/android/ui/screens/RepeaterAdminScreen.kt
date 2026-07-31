@@ -140,24 +140,23 @@ fun RepeaterAdminScreen(vm: MeshCoreViewModel, nav: NavController, keyHex: Strin
             SingleChoiceSegmentedButtonRow(
                 Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
             ) {
-                SegmentedButton(
-                    selected = tab == 0,
-                    onClick = { tab = 0 },
-                    shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
-                ) { Text("Console") }
-                SegmentedButton(
-                    selected = tab == 1,
-                    onClick = { tab = 1 },
-                    shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
-                ) { Text("Settings") }
+                for ((i, label) in listOf("Status", "Settings", "Console").withIndex()) {
+                    SegmentedButton(
+                        selected = tab == i,
+                        onClick = { tab = i },
+                        shape = SegmentedButtonDefaults.itemShape(index = i, count = 3),
+                    ) { Text(label) }
+                }
             }
 
-            if (tab == 0) {
-                CliConsole(vm, keyHex, messages)
-            } else {
-                androidx.compose.foundation.layout.Box(Modifier.weight(1f)) {
+            when (tab) {
+                0 -> androidx.compose.foundation.layout.Box(Modifier.weight(1f)) {
+                    RepeaterStatusPanel(vm, keyHex)
+                }
+                1 -> androidx.compose.foundation.layout.Box(Modifier.weight(1f)) {
                     RemoteSettingsForm(vm, keyHex, contact, role)
                 }
+                else -> CliConsole(vm, keyHex, messages)
             }
         }
     }

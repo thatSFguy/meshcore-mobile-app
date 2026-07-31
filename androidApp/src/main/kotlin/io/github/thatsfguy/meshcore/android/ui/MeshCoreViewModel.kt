@@ -635,6 +635,18 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch { runCatching { svc.engine.requestStatus(key) } }
     }
 
+    suspend fun repeaterStatus(keyHex: String): io.github.thatsfguy.meshcore.protocol.RepeaterStatus? {
+        val svc = _service.value ?: return null
+        val key = hexToBytesOrNull(keyHex) ?: return null
+        return runCatching { svc.engine.repeaterStatus(key) }.getOrNull()
+    }
+
+    suspend fun repeaterTelemetry(keyHex: String): List<io.github.thatsfguy.meshcore.protocol.TelemetryReading> {
+        val svc = _service.value ?: return emptyList()
+        val key = hexToBytesOrNull(keyHex) ?: return emptyList()
+        return runCatching { svc.engine.requestTelemetry(key) }.getOrDefault(emptyList())
+    }
+
     /** Awaitable CLI round-trip for the form-based remote settings:
      *  sends [command] and returns the node's text reply (or null). */
     suspend fun cliQuery(keyHex: String, command: String): String? {
