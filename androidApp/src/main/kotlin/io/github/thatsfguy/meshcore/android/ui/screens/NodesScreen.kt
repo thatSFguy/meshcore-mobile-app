@@ -24,6 +24,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -31,6 +33,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -101,24 +104,44 @@ fun NodesScreen(vm: MeshCoreViewModel, nav: NavController) {
             }
         },
     ) { padding ->
-        if (contacts.isEmpty()) {
-            EmptyHint(
-                modifier = Modifier.padding(padding),
-                text = "No contacts yet.\nContacts appear when nearby nodes advertise, or scan a contact QR with +.",
+        Column(Modifier.fillMaxSize().padding(padding)) {
+            var tab by remember { mutableIntStateOf(0) }
+            // Contacts tab folds in sensors/unknown types.
+            val tabContacts = when (tab) {
+                1 -> contacts.filter { it.type == Codes.ADV_TYPE_REPEATER }
+                2 -> contacts.filter { it.type == Codes.ADV_TYPE_ROOM }
+                else -> contacts.filter {
+                    it.type != Codes.ADV_TYPE_REPEATER && it.type != Codes.ADV_TYPE_ROOM
+                }
+            }.sortedWith(
+                // Interacted-with nodes (messaged / administered) first,
+                // most recent first; the rest alphabetically.
+                compareByDescending<ContactEntity> { it.lastMessageAt > 0 }
+                    .thenByDescending { it.lastMessageAt }
+                    .thenBy { it.name.ifBlank { it.keyHex }.lowercase() },
             )
-        } else {
-            val groups = contacts.groupBy { it.type }
-            LazyColumn(Modifier.fillMaxSize().padding(padding)) {
-                for ((type, group) in groups.toSortedMap()) {
-                    item(key = "header_$type") {
-                        Text(
-                            typeLabel(type),
-                            style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.padding(start = 16.dp, top = 12.dp, bottom = 4.dp),
-                        )
-                    }
-                    items(group, key = { it.keyHex }) { c ->
+
+            TabRow(selectedTabIndex = tab) {
+                for ((i, label) in listOf("Contacts", "Repeaters", "Rooms").withIndex()) {
+                    Tab(
+                        selected = tab == i,
+                        onClick = { tab = i },
+                        text = { Text(label) },
+                    )
+                }
+            }
+
+            if (tabContacts.isEmpty()) {
+                EmptyHint(
+                    text = when (tab) {
+                        1 -> "No repeaters heard yet."
+                        2 -> "No room servers heard yet."
+                        else -> "No contacts yet.\nContacts appear when nearby nodes advertise, or scan a contact QR with +."
+                    },
+                )
+            } else {
+                LazyColumn(Modifier.fillMaxSize()) {
+                    items(tabContacts, key = { it.keyHex }) { c ->
                         ContactRow(c) { detail = c }
                     }
                 }

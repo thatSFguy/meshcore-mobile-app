@@ -153,8 +153,16 @@ class MessageRepository(
      * radio round-trip so the bubble appears instantly; resolve with
      * [markOutgoingResult] once the radio answers.
      */
-    suspend fun recordOutgoingDm(peerKeyHex: String, text: String, timestamp: Long): Long =
-        db.messages().insert(
+    suspend fun recordOutgoingDm(
+        peerKeyHex: String,
+        text: String,
+        timestamp: Long,
+        txtType: Int = 0,
+    ): Long {
+        // Any outgoing traffic marks the node as interacted-with (drives
+        // the Nodes tab's recency sort).
+        db.contacts().touchLastMessage(selfKey, peerKeyHex, System.currentTimeMillis())
+        return db.messages().insert(
             MessageEntity(
                 selfKey = selfKey,
                 kind = KIND_DM,
@@ -168,8 +176,10 @@ class MessageRepository(
                 ackHash = null,
                 contentKey = null,
                 snr = null,
+                txtType = txtType,
             ),
         )
+    }
 
     suspend fun markOutgoingResult(rowId: Long, accepted: Boolean, ackHash: Long?) {
         db.messages().updateResult(
@@ -192,8 +202,9 @@ class MessageRepository(
         text: String,
         timestamp: Long,
         contentKey: String,
-    ): Long =
-        db.messages().insert(
+    ): Long {
+        db.channels().touchLastMessage(selfKey, channelIndex, System.currentTimeMillis())
+        return db.messages().insert(
             MessageEntity(
                 selfKey = selfKey,
                 kind = KIND_CHANNEL,
@@ -209,6 +220,7 @@ class MessageRepository(
                 snr = null,
             ),
         )
+    }
 
     suspend fun markChannelResult(contentKey: String, accepted: Boolean) {
         db.messages().updateStatusByContentKey(

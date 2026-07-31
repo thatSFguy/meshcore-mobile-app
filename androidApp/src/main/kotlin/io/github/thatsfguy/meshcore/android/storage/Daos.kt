@@ -80,6 +80,9 @@ interface ContactDao {
 
     @Query("UPDATE contacts SET unread = 0 WHERE selfKey = :selfKey AND keyHex = :keyHex")
     suspend fun clearUnread(selfKey: String, keyHex: String)
+
+    @Query("UPDATE contacts SET lastMessageAt = :at WHERE selfKey = :selfKey AND keyHex = :keyHex")
+    suspend fun touchLastMessage(selfKey: String, keyHex: String, at: Long)
 }
 
 @Dao
@@ -104,4 +107,7 @@ interface ChannelDao {
 
     @Query("UPDATE channels SET unread = 0 WHERE selfKey = :selfKey AND idx = :idx")
     suspend fun clearUnread(selfKey: String, idx: Int)
+
+    @Query("UPDATE channels SET lastMessageAt = :at WHERE selfKey = :selfKey AND idx = :idx")
+    suspend fun touchLastMessage(selfKey: String, idx: Int, at: Long)
 }

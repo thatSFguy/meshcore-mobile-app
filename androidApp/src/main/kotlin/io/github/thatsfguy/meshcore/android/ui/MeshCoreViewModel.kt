@@ -186,6 +186,11 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
                 )
             } else {
                 val c = contactByKey[m.peerKey]
+                // Repeater admin traffic (CLI console) lives in the admin
+                // screen — repeater threads never surface in Chats.
+                if (c?.type == io.github.thatsfguy.meshcore.protocol.Codes.ADV_TYPE_REPEATER) {
+                    continue
+                }
                 rows.add(
                     ConversationRow(
                         kind = m.kind, key = m.peerKey,
@@ -521,7 +526,7 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
         val key = hexToBytesOrNull(keyHex) ?: return
         viewModelScope.launch {
             val rowId = svc.repository.recordOutgoingDm(
-                keyHex, command, System.currentTimeMillis() / 1000,
+                keyHex, command, System.currentTimeMillis() / 1000, txtType = 1,
             )
             val sent = runCatching { svc.engine.sendCliCommand(key, command) }.getOrNull()
             svc.repository.markOutgoingResult(rowId, sent != null, sent?.ackHash)

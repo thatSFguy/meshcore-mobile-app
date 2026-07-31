@@ -108,10 +108,16 @@ class Preferences(context: Context) {
 
     // --- App settings ---
 
-    /** "system" | "light" | "dark" */
+    /** "system" | "light" | "dark". [themeFlow] mirrors it observably so
+     *  the root composable can re-theme immediately on change. */
+    val themeFlow: MutableStateFlow<String> by lazy { MutableStateFlow(theme) }
+
     var theme: String
         get() = prefs.getString("theme", "system")!!
-        set(v) { prefs.edit().putString("theme", v).apply() }
+        set(v) {
+            prefs.edit().putString("theme", v).apply()
+            themeFlow.value = v
+        }
 
     /** Redaction-aware diagnostics log, off by default (SCOPE.md). */
     var diagnosticsEnabled: Boolean

@@ -49,8 +49,16 @@ class MainActivity : ComponentActivity() {
             permissionLauncher.launch(BlePermissions.required())
         }
         setContent {
-            MeshCoreTheme {
-                AppShell()
+            val vm: MeshCoreViewModel = viewModel()
+            val theme by vm.prefs.themeFlow.collectAsState()
+            MeshCoreTheme(
+                darkTheme = when (theme) {
+                    "dark" -> true
+                    "light" -> false
+                    else -> androidx.compose.foundation.isSystemInDarkTheme()
+                },
+            ) {
+                AppShell(vm)
             }
         }
     }
@@ -59,7 +67,7 @@ class MainActivity : ComponentActivity() {
 private data class Tab(val route: String, val label: String, val icon: @Composable () -> Unit)
 
 @Composable
-private fun AppShell(vm: MeshCoreViewModel = viewModel()) {
+private fun AppShell(vm: MeshCoreViewModel) {
     val nav = rememberNavController()
     val snackbar = remember { SnackbarHostState() }
 
