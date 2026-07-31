@@ -10,6 +10,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -33,17 +34,30 @@ fun NodeAvatar(
     isChannel: Boolean = false,
     size: Dp = 40.dp,
 ) {
-    val isRepeater = type == Codes.ADV_TYPE_REPEATER
-    val (background, darkText) = if (isRepeater) {
-        REPEATER_GRAY to false
-    } else {
-        val c = avatarColors(seed)
-        Color(c.backgroundArgb) to c.useDarkText
+    // Infrastructure nodes reuse the MAP marker artwork (same colors +
+    // glyphs) so a repeater looks identical in the list and on the map.
+    if (type == Codes.ADV_TYPE_REPEATER ||
+        type == Codes.ADV_TYPE_ROOM ||
+        type == Codes.ADV_TYPE_SENSOR
+    ) {
+        val context = androidx.compose.ui.platform.LocalContext.current
+        val badge = androidx.compose.runtime.remember(type, size) {
+            io.github.thatsfguy.meshcore.android.platform.NodeMarkers
+                .buildBadge(context, type, sizeDp = size.value.toInt())
+        }
+        androidx.compose.foundation.Image(
+            bitmap = badge.bitmap.asImageBitmap(),
+            contentDescription = null,
+            modifier = Modifier.size(size),
+        )
+        return
     }
 
+    val c = avatarColors(seed)
+    val background = Color(c.backgroundArgb)
+    val darkText = c.useDarkText
+
     val glyph = when {
-        isRepeater -> "⛰"
-        type == Codes.ADV_TYPE_SENSOR -> "🌡"
         isChannel -> "#"
         else -> label.firstOrNull { !it.isWhitespace() }?.uppercase() ?: "?"
     }

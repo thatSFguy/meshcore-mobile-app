@@ -73,6 +73,9 @@ fun MapScreen(vm: MeshCoreViewModel) {
             return@Scaffold
         }
 
+        // Restore the last camera so returning to the tab (or relaunching)
+        // lands where the user left off instead of re-fitting the world.
+        val savedCamera = remember { vm.prefs.mapCamera }
         val mapView = remember {
             Configuration.getInstance().apply {
                 userAgentValue = context.packageName
@@ -82,13 +85,26 @@ fun MapScreen(vm: MeshCoreViewModel) {
             MapView(context).apply {
                 setTileSource(TileSourceFactory.MAPNIK)
                 setMultiTouchControls(true)
-                controller.setZoom(3.0)
+                if (savedCamera != null) {
+                    controller.setZoom(savedCamera.third)
+                    controller.setCenter(GeoPoint(savedCamera.first, savedCamera.second))
+                } else {
+                    controller.setZoom(3.0)
+                }
             }
         }
-        var lastFitHandled by remember { mutableIntStateOf(-1) }
+        // A saved camera counts as "already fitted" — only an explicit
+        // "Fit all nodes" from the menu overrides the user's view.
+        var lastFitHandled by remember { mutableIntStateOf(if (savedCamera != null) 0 else -1) }
 
         DisposableEffect(Unit) {
-            onDispose { mapView.onDetach() }
+            onDispose {
+                val center = mapView.mapCenter
+                vm.prefs.mapCamera = Triple(
+                    center.latitude, center.longitude, mapView.zoomLevelDouble,
+                )
+                mapView.onDetach()
+            }
         }
 
         AndroidView(

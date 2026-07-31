@@ -110,6 +110,33 @@ object NodeMarkers {
         )
     }
 
+    /**
+     * Just the colored circle + glyph (no map pin tail, no label) —
+     * the Nodes-tab avatar, so a repeater looks the same in the list
+     * as it does on the map.
+     */
+    fun buildBadge(
+        context: Context,
+        type: Int,
+        isSelf: Boolean = false,
+        sizeDp: Int = 40,
+    ): BitmapDrawable {
+        val density = context.resources.displayMetrics.density
+        val d = (sizeDp * density).toInt().coerceAtLeast(1)
+        val bmp = Bitmap.createBitmap(d, d, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bmp)
+        val r = d / 2f
+        canvas.drawCircle(
+            r, r, r,
+            Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                style = Paint.Style.FILL
+                color = colorFor(type, isSelf)
+            },
+        )
+        drawGlyph(canvas, r, r, r, type, isSelf, density)
+        return BitmapDrawable(context.resources, bmp)
+    }
+
     /** White glyph inside the pin circle, centered at (cx, cy), radius r. */
     private fun drawGlyph(
         canvas: Canvas,

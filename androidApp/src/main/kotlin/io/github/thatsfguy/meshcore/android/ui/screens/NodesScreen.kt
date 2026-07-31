@@ -105,7 +105,8 @@ fun NodesScreen(vm: MeshCoreViewModel, nav: NavController) {
         },
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
-            var tab by remember { mutableIntStateOf(0) }
+            // Selection persists across tab switches and restarts.
+            var tab by remember { mutableIntStateOf(vm.prefs.nodesTab.coerceIn(0, 2)) }
             // Contacts tab folds in sensors/unknown types.
             val tabContacts = when (tab) {
                 1 -> contacts.filter { it.type == Codes.ADV_TYPE_REPEATER }
@@ -125,7 +126,10 @@ fun NodesScreen(vm: MeshCoreViewModel, nav: NavController) {
                 for ((i, label) in listOf("Contacts", "Repeaters", "Rooms").withIndex()) {
                     Tab(
                         selected = tab == i,
-                        onClick = { tab = i },
+                        onClick = {
+                            tab = i
+                            vm.prefs.nodesTab = i
+                        },
                         text = { Text(label) },
                     )
                 }

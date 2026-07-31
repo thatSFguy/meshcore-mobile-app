@@ -124,6 +124,33 @@ class Preferences(context: Context) {
         get() = prefs.getBoolean("diagnostics_enabled", false)
         set(v) { prefs.edit().putBoolean("diagnostics_enabled", v).apply() }
 
+    // --- UI state that should survive tab switches and restarts ---
+
+    /** Selected Nodes-tab index (0 contacts / 1 repeaters / 2 rooms). */
+    var nodesTab: Int
+        get() = prefs.getInt("nodes_tab", 0)
+        set(v) { prefs.edit().putInt("nodes_tab", v).apply() }
+
+    /** Last map camera (lat, lon, zoom); null when never set. Doubles
+     *  are stored as raw bits so map precision isn't truncated. */
+    var mapCamera: Triple<Double, Double, Double>?
+        get() {
+            if (!prefs.contains("map_lat")) return null
+            return Triple(
+                Double.fromBits(prefs.getLong("map_lat", 0)),
+                Double.fromBits(prefs.getLong("map_lon", 0)),
+                Double.fromBits(prefs.getLong("map_zoom", 0)),
+            )
+        }
+        set(v) {
+            if (v == null) return
+            prefs.edit()
+                .putLong("map_lat", v.first.toRawBits())
+                .putLong("map_lon", v.second.toRawBits())
+                .putLong("map_zoom", v.third.toRawBits())
+                .apply()
+        }
+
     var notificationsEnabled: Boolean
         get() = prefs.getBoolean("notifications_enabled", true)
         set(v) { prefs.edit().putBoolean("notifications_enabled", v).apply() }
