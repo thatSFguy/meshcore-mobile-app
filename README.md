@@ -43,7 +43,12 @@ The `MESHCORE_PROTOCOL.md` §12 security notes capture the specific mistakes to 
 (verify advert signatures, never trust channel sender names, keystore for secrets, guard
 every parse, TCP is plaintext).
 
-## Non-goals
+## Scope
 
-Maps, GIF pickers, on-device LLM translation, telemetry dashboards, remote monitoring — the
-things that bloat the other clients. If you want those, fork it.
+See **[`SCOPE.md`](SCOPE.md)** for the locked v1 feature set (pruned from MeshCore Open's
+full inventory). In v1: connect (BLE/TCP/USB), direct + channel messaging (with community
+QR join), node map, repeater/room admin, settings. **Non-goals:** on-device LLM
+translation, GIF picker / remote media, LXST-style voice, remote-monitoring dashboards.
+
+The in-app node map is the one feature that makes outbound HTTP (tile downloads);
+everything else stays offline (mesh packets only).
