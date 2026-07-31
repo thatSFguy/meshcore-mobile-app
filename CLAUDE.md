@@ -7,14 +7,30 @@ the detailed specs are the three docs below.
 
 ## Status
 
-**Design/planning stage — no app code yet.** What exists:
+**v1 implemented on Android (2026-07-31); iOS is a Phase-1 skeleton.** Layout:
+- **`shared/`** — KMP. `protocol/` (Codes, guarded Buffers, Frames, ResponseParser,
+  RawPacket, Advert w/ Ed25519 verify, ChannelCrypto, MeshIdentity), `engine/MeshCoreEngine`
+  (handshake, serialized command queue, contact/channel sync, queue drain, RX-log decrypt,
+  repeater admin), `transport/` (Transport iface, SerialFraming — **`<`/`>` + u16LE length,
+  NOT COBS**; BLE = frame-per-write, no framing), androidMain (BLE/USB/TCP + BC crypto),
+  iosMain (TCP + CommonCrypto; Ed25519 stubs pending the CryptoKit bridge).
+  Tests: `./gradlew :shared:testDebugUnitTest` — protocol vectors + fake-radio engine tests.
+- **`androidApp/`** — Room DB (sealed PSKs), KeystoreSecretVault, MeshCoreService
+  (foreground + reconnect supervisor), MeshCoreViewModel, Compose screens (chats,
+  conversation, nodes+detail, osmdroid map, repeater admin, settings incl. stern TCP
+  dialog + diagnostics). `./gradlew :androidApp:assembleDebug` (JDK at
+  `/home/robw/android-tools/jdk`, SDK via `local.properties`).
+- **`iosApp/`** — XcodeGen `project.yml` + SwiftUI skeleton; see `iosApp/README.md`.
+- **NOT yet validated against a real radio** — that's the next milestone.
+
+Reference docs:
 - **`MESHCORE_PROTOCOL.md`** — the MeshCore companion + over-the-air wire spec (transports,
   command/response/push codes, frame layouts, advert Ed25519 signature, channel AES-ECB
   crypto, PSK derivation). Reverse-engineered from `../meshcore-open` during a security
-  review; the reference a KMP implementation is built from. Read this before writing any
-  protocol code.
+  review. Read this before touching protocol code. (§2 framing corrected 2026-07-31:
+  USB/TCP use start-byte+length framing per the reference client, not COBS.)
 - **`SCOPE.md`** — the locked v1 feature set (pruned from MeshCore Open's inventory).
-- **`README.md`** — vision + non-goals.
+- **`README.md`** — vision + non-goals; **`REUSE.md`** — what was copied from the sibling.
 
 ## The two sibling repos this project draws from
 
@@ -22,7 +38,7 @@ the detailed specs are the three docs below.
   Multiplatform Reticulum/LXMF client by the same author. Structure: `:shared` (commonMain
   = protocol + transports + DB + ViewModel, no UI), `androidApp` (Jetpack **Compose**
   screens under `.../android/ui/screens/`), `iosApp` (**SwiftUI**). **MeshCore uses the
-  exact same transports** (BLE Nordic UART Service, TCP, USB-serial/COBS), so its transport
+  exact same transports** (BLE Nordic UART Service, TCP, USB-serial), so its transport
   layer, foreground service, reconnect supervisors, DB/VM scaffolding, and the reusable
   screens (Messages/Conversation/Nodes/Settings/DetailSheet/QrScanner/Theme) come across.
   **Drop** its Reticulum-specific parts (NomadNet/Micron browser, RRC Rooms, Graph, LXST
@@ -72,16 +88,21 @@ channels as obfuscated (AES-ECB + 2-byte MAC), not secure.
 
 ## Suggested next steps
 
-1. Scaffold the `protocol/` module from `MESHCORE_PROTOCOL.md` (with unit tests, incl. an
-   Ed25519 advert-signature round-trip and channel-decrypt vector).
-2. Copy the transport layer across per **`REUSE.md`** (the file-by-file map of what to copy
-   from `../reticulum-mobile-app`); wire the new MeshCore framing + `protocol/` module to it.
-3. Copy crypto/vault + service/DB scaffolding; adapt the Android screens (DMs → channels →
-   map → repeater admin), then mirror to SwiftUI.
+1. **Hardware validation** — connect to a real MeshCore radio over BLE (then USB): confirm
+   the handshake, framing, contact/channel sync, DM send/ack, RX-log channel decrypt.
+   Expect quirks in exact response ordering / firmware-version gates; fix against the
+   engine's fake-radio tests as ground truth for intent.
+2. Notifications for inbound messages (service already has the channel; wire
+   MessageRepository events → NotificationCompat).
+3. iOS Phase 2 — `IosBleTransport` (CoreBluetooth port of the sibling's), CryptoKit
+   Ed25519 bridge (copy `iosCryptoBridge` pattern), SQLDelight persistence.
+4. Release plumbing (signing env vars are already read by `androidApp/build.gradle.kts`;
+   tag scheme `android-vX.Y.Z` matches the sibling).
 
 ## Conventions
 
-- KMP + Gradle (once code lands; no build commands yet).
+- KMP + Gradle. Build/test: `JAVA_HOME=/home/robw/android-tools/jdk ./gradlew
+  :shared:testDebugUnitTest :androidApp:testDebugUnitTest :androidApp:assembleDebug`.
 - Git identity for this repo: `thatSFguy` / `rob@woodhousellc.com`. Private repo
   `github.com/thatSFguy/meshcore-mobile-app` (remote `origin`, branch `main`).
 - Never commit secrets/signing keys (see `.gitignore`).

@@ -36,9 +36,9 @@ All three transports carry the **same companion frames**; only the outer framing
 
 | Transport | Details |
 |---|---|
-| **BLE** | Nordic UART Service (NUS). Service `6e400001-b5a3-f393-e0a9-e50e24dcca9e`; **RX** char (client → radio) `6e400002-…`; **TX** char (radio → client, notify) `6e400003-…`. Each BLE write / notification carries one frame (fragmented across MTU by the stack; reassemble to `maxFrameSize`). |
-| **TCP** | Raw socket to `host:port` (common default hint `192.168.40.10:5000`). Length-delimited frames (validate exact length prefix against firmware). |
-| **USB serial** | 115200 baud, 8N1. **COBS-framed** packets (0x00 delimiter). Decode COBS to recover each companion frame. |
+| **BLE** | Nordic UART Service (NUS). Service `6e400001-b5a3-f393-e0a9-e50e24dcca9e`; **RX** char (client → radio) `6e400002-…`; **TX** char (radio → client, notify) `6e400003-…`. Each BLE write / notification carries one frame — no link framing (request MTU ≥ 175 so a max-size frame fits one write). |
+| **TCP** | Raw socket to `host:port` (common default hint `192.168.40.10:5000`). Same start-byte + length framing as USB serial (below). |
+| **USB serial** | 115200 baud, 8N1. `[start][len_lo][len_hi][payload]` — start `0x3C` ('<') client → radio, `0x3E` ('>') radio → client; len = u16 LE payload length ≤ 172. *(Corrected 2026-07-31: an earlier draft said "COBS-framed"; the reference client's `usb_serial_frame_codec.dart` — used for **both** USB and TCP and validated against firmware — uses this start-byte + length framing, not COBS.)* |
 
 **BLE scan name prefixes** (advertised name starts with one of):
 `MeshCore-`, `Whisper-`, `WisCore-`, `Seeed`, `Lilygo`, `HT-`, `LowMesh_MC_`.

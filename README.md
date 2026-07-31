@@ -24,7 +24,7 @@ app's foundation and swaps only the protocol:
 |---|---|
 | BLE Nordic UART Service (`6e400001-…`) | ✅ (identical to the RNode BLE path) |
 | Direct TCP to `host:port` | ✅ |
-| USB serial (COBS-framed, CDC-ACM/CP210x) | ✅ |
+| USB serial (start-byte + length framed, CDC-ACM/CP210x) | ✅ |
 | Foreground service · notifications · reconnect · identity/QR | ✅ patterns |
 
 What differs is the framed **companion protocol** spoken to the radio, plus the small bit
@@ -32,16 +32,27 @@ of over-the-air packet decoding a client needs (adverts, channel messages).
 
 ## Status
 
-**Design stage.** Starting point is the protocol reference:
+**v1 implemented (Android); iOS is a Phase-1 skeleton.** Kotlin Multiplatform:
 
-- **[`MESHCORE_PROTOCOL.md`](MESHCORE_PROTOCOL.md)** — the companion + over-the-air wire
-  format (frames, command/response/push codes, advert + Ed25519 signature, channel
-  crypto), distilled from a security review of MeshCore Open. This is the spec a Kotlin
-  Multiplatform implementation builds from.
+- **`shared/`** — `protocol/` (frames, parsers, advert Ed25519 verify, channel crypto,
+  identity), `engine/` (session/handshake/sync/messaging), `transport/` (BLE NUS, USB
+  serial, TCP behind the off-by-default toggle) — all built from
+  **[`MESHCORE_PROTOCOL.md`](MESHCORE_PROTOCOL.md)** and unit-tested against a scripted
+  fake radio (advert-signature round-trip, channel-decrypt vectors, malformed-frame
+  guards).
+- **`androidApp/`** — the full v1 UI: chats (DMs + channels), nodes + contact detail,
+  osmdroid node map, repeater/room admin (login → keystore, CLI), settings (radio params,
+  transports with the stern TCP plaintext warning, redaction-aware diagnostics log).
+  `./gradlew :androidApp:assembleDebug` builds; `testDebugUnitTest` is green.
+- **`iosApp/`** — SwiftUI skeleton (XcodeGen), see `iosApp/README.md` for the staged
+  bring-up plan (needs a Mac).
 
 The `MESHCORE_PROTOCOL.md` §12 security notes capture the specific mistakes to *not* repeat
 (verify advert signatures, never trust channel sender names, keystore for secrets, guard
-every parse, TCP is plaintext).
+every parse, TCP is plaintext) — each is enforced in code, not just documented.
+
+**Not yet validated against real hardware.** The protocol layer is built from the spec +
+reference client; the first on-radio session may surface framing/ordering quirks.
 
 ## Scope
 
