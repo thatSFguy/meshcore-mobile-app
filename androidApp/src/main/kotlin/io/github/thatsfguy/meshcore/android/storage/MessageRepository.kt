@@ -24,6 +24,15 @@ class MessageRepository(
      *  suppresses unread bumps for the open conversation. */
     @Volatile var activeThread: String? = null
 
+    /**
+     * Invoked for each genuinely-new inbound message that is NOT in the
+     * open thread — after DB insert (so channel echo/duplicate delivery
+     * is already filtered) — with (kind, peerKey, senderName, text).
+     * The service posts the system notification from here. CLI replies
+     * (txt_type != plain) never notify.
+     */
+    @Volatile var onNewMessage: ((String, String, String?, String) -> Unit)? = null
+
     fun start(engine: MeshCoreEngine) {
         scope.launch {
             engine.meshEvents.collect { event -> handle(engine, event) }
@@ -96,6 +105,10 @@ class MessageRepository(
                 )
                 if (activeThread != "$KIND_DM|$peer") {
                     db.contacts().bumpUnread(self, peer, System.currentTimeMillis())
+                    // CLI replies are console output, not messages.
+                    if (event.txtType == 0) {
+                        onNewMessage?.invoke(KIND_DM, peer, null, event.text)
+                    }
                 }
             }
 
@@ -116,9 +129,14 @@ class MessageRepository(
                         snr = null,
                     ),
                 )
-                // insert == -1 → duplicate (sync + RX-log double delivery)
+                // insert == -1 → duplicate (sync + RX-log double delivery,
+                // or the echo of our own outgoing message)
                 if (inserted != -1L && activeThread != "$KIND_CHANNEL|${event.channelIndex}") {
                     db.channels().bumpUnread(self, event.channelIndex, System.currentTimeMillis())
+                    onNewMessage?.invoke(
+                        KIND_CHANNEL, event.channelIndex.toString(),
+                        event.senderName, event.text,
+                    )
                 }
             }
 

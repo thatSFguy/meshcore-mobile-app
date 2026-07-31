@@ -124,6 +124,10 @@ class MeshCoreService : Service() {
             engine.state.collect { updateNotification(it) }
         }
 
+        repository.onNewMessage = { kind, peerKey, senderName, text ->
+            postMessageNotification(kind, peerKey, senderName, text)
+        }
+
         registerReceiver(usbDetachReceiver, IntentFilter(UsbManager.ACTION_USB_DEVICE_DETACHED))
         startAsForeground()
 
@@ -256,11 +260,17 @@ class MeshCoreService : Service() {
     // ------------------------------------------------------------------
 
     private fun startAsForeground() {
-        val channel = NotificationChannel(
-            NOTIF_CHANNEL, "Connection status", NotificationManager.IMPORTANCE_LOW,
+        val manager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
+        manager.createNotificationChannel(
+            NotificationChannel(
+                NOTIF_CHANNEL, "Connection status", NotificationManager.IMPORTANCE_LOW,
+            ),
         )
-        (getSystemService(NOTIFICATION_SERVICE) as NotificationManager)
-            .createNotificationChannel(channel)
+        manager.createNotificationChannel(
+            NotificationChannel(
+                MSG_CHANNEL, "Messages", NotificationManager.IMPORTANCE_HIGH,
+            ).apply { description = "Incoming mesh messages" },
+        )
         val notification = buildNotification("Not connected")
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             // Declare only the FGS types whose runtime permissions are
@@ -304,9 +314,63 @@ class MeshCoreService : Service() {
             .build()
     }
 
+    /**
+     * System notification for a genuinely-new inbound message (invoked
+     * by the repository AFTER dedup + not-the-open-thread checks, so a
+     * channel echo or a duplicate RX-log delivery never buzzes).
+     */
+    private fun postMessageNotification(
+        kind: String,
+        peerKey: String,
+        senderName: String?,
+        text: String,
+    ) {
+        if (!prefs.notificationsEnabled) return
+        if (Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            return
+        }
+
+        val isChannel = kind == MessageRepository.KIND_CHANNEL
+        val title = if (isChannel) {
+            val idx = peerKey.toIntOrNull()
+            val name = engine.channels.value.firstOrNull { it.index == idx }?.name
+            "# ${name?.ifBlank { null } ?: "Channel $peerKey"}" +
+                (senderName?.let { " · $it" } ?: "")
+        } else {
+            val contact = engine.contacts.value[peerKey]
+                ?: engine.contacts.value.values.firstOrNull { it.publicKeyHex.startsWith(peerKey) }
+            contact?.name?.ifBlank { null } ?: peerKey.take(12)
+        }
+
+        val intent = PendingIntent.getActivity(
+            this, 0,
+            Intent(this, MainActivity::class.java),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+        val notification = NotificationCompat.Builder(this, MSG_CHANNEL)
+            .setSmallIcon(android.R.drawable.stat_notify_chat)
+            .setContentTitle(title)
+            .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setContentIntent(intent)
+            .setAutoCancel(true)
+            .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+            .build()
+
+        // Stable id per thread: repeated messages update one entry
+        // instead of stacking dozens.
+        val id = MSG_NOTIF_BASE + "$kind|$peerKey".hashCode().and(0xFFFF)
+        (getSystemService(NOTIFICATION_SERVICE) as NotificationManager).notify(id, notification)
+    }
+
     companion object {
         private const val NOTIF_CHANNEL = "meshcore_connection"
+        private const val MSG_CHANNEL = "meshcore_messages"
         private const val NOTIF_ID = 1
+        private const val MSG_NOTIF_BASE = 1000
 
         fun start(context: Context) {
             context.startForegroundService(Intent(context, MeshCoreService::class.java))

@@ -741,6 +741,11 @@ private fun AppSection(vm: MeshCoreViewModel) {
             ) { Text(option.replaceFirstChar { it.uppercase() }) }
         }
     }
+    var notifications by remember { mutableStateOf(vm.prefs.notificationsEnabled) }
+    SettingRow("Message notifications", notifications) {
+        notifications = it
+        vm.prefs.notificationsEnabled = it
+    }
     SettingRow("Diagnostics log (redaction-aware)", diagnostics) {
         diagnostics = it
         vm.prefs.diagnosticsEnabled = it
