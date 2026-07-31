@@ -78,6 +78,9 @@ fun ConversationScreen(
     }
 
     var draft by remember { mutableStateOf("") }
+    var clearConfirm by remember { mutableStateOf(false) }
+    var showContact by remember { mutableStateOf(false) }
+    var showChannelEditor by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
     LaunchedEffect(messages.size) {
         if (messages.isNotEmpty()) listState.animateScrollToItem(messages.size - 1)
@@ -89,26 +92,27 @@ fun ConversationScreen(
         Frames.maxContactMessageBytes()
     }
 
+    val menu = if (isChannel) {
+        listOf(
+            MenuAction("Channel settings…") { showChannelEditor = true },
+            MenuAction("Clear thread…", destructive = true) { clearConfirm = true },
+        )
+    } else {
+        listOf(
+            MenuAction("Contact details…") { showContact = true },
+            MenuAction("Reset path") { vm.resetPath(peerKey) },
+            MenuAction("Clear thread…", destructive = true) { clearConfirm = true },
+        )
+    }
+
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text(title)
-                        if (isChannel) {
-                            Text(
-                                "Channel crypto is obfuscation, not security",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
-                },
-                navigationIcon = {
-                    IconButton(onClick = { nav.popBackStack() }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
+            AppTopBar(
+                title = title,
+                vm = vm,
+                nav = nav,
+                subtitle = if (isChannel) "Obfuscated, not secure" else null,
+                menuActions = menu,
             )
         },
     ) { padding ->
@@ -153,6 +157,46 @@ fun ConversationScreen(
                 }
             }
         }
+    }
+
+    if (clearConfirm) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { clearConfirm = false },
+            title = { Text("Clear this thread?") },
+            text = { Text("Removes the messages from this phone only — nothing is sent to the mesh.") },
+            confirmButton = {
+                androidx.compose.material3.TextButton(onClick = {
+                    vm.clearThread(kind, peerKey)
+                    clearConfirm = false
+                }) { Text("Clear", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(onClick = { clearConfirm = false }) {
+                    Text("Cancel")
+                }
+            },
+        )
+    }
+
+    if (showContact) {
+        contacts.firstOrNull { it.keyHex == peerKey }?.let { contact ->
+            ContactDetailSheet(
+                vm = vm,
+                contact = contact,
+                onDismiss = { showContact = false },
+                onOpenChat = { showContact = false },
+                onOpenAdmin = {
+                    showContact = false
+                    nav.navigate("repeater/$peerKey")
+                },
+            )
+        } ?: run { showContact = false }
+    }
+
+    if (showChannelEditor) {
+        channels.firstOrNull { it.idx == peerKey.toIntOrNull() }?.let { ch ->
+            ChannelEditSheet(vm, ch, onDismiss = { showChannelEditor = false })
+        } ?: run { showChannelEditor = false }
     }
 }
 

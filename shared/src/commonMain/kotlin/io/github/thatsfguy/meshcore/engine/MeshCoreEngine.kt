@@ -129,6 +129,15 @@ class MeshCoreEngine(
     private val _customVars = MutableStateFlow<Map<String, String>>(emptyMap())
     val customVars: StateFlow<Map<String, String>> = _customVars.asStateFlow()
 
+    /** CMD_GET_AUTO_ADD_CONFIG flags (Codes.AUTO_ADD_*), null until read. */
+    private val _autoAddFlags = MutableStateFlow<Int?>(null)
+    val autoAddFlags: StateFlow<Int?> = _autoAddFlags.asStateFlow()
+
+    /** Last flood-scope region set through this app ("" = cleared; the
+     *  radio can't be queried for it, so this is app-side memory only). */
+    private val _floodScopeRegion = MutableStateFlow<String?>(null)
+    val floodScopeRegion: StateFlow<String?> = _floodScopeRegion.asStateFlow()
+
     /** Whether the active link is plaintext (TCP) — surface in the UI. */
     private val _plaintextLink = MutableStateFlow(false)
     val plaintextLink: StateFlow<Boolean> = _plaintextLink.asStateFlow()
@@ -242,6 +251,7 @@ class MeshCoreEngine(
             syncContacts()
             refreshBattery()
             requestCustomVars()
+            requestAutoAddConfig()
             drainMessageQueue()
         } catch (t: Throwable) {
             log("Handshake error: ${t.message}")
@@ -293,6 +303,7 @@ class MeshCoreEngine(
             is DeviceEvent.DeviceInfoReceived -> _deviceInfo.value = event.info
             is DeviceEvent.BatteryAndStorageReceived -> _battery.value = event.info
             is DeviceEvent.CustomVars -> _customVars.value = event.vars
+            is DeviceEvent.AutoAddConfig -> _autoAddFlags.value = event.flags
 
             is DeviceEvent.ContactsStart -> {
                 syncingContacts = LinkedHashMap()
@@ -658,6 +669,57 @@ class MeshCoreEngine(
 
     suspend fun reboot() {
         sendOnly(Frames.reboot())
+    }
+
+    /** Read the radio's RTC (epoch seconds), or null on timeout. */
+    suspend fun deviceTime(): Long? {
+        val ev = sendAndAwait(Frames.getDeviceTime()) { it is DeviceEvent.CurrentTime }
+        return (ev as? DeviceEvent.CurrentTime)?.timestamp
+    }
+
+    /** Set the radio's RTC from the phone clock. */
+    suspend fun syncDeviceClock(): Boolean =
+        sendAndAwait(Frames.setDeviceTime(nowSeconds())) { it is DeviceEvent.Ok } is DeviceEvent.Ok
+
+    /** CMD_SET_OTHER_PARAMS: telemetry-permission flags, advert-location
+     *  policy (0 none / 1 share), multi-acks (0/1). */
+    suspend fun setOtherParams(
+        allowTelemetryFlags: Int,
+        advertLocationPolicy: Int,
+        multiAcks: Int,
+    ): Boolean = okAndRefreshSelf(
+        Frames.setOtherParams(allowTelemetryFlags, advertLocationPolicy, multiAcks),
+    )
+
+    /** CMD_SET_AUTO_ADD_CONFIG (Codes.AUTO_ADD_* flags), then re-read. */
+    suspend fun setAutoAddConfig(flags: Int): Boolean {
+        val ok = sendAndAwait(Frames.setAutoAddConfig(flags)) { it is DeviceEvent.Ok } is DeviceEvent.Ok
+        if (ok) requestAutoAddConfig()
+        return ok
+    }
+
+    suspend fun requestAutoAddConfig() {
+        sendAndAwait(Frames.getAutoAddConfig()) { it is DeviceEvent.AutoAddConfig }
+    }
+
+    /** Set (or clear, with null/blank) the flood scope region tag. */
+    suspend fun setFloodScope(region: String?): Boolean {
+        val scope = region?.takeIf { it.isNotBlank() }
+            ?.let { ChannelCrypto.floodScopeHash(crypto, it) }
+        val ok = sendAndAwait(Frames.setFloodScope(scope)) { it is DeviceEvent.Ok } is DeviceEvent.Ok
+        if (ok) _floodScopeRegion.value = region?.takeIf { it.isNotBlank() } ?: ""
+        return ok
+    }
+
+    /** On-air path-hash width: mode 0..3 → (mode+1) bytes per hop. */
+    suspend fun setPathHashMode(mode: Int): Boolean =
+        sendAndAwait(Frames.setPathHashMode(mode)) { it is DeviceEvent.Ok } is DeviceEvent.Ok
+
+    /** Write a custom var ("key:value", e.g. "gps:1"), then re-read all. */
+    suspend fun setCustomVar(keyValue: String): Boolean {
+        val ok = sendAndAwait(Frames.setCustomVar(keyValue)) { it is DeviceEvent.Ok } is DeviceEvent.Ok
+        if (ok) requestCustomVars()
+        return ok
     }
 
     /** Escape hatch for commands without a 1:1 wrapper (e.g. contact

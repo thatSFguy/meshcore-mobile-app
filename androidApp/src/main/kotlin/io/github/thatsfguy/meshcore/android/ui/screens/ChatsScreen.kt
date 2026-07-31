@@ -48,17 +48,34 @@ import java.util.Date
 fun ChatsScreen(vm: MeshCoreViewModel, nav: NavController) {
     val conversations by vm.conversations.collectAsState()
     val engineState by vm.engineState.collectAsState()
-    val plaintext by vm.plaintextLink.collectAsState()
     var showChannelSheet by remember { mutableStateOf(false) }
+
+    val communityScanLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        com.journeyapps.barcodescanner.ScanContract(),
+    ) { result ->
+        result.contents?.let { vm.joinCommunity(it) }
+    }
 
     Scaffold(
         topBar = {
-            TopAppBar(title = {
-                Column {
-                    Text("Chats")
-                    ConnectionStatusLine(vm)
-                }
-            })
+            AppTopBar(
+                title = "Chats",
+                vm = vm,
+                menuActions = listOf(
+                    MenuAction("Add channel…") { showChannelSheet = true },
+                    MenuAction("Join community QR…") {
+                        communityScanLauncher.launch(
+                            com.journeyapps.barcodescanner.ScanOptions()
+                                .setDesiredBarcodeFormats(com.journeyapps.barcodescanner.ScanOptions.QR_CODE)
+                                .setPrompt("Scan a MeshCore community QR")
+                                .setBeepEnabled(false)
+                                .setCaptureActivity(
+                                    io.github.thatsfguy.meshcore.android.platform.PortraitCaptureActivity::class.java,
+                                ),
+                        )
+                    },
+                ),
+            )
         },
         floatingActionButton = {
             FloatingActionButton(onClick = { showChannelSheet = true }) {

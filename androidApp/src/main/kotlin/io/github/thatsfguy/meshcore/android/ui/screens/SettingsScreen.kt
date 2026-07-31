@@ -1,5 +1,8 @@
 package io.github.thatsfguy.meshcore.android.ui.screens
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -13,43 +16,53 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
-import io.github.thatsfguy.meshcore.android.platform.BleScanner
-import io.github.thatsfguy.meshcore.android.platform.UsbDevices
 import io.github.thatsfguy.meshcore.android.storage.ChannelEntity
 import io.github.thatsfguy.meshcore.android.ui.MeshCoreViewModel
 import io.github.thatsfguy.meshcore.engine.EngineState
-import io.github.thatsfguy.meshcore.transport.ConnectionMemory
-import kotlinx.coroutines.flow.collectLatest
+import io.github.thatsfguy.meshcore.protocol.Codes
+import java.text.DateFormat
+import java.util.Date
 
 /**
- * Settings: Connection (per-transport toggles, TCP behind the stern
- * plaintext warning, saved nodes, add-node scan), Device (name / GPS /
- * radio params / TX power / advert / reboot), Channels, App (theme,
- * diagnostics log). Mirrors SCOPE.md's Settings section.
+ * Settings — the full companion-command surface, organized as
+ * collapsible sections so every MeshCore device command has a clean
+ * home:
+ *
+ *  Connection · Transports · Node identity (name/GPS/advert/QR) ·
+ *  Radio (params/TX power) · Clock · Mesh policies (advert-location,
+ *  multi-acks, telemetry permissions, path-hash mode, flood scope) ·
+ *  Auto-add contacts · Custom variables · Channels · App
+ *
+ * Per the app-wide header contract, screen-level device actions
+ * (advert, share QR, reboot) live in the top-bar ⋮ menu.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -57,17 +70,24 @@ fun SettingsScreen(vm: MeshCoreViewModel) {
     var showAddNode by remember { mutableStateOf(false) }
     var showTcpWarning by remember { mutableStateOf(false) }
     var showSelfQr by remember { mutableStateOf(false) }
+    var rebootConfirm by remember { mutableStateOf(false) }
     var editChannel by remember { mutableStateOf<ChannelEntity?>(null) }
 
-    // Local mirrors of prefs (SharedPreferences isn't observable here).
-    var bleEnabled by remember { mutableStateOf(vm.prefs.bleEnabled) }
-    var usbEnabled by remember { mutableStateOf(vm.prefs.usbEnabled) }
     var tcpEnabled by remember { mutableStateOf(vm.prefs.tcpEnabled) }
-    var autoReconnect by remember { mutableStateOf(vm.prefs.autoReconnect) }
-    var diagnostics by remember { mutableStateOf(vm.prefs.diagnosticsEnabled) }
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text("Settings") }) },
+        topBar = {
+            AppTopBar(
+                title = "Settings",
+                vm = vm,
+                menuActions = listOf(
+                    MenuAction("Send advert (0-hop)") { vm.sendSelfAdvert(flood = false) },
+                    MenuAction("Send advert (flood)") { vm.sendSelfAdvert(flood = true) },
+                    MenuAction("Share my node QR…") { showSelfQr = true },
+                    MenuAction("Reboot radio…", destructive = true) { rebootConfirm = true },
+                ),
+            )
+        },
     ) { padding ->
         Column(
             Modifier
@@ -76,100 +96,33 @@ fun SettingsScreen(vm: MeshCoreViewModel) {
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp),
         ) {
-            // ----------------------------------------------------------
-            SectionHeader("Connection")
-            ConnectionStatusCard(vm)
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = { showAddNode = true }) { Text("Add / connect node") }
-                val engineState by vm.engineState.collectAsState()
-                if (engineState != EngineState.Detached) {
-                    OutlinedButton(onClick = { vm.disconnect() }) { Text("Disconnect") }
-                }
+            ExpandableSection("Connection", initiallyExpanded = true) {
+                ConnectionSection(vm, onAddNode = { showAddNode = true })
             }
-
-            SavedNodesList(vm)
-
-            SettingRow("Auto-reconnect on launch", autoReconnect) {
-                autoReconnect = it
-                vm.prefs.autoReconnect = it
-            }
-
-            SectionHeader("Transports")
-            SettingRow("Bluetooth LE", bleEnabled) {
-                bleEnabled = it
-                vm.prefs.bleEnabled = it
-            }
-            SettingRow("USB serial", usbEnabled) {
-                usbEnabled = it
-                vm.prefs.usbEnabled = it
-            }
-            SettingRow("TCP (unencrypted)", tcpEnabled) { wanted ->
-                if (wanted && !vm.prefs.tcpWarningAccepted) {
-                    showTcpWarning = true
-                } else {
-                    tcpEnabled = wanted
-                    vm.prefs.tcpEnabled = wanted
-                }
-            }
-            if (tcpEnabled) {
-                Text(
-                    "⚠ TCP links are unencrypted and unauthenticated: message text and repeater " +
-                        "login passwords cross the network in the clear.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error,
+            ExpandableSection("Transports") {
+                TransportsSection(
+                    vm,
+                    tcpEnabled = tcpEnabled,
+                    onTcpToggle = { wanted ->
+                        if (wanted && !vm.prefs.tcpWarningAccepted) {
+                            showTcpWarning = true
+                        } else {
+                            tcpEnabled = wanted
+                            vm.prefs.tcpEnabled = wanted
+                        }
+                    },
                 )
             }
-
-            // ----------------------------------------------------------
-            SectionHeader("Device")
-            DeviceSection(vm, onShowSelfQr = { showSelfQr = true })
-
-            // ----------------------------------------------------------
-            SectionHeader("Channels")
-            val channels by vm.dbChannels.collectAsState()
-            if (channels.isEmpty()) {
-                Text(
-                    "No channels configured. Add one from the Chats tab (+).",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+            ExpandableSection("Node identity") {
+                IdentitySection(vm, onShowSelfQr = { showSelfQr = true })
             }
-            for (ch in channels) {
-                Row(
-                    Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column(Modifier.weight(1f)) {
-                        Text("${ch.idx}: ${ch.name.ifBlank { "(unnamed)" }}")
-                    }
-                    TextButton(onClick = { editChannel = ch }) { Text("Edit") }
-                }
-            }
-
-            // ----------------------------------------------------------
-            SectionHeader("App")
-            var theme by remember { mutableStateOf(vm.prefs.theme) }
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp),
-            ) {
-                for (option in listOf("system", "light", "dark")) {
-                    OutlinedButton(
-                        onClick = {
-                            theme = option
-                            vm.prefs.theme = option
-                        },
-                        enabled = theme != option,
-                    ) { Text(option.replaceFirstChar { it.uppercase() }) }
-                }
-            }
-            SettingRow("Diagnostics log (redaction-aware)", diagnostics) {
-                diagnostics = it
-                vm.prefs.diagnosticsEnabled = it
-            }
-            if (diagnostics) {
-                DiagnosticsViewer(vm)
-            }
+            ExpandableSection("Radio") { RadioSection(vm) }
+            ExpandableSection("Clock") { ClockSection(vm) }
+            ExpandableSection("Mesh policies") { PoliciesSection(vm) }
+            ExpandableSection("Auto-add contacts") { AutoAddSection(vm) }
+            ExpandableSection("Custom variables") { CustomVarsSection(vm) }
+            ExpandableSection("Channels") { ChannelsSection(vm, onEdit = { editChannel = it }) }
+            ExpandableSection("App") { AppSection(vm) }
             Spacer(Modifier.height(32.dp))
         }
     }
@@ -191,77 +144,520 @@ fun SettingsScreen(vm: MeshCoreViewModel) {
     if (showSelfQr) {
         SelfQrDialog(vm, onDismiss = { showSelfQr = false })
     }
+    if (rebootConfirm) {
+        AlertDialog(
+            onDismissRequest = { rebootConfirm = false },
+            title = { Text("Reboot radio?") },
+            text = { Text("The connection will drop and re-establish once the radio is back up.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    vm.rebootRadio()
+                    rebootConfirm = false
+                }) { Text("Reboot") }
+            },
+            dismissButton = {
+                TextButton(onClick = { rebootConfirm = false }) { Text("Cancel") }
+            },
+        )
+    }
     editChannel?.let { ch ->
         ChannelEditSheet(vm, ch, onDismiss = { editChannel = null })
     }
 }
 
+// ----------------------------------------------------------------------
+// Section scaffolding
+// ----------------------------------------------------------------------
+
 @Composable
-private fun SectionHeader(title: String) {
-    Text(
-        title,
-        style = MaterialTheme.typography.titleMedium,
-        color = MaterialTheme.colorScheme.primary,
-        modifier = Modifier.padding(top = 20.dp, bottom = 8.dp),
-    )
+private fun ExpandableSection(
+    title: String,
+    initiallyExpanded: Boolean = false,
+    content: @Composable () -> Unit,
+) {
+    var expanded by rememberSaveable(title) { mutableStateOf(initiallyExpanded) }
+    Column(Modifier.fillMaxWidth()) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clickable { expanded = !expanded }
+                .padding(vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                title,
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.weight(1f),
+            )
+            Icon(
+                if (expanded) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
+                contentDescription = if (expanded) "Collapse" else "Expand",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        AnimatedVisibility(visible = expanded) {
+            Column(Modifier.padding(bottom = 8.dp)) { content() }
+        }
+        HorizontalDivider()
+    }
 }
 
 @Composable
-private fun SettingRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+private fun SettingRow(label: String, checked: Boolean, enabled: Boolean = true, onChange: (Boolean) -> Unit) {
     Row(
         Modifier.fillMaxWidth().padding(vertical = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(label, Modifier.weight(1f))
-        Switch(checked = checked, onCheckedChange = onChange)
+        Switch(checked = checked, onCheckedChange = onChange, enabled = enabled)
     }
 }
 
 @Composable
-private fun ConnectionStatusCard(vm: MeshCoreViewModel) {
+private fun HintText(text: String) {
+    Text(
+        text,
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+}
+
+/** Single-choice chip row (used for the small enumerated policies). */
+@Composable
+private fun ChoiceChips(
+    options: List<String>,
+    selected: Int,
+    enabled: Boolean = true,
+    onSelect: (Int) -> Unit,
+) {
+    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        options.forEachIndexed { i, label ->
+            FilterChip(
+                selected = selected == i,
+                onClick = { if (enabled) onSelect(i) },
+                label = { Text(label) },
+                enabled = enabled,
+            )
+        }
+    }
+}
+
+// ----------------------------------------------------------------------
+// Sections
+// ----------------------------------------------------------------------
+
+@Composable
+private fun ConnectionSection(vm: MeshCoreViewModel, onAddNode: () -> Unit) {
     val engineState by vm.engineState.collectAsState()
     val label by vm.connectionLabel.collectAsState()
     val plaintext by vm.plaintextLink.collectAsState()
     val lastError by vm.lastError.collectAsState()
     val battery by vm.battery.collectAsState()
-    val self by vm.selfInfo.collectAsState()
+    var autoReconnect by remember { mutableStateOf(vm.prefs.autoReconnect) }
 
-    Column(Modifier.padding(vertical = 4.dp)) {
+    Text(
+        when (engineState) {
+            EngineState.Ready -> "Connected: ${label ?: "radio"}"
+            EngineState.Handshaking -> "Handshaking with ${label ?: "radio"}…"
+            EngineState.Connecting -> "Connecting…"
+            EngineState.Detached -> "Not connected"
+        },
+        style = MaterialTheme.typography.bodyLarge,
+    )
+    if (plaintext && engineState == EngineState.Ready) {
         Text(
-            when (engineState) {
-                EngineState.Ready -> "Connected: ${label ?: "radio"}"
-                EngineState.Handshaking -> "Handshaking with ${label ?: "radio"}…"
-                EngineState.Connecting -> "Connecting…"
-                EngineState.Detached -> "Not connected"
-            },
-            style = MaterialTheme.typography.bodyLarge,
+            "⚠ This link is UNENCRYPTED (TCP)",
+            color = MaterialTheme.colorScheme.error,
+            style = MaterialTheme.typography.bodySmall,
         )
-        if (plaintext && engineState == EngineState.Ready) {
-            Text(
-                "⚠ This link is UNENCRYPTED (TCP)",
-                color = MaterialTheme.colorScheme.error,
-                style = MaterialTheme.typography.bodySmall,
-            )
+    }
+    battery?.let {
+        HintText("Battery: %.2f V".format(it.batteryMillivolts / 1000.0))
+    }
+    lastError?.let {
+        Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+    }
+    Spacer(Modifier.height(4.dp))
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        OutlinedButton(onClick = onAddNode) { Text("Add / connect node") }
+        if (engineState != EngineState.Detached) {
+            OutlinedButton(onClick = { vm.disconnect() }) { Text("Disconnect") }
         }
-        self?.let {
-            Text(
-                "Node \"${it.name}\" · ${it.publicKeyHex.take(16)}…",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+    }
+    SavedNodesList(vm)
+    SettingRow("Auto-reconnect on launch", autoReconnect) {
+        autoReconnect = it
+        vm.prefs.autoReconnect = it
+    }
+}
+
+@Composable
+private fun TransportsSection(
+    vm: MeshCoreViewModel,
+    tcpEnabled: Boolean,
+    onTcpToggle: (Boolean) -> Unit,
+) {
+    var bleEnabled by remember { mutableStateOf(vm.prefs.bleEnabled) }
+    var usbEnabled by remember { mutableStateOf(vm.prefs.usbEnabled) }
+
+    SettingRow("Bluetooth LE", bleEnabled) {
+        bleEnabled = it
+        vm.prefs.bleEnabled = it
+    }
+    SettingRow("USB serial", usbEnabled) {
+        usbEnabled = it
+        vm.prefs.usbEnabled = it
+    }
+    SettingRow("TCP (unencrypted)", tcpEnabled, onChange = onTcpToggle)
+    if (tcpEnabled) {
+        Text(
+            "⚠ TCP links are unencrypted and unauthenticated: message text and repeater " +
+                "login passwords cross the network in the clear.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.error,
+        )
+    }
+    HintText("A disabled transport is never started — it never scans, connects, or parses bytes.")
+}
+
+@Composable
+private fun IdentitySection(vm: MeshCoreViewModel, onShowSelfQr: () -> Unit) {
+    val self by vm.selfInfo.collectAsState()
+    val info = self
+    if (info == null) {
+        HintText("Connect to a radio to edit node identity.")
+        return
+    }
+    var name by remember(info.name) { mutableStateOf(info.name) }
+    var lat by remember(info.latitude) { mutableStateOf(info.latitude.toString()) }
+    var lon by remember(info.longitude) { mutableStateOf(info.longitude.toString()) }
+
+    Text(
+        info.publicKeyHex,
+        style = MaterialTheme.typography.bodySmall,
+        fontFamily = FontFamily.Monospace,
+    )
+    Spacer(Modifier.height(4.dp))
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        OutlinedTextField(
+            value = name,
+            onValueChange = { name = it },
+            label = { Text("Advertised name") },
+            singleLine = true,
+            modifier = Modifier.weight(1f),
+        )
+        TextButton(
+            onClick = { vm.setAdvertName(name.trim()) },
+            enabled = name.trim() != info.name && name.isNotBlank(),
+        ) { Text("Set") }
+    }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        OutlinedTextField(
+            value = lat, onValueChange = { lat = it },
+            label = { Text("Latitude") }, singleLine = true, modifier = Modifier.weight(1f),
+        )
+        Spacer(Modifier.width(8.dp))
+        OutlinedTextField(
+            value = lon, onValueChange = { lon = it },
+            label = { Text("Longitude") }, singleLine = true, modifier = Modifier.weight(1f),
+        )
+        TextButton(onClick = {
+            val la = lat.toDoubleOrNull()
+            val lo = lon.toDoubleOrNull()
+            if (la != null && lo != null && la in -90.0..90.0 && lo in -180.0..180.0) {
+                vm.setAdvertLocation(la, lo)
+            }
+        }) { Text("Set") }
+    }
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        OutlinedButton(onClick = { vm.sendSelfAdvert(flood = false) }) { Text("Advert (0-hop)") }
+        OutlinedButton(onClick = { vm.sendSelfAdvert(flood = true) }) { Text("Advert (flood)") }
+        OutlinedButton(onClick = onShowSelfQr) { Text("Share QR") }
+    }
+}
+
+@Composable
+private fun RadioSection(vm: MeshCoreViewModel) {
+    val self by vm.selfInfo.collectAsState()
+    val info = self
+    if (info == null) {
+        HintText("Connect to a radio to edit radio parameters.")
+        return
+    }
+    var freq by remember(info.freqHz) { mutableStateOf(info.freqHz.toString()) }
+    var bw by remember(info.bwHz) { mutableStateOf(info.bwHz.toString()) }
+    var sf by remember(info.sf) { mutableStateOf(info.sf.toString()) }
+    var cr by remember(info.cr) { mutableStateOf(info.cr.toString()) }
+    var tx by remember(info.txPowerDbm) { mutableStateOf(info.txPowerDbm.toString()) }
+
+    HintText("Parameters must match your mesh or the node goes deaf.")
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        OutlinedTextField(
+            value = freq, onValueChange = { freq = it },
+            label = { Text("Freq (Hz)") }, singleLine = true, modifier = Modifier.weight(1.2f),
+        )
+        Spacer(Modifier.width(4.dp))
+        OutlinedTextField(
+            value = bw, onValueChange = { bw = it },
+            label = { Text("BW (Hz)") }, singleLine = true, modifier = Modifier.weight(1f),
+        )
+        Spacer(Modifier.width(4.dp))
+        OutlinedTextField(
+            value = sf, onValueChange = { sf = it },
+            label = { Text("SF") }, singleLine = true, modifier = Modifier.weight(0.5f),
+        )
+        Spacer(Modifier.width(4.dp))
+        OutlinedTextField(
+            value = cr, onValueChange = { cr = it },
+            label = { Text("CR") }, singleLine = true, modifier = Modifier.weight(0.5f),
+        )
+    }
+    TextButton(onClick = {
+        val f = freq.toLongOrNull()
+        val b = bw.toLongOrNull()
+        val s = sf.toIntOrNull()
+        val c = cr.toIntOrNull()
+        if (f != null && f in 300_000..2_500_000_000 && b != null && b in 7_000..500_000 &&
+            s != null && s in 5..12 && c != null && c in 5..8
+        ) {
+            vm.setRadioParams(f, b, s, c)
         }
-        battery?.let {
-            Text(
-                "Battery: %.2f V".format(it.batteryMillivolts / 1000.0),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+    }) { Text("Apply radio params") }
+
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        OutlinedTextField(
+            value = tx, onValueChange = { tx = it },
+            label = { Text("TX power (dBm, max ${info.maxTxPowerDbm})") },
+            singleLine = true,
+            modifier = Modifier.weight(1f),
+        )
+        TextButton(onClick = {
+            tx.toIntOrNull()?.takeIf { it in 1..info.maxTxPowerDbm }?.let { vm.setTxPower(it) }
+        }) { Text("Set") }
+    }
+}
+
+@Composable
+private fun ClockSection(vm: MeshCoreViewModel) {
+    val engineState by vm.engineState.collectAsState()
+    var radioTime by remember { mutableStateOf<Long?>(null) }
+    var refresh by remember { mutableIntStateOf(0) }
+    LaunchedEffect(engineState, refresh) {
+        if (engineState == EngineState.Ready) radioTime = vm.deviceTime()
+    }
+    if (engineState != EngineState.Ready) {
+        HintText("Connect to a radio to read its clock.")
+        return
+    }
+    Text(
+        "Radio clock: " + (radioTime?.let {
+            DateFormat.getDateTimeInstance().format(Date(it * 1000)) +
+                "  (skew ${it - System.currentTimeMillis() / 1000}s)"
+        } ?: "reading…"),
+    )
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        OutlinedButton(onClick = {
+            vm.syncDeviceClock()
+            refresh++
+        }) { Text("Sync from phone") }
+        OutlinedButton(onClick = { refresh++ }) { Text("Re-read") }
+    }
+    HintText("Radios without GPS lose their clock on power-cycle; the app also auto-corrects skew >30 s on connect.")
+}
+
+@Composable
+private fun PoliciesSection(vm: MeshCoreViewModel) {
+    val self by vm.selfInfo.collectAsState()
+    val info = self
+    if (info == null) {
+        HintText("Connect to a radio to edit mesh policies.")
+        return
+    }
+
+    // Decompose the SELF_INFO policy bytes.
+    val teleBase = info.telemetryModes and 0x03
+    val teleLoc = (info.telemetryModes shr 2) and 0x03
+    val teleEnv = (info.telemetryModes shr 4) and 0x03
+
+    fun apply(
+        base: Int = teleBase, loc: Int = teleLoc, env: Int = teleEnv,
+        locPolicy: Int = info.advertLocPolicy, multiAcks: Int = info.multiAcks,
+    ) {
+        vm.setOtherParams((env shl 4) or (loc shl 2) or base, locPolicy, multiAcks)
+    }
+
+    SettingRow("Include location in adverts", info.advertLocPolicy == 1) {
+        apply(locPolicy = if (it) 1 else 0)
+    }
+    SettingRow("Multi-acks (redundant ACK copies)", info.multiAcks != 0) {
+        apply(multiAcks = if (it) 1 else 0)
+    }
+
+    Spacer(Modifier.height(4.dp))
+    Text("Telemetry access", style = MaterialTheme.typography.labelLarge)
+    HintText("Who may read this node's telemetry: Deny / per-contact flags / everyone.")
+    val teleOptions = listOf("Deny", "Flags", "All")
+    Text("Base (battery)", style = MaterialTheme.typography.bodySmall)
+    ChoiceChips(teleOptions, teleBase) { apply(base = it) }
+    Text("Location", style = MaterialTheme.typography.bodySmall)
+    ChoiceChips(teleOptions, teleLoc) { apply(loc = it) }
+    Text("Environment", style = MaterialTheme.typography.bodySmall)
+    ChoiceChips(teleOptions, teleEnv) { apply(env = it) }
+
+    Spacer(Modifier.height(8.dp))
+    Text("On-air path hash width", style = MaterialTheme.typography.labelLarge)
+    HintText("Bytes per hop in packet paths (mode 0–3 → 1–4 bytes). All nodes on a mesh must match; firmware v10+.")
+    var pathMode by remember { mutableIntStateOf(0) }
+    ChoiceChips(listOf("1 B", "2 B", "3 B", "4 B"), pathMode) {
+        pathMode = it
+        vm.setPathHashMode(it)
+    }
+
+    Spacer(Modifier.height(8.dp))
+    Text("Flood scope region", style = MaterialTheme.typography.labelLarge)
+    HintText("Restricts flood routing to a named region (#region tag). Blank = global. Radio state can't be read back — this shows the last value set from this app.")
+    val currentRegion by vm.floodScopeRegion.collectAsState()
+    var region by remember(currentRegion) { mutableStateOf(currentRegion ?: "") }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        OutlinedTextField(
+            value = region,
+            onValueChange = { region = it },
+            label = { Text("Region (e.g. bayarea)") },
+            singleLine = true,
+            modifier = Modifier.weight(1f),
+        )
+        TextButton(onClick = { vm.setFloodScope(region.trim()) }, enabled = region.isNotBlank()) {
+            Text("Set")
         }
-        lastError?.let {
-            Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+        TextButton(onClick = {
+            region = ""
+            vm.setFloodScope(null)
+        }) { Text("Clear") }
+    }
+}
+
+@Composable
+private fun AutoAddSection(vm: MeshCoreViewModel) {
+    val flags by vm.autoAddFlags.collectAsState()
+    val current = flags
+    if (current == null) {
+        HintText("Connect to a radio to read the auto-add policy.")
+        return
+    }
+    HintText("Which advert types are added to the contact list automatically when heard.")
+
+    fun toggle(bit: Int, on: Boolean) {
+        vm.setAutoAddConfig(if (on) current or bit else current and bit.inv())
+    }
+    SettingRow("Companions (chat)", current and Codes.AUTO_ADD_CHAT != 0) {
+        toggle(Codes.AUTO_ADD_CHAT, it)
+    }
+    SettingRow("Repeaters", current and Codes.AUTO_ADD_REPEATER != 0) {
+        toggle(Codes.AUTO_ADD_REPEATER, it)
+    }
+    SettingRow("Room servers", current and Codes.AUTO_ADD_ROOM != 0) {
+        toggle(Codes.AUTO_ADD_ROOM, it)
+    }
+    SettingRow("Sensors", current and Codes.AUTO_ADD_SENSOR != 0) {
+        toggle(Codes.AUTO_ADD_SENSOR, it)
+    }
+    SettingRow("Overwrite oldest when full", current and Codes.AUTO_ADD_OVERWRITE_OLDEST != 0) {
+        toggle(Codes.AUTO_ADD_OVERWRITE_OLDEST, it)
+    }
+}
+
+@Composable
+private fun CustomVarsSection(vm: MeshCoreViewModel) {
+    val vars by vm.customVars.collectAsState()
+    val engineState by vm.engineState.collectAsState()
+    if (engineState != EngineState.Ready) {
+        HintText("Connect to a radio to read custom variables.")
+        return
+    }
+
+    // GPS is the variable users actually flip — give it a switch.
+    if (vars.containsKey("gps")) {
+        SettingRow("GPS module", vars["gps"] == "1") {
+            vm.setCustomVar("gps", if (it) "1" else "0")
+        }
+    }
+    if (vars.isEmpty()) {
+        HintText("No custom variables reported by this firmware.")
+    } else {
+        for ((k, v) in vars) {
+            Text("$k: $v", fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
+        }
+    }
+    Spacer(Modifier.height(4.dp))
+    var key by remember { mutableStateOf("") }
+    var value by remember { mutableStateOf("") }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        OutlinedTextField(
+            value = key, onValueChange = { key = it },
+            label = { Text("Variable") }, singleLine = true, modifier = Modifier.weight(1f),
+        )
+        Spacer(Modifier.width(8.dp))
+        OutlinedTextField(
+            value = value, onValueChange = { value = it },
+            label = { Text("Value") }, singleLine = true, modifier = Modifier.weight(1f),
+        )
+        TextButton(
+            onClick = {
+                vm.setCustomVar(key.trim(), value.trim())
+                key = ""; value = ""
+            },
+            enabled = key.isNotBlank(),
+        ) { Text("Set") }
+    }
+}
+
+@Composable
+private fun ChannelsSection(vm: MeshCoreViewModel, onEdit: (ChannelEntity) -> Unit) {
+    val channels by vm.dbChannels.collectAsState()
+    if (channels.isEmpty()) {
+        HintText("No channels configured. Add one from the Chats tab (+ or ⋮).")
+        return
+    }
+    for (ch in channels) {
+        Row(
+            Modifier.fillMaxWidth().padding(vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("${ch.idx}: ${ch.name.ifBlank { "(unnamed)" }}", Modifier.weight(1f))
+            TextButton(onClick = { onEdit(ch) }) { Text("Edit") }
         }
     }
 }
+
+@Composable
+private fun AppSection(vm: MeshCoreViewModel) {
+    var theme by remember { mutableStateOf(vm.prefs.theme) }
+    var diagnostics by remember { mutableStateOf(vm.prefs.diagnosticsEnabled) }
+
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        for (option in listOf("system", "light", "dark")) {
+            OutlinedButton(
+                onClick = {
+                    theme = option
+                    vm.prefs.theme = option
+                },
+                enabled = theme != option,
+            ) { Text(option.replaceFirstChar { it.uppercase() }) }
+        }
+    }
+    SettingRow("Diagnostics log (redaction-aware)", diagnostics) {
+        diagnostics = it
+        vm.prefs.diagnosticsEnabled = it
+    }
+    if (diagnostics) {
+        DiagnosticsViewer(vm)
+    }
+}
+
+// ----------------------------------------------------------------------
+// Shared pieces (also used by AddNodeSheet)
+// ----------------------------------------------------------------------
 
 @Composable
 private fun SavedNodesList(vm: MeshCoreViewModel) {
@@ -297,10 +693,31 @@ private fun SavedNodesList(vm: MeshCoreViewModel) {
     }
 }
 
-/**
- * The stern one-time warning SCOPE.md requires before TCP can be
- * enabled.
- */
+@Composable
+private fun DiagnosticsViewer(vm: MeshCoreViewModel) {
+    val lines by vm.diagnosticsLines.collectAsState()
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .heightIn(max = 240.dp)
+            .padding(top = 4.dp),
+    ) {
+        if (lines.isEmpty()) {
+            HintText("Log is empty. Secrets (passwords, keys, PSKs) are redacted before lines land here.")
+        }
+        LazyColumn {
+            items(lines.size) { i ->
+                Text(
+                    lines[lines.size - 1 - i],
+                    style = MaterialTheme.typography.bodySmall,
+                    fontFamily = FontFamily.Monospace,
+                )
+            }
+        }
+    }
+}
+
+/** The stern one-time warning SCOPE.md requires before TCP can be enabled. */
 @Composable
 fun TcpSternWarningDialog(onAccept: () -> Unit, onCancel: () -> Unit) {
     AlertDialog(
@@ -329,19 +746,21 @@ fun TcpSternWarningDialog(onAccept: () -> Unit, onCancel: () -> Unit) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AddNodeSheet(vm: MeshCoreViewModel, tcpEnabled: Boolean, onDismiss: () -> Unit) {
-    val context = LocalContext.current
-    var scanning by remember { mutableStateOf(vm.prefs.bleEnabled) }
-    var discovered by remember { mutableStateOf(listOf<io.github.thatsfguy.meshcore.android.platform.DiscoveredDevice>()) }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var discovered by remember {
+        mutableStateOf(listOf<io.github.thatsfguy.meshcore.android.platform.DiscoveredDevice>())
+    }
 
-    if (scanning) {
-        androidx.compose.runtime.LaunchedEffect(Unit) {
+    if (vm.prefs.bleEnabled) {
+        LaunchedEffect(Unit) {
             runCatching {
-                BleScanner.scan(context).collectLatest { discovered = it }
+                io.github.thatsfguy.meshcore.android.platform.BleScanner.scan(context)
+                    .collect { discovered = it }
             }
         }
     }
 
-    ModalBottomSheet(onDismissRequest = onDismiss) {
+    androidx.compose.material3.ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(Modifier.padding(horizontal = 24.dp).padding(bottom = 32.dp)) {
             Text("Add node", style = MaterialTheme.typography.headlineSmall)
 
@@ -352,11 +771,7 @@ fun AddNodeSheet(vm: MeshCoreViewModel, tcpEnabled: Boolean, onDismiss: () -> Un
                     modifier = Modifier.padding(top = 12.dp),
                 )
                 if (discovered.isEmpty()) {
-                    Text(
-                        "Scanning… make sure the radio is powered and advertising.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    HintText("Scanning… make sure the radio is powered and advertising.")
                 }
                 LazyColumn(Modifier.heightIn(max = 220.dp)) {
                     items(discovered, key = { it.address }) { dev ->
@@ -380,23 +795,18 @@ fun AddNodeSheet(vm: MeshCoreViewModel, tcpEnabled: Boolean, onDismiss: () -> Un
                     }
                 }
             } else {
-                Text(
-                    "Bluetooth transport is disabled in Settings → Transports.",
-                    style = MaterialTheme.typography.bodySmall,
-                )
+                HintText("Bluetooth transport is disabled in Settings → Transports.")
             }
 
             HorizontalDivider(Modifier.padding(vertical = 8.dp))
 
             if (vm.prefs.usbEnabled) {
                 Text("USB radios attached", style = MaterialTheme.typography.titleSmall)
-                val usbDevices = remember { UsbDevices.attached(context) }
+                val usbDevices = remember {
+                    io.github.thatsfguy.meshcore.android.platform.UsbDevices.attached(context)
+                }
                 if (usbDevices.isEmpty()) {
-                    Text(
-                        "No supported USB-serial device attached (CDC-ACM / CP210x).",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    HintText("No supported USB-serial device attached (CDC-ACM / CP210x).")
                 }
                 for (attached in usbDevices) {
                     Row(
@@ -412,9 +822,10 @@ fun AddNodeSheet(vm: MeshCoreViewModel, tcpEnabled: Boolean, onDismiss: () -> Un
                             )
                         }
                         TextButton(onClick = {
-                            UsbDevices.requestPermission(context, attached.device) { granted ->
-                                if (granted) vm.connectUsb(attached.device)
-                            }
+                            io.github.thatsfguy.meshcore.android.platform.UsbDevices
+                                .requestPermission(context, attached.device) { granted ->
+                                    if (granted) vm.connectUsb(attached.device)
+                                }
                             onDismiss()
                         }) { Text("Connect") }
                     }
@@ -453,175 +864,9 @@ fun AddNodeSheet(vm: MeshCoreViewModel, tcpEnabled: Boolean, onDismiss: () -> Un
                     }
                 }) { Text("Connect (unencrypted)") }
             } else {
-                Text(
+                HintText(
                     "TCP transport is off. Enable it in Settings → Transports (requires " +
                         "acknowledging the plaintext warning).",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun DeviceSection(vm: MeshCoreViewModel, onShowSelfQr: () -> Unit) {
-    val self by vm.selfInfo.collectAsState()
-    val info = self
-
-    if (info == null) {
-        Text(
-            "Connect to a radio to edit device settings.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        return
-    }
-
-    var name by remember(info.name) { mutableStateOf(info.name) }
-    var lat by remember(info.latitude) { mutableStateOf(info.latitude.toString()) }
-    var lon by remember(info.longitude) { mutableStateOf(info.longitude.toString()) }
-    var freq by remember(info.freqHz) { mutableStateOf(info.freqHz.toString()) }
-    var bw by remember(info.bwHz) { mutableStateOf(info.bwHz.toString()) }
-    var sf by remember(info.sf) { mutableStateOf(info.sf.toString()) }
-    var cr by remember(info.cr) { mutableStateOf(info.cr.toString()) }
-    var tx by remember(info.txPowerDbm) { mutableStateOf(info.txPowerDbm.toString()) }
-
-    Column {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            OutlinedTextField(
-                value = name,
-                onValueChange = { name = it },
-                label = { Text("Advertised name") },
-                singleLine = true,
-                modifier = Modifier.weight(1f),
-            )
-            TextButton(
-                onClick = { vm.setAdvertName(name.trim()) },
-                enabled = name.trim() != info.name && name.isNotBlank(),
-            ) { Text("Set") }
-        }
-
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            OutlinedTextField(
-                value = lat, onValueChange = { lat = it },
-                label = { Text("Latitude") }, singleLine = true, modifier = Modifier.weight(1f),
-            )
-            Spacer(Modifier.width(8.dp))
-            OutlinedTextField(
-                value = lon, onValueChange = { lon = it },
-                label = { Text("Longitude") }, singleLine = true, modifier = Modifier.weight(1f),
-            )
-            TextButton(onClick = {
-                val la = lat.toDoubleOrNull()
-                val lo = lon.toDoubleOrNull()
-                if (la != null && lo != null && la in -90.0..90.0 && lo in -180.0..180.0) {
-                    vm.setAdvertLocation(la, lo)
-                }
-            }) { Text("Set") }
-        }
-
-        Text(
-            "Radio parameters — must match your mesh or the node goes deaf",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(top = 8.dp),
-        )
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            OutlinedTextField(
-                value = freq, onValueChange = { freq = it },
-                label = { Text("Freq (Hz)") }, singleLine = true, modifier = Modifier.weight(1.2f),
-            )
-            Spacer(Modifier.width(4.dp))
-            OutlinedTextField(
-                value = bw, onValueChange = { bw = it },
-                label = { Text("BW (Hz)") }, singleLine = true, modifier = Modifier.weight(1f),
-            )
-            Spacer(Modifier.width(4.dp))
-            OutlinedTextField(
-                value = sf, onValueChange = { sf = it },
-                label = { Text("SF") }, singleLine = true, modifier = Modifier.weight(0.5f),
-            )
-            Spacer(Modifier.width(4.dp))
-            OutlinedTextField(
-                value = cr, onValueChange = { cr = it },
-                label = { Text("CR") }, singleLine = true, modifier = Modifier.weight(0.5f),
-            )
-        }
-        TextButton(onClick = {
-            val f = freq.toLongOrNull()
-            val b = bw.toLongOrNull()
-            val s = sf.toIntOrNull()
-            val c = cr.toIntOrNull()
-            if (f != null && f in 300_000..2_500_000_000 && b != null && b in 7_000..500_000 &&
-                s != null && s in 5..12 && c != null && c in 5..8
-            ) {
-                vm.setRadioParams(f, b, s, c)
-            }
-        }) { Text("Apply radio params") }
-
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            OutlinedTextField(
-                value = tx, onValueChange = { tx = it },
-                label = { Text("TX power (dBm, max ${info.maxTxPowerDbm})") },
-                singleLine = true,
-                modifier = Modifier.weight(1f),
-            )
-            TextButton(onClick = {
-                tx.toIntOrNull()?.takeIf { it in 1..info.maxTxPowerDbm }?.let { vm.setTxPower(it) }
-            }) { Text("Set") }
-        }
-
-        Row(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = { vm.sendSelfAdvert(flood = false) }) { Text("Advert (0-hop)") }
-            OutlinedButton(onClick = { vm.sendSelfAdvert(flood = true) }) { Text("Advert (flood)") }
-            OutlinedButton(onClick = onShowSelfQr) { Text("Share QR") }
-        }
-        var rebootConfirm by remember { mutableStateOf(false) }
-        TextButton(onClick = { rebootConfirm = true }) {
-            Text("Reboot radio", color = MaterialTheme.colorScheme.error)
-        }
-        if (rebootConfirm) {
-            AlertDialog(
-                onDismissRequest = { rebootConfirm = false },
-                title = { Text("Reboot radio?") },
-                text = { Text("The connection will drop and re-establish once the radio is back up.") },
-                confirmButton = {
-                    TextButton(onClick = {
-                        vm.rebootRadio()
-                        rebootConfirm = false
-                    }) { Text("Reboot") }
-                },
-                dismissButton = {
-                    TextButton(onClick = { rebootConfirm = false }) { Text("Cancel") }
-                },
-            )
-        }
-    }
-}
-
-@Composable
-private fun DiagnosticsViewer(vm: MeshCoreViewModel) {
-    val lines by vm.diagnosticsLines.collectAsState()
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .heightIn(max = 240.dp)
-            .padding(top = 4.dp),
-    ) {
-        if (lines.isEmpty()) {
-            Text(
-                "Log is empty. Secrets (passwords, keys, PSKs) are redacted before lines land here.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        LazyColumn {
-            items(lines.size) { i ->
-                Text(
-                    lines[lines.size - 1 - i],
-                    style = MaterialTheme.typography.bodySmall,
-                    fontFamily = FontFamily.Monospace,
                 )
             }
         }

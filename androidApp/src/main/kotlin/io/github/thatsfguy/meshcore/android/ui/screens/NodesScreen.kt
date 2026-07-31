@@ -65,15 +65,27 @@ fun NodesScreen(vm: MeshCoreViewModel, nav: NavController) {
     val scanLauncher = rememberLauncherForActivityResult(ScanContract()) { result ->
         result.contents?.let { vm.importContactUri(it) }
     }
+    var showSelfQr by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
-            TopAppBar(title = {
-                Column {
-                    Text("Nodes")
-                    ConnectionStatusLine(vm)
-                }
-            })
+            AppTopBar(
+                title = "Nodes",
+                vm = vm,
+                menuActions = listOf(
+                    MenuAction("Import contact QR…") {
+                        scanLauncher.launch(
+                            ScanOptions()
+                                .setDesiredBarcodeFormats(ScanOptions.QR_CODE)
+                                .setPrompt("Scan a meshcore:// contact QR")
+                                .setBeepEnabled(false)
+                                .setCaptureActivity(PortraitCaptureActivity::class.java),
+                        )
+                    },
+                    MenuAction("Share my node QR…") { showSelfQr = true },
+                    MenuAction("Sync contacts") { vm.syncContactsNow() },
+                ),
+            )
         },
         floatingActionButton = {
             FloatingActionButton(onClick = {
@@ -112,6 +124,10 @@ fun NodesScreen(vm: MeshCoreViewModel, nav: NavController) {
                 }
             }
         }
+    }
+
+    if (showSelfQr) {
+        SelfQrDialog(vm, onDismiss = { showSelfQr = false })
     }
 
     detail?.let { contact ->

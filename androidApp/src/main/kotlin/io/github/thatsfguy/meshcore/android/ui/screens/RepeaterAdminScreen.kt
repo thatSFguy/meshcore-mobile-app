@@ -80,22 +80,23 @@ fun RepeaterAdminScreen(vm: MeshCoreViewModel, nav: NavController, keyHex: Strin
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text(title)
-                        Text(
-                            if (contact?.type == Codes.ADV_TYPE_ROOM) "Room server admin" else "Repeater admin",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                },
-                navigationIcon = {
-                    IconButton(onClick = { nav.popBackStack() }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
+            AppTopBar(
+                title = title,
+                vm = vm,
+                nav = nav,
+                subtitle = if (contact?.type == Codes.ADV_TYPE_ROOM) "Room server admin" else "Repeater admin",
+                menuActions = listOf(
+                    MenuAction("Request status") { vm.requestRepeaterStatus(keyHex) },
+                    MenuAction("Sync repeater clock") {
+                        vm.sendCli(keyHex, "time ${System.currentTimeMillis() / 1000}")
+                    },
+                    MenuAction("Clear console…", destructive = true) {
+                        vm.clearThread("dm", keyHex)
+                    },
+                    MenuAction("Forget saved password", destructive = true) {
+                        vm.forgetLoginPassword(keyHex)
+                    },
+                ),
             )
         },
     ) { padding ->

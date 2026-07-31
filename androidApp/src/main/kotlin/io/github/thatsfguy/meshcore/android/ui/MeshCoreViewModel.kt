@@ -548,6 +548,61 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
 
     fun setTxPower(dbm: Int) = deviceAction("TX power updated") { it.setTxPower(dbm) }
 
+    // --- Mesh policy / advanced device settings (CLI-equivalent
+    //     companion commands, Settings revamp) ---
+
+    val autoAddFlags: StateFlow<Int?> = _service.flatMapLatest {
+        it?.engine?.autoAddFlags ?: flowOf(null)
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    val customVars: StateFlow<Map<String, String>> = _service.flatMapLatest {
+        it?.engine?.customVars ?: flowOf(emptyMap())
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
+
+    val floodScopeRegion: StateFlow<String?> = _service.flatMapLatest {
+        it?.engine?.floodScopeRegion ?: flowOf(null)
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    fun setOtherParams(telemetryFlags: Int, advertLocPolicy: Int, multiAcks: Int) =
+        deviceAction("Policies updated") {
+            it.setOtherParams(telemetryFlags, advertLocPolicy, multiAcks)
+        }
+
+    fun setAutoAddConfig(flags: Int) =
+        deviceAction("Auto-add policy updated") { it.setAutoAddConfig(flags) }
+
+    fun setFloodScope(region: String?) =
+        deviceAction(
+            if (region.isNullOrBlank()) "Flood scope cleared" else "Flood scope set to #${region.removePrefix("#")}",
+        ) { it.setFloodScope(region) }
+
+    fun setPathHashMode(mode: Int) =
+        deviceAction("Path hash mode set to $mode (${mode + 1} B/hop)") { it.setPathHashMode(mode) }
+
+    fun setCustomVar(key: String, value: String) =
+        deviceAction("$key updated") { it.setCustomVar("$key:$value") }
+
+    fun syncDeviceClock() = deviceAction("Radio clock synced") { it.syncDeviceClock() }
+
+    suspend fun deviceTime(): Long? = _service.value?.engine?.deviceTime()
+
+    fun syncContactsNow() {
+        val svc = _service.value ?: return
+        viewModelScope.launch { runCatching { svc.engine.syncContacts() } }
+    }
+
+    fun clearThread(kind: String, peerKey: String) {
+        viewModelScope.launch {
+            val key = selfKey.value
+            if (key.isNotEmpty()) db.messages().clearThread(key, kind, peerKey)
+        }
+    }
+
+    fun forgetLoginPassword(keyHex: String) {
+        _service.value?.secrets?.forgetLoginPassword(keyHex)
+        transientMessage.value = "Saved password removed"
+    }
+
     fun sendSelfAdvert(flood: Boolean) =
         deviceAction(if (flood) "Flood advert sent" else "Zero-hop advert sent") {
             it.sendSelfAdvert(flood)
