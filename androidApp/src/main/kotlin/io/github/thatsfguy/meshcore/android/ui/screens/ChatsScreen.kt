@@ -140,10 +140,21 @@ private fun ConversationRowItem(row: ConversationRow, onClick: () -> Unit) {
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        NodeAvatar(
+            // Channels seed from a stable per-slot tag (PSKs stay in the
+            // vault); DMs seed from the contact pubkey.
+            seed = if (row.isChannel) "channel|${row.key}|${row.title}" else row.key,
+            label = row.title,
+            type = row.contactType,
+            isChannel = row.isChannel,
+        )
+        androidx.compose.foundation.layout.Spacer(
+            Modifier.padding(start = 12.dp),
+        )
         Column(Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    text = (if (row.isChannel) "# " else typePrefix(row.contactType)) + row.title,
+                    text = row.title,
                     style = MaterialTheme.typography.bodyLarge,
                     fontWeight = if (row.unread > 0) FontWeight.Bold else FontWeight.Normal,
                 )

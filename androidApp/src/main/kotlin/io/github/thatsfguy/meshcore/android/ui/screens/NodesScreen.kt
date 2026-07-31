@@ -164,6 +164,12 @@ private fun ContactRow(c: ContactEntity, onClick: () -> Unit) {
             .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        NodeAvatar(
+            seed = c.keyHex,
+            label = c.name.ifBlank { c.keyHex },
+            type = c.type,
+        )
+        Spacer(Modifier.size(12.dp))
         Column(Modifier.weight(1f)) {
             Text(
                 c.name.ifBlank { c.keyHex.take(12) },

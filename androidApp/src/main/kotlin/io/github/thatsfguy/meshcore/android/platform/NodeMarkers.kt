@@ -24,7 +24,9 @@ object NodeMarkers {
 
     fun colorFor(type: Int, isSelf: Boolean): Int = when {
         isSelf -> 0xFF43A047.toInt()                       // green — this node
-        type == Codes.ADV_TYPE_REPEATER -> 0xFFE53935.toInt() // red
+        // Neutral gray for repeaters: infrastructure, not an alert
+        // (red pins read as trouble). Matches the Nodes-tab avatar.
+        type == Codes.ADV_TYPE_REPEATER -> 0xFF757575.toInt()
         type == Codes.ADV_TYPE_ROOM -> 0xFF8E24AA.toInt()     // purple
         type == Codes.ADV_TYPE_SENSOR -> 0xFFF4511E.toInt()   // orange
         else -> 0xFF1E88E5.toInt()                            // blue — companion/chat
