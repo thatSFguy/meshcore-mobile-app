@@ -78,6 +78,8 @@ fun SettingsScreen(vm: MeshCoreViewModel) {
     var editChannel by remember { mutableStateOf<ChannelEntity?>(null) }
 
     var tcpEnabled by remember { mutableStateOf(vm.prefs.tcpEnabled) }
+    val engineState by vm.engineState.collectAsState()
+    val isReady = engineState == EngineState.Ready
 
     Scaffold(
         topBar = {
@@ -121,27 +123,27 @@ fun SettingsScreen(vm: MeshCoreViewModel) {
             // queries the radio first (spinner until the answer lands) so
             // the values shown are what the node reports NOW.
             ExpandableSection("Node identity") {
-                QueryOnExpand(vm, query = { vm.querySelfInfo() }) {
+                QueryOnExpand(enabled = isReady, query = { vm.querySelfInfo() }) {
                     IdentitySection(vm, onShowSelfQr = { showSelfQr = true })
                 }
             }
             ExpandableSection("Radio") {
-                QueryOnExpand(vm, query = { vm.querySelfInfo() }) { RadioSection(vm) }
+                QueryOnExpand(enabled = isReady, query = { vm.querySelfInfo() }) { RadioSection(vm) }
             }
             ExpandableSection("Clock") { ClockSection(vm) }
             ExpandableSection("Mesh policies") {
                 // Policies span two frames: SELF_INFO (telemetry/advert/
                 // multi-ack bytes) and DEVICE_INFO (path-hash width).
-                QueryOnExpand(vm, query = {
+                QueryOnExpand(enabled = isReady, query = {
                     vm.querySelfInfo()
                     vm.queryDeviceInfo()
                 }) { PoliciesSection(vm) }
             }
             ExpandableSection("Auto-add contacts") {
-                QueryOnExpand(vm, query = { vm.queryAutoAddConfig() }) { AutoAddSection(vm) }
+                QueryOnExpand(enabled = isReady, query = { vm.queryAutoAddConfig() }) { AutoAddSection(vm) }
             }
             ExpandableSection("Custom variables") {
-                QueryOnExpand(vm, query = { vm.queryCustomVars() }) { CustomVarsSection(vm) }
+                QueryOnExpand(enabled = isReady, query = { vm.queryCustomVars() }) { CustomVarsSection(vm) }
             }
             ExpandableSection("Channels") { ChannelsSection(vm, onEdit = { editChannel = it }) }
             ExpandableSection("App") { AppSection(vm) }
@@ -189,135 +191,6 @@ fun SettingsScreen(vm: MeshCoreViewModel) {
 
 // ----------------------------------------------------------------------
 // Section scaffolding
-// ----------------------------------------------------------------------
-
-@Composable
-private fun ExpandableSection(
-    title: String,
-    initiallyExpanded: Boolean = false,
-    content: @Composable () -> Unit,
-) {
-    var expanded by rememberSaveable(title) { mutableStateOf(initiallyExpanded) }
-    Column(Modifier.fillMaxWidth()) {
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .clickable { expanded = !expanded }
-                .padding(vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                title,
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.weight(1f),
-            )
-            Icon(
-                if (expanded) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
-                contentDescription = if (expanded) "Collapse" else "Expand",
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        AnimatedVisibility(visible = expanded) {
-            Column(Modifier.padding(bottom = 8.dp)) { content() }
-        }
-        HorizontalDivider()
-    }
-}
-
-/**
- * Query-on-expand: runs [query] against the radio when the section's
- * content enters composition (i.e. on every expand — AnimatedVisibility
- * disposes collapsed content) and shows a spinner until it answers.
- * When no radio is connected the query is skipped and the section's own
- * "connect first" hint shows immediately.
- */
-@Composable
-private fun QueryOnExpand(
-    vm: MeshCoreViewModel,
-    query: suspend () -> Unit,
-    content: @Composable () -> Unit,
-) {
-    val engineState by vm.engineState.collectAsState()
-    var loading by remember { mutableStateOf(engineState == EngineState.Ready) }
-    LaunchedEffect(Unit) {
-        if (engineState == EngineState.Ready) query()
-        loading = false
-    }
-    if (loading) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(vertical = 12.dp),
-        ) {
-            CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-            Spacer(Modifier.width(12.dp))
-            Text(
-                "Querying radio…",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-    } else {
-        content()
-    }
-}
-
-@Composable
-private fun SettingRow(label: String, checked: Boolean, enabled: Boolean = true, onChange: (Boolean) -> Unit) {
-    Row(
-        Modifier.fillMaxWidth().padding(vertical = 2.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(label, Modifier.weight(1f))
-        Switch(checked = checked, onCheckedChange = onChange, enabled = enabled)
-    }
-}
-
-@Composable
-private fun HintText(text: String) {
-    Text(
-        text,
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
-}
-
-/** Single-choice chip row (used for the small enumerated policies).
- *  FlowRow so chips wrap as whole units on narrow screens. */
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun ChoiceChips(
-    options: List<String>,
-    selected: Int,
-    enabled: Boolean = true,
-    onSelect: (Int) -> Unit,
-) {
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        options.forEachIndexed { i, label ->
-            FilterChip(
-                selected = selected == i,
-                onClick = { if (enabled) onSelect(i) },
-                label = { Text(label) },
-                enabled = enabled,
-            )
-        }
-    }
-}
-
-/** Buttons that must never be squeezed into vertical text: lay out as a
- *  wrapping row — each button keeps its intrinsic width and overflow
- *  moves to the next line, whatever the screen size. */
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun ButtonFlowRow(content: @Composable () -> Unit) {
-    FlowRow(
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        modifier = Modifier.fillMaxWidth(),
-    ) { content() }
-}
-
-// ----------------------------------------------------------------------
-// Sections
 // ----------------------------------------------------------------------
 
 @Composable
