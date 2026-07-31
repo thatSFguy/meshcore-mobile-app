@@ -289,6 +289,17 @@ object Frames {
         return w.toBytes()
     }
 
+    /** CMD_SEND_TRACE_PATH: [cmd][tag u32][auth u32][flags][payload?] */
+    fun sendTracePath(tag: Long, auth: Long, flags: Int, payload: ByteArray = ByteArray(0)): ByteArray {
+        val w = BufferWriter()
+        w.writeByte(Codes.CMD_SEND_TRACE_PATH)
+        w.writeUInt32LE(tag)
+        w.writeUInt32LE(auth)
+        w.writeByte(flags)
+        if (payload.isNotEmpty()) w.writeBytes(payload)
+        return w.toBytes()
+    }
+
     /** CMD_GET_CUSTOM_VAR: [cmd] (reads all custom vars) */
     fun getCustomVars(): ByteArray = byteArrayOf(Codes.CMD_GET_CUSTOM_VAR.toByte())
 

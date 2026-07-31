@@ -293,6 +293,16 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
             val rowId = svc.repository.recordOutgoingDm(peerKeyHex, text, ts)
             val sent = runCatching { svc.engine.sendDirectMessage(keyBytes, text) }.getOrNull()
             svc.repository.markOutgoingResult(rowId, sent != null, sent?.ackHash)
+            // Credit/debit the route this message went out on.
+            if (sent != null) {
+                val c = svc.engine.contacts.value[peerKeyHex]
+                val pathHex = if (c != null && c.pathLen in 1..64 && c.pathLen <= c.path.size) {
+                    c.path.copyOfRange(0, c.pathLen).toHex()
+                } else {
+                    ""   // flood
+                }
+                svc.repository.attributeAck(sent.ackHash, peerKeyHex, pathHex)
+            }
             if (sent == null) transientMessage.value = "Radio did not accept the message"
         }
     }
@@ -327,6 +337,67 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
                 db.contacts().delete(selfKey.value, keyHex)
             }
         }
+    }
+
+    // --- Routing / paths ---------------------------------------------
+
+    /** Routing mode the radio's contact record currently implies. */
+    fun routingMode(keyHex: String): io.github.thatsfguy.meshcore.protocol.RoutingMode =
+        _service.value?.engine?.routingMode(keyHex)
+            ?: io.github.thatsfguy.meshcore.protocol.RoutingMode.Auto
+
+    fun pathHistory(keyHex: String): StateFlow<List<io.github.thatsfguy.meshcore.android.storage.PathHistoryEntity>> =
+        selfKey.flatMapLatest { key ->
+            if (key.isEmpty()) flowOf(emptyList()) else db.paths().forContact(key, keyHex)
+        }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    /** Apply a routing mode; [pathHex] is required for Manual. */
+    fun setRouting(
+        keyHex: String,
+        mode: io.github.thatsfguy.meshcore.protocol.RoutingMode,
+        pathHex: String = "",
+    ) {
+        val svc = _service.value ?: return
+        val key = hexToBytesOrNull(keyHex) ?: return
+        val path = if (pathHex.isBlank()) ByteArray(0) else hexToBytesOrNull(pathHex)
+        if (mode == io.github.thatsfguy.meshcore.protocol.RoutingMode.Manual &&
+            (path == null || path.isEmpty())
+        ) {
+            transientMessage.value = "Enter at least one hop"
+            return
+        }
+        viewModelScope.launch {
+            val ok = runCatching {
+                svc.engine.setRouting(key, mode, path ?: ByteArray(0))
+            }.getOrDefault(false)
+            if (ok && path != null && path.isNotEmpty()) {
+                svc.repository.rememberPath(selfKey.value, keyHex, path)
+            }
+            transientMessage.value =
+                if (ok) "Routing set to ${mode.name.lowercase()}" else "Radio rejected the route"
+        }
+    }
+
+    fun deletePath(keyHex: String, pathHex: String) {
+        viewModelScope.launch {
+            val key = selfKey.value
+            if (key.isNotEmpty()) db.paths().delete(key, keyHex, pathHex)
+        }
+    }
+
+    fun clearPathHistory(keyHex: String) {
+        viewModelScope.launch {
+            val key = selfKey.value
+            if (key.isNotEmpty()) db.paths().clear(key, keyHex)
+        }
+    }
+
+    /** Run a path trace; returns the per-hop result or null on timeout. */
+    suspend fun tracePath(): io.github.thatsfguy.meshcore.protocol.TraceResult? {
+        val svc = _service.value ?: return null
+        // Tag correlates the reply; any non-zero value works.
+        val tag = (System.currentTimeMillis() and 0xFFFFFFFFL)
+        return runCatching { svc.engine.tracePath(tag) }.getOrNull()
     }
 
     fun resetPath(keyHex: String) {

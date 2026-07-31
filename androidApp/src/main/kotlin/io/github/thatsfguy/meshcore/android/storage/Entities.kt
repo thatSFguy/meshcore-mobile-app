@@ -93,3 +93,26 @@ data class ChannelEntity(
 
     override fun hashCode(): Int = selfKey.hashCode() * 31 + idx
 }
+
+/**
+ * A path to a contact we have observed or configured, with its
+ * success/failure record — what makes "Auto" routing informed and lets
+ * the routing sheet rank known routes (mirrors the reference client's
+ * path history).
+ */
+@Entity(
+    tableName = "path_history",
+    primaryKeys = ["selfKey", "contactKey", "pathHex"],
+)
+data class PathHistoryEntity(
+    val selfKey: String,
+    val contactKey: String,
+    /** Hop hashes, hex; empty string = the flood route. */
+    val pathHex: String,
+    val hops: Int,
+    val successes: Int = 0,
+    val failures: Int = 0,
+    /** Epoch millis of the last confirmed delivery over this path. */
+    val lastWorkedAt: Long = 0,
+    val lastUsedAt: Long = 0,
+)

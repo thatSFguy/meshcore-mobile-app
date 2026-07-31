@@ -232,6 +232,7 @@ fun ContactDetailSheet(
     onOpenAdmin: () -> Unit,
 ) {
     var renameOpen by remember { mutableStateOf(false) }
+    var routingOpen by remember { mutableStateOf(false) }
     var removeConfirm by remember { mutableStateOf(false) }
     val isAdminable = contact.type == Codes.ADV_TYPE_REPEATER || contact.type == Codes.ADV_TYPE_ROOM
 
@@ -269,14 +270,16 @@ fun ContactDetailSheet(
             if (isAdminable) {
                 TextButton(onClick = onOpenAdmin) { Text("Administer (login / CLI / settings)") }
             }
+            TextButton(onClick = { routingOpen = true }) { Text("Routing / paths…") }
             TextButton(onClick = { renameOpen = true }) { Text("Rename") }
-            TextButton(onClick = { vm.resetPath(contact.keyHex); onDismiss() }) {
-                Text("Reset path")
-            }
             TextButton(onClick = { removeConfirm = true }) {
                 Text("Remove contact", color = MaterialTheme.colorScheme.error)
             }
         }
+    }
+
+    if (routingOpen) {
+        RoutingSheet(vm, contact, onDismiss = { routingOpen = false })
     }
 
     if (renameOpen) {

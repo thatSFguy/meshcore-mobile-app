@@ -44,6 +44,14 @@ class MessageRepository(
                     // Preserve local-only fields (unread, lastMessageAt)
                     // across the radio-authoritative refresh.
                     val existing = db.contacts().allOnce(self).associateBy { it.keyHex }
+                    // Remember every path the radio reports so the
+                    // routing sheet can rank routes it has actually seen.
+                    for (c in contacts.values) {
+                        val len = c.pathLen
+                        if (len in 1..64 && len <= c.path.size) {
+                            rememberPath(self, c.publicKeyHex, c.path.copyOfRange(0, len))
+                        }
+                    }
                     db.contacts().upsertAll(
                         contacts.values.map { c ->
                             val prev = existing[c.publicKeyHex]
@@ -142,6 +150,7 @@ class MessageRepository(
 
             is MeshEvent.MessageDelivered -> {
                 db.messages().updateStatusByAck(self, event.ackHash, MessageStatus.Delivered.ordinal)
+                scorePath(event.ackHash, delivered = true)
             }
 
             else -> Unit
@@ -219,6 +228,51 @@ class MessageRepository(
                 contentKey = contentKey,
                 snr = null,
             ),
+        )
+    }
+
+    // --- Path attribution -------------------------------------------
+    // Which path each in-flight ack was sent over, so a delivery (or a
+    // failure) can be credited to the route that carried it.
+    private val ackPaths = java.util.concurrent.ConcurrentHashMap<Long, Pair<String, String>>()
+
+    /** Upsert a path we have seen or used for [contactKey]. */
+    suspend fun rememberPath(self: String, contactKey: String, path: ByteArray) {
+        val hex = path.joinToString("") { "%02x".format(it) }
+        val existing = db.paths().get(self, contactKey, hex)
+        db.paths().upsert(
+            existing?.copy(lastUsedAt = System.currentTimeMillis())
+                ?: PathHistoryEntity(
+                    selfKey = self,
+                    contactKey = contactKey,
+                    pathHex = hex,
+                    hops = path.size,
+                    lastUsedAt = System.currentTimeMillis(),
+                ),
+        )
+    }
+
+    /** Tie an outbound ack hash to the path it went out on. */
+    fun attributeAck(ackHash: Long, contactKey: String, pathHex: String) {
+        ackPaths[ackHash] = contactKey to pathHex
+    }
+
+    /** Credit (or debit) the path an ack was sent over. */
+    suspend fun scorePath(ackHash: Long, delivered: Boolean) {
+        val (contactKey, pathHex) = ackPaths.remove(ackHash) ?: return
+        val row = db.paths().get(selfKey, contactKey, pathHex) ?: PathHistoryEntity(
+            selfKey = selfKey, contactKey = contactKey, pathHex = pathHex,
+            hops = pathHex.length / 2,
+        )
+        db.paths().upsert(
+            if (delivered) {
+                row.copy(
+                    successes = row.successes + 1,
+                    lastWorkedAt = System.currentTimeMillis(),
+                )
+            } else {
+                row.copy(failures = row.failures + 1)
+            },
         )
     }
 

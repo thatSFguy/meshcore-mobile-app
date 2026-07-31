@@ -111,3 +111,24 @@ interface ChannelDao {
     @Query("UPDATE channels SET lastMessageAt = :at WHERE selfKey = :selfKey AND idx = :idx")
     suspend fun touchLastMessage(selfKey: String, idx: Int, at: Long)
 }
+
+@Dao
+interface PathHistoryDao {
+    @Upsert
+    suspend fun upsert(path: PathHistoryEntity)
+
+    @Query(
+        "SELECT * FROM path_history WHERE selfKey = :selfKey AND contactKey = :contactKey " +
+            "ORDER BY lastWorkedAt DESC, successes DESC",
+    )
+    fun forContact(selfKey: String, contactKey: String): Flow<List<PathHistoryEntity>>
+
+    @Query("SELECT * FROM path_history WHERE selfKey = :selfKey AND contactKey = :contactKey AND pathHex = :pathHex")
+    suspend fun get(selfKey: String, contactKey: String, pathHex: String): PathHistoryEntity?
+
+    @Query("DELETE FROM path_history WHERE selfKey = :selfKey AND contactKey = :contactKey AND pathHex = :pathHex")
+    suspend fun delete(selfKey: String, contactKey: String, pathHex: String)
+
+    @Query("DELETE FROM path_history WHERE selfKey = :selfKey AND contactKey = :contactKey")
+    suspend fun clear(selfKey: String, contactKey: String)
+}

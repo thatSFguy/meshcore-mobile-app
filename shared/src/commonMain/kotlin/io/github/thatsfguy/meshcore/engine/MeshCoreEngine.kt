@@ -12,6 +12,10 @@ import io.github.thatsfguy.meshcore.protocol.ChannelCrypto
 import io.github.thatsfguy.meshcore.protocol.Codes
 import io.github.thatsfguy.meshcore.protocol.DeviceEvent
 import io.github.thatsfguy.meshcore.protocol.Frames
+import io.github.thatsfguy.meshcore.protocol.PathCodec
+import io.github.thatsfguy.meshcore.protocol.RoutingMode
+import io.github.thatsfguy.meshcore.protocol.TracePath
+import io.github.thatsfguy.meshcore.protocol.TraceResult
 import io.github.thatsfguy.meshcore.protocol.RawPacket
 import io.github.thatsfguy.meshcore.protocol.ResponseParser
 import io.github.thatsfguy.meshcore.transport.Transport
@@ -631,6 +635,81 @@ class MeshCoreEngine(
 
     suspend fun resetPath(pubKey: ByteArray): Boolean =
         sendAndAwait(Frames.resetPath(pubKey)) { it is DeviceEvent.Ok } is DeviceEvent.Ok
+
+    // ------------------------------------------------------------------
+    // Routing / paths
+    // ------------------------------------------------------------------
+
+    /**
+     * Set how packets to [pubKey] are routed. MeshCore keeps the route
+     * in the contact record, so each mode is a contact rewrite:
+     *  - [RoutingMode.Auto]   reset the stored path; the radio relearns.
+     *  - [RoutingMode.Flood]  clear the path (path_len = 0xFF) so
+     *                         packets flood the mesh.
+     *  - [RoutingMode.Manual] pin [manualPath] (hop hashes, wire order).
+     */
+    suspend fun setRouting(
+        pubKey: ByteArray,
+        mode: RoutingMode,
+        manualPath: ByteArray = ByteArray(0),
+    ): Boolean {
+        if (mode == RoutingMode.Auto) return resetPath(pubKey)
+
+        val contact = _contacts.value[pubKey.toHex()]
+        val pathLen = when (mode) {
+            RoutingMode.Flood -> PathCodec.PATH_LEN_FLOOD
+            else -> manualPath.size
+        }
+        if (mode == RoutingMode.Manual && manualPath.isEmpty()) return false
+
+        val ok = sendRaw(
+            Frames.addUpdateContact(
+                pubKey = pubKey,
+                type = contact?.type ?: Codes.ADV_TYPE_CHAT,
+                flags = contact?.flags ?: 0,
+                pathLen = pathLen,
+                path = if (mode == RoutingMode.Manual) manualPath else ByteArray(0),
+                name = contact?.name ?: "",
+                timestampSeconds = nowSeconds(),
+                lat = contact?.latitude,
+                lon = contact?.longitude,
+            ),
+        )
+        if (ok) sendOnly(Frames.getContactByKey(pubKey))
+        return ok
+    }
+
+    /** Current routing mode implied by the radio's contact record. */
+    fun routingMode(pubKeyHex: String): RoutingMode {
+        val c = _contacts.value[pubKeyHex] ?: return RoutingMode.Auto
+        return when {
+            c.pathLen == PathCodec.PATH_LEN_FLOOD || c.pathLen < 0 -> RoutingMode.Flood
+            c.pathLen > 0 -> RoutingMode.Manual
+            else -> RoutingMode.Auto
+        }
+    }
+
+    /**
+     * Trace the path to a node: sends CMD_SEND_TRACE_PATH and waits for
+     * the matching PUSH_CODE_TRACE_DATA (correlated by [tag]). Returns
+     * the per-hop result, or null on timeout.
+     */
+    suspend fun tracePath(
+        tag: Long,
+        auth: Long = 0L,
+        flags: Int = 0,
+        timeoutMs: Long = 30_000,
+    ): TraceResult? {
+        val ev = sendAndAwait(
+            Frames.sendTracePath(tag, auth, flags),
+            timeoutMs = timeoutMs,
+        ) { it is DeviceEvent.TraceData && TracePath.parse(traceFrame(it))?.tag == tag }
+        return (ev as? DeviceEvent.TraceData)?.let { TracePath.parse(traceFrame(it)) }
+    }
+
+    /** The parser expects the whole frame; TraceData carries the tail. */
+    private fun traceFrame(ev: DeviceEvent.TraceData): ByteArray =
+        byteArrayOf(Codes.PUSH_CODE_TRACE_DATA.toByte()) + ev.payload
 
     /** Export self (or a contact) as a shareable advert blob (for QR). */
     suspend fun exportContact(pubKey: ByteArray = ByteArray(0)): ByteArray? {
