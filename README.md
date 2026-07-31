@@ -167,6 +167,8 @@ Requires JDK 17+ and the Android SDK (compileSdk 34).
 - **[`SCOPE.md`](SCOPE.md)** — the locked v1 feature set, and what's deliberately deferred or cut.
 - **[`REUSE.md`](REUSE.md)** — the file-by-file map of what was carried over from
   reticulum-mobile-app.
+- **[`SECURITY_REVIEW.md`](SECURITY_REVIEW.md)** — the 2026-07-31 full-surface security review:
+  findings, fixes, accepted risks, and what was verified sound.
 - **[`CLAUDE.md`](CLAUDE.md)** — orientation for a fresh contributor (or agent).
 
 ## Platform status

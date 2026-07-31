@@ -10,7 +10,7 @@ byte of every inbound frame: truncated, oversized, malformed, replayed, forged. 
 malicious app on the same device, someone with physical access to the phone, and network observers
 on the (off-by-default) TCP path and the OSM tile fetches.
 
-**Outcome: 24 findings. All critical/high/medium issues are fixed** in commit `da41d94`; the
+**Outcome: 24 findings. All critical/high/medium issues are fixed** in commit `003dc73`; the
 remainder are accepted risks or documentation notes, listed below with the reasoning. Six regression
 tests (`HardeningTest.kt`) pin the fixes.
 
