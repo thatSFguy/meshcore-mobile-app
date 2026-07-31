@@ -334,6 +334,8 @@ class MeshCoreService : Service() {
         }
 
         val isChannel = kind == MessageRepository.KIND_CHANNEL
+        // Muted channels stay silent (they still count unread).
+        if (isChannel && peerKey.toIntOrNull()?.let { prefs.isChannelMuted(it) } == true) return
         val title = if (isChannel) {
             val idx = peerKey.toIntOrNull()
             val name = engine.channels.value.firstOrNull { it.index == idx }?.name

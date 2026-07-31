@@ -43,12 +43,18 @@ fun MapScreen(vm: MeshCoreViewModel) {
 
     var showLabels by remember { mutableStateOf(true) }
     var fitRequest by remember { mutableIntStateOf(0) }
+    var typeFilter by remember { mutableStateOf(vm.prefs.mapTypeFilter) }
 
     val located = contacts.filter {
         val lat = it.latitude
         val lon = it.longitude
         lat != null && lon != null && (kotlin.math.abs(lat) > 1e-6 || kotlin.math.abs(lon) > 1e-6) &&
             lat in -90.0..90.0 && lon in -180.0..180.0
+    }.filter { typeFilter.isEmpty() || it.type in typeFilter }
+
+    fun toggleType(type: Int) {
+        typeFilter = if (type in typeFilter) typeFilter - type else typeFilter + type
+        vm.prefs.mapTypeFilter = typeFilter
     }
 
     Scaffold(
@@ -60,6 +66,25 @@ fun MapScreen(vm: MeshCoreViewModel) {
                 menuActions = listOf(
                     MenuAction("Show labels", checked = showLabels) { showLabels = !showLabels },
                     MenuAction("Fit all nodes") { fitRequest++ },
+                    MenuAction(
+                        "Only contacts",
+                        checked = io.github.thatsfguy.meshcore.protocol.Codes.ADV_TYPE_CHAT in typeFilter,
+                    ) { toggleType(io.github.thatsfguy.meshcore.protocol.Codes.ADV_TYPE_CHAT) },
+                    MenuAction(
+                        "Only repeaters",
+                        checked = io.github.thatsfguy.meshcore.protocol.Codes.ADV_TYPE_REPEATER in typeFilter,
+                    ) { toggleType(io.github.thatsfguy.meshcore.protocol.Codes.ADV_TYPE_REPEATER) },
+                    MenuAction(
+                        "Only rooms",
+                        checked = io.github.thatsfguy.meshcore.protocol.Codes.ADV_TYPE_ROOM in typeFilter,
+                    ) { toggleType(io.github.thatsfguy.meshcore.protocol.Codes.ADV_TYPE_ROOM) },
+                    MenuAction("Export nodes as GPX") { vm.exportGpx(located.size) },
+                    MenuAction("Clear tile cache") {
+                        runCatching {
+                            java.io.File(context.cacheDir, "osmdroid-tiles").deleteRecursively()
+                        }
+                        vm.transientMessage.value = "Tile cache cleared"
+                    },
                     MenuAction("Sync contacts") { vm.syncContactsNow() },
                 ),
             )

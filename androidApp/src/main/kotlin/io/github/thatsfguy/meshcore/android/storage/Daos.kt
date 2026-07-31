@@ -19,6 +19,16 @@ interface MessageDao {
     )
     fun thread(selfKey: String, kind: String, peerKey: String): Flow<List<MessageEntity>>
 
+    /** Newest [limit] messages of a thread (paging window). */
+    @Query(
+        "SELECT * FROM messages WHERE selfKey = :selfKey AND kind = :kind AND peerKey = :peerKey " +
+            "ORDER BY timestamp DESC, receivedAt DESC LIMIT :limit",
+    )
+    fun threadPaged(selfKey: String, kind: String, peerKey: String, limit: Int): Flow<List<MessageEntity>>
+
+    @Query("SELECT COUNT(*) FROM messages WHERE selfKey = :selfKey AND kind = :kind AND peerKey = :peerKey")
+    fun threadCount(selfKey: String, kind: String, peerKey: String): Flow<Int>
+
     @Query(
         "SELECT * FROM messages WHERE selfKey = :selfKey GROUP BY kind, peerKey " +
             "HAVING MAX(timestamp) ORDER BY MAX(timestamp) DESC",

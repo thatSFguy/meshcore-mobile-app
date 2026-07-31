@@ -86,5 +86,17 @@
             android:foregroundServiceType="connectedDevice|dataSync"
             android:exported="false" />
 
+        <!-- Scoped FileProvider for the GPX export share sheet: only
+             cache/exports/ is exposed, read-only, per-share grants. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
     </application>
 </manifest>

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Only the exports directory is shareable; nothing else in the app's
+     private storage is exposed through the provider. -->
+<paths>
+    <cache-path name="exports" path="exports/" />
+</paths>

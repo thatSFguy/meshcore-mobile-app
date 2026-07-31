@@ -151,6 +151,26 @@ class Preferences(context: Context) {
                 .apply()
         }
 
+    /** Channel slots whose notifications are muted. */
+    var mutedChannels: Set<Int>
+        get() = prefs.getStringSet("muted_channels", emptySet())!!
+            .mapNotNull { it.toIntOrNull() }.toSet()
+        set(v) {
+            prefs.edit().putStringSet("muted_channels", v.map { it.toString() }.toSet()).apply()
+        }
+
+    fun isChannelMuted(idx: Int): Boolean = idx in mutedChannels
+
+    fun setChannelMuted(idx: Int, muted: Boolean) {
+        mutedChannels = if (muted) mutedChannels + idx else mutedChannels - idx
+    }
+
+    /** Map: show only nodes of these types (empty = all). */
+    var mapTypeFilter: Set<Int>
+        get() = prefs.getStringSet("map_types", emptySet())!!
+            .mapNotNull { it.toIntOrNull() }.toSet()
+        set(v) { prefs.edit().putStringSet("map_types", v.map { it.toString() }.toSet()).apply() }
+
     var notificationsEnabled: Boolean
         get() = prefs.getBoolean("notifications_enabled", true)
         set(v) { prefs.edit().putBoolean("notifications_enabled", v).apply() }

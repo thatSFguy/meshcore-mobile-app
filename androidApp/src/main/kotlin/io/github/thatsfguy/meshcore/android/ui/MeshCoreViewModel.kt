@@ -259,6 +259,35 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
             if (key.isEmpty()) flowOf(emptyList()) else db.messages().thread(key, kind, peerKey)
         }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
+    /** Newest-[limit] window of a thread, for paged scrollback. */
+    fun threadPaged(kind: String, peerKey: String, limit: Int): StateFlow<List<MessageEntity>> =
+        selfKey.flatMapLatest { key ->
+            if (key.isEmpty()) flowOf(emptyList())
+            else db.messages().threadPaged(key, kind, peerKey, limit)
+        }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    fun threadCount(kind: String, peerKey: String): StateFlow<Int> =
+        selfKey.flatMapLatest { key ->
+            if (key.isEmpty()) flowOf(0) else db.messages().threadCount(key, kind, peerKey)
+        }.stateIn(viewModelScope, SharingStarted.Eagerly, 0)
+
+    /** Leave a thread marked unread (badge stays until next open). */
+    fun markUnread(kind: String, peerKey: String) {
+        viewModelScope.launch {
+            val key = selfKey.value
+            if (key.isEmpty()) return@launch
+            markThreadClosed()
+            if (kind == MessageRepository.KIND_CHANNEL) {
+                peerKey.toIntOrNull()?.let {
+                    db.channels().bumpUnread(key, it, System.currentTimeMillis())
+                }
+            } else {
+                db.contacts().bumpUnread(key, peerKey, System.currentTimeMillis())
+            }
+            transientMessage.value = "Marked unread"
+        }
+    }
+
     fun markThreadOpen(kind: String, peerKey: String) {
         val svc = _service.value ?: return
         svc.repository.activeThread = "$kind|$peerKey"
@@ -746,6 +775,54 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
     suspend fun queryCustomVars() {
         if (engineState.value != EngineState.Ready) return
         runCatching { _service.value?.engine?.requestCustomVars() }
+    }
+
+    /**
+     * Write every located node to a GPX file in the app's cache and
+     * offer it via a share sheet — nothing leaves the device unless the
+     * user picks a target.
+     */
+    fun exportGpx(@Suppress("UNUSED_PARAMETER") count: Int) {
+        val app = getApplication<Application>()
+        viewModelScope.launch {
+            val nodes = dbContacts.value.filter { c ->
+                val lat = c.latitude; val lon = c.longitude
+                lat != null && lon != null && (kotlin.math.abs(lat) > 1e-6 || kotlin.math.abs(lon) > 1e-6)
+            }
+            if (nodes.isEmpty()) {
+                transientMessage.value = "No nodes with GPS to export"
+                return@launch
+            }
+            val gpx = buildString {
+                append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")
+                append("<gpx version=\"1.1\" creator=\"MeshCore Mobile\" ")
+                append("xmlns=\"http://www.topografix.com/GPX/1/1\">\n")
+                for (n in nodes) {
+                    val name = n.name.ifBlank { n.keyHex.take(12) }
+                        .replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                    append("  <wpt lat=\"${n.latitude}\" lon=\"${n.longitude}\">\n")
+                    append("    <name>$name</name>\n")
+                    append("    <desc>${n.keyHex}</desc>\n")
+                    append("  </wpt>\n")
+                }
+                append("</gpx>\n")
+            }
+            val dir = java.io.File(app.cacheDir, "exports").apply { mkdirs() }
+            val file = java.io.File(dir, "meshcore-nodes.gpx")
+            file.writeText(gpx)
+            val uri = androidx.core.content.FileProvider.getUriForFile(
+                app, "${'$'}{app.packageName}.fileprovider", file,
+            )
+            val share = Intent(Intent.ACTION_SEND).apply {
+                type = "application/gpx+xml"
+                putExtra(Intent.EXTRA_STREAM, uri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            app.startActivity(Intent.createChooser(share, "Export nodes").apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            })
+            transientMessage.value = "Exported ${'$'}{nodes.size} nodes"
+        }
     }
 
     fun syncContactsNow() {

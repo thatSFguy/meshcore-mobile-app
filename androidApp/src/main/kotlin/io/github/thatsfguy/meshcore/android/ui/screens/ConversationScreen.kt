@@ -1,6 +1,7 @@
 package io.github.thatsfguy.meshcore.android.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -59,7 +60,14 @@ fun ConversationScreen(
     peerKey: String,
 ) {
     val isChannel = kind == MessageRepository.KIND_CHANNEL
-    val messages by remember(kind, peerKey) { vm.thread(kind, peerKey) }.collectAsState()
+    // Paged scrollback: long threads load newest-first in windows.
+    var pageSize by remember(kind, peerKey) { mutableStateOf(PAGE_SIZE) }
+    val total by remember(kind, peerKey) { vm.threadCount(kind, peerKey) }.collectAsState()
+    val messages by remember(kind, peerKey, pageSize) {
+        vm.threadPaged(kind, peerKey, pageSize)
+    }.collectAsState()
+    // threadPaged returns newest-first; render oldest-first.
+    val ordered = remember(messages) { messages.reversed() }
     val contacts by vm.dbContacts.collectAsState()
     val channels by vm.dbChannels.collectAsState()
 
@@ -81,9 +89,10 @@ fun ConversationScreen(
     var clearConfirm by remember { mutableStateOf(false) }
     var showContact by remember { mutableStateOf(false) }
     var showChannelEditor by remember { mutableStateOf(false) }
+    var selected by remember { mutableStateOf<MessageEntity?>(null) }
     val listState = rememberLazyListState()
-    LaunchedEffect(messages.size) {
-        if (messages.isNotEmpty()) listState.animateScrollToItem(messages.size - 1)
+    LaunchedEffect(ordered.size) {
+        if (ordered.isNotEmpty()) listState.animateScrollToItem(ordered.size - 1)
     }
 
     val maxBytes = if (isChannel) {
@@ -92,15 +101,26 @@ fun ConversationScreen(
         Frames.maxContactMessageBytes()
     }
 
+    var muted by remember(peerKey) {
+        mutableStateOf(peerKey.toIntOrNull()?.let { vm.prefs.isChannelMuted(it) } ?: false)
+    }
     val menu = if (isChannel) {
         listOf(
+            MenuAction("Mute notifications", checked = muted) {
+                peerKey.toIntOrNull()?.let {
+                    muted = !muted
+                    vm.prefs.setChannelMuted(it, muted)
+                }
+            },
+            MenuAction("Mark unread") { vm.markUnread(kind, peerKey); nav.popBackStack() },
             MenuAction("Channel settings…") { showChannelEditor = true },
             MenuAction("Clear thread…", destructive = true) { clearConfirm = true },
         )
     } else {
         listOf(
+            MenuAction("Mark unread") { vm.markUnread(kind, peerKey); nav.popBackStack() },
             MenuAction("Contact details…") { showContact = true },
-            MenuAction("Reset path") { vm.resetPath(peerKey) },
+            MenuAction("Routing / paths…") { showContact = true },
             MenuAction("Clear thread…", destructive = true) { clearConfirm = true },
         )
     }
@@ -122,8 +142,20 @@ fun ConversationScreen(
                 modifier = Modifier.weight(1f).fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                items(messages, key = { it.id }) { m ->
-                    MessageBubble(m, showSender = isChannel)
+                if (total > ordered.size) {
+                    item(key = "load_older") {
+                        androidx.compose.material3.TextButton(
+                            onClick = { pageSize += PAGE_SIZE },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) { Text("Load older (${total - ordered.size} more)") }
+                    }
+                }
+                items(ordered, key = { it.id }) { m ->
+                    MessageBubble(
+                        m,
+                        showSender = isChannel,
+                        onLongPress = { selected = m },
+                    )
                 }
             }
             Row(
@@ -157,6 +189,24 @@ fun ConversationScreen(
                 }
             }
         }
+    }
+
+    selected?.let { m ->
+        MessageActionsDialog(
+            message = m,
+            isChannel = isChannel,
+            onDismiss = { selected = null },
+            onCopy = { clipboard ->
+                clipboard.setText(androidx.compose.ui.text.AnnotatedString(m.text))
+                selected = null
+            },
+            onQuote = {
+                // Minimal reply: quote the line into the draft.
+                val who = m.senderName?.let { "$it: " } ?: ""
+                draft = "> $who${m.text.take(60)}\n"
+                selected = null
+            },
+        )
     }
 
     if (clearConfirm) {
@@ -200,11 +250,19 @@ fun ConversationScreen(
     }
 }
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-private fun MessageBubble(m: MessageEntity, showSender: Boolean) {
+private fun MessageBubble(
+    m: MessageEntity,
+    showSender: Boolean,
+    onLongPress: () -> Unit = {},
+) {
     val outgoing = m.outgoing
     Row(
-        Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+        Modifier
+            .fillMaxWidth()
+            .combinedClickable(onClick = {}, onLongClick = onLongPress)
+            .padding(horizontal = 8.dp),
         horizontalArrangement = if (outgoing) Arrangement.End else Arrangement.Start,
     ) {
         Box(
@@ -258,4 +316,55 @@ private fun MessageBubble(m: MessageEntity, showSender: Boolean) {
             }
         }
     }
+}
+
+/** Newest-N window; "Load older" grows it. */
+private const val PAGE_SIZE = 50
+
+/** Long-press actions on a message: copy, quote-reply, and details. */
+@Composable
+private fun MessageActionsDialog(
+    message: MessageEntity,
+    isChannel: Boolean,
+    onDismiss: () -> Unit,
+    onCopy: (androidx.compose.ui.platform.ClipboardManager) -> Unit,
+    onQuote: () -> Unit,
+) {
+    val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Message") },
+        text = {
+            Column {
+                Text(message.text, style = MaterialTheme.typography.bodyMedium)
+                Text(
+                    buildString {
+                        append(
+                            DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT)
+                                .format(Date(message.timestamp * 1000)),
+                        )
+                        message.senderName?.let { append(" · $it") }
+                        message.snr?.let { append(" · %.1f dB".format(it)) }
+                        if (message.outgoing && message.attempts > 0) {
+                            append(" · ${message.attempts} attempt(s)")
+                        }
+                        message.ackHash?.let { append(" · ack %08x".format(it)) }
+                    },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        confirmButton = {
+            androidx.compose.material3.TextButton(onClick = { onCopy(clipboard) }) { Text("Copy") }
+        },
+        dismissButton = {
+            Row {
+                if (isChannel) {
+                    androidx.compose.material3.TextButton(onClick = onQuote) { Text("Quote") }
+                }
+                androidx.compose.material3.TextButton(onClick = onDismiss) { Text("Close") }
+            }
+        },
+    )
 }
