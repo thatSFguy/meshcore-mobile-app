@@ -355,6 +355,15 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    fun setFavourite(keyHex: String, favourite: Boolean) {
+        val svc = _service.value ?: return
+        val key = hexToBytesOrNull(keyHex) ?: return
+        viewModelScope.launch {
+            val ok = runCatching { svc.engine.setFavourite(key, favourite) }.getOrDefault(false)
+            if (!ok) transientMessage.value = "Radio rejected the change"
+        }
+    }
+
     // --- Routing / paths ---------------------------------------------
 
     /** Routing mode the radio's contact record currently implies. */

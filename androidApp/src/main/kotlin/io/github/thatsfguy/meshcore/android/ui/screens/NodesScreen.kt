@@ -108,6 +108,7 @@ fun NodesScreen(vm: MeshCoreViewModel, nav: NavController) {
             // Selection persists across tab switches and restarts.
             var tab by remember { mutableIntStateOf(vm.prefs.nodesTab.coerceIn(0, 3)) }
             val discovered by vm.discovered.collectAsState()
+            var query by remember { mutableStateOf("") }
             // Contacts tab folds in sensors/unknown types.
             val tabContacts = when (tab) {
                 1 -> contacts.filter { it.type == Codes.ADV_TYPE_REPEATER }
@@ -115,10 +116,17 @@ fun NodesScreen(vm: MeshCoreViewModel, nav: NavController) {
                 else -> contacts.filter {
                     it.type != Codes.ADV_TYPE_REPEATER && it.type != Codes.ADV_TYPE_ROOM
                 }
+            }.filter { c ->
+                query.isBlank() ||
+                    c.name.contains(query, ignoreCase = true) ||
+                    c.keyHex.startsWith(query.lowercase())
             }.sortedWith(
-                // Interacted-with nodes (messaged / administered) first,
-                // most recent first; the rest alphabetically.
-                compareByDescending<ContactEntity> { it.lastMessageAt > 0 }
+                // Favourites first, then nodes you've interacted with
+                // (messaged / administered) by recency, then the rest A-Z.
+                compareByDescending<ContactEntity> {
+                    it.flags and Codes.CONTACT_FLAG_FAVORITE != 0
+                }
+                    .thenByDescending { it.lastMessageAt > 0 }
                     .thenByDescending { it.lastMessageAt }
                     .thenBy { it.name.ifBlank { it.keyHex }.lowercase() },
             )
@@ -138,6 +146,16 @@ fun NodesScreen(vm: MeshCoreViewModel, nav: NavController) {
                         text = { Text(label) },
                     )
                 }
+            }
+
+            if (tab != 3) {
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    label = { Text("Search name or key") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+                )
             }
 
             if (tab == 3) {
@@ -260,7 +278,8 @@ private fun ContactRow(c: ContactEntity, onClick: () -> Unit) {
         Spacer(Modifier.size(12.dp))
         Column(Modifier.weight(1f)) {
             Text(
-                c.name.ifBlank { c.keyHex.take(12) },
+                (if (c.flags and Codes.CONTACT_FLAG_FAVORITE != 0) "★ " else "") +
+                    c.name.ifBlank { c.keyHex.take(12) },
                 style = MaterialTheme.typography.bodyLarge,
             )
             Text(
@@ -331,6 +350,11 @@ fun ContactDetailSheet(
             if (isAdminable) {
                 TextButton(onClick = onOpenAdmin) { Text("Administer (login / CLI / settings)") }
             }
+            val isFav = contact.flags and Codes.CONTACT_FLAG_FAVORITE != 0
+            TextButton(onClick = {
+                vm.setFavourite(contact.keyHex, !isFav)
+                onDismiss()
+            }) { Text(if (isFav) "★ Remove favourite" else "☆ Add favourite") }
             TextButton(onClick = { routingOpen = true }) { Text("Routing / paths…") }
             TextButton(onClick = { renameOpen = true }) { Text("Rename") }
             TextButton(onClick = { removeConfirm = true }) {

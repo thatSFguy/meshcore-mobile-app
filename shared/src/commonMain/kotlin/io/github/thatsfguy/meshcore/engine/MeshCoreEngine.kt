@@ -663,6 +663,34 @@ class MeshCoreEngine(
     suspend fun resetPath(pubKey: ByteArray): Boolean =
         sendAndAwait(Frames.resetPath(pubKey)) { it is DeviceEvent.Ok } is DeviceEvent.Ok
 
+    /**
+     * Toggle the favourite bit in a contact's flags (the radio owns the
+     * flag, so this is a contact-record rewrite like routing changes).
+     */
+    suspend fun setFavourite(pubKey: ByteArray, favourite: Boolean): Boolean {
+        val c = _contacts.value[pubKey.toHex()] ?: return false
+        val flags = if (favourite) {
+            c.flags or Codes.CONTACT_FLAG_FAVORITE
+        } else {
+            c.flags and Codes.CONTACT_FLAG_FAVORITE.inv()
+        }
+        val ok = sendRaw(
+            Frames.addUpdateContact(
+                pubKey = pubKey,
+                type = c.type,
+                flags = flags,
+                pathLen = c.pathLen,
+                path = c.path,
+                name = c.name,
+                timestampSeconds = nowSeconds(),
+                lat = c.latitude,
+                lon = c.longitude,
+            ),
+        )
+        if (ok) sendOnly(Frames.getContactByKey(pubKey))
+        return ok
+    }
+
     // ------------------------------------------------------------------
     // Routing / paths
     // ------------------------------------------------------------------
