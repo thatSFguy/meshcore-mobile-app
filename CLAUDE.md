@@ -74,8 +74,10 @@ channels as obfuscated (AES-ECB + 2-byte MAC), not secure.
 
 1. Scaffold the `protocol/` module from `MESHCORE_PROTOCOL.md` (with unit tests, incl. an
    Ed25519 advert-signature round-trip and channel-decrypt vector).
-2. Write `REUSE.md` — the file-by-file map of what to copy from `../reticulum-mobile-app`.
-3. Copy the transport layer across; wire the protocol module to it.
+2. Copy the transport layer across per **`REUSE.md`** (the file-by-file map of what to copy
+   from `../reticulum-mobile-app`); wire the new MeshCore framing + `protocol/` module to it.
+3. Copy crypto/vault + service/DB scaffolding; adapt the Android screens (DMs → channels →
+   map → repeater admin), then mirror to SwiftUI.
 
 ## Conventions
 
