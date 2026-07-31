@@ -702,9 +702,10 @@ private fun CustomVarsSection(vm: MeshCoreViewModel) {
 @Composable
 private fun ChannelsSection(vm: MeshCoreViewModel, onEdit: (ChannelEntity) -> Unit) {
     val channels by vm.dbChannels.collectAsState()
+    var showAdd by remember { mutableStateOf(false) }
+
     if (channels.isEmpty()) {
-        HintText("No channels configured. Add one from the Chats tab (+ or ⋮).")
-        return
+        HintText("No channels configured yet.")
     }
     for (ch in channels) {
         Row(
@@ -714,6 +715,13 @@ private fun ChannelsSection(vm: MeshCoreViewModel, onEdit: (ChannelEntity) -> Un
             Text("${ch.idx}: ${ch.name.ifBlank { "(unnamed)" }}", Modifier.weight(1f))
             TextButton(onClick = { onEdit(ch) }) { Text("Edit") }
         }
+    }
+    ButtonFlowRow {
+        OutlinedButton(onClick = { showAdd = true }) { Text("Add channel…") }
+    }
+
+    if (showAdd) {
+        ChannelAddSheet(vm, onDismiss = { showAdd = false })
     }
 }
 
