@@ -27,8 +27,9 @@ REGIONS = {
     "01-chats.png": [NODE_NAME, (120, 195, 520, 630)],
     # Contact names and public keys.
     "02-nodes.png": [NODE_NAME, (120, 420, 560, 1280)],
-    # Repeater public keys (the repeater NAMES are public infrastructure).
-    "03-repeaters.png": [NODE_NAME, (120, 455, 400, 1290)],
+    # Repeater names AND keys: some repeaters on this mesh are the
+    # user's own, so names are not safe to leave in the clear either.
+    "03-repeaters.png": [NODE_NAME, (120, 420, 560, 1400)],
     # Map: only this node's name; the view shows public repeaters.
     "04-map.png": [NODE_NAME],
     # Connected-node name and the saved node's BLE MAC address.
@@ -38,7 +39,7 @@ REGIONS = {
         NODE_NAME,
         # Full-width here: the list is partly occluded by the sheet, and
         # half-redacted names read as sloppy rather than deliberate.
-        (120, 420, 560, 800),
+        (120, 420, 560, 810),
         (40, 1030, 690, 1095),   # public key (two lines)
         (40, 1140, 400, 1180),   # lat/lon
     ],
