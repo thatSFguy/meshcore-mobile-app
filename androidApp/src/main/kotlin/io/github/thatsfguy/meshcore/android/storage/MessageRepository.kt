@@ -82,7 +82,7 @@ class MessageRepository(
         }
         scope.launch {
             engine.contacts.collect { contacts ->
-                val self = selfKey
+                val self = resolveSelfKey(engine)
                 if (self.isNotEmpty() && contacts.isNotEmpty()) {
                     // Preserve local-only fields (unread, lastMessageAt)
                     // across the radio-authoritative refresh.
@@ -111,15 +111,32 @@ class MessageRepository(
         }
         scope.launch {
             engine.channels.collect { channels ->
-                val self = selfKey
+                val self = resolveSelfKey(engine)
                 if (self.isEmpty()) return@collect
                 for (ch in channels) persistChannel(self, ch)
-                if (channels.isNotEmpty()) {
-                    db.channels().deleteAbsent(self, channels.map { it.index })
-                }
+                // Reconcile ALWAYS, including when the radio reports no
+                // channels at all. Gating this on a non-empty list left
+                // a radio whose slots were all cleared showing every
+                // stale row forever.
+                db.channels().deleteAbsent(self, channels.map { it.index })
             }
         }
     }
+
+    /**
+     * The attached radio's key, preferring the engine's own SELF_INFO
+     * over [selfKey].
+     *
+     * [selfKey] is assigned by the service from a *different* coroutine
+     * collecting the same flow. Reading it here raced: a contact or
+     * channel sync that landed first saw an empty string and returned,
+     * and because those are StateFlows that then don't change again,
+     * the reconcile never ran at all. That is how unconfigured channel
+     * slots stayed in the database — and in the Chats list — long after
+     * the engine had correctly filtered them out.
+     */
+    private fun resolveSelfKey(engine: MeshCoreEngine): String =
+        engine.selfInfo.value?.publicKeyHex ?: selfKey
 
     private suspend fun persistChannel(self: String, ch: Channel) {
         val sealed = secrets.sealPsk(ch.psk) ?: return // no keystore → no PSK at rest
