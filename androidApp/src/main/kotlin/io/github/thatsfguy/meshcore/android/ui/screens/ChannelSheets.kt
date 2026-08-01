@@ -26,6 +26,10 @@ import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
 import io.github.thatsfguy.meshcore.android.platform.PortraitCaptureActivity
 import io.github.thatsfguy.meshcore.android.storage.ChannelEntity
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.graphics.asImageBitmap
+import io.github.thatsfguy.meshcore.android.platform.Qr
+import io.github.thatsfguy.meshcore.protocol.ShareUri
 import io.github.thatsfguy.meshcore.android.ui.MeshCoreViewModel
 
 /**
@@ -103,9 +107,12 @@ fun ChannelAddSheet(vm: MeshCoreViewModel, onDismiss: () -> Unit) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChannelEditSheet(vm: MeshCoreViewModel, channel: ChannelEntity, onDismiss: () -> Unit) {
+    // See the confirmation below for why sharing needs one.
     var name by remember { mutableStateOf(channel.name) }
     var pskHex by remember { mutableStateOf("") }
     var pskLoaded by remember { mutableStateOf(false) }
+    var shareConfirm by remember { mutableStateOf(false) }
+    var shareQr by remember { mutableStateOf(false) }
 
     LaunchedEffect(channel.idx) {
         vm.channelPskHex(channel)?.let { pskHex = it }
@@ -140,10 +147,84 @@ fun ChannelEditSheet(vm: MeshCoreViewModel, channel: ChannelEntity, onDismiss: (
                 vm.editChannel(channel.idx, name.trim(), pskHex.trim())
                 onDismiss()
             }) { Text("Save") }
+            TextButton(
+                onClick = { shareConfirm = true },
+                enabled = pskLoaded && pskHex.isNotBlank(),
+            ) { Text("Share channel QR…") }
             TextButton(onClick = {
                 vm.deleteChannel(channel.idx)
                 onDismiss()
             }) { Text("Remove channel", color = MaterialTheme.colorScheme.error) }
         }
     }
+
+    // Sharing a channel hands over its key, and the key IS the channel.
+    // Make that a decision, not a tap.
+    if (shareConfirm) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { shareConfirm = false },
+            title = { Text("Share this channel?") },
+            text = {
+                Text(
+                    "The code contains the channel's secret key. Anyone who scans it can " +
+                        "read everything on this channel — including messages sent before " +
+                        "they scanned, because the key never changes and the cipher has no " +
+                        "forward secrecy.\n\nThere is no way to revoke it: undoing a share " +
+                        "means changing the key on every device that uses the channel.",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { shareConfirm = false; shareQr = true }) {
+                    Text("Show the code", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { shareConfirm = false }) { Text("Cancel") }
+            },
+        )
+    }
+
+    if (shareQr) {
+        ChannelQrDialog(
+            name = name.ifBlank { "Channel ${channel.idx}" },
+            pskHex = pskHex.trim(),
+            onDismiss = { shareQr = false },
+        )
+    }
+}
+
+/** QR for `meshcore://channel/add?…` — the form other MeshCore apps scan. */
+@Composable
+private fun ChannelQrDialog(name: String, pskHex: String, onDismiss: () -> Unit) {
+    val uri = remember(name, pskHex) { ShareUri.encodeChannel(name, pskHex) }
+    val qr = remember(uri) { runCatching { Qr.encode(uri) }.getOrNull() }
+    val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Share $name", maxLines = 2) },
+        text = {
+            Column(horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally) {
+                qr?.let {
+                    androidx.compose.foundation.Image(
+                        it.asImageBitmap(),
+                        contentDescription = "Channel QR",
+                        modifier = Modifier.size(280.dp),
+                    )
+                }
+                Text(
+                    "Anyone who scans this can read the channel. Show it only to people " +
+                        "you mean to give that to.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Done") } },
+        dismissButton = {
+            TextButton(onClick = {
+                clipboard.setText(androidx.compose.ui.text.AnnotatedString(uri))
+            }) { Text("Copy link") }
+        },
+    )
 }

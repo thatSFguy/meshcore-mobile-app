@@ -409,12 +409,23 @@ private fun ClockSection(vm: MeshCoreViewModel) {
         }
         return
     }
+    val drift = radioTime?.let { it - System.currentTimeMillis() / 1000 }
     Text(
         "Radio clock: " + (radioTime?.let {
-            DateFormat.getDateTimeInstance().format(Date(it * 1000)) +
-                "  (skew ${it - System.currentTimeMillis() / 1000}s)"
+            DateFormat.getDateTimeInstance().format(Date(it * 1000))
         } ?: "no answer"),
     )
+    drift?.let { d ->
+        Text(
+            "Drift: " + formatDrift(d),
+            style = MaterialTheme.typography.bodyMedium,
+            color = if (kotlin.math.abs(d) > 30) {
+                MaterialTheme.colorScheme.error
+            } else {
+                MaterialTheme.colorScheme.onSurface
+            },
+        )
+    }
     ButtonFlowRow {
         OutlinedButton(onClick = {
             vm.syncDeviceClock()
@@ -422,7 +433,12 @@ private fun ClockSection(vm: MeshCoreViewModel) {
         }) { Text("Sync from phone") }
         OutlinedButton(onClick = { refresh++ }) { Text("Re-read") }
     }
-    HintText("Radios without GPS lose their clock on power-cycle; the app also auto-corrects skew >30 s on connect.")
+    HintText(
+        "Radios without GPS lose their clock on power-cycle; the app auto-corrects drift " +
+            ">30 s on connect. Drift matters beyond timestamps: message ordering and " +
+            "reaction matching are both keyed on the sender's clock, so a skewed radio " +
+            "makes other apps attach your reactions to the wrong message.",
+    )
 }
 
 @Composable
@@ -868,4 +884,20 @@ fun AddNodeSheet(vm: MeshCoreViewModel, tcpEnabled: Boolean, onDismiss: () -> Un
             }
         }
     }
+}
+
+/**
+ * Human-readable clock drift. Sign is stated in words rather than as a
+ * bare "+"/"-", which nobody reads correctly under a status line.
+ */
+internal fun formatDrift(seconds: Long): String {
+    val magnitude = kotlin.math.abs(seconds)
+    val amount = when {
+        magnitude == 0L -> return "none — clocks agree"
+        magnitude < 60 -> "$magnitude s"
+        magnitude < 3600 -> "${magnitude / 60} min ${magnitude % 60} s"
+        magnitude < 86_400 -> "${magnitude / 3600} h ${(magnitude % 3600) / 60} min"
+        else -> "${magnitude / 86_400} days"
+    }
+    return if (seconds > 0) "$amount (radio ahead)" else "$amount (radio behind)"
 }

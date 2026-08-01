@@ -212,6 +212,36 @@ fun NodesScreen(vm: MeshCoreViewModel, nav: NavController) {
         SelfQrDialog(vm, onDismiss = { showSelfQr = false })
     }
 
+    val pendingChannel by vm.pendingChannelShare.collectAsState()
+    pendingChannel?.let { share ->
+        AlertDialog(
+            onDismissRequest = { vm.dismissChannelShare() },
+            title = { Text("Join this channel?") },
+            text = {
+                Column {
+                    Text(
+                        share.name.ifBlank { "(unnamed channel)" },
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        "This code carries the channel's secret key, so joining lets you " +
+                            "read everything on it — and everyone else with the key can read " +
+                            "what you send. Channel traffic is obfuscated (AES-ECB with a " +
+                            "2-byte MAC), not secure.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { vm.confirmChannelShare(share) }) { Text("Join channel") }
+            },
+            dismissButton = {
+                TextButton(onClick = { vm.dismissChannelShare() }) { Text("Cancel") }
+            },
+        )
+    }
+
     val pendingCard by vm.pendingContactCard.collectAsState()
     pendingCard?.let { card ->
         ContactCardConfirmDialog(
@@ -340,6 +370,7 @@ fun ContactDetailSheet(
     var routingOpen by remember { mutableStateOf(false) }
     var removeConfirm by remember { mutableStateOf(false) }
     var shareQrOpen by remember { mutableStateOf(false) }
+    var telemetryOpen by remember { mutableStateOf(false) }
     val isAdminable = contact.type == Codes.ADV_TYPE_REPEATER || contact.type == Codes.ADV_TYPE_ROOM
     val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
     val live = vm.liveContacts.collectAsState().value[contact.keyHex]
@@ -468,6 +499,7 @@ fun ContactDetailSheet(
                 onDismiss()
             }) { Text(if (isFav) "★ Remove favourite" else "☆ Add favourite") }
             TextButton(onClick = { shareQrOpen = true }) { Text("Share contact QR…") }
+            TextButton(onClick = { telemetryOpen = true }) { Text("Telemetry…") }
             TextButton(onClick = { routingOpen = true }) { Text("Routing / paths…") }
             TextButton(onClick = { renameOpen = true }) { Text("Rename") }
             TextButton(onClick = { removeConfirm = true }) {
@@ -478,6 +510,9 @@ fun ContactDetailSheet(
 
     if (shareQrOpen) {
         ContactQrDialog(vm, contact, onDismiss = { shareQrOpen = false })
+    }
+    if (telemetryOpen) {
+        ContactTelemetryDialog(vm, contact, onDismiss = { telemetryOpen = false })
     }
     if (routingOpen) {
         RoutingSheet(vm, contact, onDismiss = { routingOpen = false })
@@ -564,6 +599,80 @@ private fun relativeAge(epochSeconds: Long): String {
         else -> "${seconds / 86_400} days ago"
     }
 }
+
+
+/**
+ * Telemetry published by a node (Cayenne LPP over a binary request).
+ *
+ * The node decides whether to answer at all: telemetry is permissioned
+ * on its side, so silence is a normal outcome, not an error — say that
+ * rather than showing a failure.
+ */
+@Composable
+private fun ContactTelemetryDialog(
+    vm: MeshCoreViewModel,
+    contact: ContactEntity,
+    onDismiss: () -> Unit,
+) {
+    var readings by remember {
+        mutableStateOf<List<io.github.thatsfguy.meshcore.protocol.TelemetryReading>?>(null)
+    }
+    var loading by remember { mutableStateOf(true) }
+    var attempt by remember { mutableIntStateOf(0) }
+    LaunchedEffect(contact.keyHex, attempt) {
+        loading = true
+        readings = vm.repeaterTelemetry(contact.keyHex)
+        loading = false
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Telemetry", maxLines = 1) },
+        text = {
+            Column {
+                Text(
+                    contact.name.ifBlank { contact.keyHex.take(12) },
+                    style = MaterialTheme.typography.labelLarge,
+                )
+                Spacer(Modifier.height(8.dp))
+                when {
+                    loading -> Text("Asking the node…", style = MaterialTheme.typography.bodySmall)
+                    readings.isNullOrEmpty() -> Text(
+                        "No reply. The node may publish no telemetry, or may not grant " +
+                            "this device permission to read it.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    else -> for (r in readings!!) {
+                        Row(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
+                            Text(
+                                r.label,
+                                style = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier.weight(1f),
+                            )
+                            Text(
+                                formatReading(r.value) + (if (r.unit.isBlank()) "" else " ${r.unit}"),
+                                style = MaterialTheme.typography.bodySmall,
+                                fontFamily = FontFamily.Monospace,
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },
+        dismissButton = if (!loading) {
+            {
+                TextButton(onClick = { attempt++ }) { Text("Retry") }
+            }
+        } else {
+            null
+        },
+    )
+}
+
+/** Trim trailing zeros: "23.0" reads better than "23.000000". */
+private fun formatReading(value: Double): String =
+    if (value == value.toLong().toDouble()) value.toLong().toString() else "%.2f".format(value)
 
 /** Self-share QR dialog (used from Settings). */
 @Composable

@@ -34,6 +34,9 @@ object ShareUri {
     /** Path of the contact-card form, after the scheme. */
     const val CONTACT_PATH = "contact/add"
 
+    /** Path of the channel-share form. */
+    const val CHANNEL_PATH = "channel/add"
+
     /**
      * Upper bound on the whole URI. A contact card is ~150 bytes and an
      * advert blob ~100 bytes of payload; the cap is generous but keeps a
@@ -46,6 +49,9 @@ object ShareUri {
 
     /** Public keys are Ed25519 — always exactly 32 bytes. */
     const val PUB_KEY_BYTES = 32
+
+    /** Channel pre-shared keys are 16 bytes. */
+    const val CHANNEL_PSK_BYTES = 16
 
     /** Firmware stores the name as a 32-byte C string, so 31 usable. */
     const val MAX_NAME_BYTES = 31
@@ -68,6 +74,20 @@ object ShareUri {
     /** Legacy signed-advert form, still emitted by MeshCore Open. */
     fun encodeAdvert(blob: ByteArray): String = SCHEME + blob.toHex()
 
+    /**
+     * Build a channel share link.
+     *
+     * SECURITY: [pskHex] IS the channel. Anyone who scans this can read
+     * every message on it — including ones sent before they scanned,
+     * since the key is static and the cipher has no forward secrecy.
+     * There is no revoking it short of changing the key everywhere. UI
+     * that produces this must say so before it puts the code on screen.
+     */
+    fun encodeChannel(name: String, pskHex: String): String =
+        SCHEME + CHANNEL_PATH +
+            "?name=" + percentEncode(truncateToBytes(name, MAX_NAME_BYTES)) +
+            "&channel_secret=" + pskHex.trim().uppercase()
+
     // ------------------------------------------------------------------
     // Decoding
     // ------------------------------------------------------------------
@@ -83,6 +103,13 @@ object ShareUri {
             val pubKeyHex: String,
             val type: Int,
         ) : Decoded
+
+        /**
+         * A shared channel key. Nothing here is authenticated either —
+         * scanning one means trusting whoever showed it to you, and it
+         * grants read access to everything on that channel.
+         */
+        data class ChannelShare(val name: String, val pskHex: String) : Decoded
 
         /** A signed advert blob; the radio verifies it on import. */
         data class Advert(val blob: ByteArray) : Decoded {
@@ -108,26 +135,35 @@ object ShareUri {
         if (!trimmed.lowercase().startsWith(SCHEME)) return Decoded.NotAContactCode
         if (trimmed.length > MAX_URI_LENGTH) return Decoded.TooLarge
         val body = trimmed.substring(SCHEME.length)
-        return if (body.substringBefore('?').lowercase() == CONTACT_PATH) {
-            decodeContactCard(body.substringAfter('?', ""))
-        } else {
-            decodeAdvert(body)
+        val path = body.substringBefore('?').lowercase()
+        return when (path) {
+            CONTACT_PATH -> decodeContactCard(body.substringAfter('?', ""))
+            CHANNEL_PATH -> decodeChannelShare(body.substringAfter('?', ""))
+            else -> decodeAdvert(body)
         }
     }
 
-    private fun decodeContactCard(query: String): Decoded {
-        if (query.isEmpty()) return Decoded.Malformed
+    /**
+     * Parse a query string. First occurrence of a key wins: a duplicated
+     * `public_key` must not let a trailing copy override the one a human
+     * read off the screen. Null if any escape is malformed.
+     */
+    private fun parseQuery(query: String): Map<String, String>? {
         val params = mutableMapOf<String, String>()
         for (pair in query.split('&')) {
             if (pair.isEmpty()) continue
             val key = pair.substringBefore('=').lowercase()
             val raw = pair.substringAfter('=', "")
-            // First occurrence wins: a duplicated public_key must not let
-            // a trailing copy override the one a human might have read.
             if (key.isNotEmpty() && key !in params) {
-                params[key] = percentDecode(raw) ?: return Decoded.Malformed
+                params[key] = percentDecode(raw) ?: return null
             }
         }
+        return params
+    }
+
+    private fun decodeContactCard(query: String): Decoded {
+        if (query.isEmpty()) return Decoded.Malformed
+        val params = parseQuery(query) ?: return Decoded.Malformed
 
         val pubKeyHex = params["public_key"]?.trim()?.lowercase() ?: return Decoded.Malformed
         val pubKey = hexToBytesOrNull(pubKeyHex) ?: return Decoded.Malformed
@@ -141,6 +177,21 @@ object ShareUri {
 
         val name = sanitizeName(params["name"].orEmpty())
         return Decoded.Contact(name = name, pubKeyHex = pubKeyHex, type = type)
+    }
+
+    private fun decodeChannelShare(query: String): Decoded {
+        if (query.isEmpty()) return Decoded.Malformed
+        val params = parseQuery(query) ?: return Decoded.Malformed
+        val psk = params["channel_secret"]?.trim()?.lowercase() ?: return Decoded.Malformed
+        val bytes = hexToBytesOrNull(psk) ?: return Decoded.Malformed
+        if (bytes.size != CHANNEL_PSK_BYTES) return Decoded.Malformed
+        // An all-zero key is what a broken generator emits; it would look
+        // like a working channel while protecting nothing.
+        if (bytes.all { it.toInt() == 0 }) return Decoded.Malformed
+        return Decoded.ChannelShare(
+            name = sanitizeName(params["name"].orEmpty()),
+            pskHex = psk,
+        )
     }
 
     private fun decodeAdvert(hex: String): Decoded {

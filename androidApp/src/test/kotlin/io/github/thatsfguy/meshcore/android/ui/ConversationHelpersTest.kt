@@ -2,6 +2,7 @@ package io.github.thatsfguy.meshcore.android.ui
 
 import io.github.thatsfguy.meshcore.android.storage.MessageEntity
 import io.github.thatsfguy.meshcore.android.storage.MessageRepository
+import io.github.thatsfguy.meshcore.android.ui.screens.formatDrift
 import io.github.thatsfguy.meshcore.android.ui.screens.hopsLabel
 import io.github.thatsfguy.meshcore.android.ui.screens.quotePrefixFor
 import io.github.thatsfguy.meshcore.android.ui.screens.splitQuote
@@ -115,5 +116,21 @@ class ConversationHelpersTest {
         assertNotNull(quote)
         assertTrue(quote!!.contains("Bob"))
         assertEquals("my reply", body)
+    }
+
+    // ---- clock drift -----------------------------------------------------
+
+    @Test
+    fun `drift states its direction in words`() {
+        assertEquals("none — clocks agree", formatDrift(0))
+        assertEquals("12 s (radio ahead)", formatDrift(12))
+        assertEquals("12 s (radio behind)", formatDrift(-12))
+    }
+
+    @Test
+    fun `drift scales its units`() {
+        assertEquals("2 min 5 s (radio ahead)", formatDrift(125))
+        assertEquals("1 h 1 min (radio behind)", formatDrift(-3660))
+        assertEquals("2 days (radio ahead)", formatDrift(2 * 86_400))
     }
 }

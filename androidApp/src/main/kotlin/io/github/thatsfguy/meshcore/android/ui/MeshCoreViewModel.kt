@@ -646,6 +646,9 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
      */
     val pendingContactCard = MutableStateFlow<ShareUri.Decoded.Contact?>(null)
 
+    /** A scanned channel key awaiting confirmation. */
+    val pendingChannelShare = MutableStateFlow<ShareUri.Decoded.ChannelShare?>(null)
+
     /** Handle a scanned/pasted meshcore:// code, in either form. */
     fun importContactUri(text: String) {
         if (_service.value == null) return
@@ -654,6 +657,7 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
         when (val decoded = ShareUri.decode(text)) {
             is ShareUri.Decoded.Advert -> importAdvertBlob(decoded.blob)
             is ShareUri.Decoded.Contact -> pendingContactCard.value = decoded
+            is ShareUri.Decoded.ChannelShare -> pendingChannelShare.value = decoded
             ShareUri.Decoded.NotAContactCode ->
                 transientMessage.value = "Not a meshcore:// contact code"
             ShareUri.Decoded.TooLarge ->
@@ -687,6 +691,16 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
 
     fun dismissContactCard() {
         pendingContactCard.value = null
+    }
+
+    /** Commit a scanned channel key the user has confirmed. */
+    fun confirmChannelShare(share: ShareUri.Decoded.ChannelShare) {
+        pendingChannelShare.value = null
+        addChannel(share.name.ifBlank { "Shared channel" }, share.pskHex)
+    }
+
+    fun dismissChannelShare() {
+        pendingChannelShare.value = null
     }
 
     // ------------------------------------------------------------------
