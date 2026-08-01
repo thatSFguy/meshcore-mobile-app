@@ -98,6 +98,12 @@ fun ConversationScreen(
     val contacts by vm.dbContacts.collectAsState()
     val channels by vm.dbChannels.collectAsState()
 
+    // A room relays posts from many people, so — like a channel — each
+    // bubble has to say who wrote it. The room server is not the author.
+    val isRoom = contacts.firstOrNull { it.keyHex == peerKey }?.type ==
+        io.github.thatsfguy.meshcore.protocol.Codes.ADV_TYPE_ROOM
+    val showSenders = isChannel || isRoom
+
     val title = if (isChannel) {
         val idx = peerKey.toIntOrNull()
         "# " + (channels.firstOrNull { it.idx == idx }?.name?.ifBlank { "Channel $idx" }
@@ -207,8 +213,8 @@ fun ConversationScreen(
                 items(messages, key = { it.id }) { m ->
                     MessageBubble(
                         m,
-                        showSender = isChannel,
-                        showAvatar = isChannel,
+                        showSender = showSenders,
+                        showAvatar = showSenders,
                         onSwipeReply = { replyingTo = m },
                         onReact = { emoji -> vm.sendReaction(m.id, emoji) },
                         onMoreEmoji = { reactingTo = m },
@@ -488,7 +494,9 @@ private fun MessageBubble(
         horizontalArrangement = if (outgoing) Arrangement.End else Arrangement.Start,
         verticalAlignment = Alignment.Bottom,
     ) {
-        if (showAvatar && !outgoing) {
+        // No name, no avatar: a "?" circle on every historical room post
+        // (stored before authors were parsed) is noise, not information.
+        if (showAvatar && !outgoing && !m.senderName.isNullOrBlank()) {
             // Seeded on the sender NAME, which is unauthenticated display
             // text — the colour is a readability aid, never identity.
             NodeAvatar(
@@ -534,9 +542,7 @@ private fun MessageBubble(
                 } else {
                     MessageText(body, onHttpLink = onHttpLink, onMeshcoreLink = onMeshcoreLink)
                 }
-                if (reactions.isNotEmpty()) {
-                    ReactionChips(reactions, onClick = { showActions = true })
-                }
+                if (reactions.isNotEmpty()) ReactionChips(reactions)
                 Text(
                     buildString {
                         append(
@@ -563,6 +569,10 @@ private fun MessageBubble(
 
             if (showActions) {
                 MessageActionBar(
+                    // Reacting to yourself is a round-trip over LoRa that
+                    // tells nobody anything; the sibling gates it the
+                    // same way.
+                    canReact = !m.outgoing,
                     canResend = m.outgoing && m.status == MessageStatus.Failed.ordinal,
                     onReact = { emoji -> showActions = false; onReact(emoji) },
                     onMoreEmoji = { showActions = false; onMoreEmoji() },
@@ -588,6 +598,7 @@ private fun MessageBubble(
  */
 @Composable
 private fun MessageActionBar(
+    canReact: Boolean,
     canResend: Boolean,
     onReact: (String) -> Unit,
     onMoreEmoji: () -> Unit,
@@ -611,7 +622,8 @@ private fun MessageActionBar(
                 .padding(horizontal = 6.dp, vertical = 4.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            if (canReact) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
                 for (emoji in Reactions.QUICK) {
                     Text(
                         emoji,
@@ -633,6 +645,7 @@ private fun MessageActionBar(
                         .clickable { onMoreEmoji() }
                         .padding(horizontal = 6.dp, vertical = 6.dp),
                 )
+                }
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 ActionLabel("Reply", onReply)
@@ -711,7 +724,7 @@ private fun MessageText(
 /** Reaction counts under a bubble; tapping adds one of your own. */
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-private fun ReactionChips(counts: Map<String, Int>, onClick: () -> Unit) {
+private fun ReactionChips(counts: Map<String, Int>) {
     Row(
         Modifier.padding(top = 4.dp),
         horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -721,7 +734,6 @@ private fun ReactionChips(counts: Map<String, Int>, onClick: () -> Unit) {
                 Modifier
                     .clip(RoundedCornerShape(10.dp))
                     .background(MaterialTheme.colorScheme.surface)
-                    .combinedClickable(onClick = onClick, onLongClick = onClick)
                     .padding(horizontal = 6.dp, vertical = 2.dp),
             ) {
                 Text(
@@ -783,7 +795,12 @@ private fun ReactionPicker(onPick: (String) -> Unit, onDismiss: () -> Unit) {
 /** Everything known about one message, on its own sheet. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun MessageInfoSheet(m: MessageEntity, isChannel: Boolean, onDismiss: () -> Unit) {
+private fun MessageInfoSheet(
+    m: MessageEntity,
+    isChannel: Boolean,
+    showSender: Boolean,
+    onDismiss: () -> Unit,
+) {
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(Modifier.padding(horizontal = 24.dp).padding(bottom = 32.dp)) {
             Text("Message info", style = MaterialTheme.typography.titleLarge)
@@ -808,7 +825,7 @@ private fun MessageInfoSheet(m: MessageEntity, isChannel: Boolean, onDismiss: ()
                 m.ackHash?.let { InfoRow("Ack hash", "%08x".format(it), mono = true) }
             }
             m.snr?.let { InfoRow("SNR", "%.1f dB".format(it)) }
-            if (isChannel) {
+            if (showSender) {
                 InfoRow(
                     "Sender name",
                     (m.senderName?.takeIf { it.isNotBlank() } ?: "(none)") +

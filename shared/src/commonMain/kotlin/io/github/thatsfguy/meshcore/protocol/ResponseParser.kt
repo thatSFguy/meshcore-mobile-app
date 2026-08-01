@@ -276,7 +276,9 @@ object ResponseParser {
         val txtType = r.readByte()
         val timestamp = r.readUInt32LE()
         val isSigned = (txtType shr 2) == Codes.TXT_TYPE_SIGNED || txtType == Codes.TXT_TYPE_SIGNED
-        if (isSigned) r.skipBytes(4)
+        // Signed contact messages put the room author's pubkey prefix
+        // where a signature would sit; the text starts after it.
+        val roomAuthorPrefix = if (isSigned && r.remaining >= 4) r.readBytes(4) else null
         val text = r.readCString()
         return DeviceEvent.ContactMessage(
             senderPrefix = prefix,
@@ -285,6 +287,7 @@ object ResponseParser {
             timestamp = timestamp,
             text = text,
             snr = snr,
+            roomAuthorPrefix = roomAuthorPrefix,
         )
     }
 

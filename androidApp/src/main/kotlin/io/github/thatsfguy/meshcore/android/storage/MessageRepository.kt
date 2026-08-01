@@ -143,7 +143,9 @@ class MessageRepository(
                         selfKey = self,
                         kind = KIND_DM,
                         peerKey = peer,
-                        senderName = null,
+                        // Room posts name their author; a plain DM has no
+                        // sender name (the thread IS the sender).
+                        senderName = event.roomAuthorLabel,
                         text = storedText,
                         timestamp = event.timestamp,
                         receivedAt = System.currentTimeMillis(),
@@ -159,7 +161,7 @@ class MessageRepository(
                     db.contacts().bumpUnread(self, peer, System.currentTimeMillis())
                     // CLI replies are console output, not messages.
                     if (event.txtType == 0) {
-                        onNewMessage?.invoke(KIND_DM, peer, null, event.text)
+                        onNewMessage?.invoke(KIND_DM, peer, event.roomAuthorLabel, event.text)
                     }
                 }
             }

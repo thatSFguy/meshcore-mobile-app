@@ -64,6 +64,13 @@ sealed class DeviceEvent {
         val timestamp: Long,
         val text: String,
         val snr: Double?,
+        /**
+         * Room-server posts (TXT_TYPE_SIGNED) carry the ORIGINAL
+         * author's 4-byte pubkey prefix ahead of the text — the message
+         * itself arrives from the room, not from whoever wrote it. Null
+         * for ordinary direct messages.
+         */
+        val roomAuthorPrefix: ByteArray? = null,
     ) : DeviceEvent() {
         override val isPush get() = false
     }

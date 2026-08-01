@@ -187,8 +187,62 @@ Requires JDK 17+ and the Android SDK (compileSdk 34).
 [AGPL-3.0-only](LICENSE). Third-party components keep their own licences: osmdroid and ZXing
 (Apache-2.0), SQLCipher (BSD-3-Clause), Bouncy Castle (MIT), AndroidX/Room/Compose (Apache-2.0).
 
-## Platform status
+## iOS
 
-**Android is the shipping platform.** `iosApp/` holds a Phase-1 SwiftUI skeleton (XcodeGen project,
-TCP transport, store bridge); BLE and Ed25519 on iOS still need the CoreBluetooth transport and a
-CryptoKit bridge, and it can only be built on a Mac. See [`iosApp/README.md`](iosApp/README.md).
+**Android is the shipping platform. iOS is a pre-alpha skeleton — read this before sideloading it.**
+
+CI builds the iOS app on every push and publishes an **unsigned IPA**, so it can be installed today.
+What it cannot yet do matters more than that it installs:
+
+| | iOS today | Notes |
+|---|---|---|
+| BLE (Nordic UART) to a radio | ❌ | Needs a CoreBluetooth transport. **This is how you attach a radio** — without it the app cannot reach one over Bluetooth. |
+| USB serial | ❌ | Not practical on iOS for these radios. |
+| TCP transport | ✅ | Only useful with a networked base-station radio, and still plaintext + off by default. |
+| Advert Ed25519 verification | ❌ | `IosCryptoProvider` throws pending a CryptoKit bridge, so **contact import stays disabled** rather than importing unverified. |
+| Message persistence | ❌ | In-memory only — history is lost when the app exits. |
+| Channels, map, repeater admin | ❌ | Screens exist as a shell; the logic is shared but unwired. |
+
+So: installable, and useful for looking at the shell or building on it — **not** a working off-grid
+client. If you want to actually message someone over LoRa today, use the Android build.
+
+### Sideloading the unsigned IPA
+
+Apple requires every app to be signed by someone. Since this project has no Apple Developer account,
+CI ships the IPA **unsigned** and you re-sign it locally with your own free Apple ID. That is the
+same posture the sibling [reticulum-mobile-app](https://github.com/thatSFguy/reticulum-mobile-app)
+uses.
+
+**Where to get it:** the `meshcore-hardened-ios-unsigned` artifact on any green
+[iOS CI run](https://github.com/thatSFguy/meshcore-mobile-app/actions/workflows/ios-ci.yml).
+(Artifacts require being signed in to GitHub and expire after 7 days. Once iOS is worth releasing,
+the IPA will move onto the release pages next to the APK.)
+
+**One-time setup — pick one:**
+
+1. **Sideloadly** (simplest, one-shot) — install [Sideloadly](https://sideloadly.io/) on a Mac or
+   Windows PC, plug in the iPhone, drag the `.ipa` in, sign in with a free Apple ID, click Start.
+2. **AltStore** (auto-renewing, needs a Mac) — install [AltServer](https://altstore.io/) on a Mac
+   that the phone can reach over Wi-Fi after one USB pairing, then AltStore on the phone. It
+   re-signs every 7 days on its own while AltServer is running.
+3. **SideStore** (auto-renewing, no Mac) — [SideStore](https://sidestore.io/) renews on-device using
+   a paired developer disk image; the sign-in is the same free Apple ID flow.
+
+**Then, first run only:** on the phone open **Settings → General → VPN & Device Management →
+Developer App**, find your Apple ID, and tap **Trust**. iOS will not launch a re-signed app until
+you do.
+
+**Signature renewal:** a free Apple ID signature lasts **7 days**. AltStore and SideStore renew
+automatically while their helper is alive; Sideloadly does not, so you re-run it weekly. Past 7 days
+the app stops launching with "Untrusted Developer" until it is re-signed. A paid Developer Program
+account ($99/yr) extends this to a year — this project doesn't have one.
+
+**Building it yourself** (macOS only — the app is developed on Linux, where nothing Apple compiles):
+
+```bash
+./gradlew :shared:assembleSharedXCFramework
+brew install xcodegen && cd iosApp && xcodegen generate
+open iosApp.xcodeproj
+```
+
+See [`iosApp/README.md`](iosApp/README.md) for the phase plan.

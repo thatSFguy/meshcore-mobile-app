@@ -56,6 +56,8 @@ sealed class MeshEvent {
         val timestamp: Long,
         val txtType: Int,
         val snr: Double?,
+        /** "Name [AABBCCDD]" for a room post; null for a plain DM. */
+        val roomAuthorLabel: String? = null,
     ) : MeshEvent()
 
     /**
@@ -404,6 +406,7 @@ class MeshCoreEngine(
                         timestamp = event.timestamp,
                         txtType = event.txtType,
                         snr = event.snr,
+                        roomAuthorLabel = event.roomAuthorPrefix?.let { roomAuthorLabel(it) },
                     ),
                 )
             }
@@ -878,6 +881,22 @@ class MeshCoreEngine(
     }
 
     /** The parser expects the whole frame; TraceData carries the tail. */
+    /**
+     * Display label for the author of a room post.
+     *
+     * The room server asserts a 4-byte pubkey prefix; four bytes is not
+     * an identity, so the label always carries the prefix itself and the
+     * name is only a convenience when exactly one contact matches. An
+     * ambiguous or unknown author shows as the bare prefix rather than
+     * being attributed to someone — and never to the room itself.
+     */
+    private fun roomAuthorLabel(prefix: ByteArray): String {
+        val hex = prefix.toHex()
+        val matches = _contacts.value.values.filter { it.publicKeyHex.startsWith(hex) }
+        val name = matches.singleOrNull()?.name?.takeIf { it.isNotBlank() }
+        return if (name != null) "$name [${hex.uppercase()}]" else "[${hex.uppercase()}]"
+    }
+
     private fun traceFrame(ev: DeviceEvent.TraceData): ByteArray =
         byteArrayOf(Codes.PUSH_CODE_TRACE_DATA.toByte()) + ev.payload
 
