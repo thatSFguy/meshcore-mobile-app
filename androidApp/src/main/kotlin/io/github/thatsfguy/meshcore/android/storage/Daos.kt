@@ -61,6 +61,27 @@ interface MessageDao {
         failed: Int = MessageStatus.Failed.ordinal,
     ): Int
 
+    @Query("UPDATE messages SET reactionsJson = :json WHERE id = :id")
+    suspend fun setReactions(id: Long, json: String?)
+
+    /** Newest-first window used to resolve a reaction's target hash. */
+    @Query(
+        "SELECT * FROM messages WHERE selfKey = :selfKey AND kind = :kind AND peerKey = :peerKey " +
+            "ORDER BY timestamp DESC, receivedAt DESC LIMIT :limit",
+    )
+    suspend fun recentOnce(
+        selfKey: String,
+        kind: String,
+        peerKey: String,
+        limit: Int,
+    ): List<MessageEntity>
+
+    @Query("SELECT * FROM messages WHERE id = :id")
+    suspend fun byId(id: Long): MessageEntity?
+
+    @Query("DELETE FROM messages WHERE id = :id")
+    suspend fun deleteById(id: Long)
+
     @Query("DELETE FROM messages WHERE selfKey = :selfKey AND kind = :kind AND peerKey = :peerKey")
     suspend fun clearThread(selfKey: String, kind: String, peerKey: String)
 

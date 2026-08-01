@@ -4,6 +4,7 @@ import io.github.thatsfguy.meshcore.engine.MeshCoreEngine
 import io.github.thatsfguy.meshcore.engine.MeshEvent
 import io.github.thatsfguy.meshcore.model.Channel
 import io.github.thatsfguy.meshcore.model.Contact
+import io.github.thatsfguy.meshcore.protocol.Reactions
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
@@ -23,6 +24,34 @@ class MessageRepository(
     /** Thread the UI currently displays ("dm|<key>" / "ch|<idx>") —
      *  suppresses unread bumps for the open conversation. */
     @Volatile var activeThread: String? = null
+
+    /**
+     * Content keys of channel reactions already accounted for.
+     *
+     * A channel reaction reaches us up to three times: once as our own
+     * local application when we send it, then as the radio's echo of our
+     * own message, then again via the RX log. Ordinary messages dedup on
+     * the unique (selfKey, contentKey) index, but a reaction never
+     * becomes a row, so it needs its own guard — without it one tap
+     * counted as three.
+     */
+    private val seenReactionKeys = object : LinkedHashSet<String>() {
+        fun remember(key: String): Boolean {
+            val fresh = add(key)
+            while (size > MAX_SEEN_REACTIONS) remove(first())
+            return fresh
+        }
+    }
+
+    /** Called before sending our own channel reaction, so its echo is a no-op. */
+    @Synchronized
+    fun noteOwnReaction(contentKey: String) {
+        seenReactionKeys.remember(contentKey)
+    }
+
+    @Synchronized
+    private fun firstSightOfReaction(contentKey: String?): Boolean =
+        contentKey == null || seenReactionKeys.remember(contentKey)
 
     /**
      * Invoked for each genuinely-new inbound message that is NOT in the
@@ -103,6 +132,12 @@ class MessageRepository(
                 } else {
                     event.text
                 }
+                // A reaction is an ordinary text message by the time it
+                // reaches us; attach it to its target instead of letting
+                // "r:1a2b:00" land in the thread as a line of text.
+                if (event.txtType == 0 && applyReaction(self, KIND_DM, peer, storedText, null)) {
+                    return
+                }
                 db.messages().insert(
                     MessageEntity(
                         selfKey = self,
@@ -130,6 +165,17 @@ class MessageRepository(
             }
 
             is MeshEvent.ChannelMessageReceived -> {
+                if (applyReaction(
+                        self,
+                        KIND_CHANNEL,
+                        event.channelIndex.toString(),
+                        event.text,
+                        event.senderName,
+                        event.contentKey,
+                    )
+                ) {
+                    return
+                }
                 val inserted = db.messages().insert(
                     MessageEntity(
                         selfKey = self,
@@ -188,6 +234,65 @@ class MessageRepository(
             else -> Unit
         }
     }
+
+    // ------------------------------------------------------------------
+    // Reactions
+    // ------------------------------------------------------------------
+
+    /**
+     * If [text] is a reaction, attach it to the message it targets and
+     * return true (the caller then skips inserting a message row).
+     *
+     * Matching is by the format's 16-bit hash over a recent window of the
+     * thread, so it is a best guess: a collision attaches the emoji to
+     * the wrong message, and a reaction to something older than the
+     * window won't match at all. Both failure modes are visible rather
+     * than silent — an unmatched reaction is still stored, and the UI
+     * renders it as a reaction chip instead of raw wire text.
+     */
+    private suspend fun applyReaction(
+        self: String,
+        kind: String,
+        peerKey: String,
+        text: String,
+        senderName: String?,
+        contentKey: String? = null,
+    ): Boolean {
+        val reaction = Reactions.parse(text) ?: return false
+        // Consume repeats (our own echo, or double delivery) without
+        // counting them again — but still consume, so the wire text
+        // never lands in the thread as a message.
+        if (!firstSightOfReaction(contentKey)) return true
+        val recent = db.messages().recentOnce(self, kind, peerKey, REACTION_SEARCH_WINDOW)
+        val target = recent.firstOrNull { candidate ->
+            // Their reaction targets OUR view of the message: for a
+            // channel the hash includes the message's own sender name,
+            // for a DM it doesn't.
+            val hashSender = if (kind == KIND_CHANNEL) candidate.senderName.orEmpty() else null
+            Reactions.targetHash(candidate.timestamp, hashSender, candidate.text) ==
+                reaction.targetHash
+        } ?: return false
+        addReaction(target, reaction.emoji)
+        return true
+    }
+
+    /** Merge one emoji into a message's reaction counts. */
+    suspend fun addReaction(target: MessageEntity, emoji: String) {
+        val counts = ReactionCounts.decode(target.reactionsJson).toMutableMap()
+        counts[emoji] = (counts[emoji] ?: 0) + 1
+        db.messages().setReactions(target.id, ReactionCounts.encode(counts))
+    }
+
+    /** The wire text for reacting to [target], or null if unencodable. */
+    fun reactionWireText(target: MessageEntity, emoji: String, isChannel: Boolean): String? {
+        val hashSender = if (isChannel) target.senderName.orEmpty() else null
+        val hash = Reactions.targetHash(target.timestamp, hashSender, target.text)
+        return Reactions.encode(hash, emoji)
+    }
+
+    suspend fun messageById(id: Long): MessageEntity? = db.messages().byId(id)
+
+    suspend fun deleteMessage(id: Long) = db.messages().deleteById(id)
 
     /**
      * Optimistic outgoing DM row (status Pending) — insert BEFORE the
@@ -391,6 +496,18 @@ class MessageRepository(
     companion object {
         const val KIND_DM = "dm"
         const val KIND_CHANNEL = "ch"
+
+        /**
+         * How far back a reaction may reach. The wire format carries no
+         * thread position, only a 16-bit hash, so a wider window means
+         * more chances to collide with an unrelated message; 200 covers
+         * any realistic "react to something in view" while keeping the
+         * collision odds negligible.
+         */
+        private const val REACTION_SEARCH_WINDOW = 200
+
+        /** Bound on the echo-suppression set. */
+        private const val MAX_SEEN_REACTIONS = 512
 
         fun Contact.toEntity(selfKey: String): ContactEntity = ContactEntity(
             selfKey = selfKey,

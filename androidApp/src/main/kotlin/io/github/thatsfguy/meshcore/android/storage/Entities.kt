@@ -44,6 +44,15 @@ data class MessageEntity(
     val txtType: Int = 0,
     /** Send attempts made so far (retry service). */
     val attempts: Int = 0,
+    /**
+     * Reactions attached to this message, as a JSON object of
+     * emoji -> count. Null/blank when there are none.
+     *
+     * Reactions arrive as separate `r:HHHH:II` text messages matched by
+     * a 16-bit hash (see Reactions), so this is a best-effort attachment,
+     * not an authenticated fact about who reacted.
+     */
+    val reactionsJson: String? = null,
 )
 
 enum class MessageStatus { Pending, Sent, Delivered, Failed }

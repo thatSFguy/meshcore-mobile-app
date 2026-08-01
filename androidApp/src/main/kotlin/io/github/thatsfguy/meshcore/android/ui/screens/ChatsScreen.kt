@@ -17,6 +17,10 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -49,6 +53,9 @@ fun ChatsScreen(vm: MeshCoreViewModel, nav: NavController) {
     val conversations by vm.conversations.collectAsState()
     val engineState by vm.engineState.collectAsState()
     var showChannelSheet by remember { mutableStateOf(false) }
+    var query by remember { mutableStateOf("") }
+    var pinned by remember { mutableStateOf(vm.prefs.pinnedThreads) }
+    var nicknameFor by remember { mutableStateOf<ConversationRow?>(null) }
 
     val communityScanLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
         com.journeyapps.barcodescanner.ScanContract(),
@@ -93,10 +100,50 @@ fun ChatsScreen(vm: MeshCoreViewModel, nav: NavController) {
                 },
             )
         } else {
-            LazyColumn(Modifier.fillMaxSize().padding(padding)) {
-                items(conversations, key = { "${it.kind}|${it.key}" }) { row ->
-                    ConversationRowItem(row) {
-                        nav.navigate("conversation/${row.kind}/${row.key}")
+            val filtered = conversations.filter { row ->
+                query.isBlank() ||
+                    row.title.contains(query, ignoreCase = true) ||
+                    row.subtitle.contains(query, ignoreCase = true)
+            }
+            val pinnedRows = filtered.filter { "${it.kind}|${it.key}" in pinned }
+            val rest = filtered.filter { "${it.kind}|${it.key}" !in pinned }
+
+            Column(Modifier.fillMaxSize().padding(padding)) {
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    label = { Text("Search conversations") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+                )
+                LazyColumn(Modifier.fillMaxSize()) {
+                    if (pinnedRows.isNotEmpty()) {
+                        item("pinned_header") { SectionHeader("Pinned") }
+                        items(pinnedRows, key = { "p|${it.kind}|${it.key}" }) { row ->
+                            ConversationRowItem(
+                                row,
+                                pinned = true,
+                                onClick = { nav.navigate("conversation/${row.kind}/${row.key}") },
+                                onTogglePin = {
+                                    vm.prefs.setThreadPinned("${row.kind}|${row.key}", false)
+                                    pinned = vm.prefs.pinnedThreads
+                                },
+                                onNickname = { nicknameFor = row },
+                            )
+                        }
+                        item("recent_header") { SectionHeader("Recent") }
+                    }
+                    items(rest, key = { "${it.kind}|${it.key}" }) { row ->
+                        ConversationRowItem(
+                            row,
+                            pinned = false,
+                            onClick = { nav.navigate("conversation/${row.kind}/${row.key}") },
+                            onTogglePin = {
+                                vm.prefs.setThreadPinned("${row.kind}|${row.key}", true)
+                                pinned = vm.prefs.pinnedThreads
+                            },
+                            onNickname = { nicknameFor = row },
+                        )
                     }
                 }
             }
@@ -105,6 +152,18 @@ fun ChatsScreen(vm: MeshCoreViewModel, nav: NavController) {
 
     if (showChannelSheet) {
         ChannelAddSheet(vm, onDismiss = { showChannelSheet = false })
+    }
+
+    nicknameFor?.let { row ->
+        NicknameDialog(
+            current = vm.nicknameFor(row.key).orEmpty(),
+            subject = row.title,
+            onSave = { name ->
+                vm.setNickname(row.key, name)
+                nicknameFor = null
+            },
+            onDismiss = { nicknameFor = null },
+        )
     }
 }
 
@@ -131,12 +190,20 @@ fun ConnectionStatusLine(vm: MeshCoreViewModel) {
     )
 }
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-private fun ConversationRowItem(row: ConversationRow, onClick: () -> Unit) {
+private fun ConversationRowItem(
+    row: ConversationRow,
+    pinned: Boolean = false,
+    onClick: () -> Unit,
+    onTogglePin: () -> Unit = {},
+    onNickname: () -> Unit = {},
+) {
+    var menuOpen by remember { mutableStateOf(false) }
     Row(
         Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .combinedClickable(onClick = onClick, onLongClick = { menuOpen = true })
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -169,6 +236,9 @@ private fun ConversationRowItem(row: ConversationRow, onClick: () -> Unit) {
             )
         }
         Column(horizontalAlignment = Alignment.End) {
+            if (pinned) {
+                Text("📌", style = MaterialTheme.typography.labelSmall)
+            }
             if (row.timestamp > 0) {
                 Text(
                     DateFormat.getTimeInstance(DateFormat.SHORT)
@@ -181,7 +251,71 @@ private fun ConversationRowItem(row: ConversationRow, onClick: () -> Unit) {
                 Badge { Text(row.unread.toString()) }
             }
         }
+        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+            DropdownMenuItem(
+                text = { Text(if (pinned) "Unpin" else "Pin to top") },
+                onClick = { menuOpen = false; onTogglePin() },
+            )
+            if (!row.isChannel) {
+                DropdownMenuItem(
+                    text = { Text("Private nickname…") },
+                    onClick = { menuOpen = false; onNickname() },
+                )
+            }
+        }
     }
+}
+
+@Composable
+private fun SectionHeader(title: String) {
+    Text(
+        title,
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier.padding(start = 16.dp, top = 12.dp, bottom = 4.dp),
+    )
+}
+
+/**
+ * Local-only rename. Distinct from the contact Rename action, which
+ * rewrites the record on the radio and is visible to the mesh; this
+ * never leaves the phone.
+ */
+@Composable
+private fun NicknameDialog(
+    current: String,
+    subject: String,
+    onSave: (String?) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var text by remember { mutableStateOf(current) }
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Private nickname") },
+        text = {
+            Column {
+                Text(
+                    "Shown only on this phone, in place of \"$subject\". " +
+                        "Nothing is sent to the radio or the mesh.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { text = it },
+                    label = { Text("Nickname") },
+                    singleLine = true,
+                )
+            }
+        },
+        confirmButton = {
+            androidx.compose.material3.TextButton(onClick = {
+                onSave(text.trim().ifBlank { null })
+            }) { Text("Save") }
+        },
+        dismissButton = {
+            androidx.compose.material3.TextButton(onClick = onDismiss) { Text("Cancel") }
+        },
+    )
 }
 
 private fun typePrefix(type: Int?): String = when (type) {

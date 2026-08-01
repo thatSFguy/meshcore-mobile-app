@@ -16,7 +16,7 @@ import java.io.File
         MessageEntity::class, ContactEntity::class, ChannelEntity::class,
         PathHistoryEntity::class, DiscoveredEntity::class,
     ],
-    version = 4,
+    version = 5,
     exportSchema = true,
 )
 abstract class MeshCoreDatabase : RoomDatabase() {
@@ -72,6 +72,16 @@ abstract class MeshCoreDatabase : RoomDatabase() {
         }
 
         /**
+         * v5 adds messages.reactionsJson. ALTER TABLE ADD COLUMN only —
+         * no table rewrite, so existing message rows are untouched.
+         */
+        private val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `messages` ADD COLUMN `reactionsJson` TEXT")
+            }
+        }
+
+        /**
          * Open the database, encrypted with [passphrase] when one is
          * available (see [DatabaseKey]). A pre-existing PLAINTEXT
          * database is converted in place first, so turning encryption on
@@ -113,7 +123,7 @@ abstract class MeshCoreDatabase : RoomDatabase() {
             // a wiped database is not.
             fun builderFor(name: String) =
                 Room.databaseBuilder(context, MeshCoreDatabase::class.java, name)
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
 
             if (key == null) {
                 if (existsEncrypted) {

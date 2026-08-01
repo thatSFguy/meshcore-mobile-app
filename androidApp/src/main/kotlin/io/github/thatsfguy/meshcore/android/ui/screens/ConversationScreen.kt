@@ -1,31 +1,44 @@
 package io.github.thatsfguy.meshcore.android.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -36,11 +49,24 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import io.github.thatsfguy.meshcore.android.storage.MessageEntity
 import io.github.thatsfguy.meshcore.android.storage.MessageRepository
 import io.github.thatsfguy.meshcore.android.storage.MessageStatus
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import io.github.thatsfguy.meshcore.android.storage.ReactionCounts
+import io.github.thatsfguy.meshcore.protocol.Reactions
 import io.github.thatsfguy.meshcore.protocol.Frames
 import java.text.DateFormat
 import java.util.Date
@@ -85,21 +111,41 @@ fun ConversationScreen(
         onDispose { vm.markThreadClosed() }
     }
 
-    var draft by remember { mutableStateOf("") }
+    val threadKey = "$kind|$peerKey"
+    var draft by remember(threadKey) { mutableStateOf(vm.draftFor(threadKey)) }
     var clearConfirm by remember { mutableStateOf(false) }
     var showContact by remember { mutableStateOf(false) }
     var showChannelEditor by remember { mutableStateOf(false) }
-    var selected by remember { mutableStateOf<MessageEntity?>(null) }
+    var replyingTo by remember(kind, peerKey) { mutableStateOf<MessageEntity?>(null) }
+    var pendingUrl by remember { mutableStateOf<String?>(null) }
+    var reactingTo by remember { mutableStateOf<MessageEntity?>(null) }
+    var details by remember { mutableStateOf<MessageEntity?>(null) }
     val listState = rememberLazyListState()
+    // Follow new messages only when the user is already at the bottom.
+    // Yanking the view down mid-scrollback is how you lose your place in
+    // a thread you were reading.
+    val atBottom by remember {
+        androidx.compose.runtime.derivedStateOf {
+            val last = listState.layoutInfo.visibleItemsInfo.lastOrNull()
+            last == null || last.index >= listState.layoutInfo.totalItemsCount - 2
+        }
+    }
     LaunchedEffect(ordered.size) {
-        if (ordered.isNotEmpty()) listState.animateScrollToItem(ordered.size - 1)
+        if (ordered.isNotEmpty() && atBottom) listState.animateScrollToItem(ordered.size - 1)
     }
 
+    val selfName = vm.selfInfo.collectAsState().value?.name
     val maxBytes = if (isChannel) {
-        Frames.maxChannelMessageBytes(vm.selfInfo.collectAsState().value?.name)
+        Frames.maxChannelMessageBytes(selfName)
     } else {
         Frames.maxContactMessageBytes()
     }
+    // MeshCore has no reply field, so a quote is literally prefixed to
+    // the text — and it comes out of the same ~150-byte budget. Reserve
+    // it up front so the composer can't accept a message the quote will
+    // push over the limit.
+    val quotePrefix = replyingTo?.let { quotePrefixFor(it) }.orEmpty()
+    val bodyBudget = (maxBytes - quotePrefix.encodeToByteArray().size).coerceAtLeast(0)
 
     var muted by remember(peerKey) {
         mutableStateOf(peerKey.toIntOrNull()?.let { vm.prefs.isChannelMuted(it) } ?: false)
@@ -144,7 +190,7 @@ fun ConversationScreen(
             ) {
                 if (total > ordered.size) {
                     item(key = "load_older") {
-                        androidx.compose.material3.TextButton(
+                        TextButton(
                             onClick = { pageSize += PAGE_SIZE },
                             modifier = Modifier.fillMaxWidth(),
                         ) { Text("Load older (${total - ordered.size} more)") }
@@ -154,10 +200,24 @@ fun ConversationScreen(
                     MessageBubble(
                         m,
                         showSender = isChannel,
-                        onLongPress = { selected = m },
+                        showAvatar = isChannel,
+                        onSwipeReply = { replyingTo = m },
+                        onReact = { emoji -> vm.sendReaction(m.id, emoji) },
+                        onMoreEmoji = { reactingTo = m },
+                        onReply = { replyingTo = m },
+                        onInfo = { details = m },
+                        onDelete = { vm.deleteMessage(m.id) },
+                        onResend = { vm.resendMessage(m.id) },
+                        onHttpLink = { pendingUrl = it },
+                        onMeshcoreLink = { vm.importContactUri(it) },
                     )
                 }
             }
+
+            replyingTo?.let { target ->
+                ReplyBanner(target, onCancel = { replyingTo = null })
+            }
+
             Row(
                 Modifier.fillMaxWidth().padding(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -166,7 +226,10 @@ fun ConversationScreen(
                     value = draft,
                     onValueChange = {
                         // Enforce the frame-size limit at input time.
-                        if (it.encodeToByteArray().size <= maxBytes) draft = it
+                        if (it.encodeToByteArray().size <= bodyBudget) {
+                            draft = it
+                            vm.setDraft(threadKey, it)
+                        }
                     },
                     modifier = Modifier.weight(1f),
                     placeholder = { Text(if (isChannel) "Message channel…" else "Message…") },
@@ -174,14 +237,16 @@ fun ConversationScreen(
                 )
                 IconButton(
                     onClick = {
-                        val text = draft.trim()
-                        if (text.isEmpty()) return@IconButton
+                        val text = quotePrefix + draft.trim()
+                        if (text.isBlank()) return@IconButton
                         if (isChannel) {
                             peerKey.toIntOrNull()?.let { vm.sendChannelMessage(it, text) }
                         } else {
                             vm.sendDirectMessage(peerKey, text)
                         }
                         draft = ""
+                        vm.setDraft(threadKey, "")
+                        replyingTo = null
                     },
                     enabled = draft.isNotBlank(),
                 ) {
@@ -191,39 +256,33 @@ fun ConversationScreen(
         }
     }
 
-    selected?.let { m ->
-        MessageActionsDialog(
-            message = m,
-            isChannel = isChannel,
-            onDismiss = { selected = null },
-            onCopy = { clipboard ->
-                clipboard.setText(androidx.compose.ui.text.AnnotatedString(m.text))
-                selected = null
+    reactingTo?.let { target ->
+        ReactionPicker(
+            onPick = { emoji ->
+                vm.sendReaction(target.id, emoji)
+                reactingTo = null
             },
-            onQuote = {
-                // Minimal reply: quote the line into the draft.
-                val who = m.senderName?.let { "$it: " } ?: ""
-                draft = "> $who${m.text.take(60)}\n"
-                selected = null
-            },
+            onDismiss = { reactingTo = null },
         )
     }
 
+    pendingUrl?.let { url ->
+        LeaveTheMeshDialog(url, onDismiss = { pendingUrl = null })
+    }
+
     if (clearConfirm) {
-        androidx.compose.material3.AlertDialog(
+        AlertDialog(
             onDismissRequest = { clearConfirm = false },
             title = { Text("Clear this thread?") },
             text = { Text("Removes the messages from this phone only — nothing is sent to the mesh.") },
             confirmButton = {
-                androidx.compose.material3.TextButton(onClick = {
+                TextButton(onClick = {
                     vm.clearThread(kind, peerKey)
                     clearConfirm = false
                 }) { Text("Clear", color = MaterialTheme.colorScheme.error) }
             },
             dismissButton = {
-                androidx.compose.material3.TextButton(onClick = { clearConfirm = false }) {
-                    Text("Cancel")
-                }
+                TextButton(onClick = { clearConfirm = false }) { Text("Cancel") }
             },
         )
     }
@@ -250,21 +309,178 @@ fun ConversationScreen(
     }
 }
 
+/**
+ * Confirmation before a peer-supplied http(s) link opens.
+ *
+ * SECURITY: this app makes no outbound connections except map tiles. A
+ * link in a message is chosen by the sender, so following it hands a
+ * server of their choosing the user's IP and the fact that they're
+ * online. That has to be a decision, not a mis-tap.
+ */
+@Composable
+private fun LeaveTheMeshDialog(url: String, onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Open link?") },
+        text = {
+            Text(
+                "This opens in your browser and leaves the mesh. The site — chosen by " +
+                    "the sender, not you — will see your real IP address and network.\n\n$url",
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                runCatching {
+                    context.startActivity(
+                        android.content.Intent(
+                            android.content.Intent.ACTION_VIEW,
+                            android.net.Uri.parse(url),
+                        ),
+                    )
+                }
+                onDismiss()
+            }) { Text("Open in browser") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+/** "Replying to …" strip above the composer, with a cancel affordance. */
+@Composable
+private fun ReplyBanner(target: MessageEntity, onCancel: () -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp)
+            .background(
+                MaterialTheme.colorScheme.surfaceVariant,
+                RoundedCornerShape(8.dp),
+            )
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            Modifier
+                .width(3.dp)
+                .height(28.dp)
+                .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(2.dp)),
+        )
+        Spacer(Modifier.width(8.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                "Replying to ${target.senderName?.takeIf { it.isNotBlank() } ?: if (target.outgoing) "yourself" else "them"}",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.primary,
+            )
+            Text(
+                target.text.replace('\n', ' '),
+                style = MaterialTheme.typography.bodySmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        IconButton(onClick = onCancel) {
+            Icon(Icons.Filled.Clear, contentDescription = "Cancel reply")
+        }
+    }
+}
+
+/**
+ * The quote text prefixed to a reply.
+ *
+ * Kept deliberately short: every byte here is taken from a ~150-byte
+ * message budget, and MeshCore has no reply field to carry it out of
+ * band — other clients will simply see the `>` line as text.
+ */
+internal fun quotePrefixFor(target: MessageEntity): String {
+    val who = target.senderName?.takeIf { it.isNotBlank() }?.let { "$it: " }.orEmpty()
+    val body = target.text.replace('\n', ' ').trim()
+    val snippet = if (body.length > QUOTE_MAX_CHARS) {
+        body.take(QUOTE_MAX_CHARS).trimEnd() + "…"
+    } else {
+        body
+    }
+    return "> $who$snippet\n"
+}
+
+private const val QUOTE_MAX_CHARS = 40
+
+/** Split a message into its leading quote lines and the reply body. */
+internal fun splitQuote(text: String): Pair<String?, String> {
+    if (!text.startsWith(">")) return null to text
+    val lines = text.lines()
+    val quoted = lines.takeWhile { it.startsWith(">") }
+    if (quoted.isEmpty()) return null to text
+    val body = lines.drop(quoted.size).joinToString("\n").trimStart('\n')
+    return quoted.joinToString("\n") { it.removePrefix(">").trim() } to body
+}
+
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 private fun MessageBubble(
     m: MessageEntity,
     showSender: Boolean,
-    onLongPress: () -> Unit = {},
+    showAvatar: Boolean = false,
+    onSwipeReply: () -> Unit = {},
+    onReact: (String) -> Unit = {},
+    onMoreEmoji: () -> Unit = {},
+    onReply: () -> Unit = {},
+    onInfo: () -> Unit = {},
+    onDelete: () -> Unit = {},
+    onResend: () -> Unit = {},
+    onHttpLink: (String) -> Unit = {},
+    onMeshcoreLink: (String) -> Unit = {},
 ) {
+    // Long-press opens an inline action bar anchored on the bubble —
+    // one tap to react, no dialog to read and dismiss first.
+    var showActions by remember(m.id) { mutableStateOf(false) }
+    val clipboard = LocalClipboardManager.current
     val outgoing = m.outgoing
+    val (quoted, body) = remember(m.text) { splitQuote(m.text) }
+    val reactions = remember(m.reactionsJson) { ReactionCounts.decode(m.reactionsJson) }
+    // A reaction whose target we couldn't find still has to render as
+    // something a human understands, not as "r:1a2b:00".
+    val orphanReaction = remember(m.text) { Reactions.parse(m.text) }
+
+    // Swipe-right-to-reply: accumulate the rightward drag as a visual
+    // pull, and fire on release once past the threshold.
+    val density = LocalDensity.current
+    val thresholdPx = with(density) { 56.dp.toPx() }
+    var dragOffsetX by remember(m.id) { mutableStateOf(0f) }
+    val dragState = rememberDraggableState { delta ->
+        if (delta > 0f || dragOffsetX > 0f) {
+            dragOffsetX = (dragOffsetX + delta).coerceIn(0f, thresholdPx * 1.5f)
+        }
+    }
+
     Row(
         Modifier
             .fillMaxWidth()
-            .combinedClickable(onClick = {}, onLongClick = onLongPress)
+            .offset { IntOffset(dragOffsetX.toInt(), 0) }
+            .draggable(
+                state = dragState,
+                orientation = Orientation.Horizontal,
+                onDragStopped = {
+                    if (dragOffsetX >= thresholdPx) onSwipeReply()
+                    dragOffsetX = 0f
+                },
+            )
+            .combinedClickable(onClick = {}, onLongClick = { showActions = true })
             .padding(horizontal = 8.dp),
         horizontalArrangement = if (outgoing) Arrangement.End else Arrangement.Start,
+        verticalAlignment = Alignment.Bottom,
     ) {
+        if (showAvatar && !outgoing) {
+            // Seeded on the sender NAME, which is unauthenticated display
+            // text — the colour is a readability aid, never identity.
+            NodeAvatar(
+                seed = "sender|" + m.senderName.orEmpty(),
+                label = m.senderName.orEmpty(),
+                size = 28.dp,
+            )
+            Spacer(Modifier.width(6.dp))
+        }
         Box(
             Modifier
                 .widthIn(max = 300.dp)
@@ -290,7 +506,20 @@ private fun MessageBubble(
                         color = MaterialTheme.colorScheme.primary,
                     )
                 }
-                Text(m.text, style = MaterialTheme.typography.bodyMedium)
+                quoted?.let { QuoteBlock(it) }
+                if (orphanReaction != null) {
+                    Text(
+                        orphanReaction.emoji + "  reacted to an earlier message",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontStyle = FontStyle.Italic,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                } else {
+                    MessageText(body, onHttpLink = onHttpLink, onMeshcoreLink = onMeshcoreLink)
+                }
+                if (reactions.isNotEmpty()) {
+                    ReactionChips(reactions, onClick = { showActions = true })
+                }
                 Text(
                     buildString {
                         append(
@@ -314,57 +543,287 @@ private fun MessageBubble(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+
+            if (showActions) {
+                MessageActionBar(
+                    canResend = m.outgoing && m.status == MessageStatus.Failed.ordinal,
+                    onReact = { emoji -> showActions = false; onReact(emoji) },
+                    onMoreEmoji = { showActions = false; onMoreEmoji() },
+                    onReply = { showActions = false; onReply() },
+                    onCopy = {
+                        showActions = false
+                        clipboard.setText(AnnotatedString(m.text))
+                    },
+                    onInfo = { showActions = false; onInfo() },
+                    onDelete = { showActions = false; onDelete() },
+                    onResend = { showActions = false; onResend() },
+                    onDismiss = { showActions = false },
+                )
+            }
         }
+    }
+}
+
+/**
+ * Inline action bar for a message: quick reactions on top, text actions
+ * below. A popup anchored on the bubble rather than a modal dialog —
+ * reacting should be one tap, not read-dialog-then-tap.
+ */
+@Composable
+private fun MessageActionBar(
+    canResend: Boolean,
+    onReact: (String) -> Unit,
+    onMoreEmoji: () -> Unit,
+    onReply: () -> Unit,
+    onCopy: () -> Unit,
+    onInfo: () -> Unit,
+    onDelete: () -> Unit,
+    onResend: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    Popup(
+        alignment = Alignment.TopCenter,
+        offset = IntOffset(0, -140),
+        onDismissRequest = onDismiss,
+        properties = PopupProperties(focusable = true),
+    ) {
+        Column(
+            Modifier
+                .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(20.dp))
+                .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(20.dp))
+                .padding(horizontal = 6.dp, vertical = 4.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                for (emoji in Reactions.QUICK) {
+                    Text(
+                        emoji,
+                        style = MaterialTheme.typography.titleLarge,
+                        modifier = Modifier
+                            .clickable { onReact(emoji) }
+                            .padding(horizontal = 6.dp, vertical = 6.dp),
+                    )
+                }
+                // Overflow to the full list. Unlike the sibling's client
+                // we can't offer the system emoji keyboard: the wire
+                // format is an index into a fixed list, so anything
+                // outside it is unsendable.
+                Text(
+                    "＋",
+                    style = MaterialTheme.typography.titleLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier
+                        .clickable { onMoreEmoji() }
+                        .padding(horizontal = 6.dp, vertical = 6.dp),
+                )
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                ActionLabel("Reply", onReply)
+                ActionLabel("Copy", onCopy)
+                ActionLabel("Info", onInfo)
+                if (canResend) ActionLabel("Resend", onResend)
+                ActionLabel("Delete", onDelete, color = MaterialTheme.colorScheme.error)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ActionLabel(
+    text: String,
+    onClick: () -> Unit,
+    color: androidx.compose.ui.graphics.Color = MaterialTheme.colorScheme.onSurface,
+) {
+    Text(
+        text,
+        style = MaterialTheme.typography.labelLarge,
+        color = color,
+        modifier = Modifier
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+    )
+}
+
+/** The `>` lines of a reply, rendered as a quote rather than as text. */
+@Composable
+private fun QuoteBlock(quoted: String) {
+    Row(Modifier.padding(bottom = 4.dp)) {
+        Box(
+            Modifier
+                .width(3.dp)
+                .height(if (quoted.length > 40) 32.dp else 18.dp)
+                .clip(RoundedCornerShape(2.dp))
+                .background(MaterialTheme.colorScheme.primary),
+        )
+        Spacer(Modifier.width(6.dp))
+        Text(
+            quoted,
+            style = MaterialTheme.typography.bodySmall,
+            fontStyle = FontStyle.Italic,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+/** Message body with tappable links (plain [Text] when there are none). */
+@Composable
+private fun MessageText(
+    text: String,
+    onHttpLink: (String) -> Unit,
+    onMeshcoreLink: (String) -> Unit,
+) {
+    if (!MessageLinks.hasLinks(text)) {
+        Text(text, style = MaterialTheme.typography.bodyMedium)
+        return
+    }
+    val linkColor = MaterialTheme.colorScheme.primary
+    val annotated = remember(text, linkColor) {
+        MessageLinks.annotate(
+            text = text,
+            linkColor = linkColor,
+            onHttpLink = onHttpLink,
+            onMeshcoreLink = onMeshcoreLink,
+        )
+    }
+    Text(annotated, style = MaterialTheme.typography.bodyMedium)
+}
+
+
+/** Reaction counts under a bubble; tapping adds one of your own. */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@Composable
+private fun ReactionChips(counts: Map<String, Int>, onClick: () -> Unit) {
+    Row(
+        Modifier.padding(top = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        for ((emoji, count) in counts.entries.sortedByDescending { it.value }) {
+            Box(
+                Modifier
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(MaterialTheme.colorScheme.surface)
+                    .combinedClickable(onClick = onClick, onLongClick = onClick)
+                    .padding(horizontal = 6.dp, vertical = 2.dp),
+            ) {
+                Text(
+                    if (count > 1) "$emoji $count" else emoji,
+                    style = MaterialTheme.typography.labelMedium,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Emoji palette for reacting.
+ *
+ * Only emoji from [Reactions.ALL] can be offered: the wire format is a
+ * positional index into that exact list, so anything else is unsendable
+ * rather than merely unusual.
+ */
+@Composable
+private fun ReactionPicker(onPick: (String) -> Unit, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("React") },
+        text = {
+            Column {
+                // Six quick emoji don't fit a dialog's width as buttons
+                // with default padding — lay them out on the same grid as
+                // the rest so none fall off the edge.
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(6),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    items(Reactions.QUICK) { emoji ->
+                        TextButton(
+                            onClick = { onPick(emoji) },
+                            contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
+                        ) { Text(emoji, style = MaterialTheme.typography.titleLarge) }
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(8),
+                    modifier = Modifier.height(220.dp),
+                ) {
+                    items(Reactions.ALL.drop(Reactions.QUICK.size)) { emoji ->
+                        TextButton(
+                            onClick = { onPick(emoji) },
+                            contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
+                        ) { Text(emoji) }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+
+/** Everything known about one message, on its own sheet. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun MessageInfoSheet(m: MessageEntity, isChannel: Boolean, onDismiss: () -> Unit) {
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(Modifier.padding(horizontal = 24.dp).padding(bottom = 32.dp)) {
+            Text("Message info", style = MaterialTheme.typography.titleLarge)
+            Spacer(Modifier.height(12.dp))
+            InfoRow("Direction", if (m.outgoing) "Sent" else "Received")
+            InfoRow(
+                "Time",
+                DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.MEDIUM)
+                    .format(Date(m.timestamp * 1000)),
+            )
+            if (m.outgoing) {
+                InfoRow(
+                    "State",
+                    when (m.status) {
+                        MessageStatus.Delivered.ordinal -> "Delivered (end-to-end ACK)"
+                        MessageStatus.Sent.ordinal -> "Accepted by radio, no ACK yet"
+                        MessageStatus.Failed.ordinal -> "Failed"
+                        else -> "Pending"
+                    },
+                )
+                if (m.attempts > 0) InfoRow("Attempts", m.attempts.toString())
+                m.ackHash?.let { InfoRow("Ack hash", "%08x".format(it), mono = true) }
+            }
+            m.snr?.let { InfoRow("SNR", "%.1f dB".format(it)) }
+            if (isChannel) {
+                InfoRow(
+                    "Sender name",
+                    (m.senderName?.takeIf { it.isNotBlank() } ?: "(none)") +
+                        " — unauthenticated",
+                )
+            }
+            InfoRow("Reaction id", Reactions.targetHash(
+                m.timestamp,
+                if (isChannel) m.senderName.orEmpty() else null,
+                m.text,
+            ), mono = true)
+            InfoRow("Length", m.text.encodeToByteArray().size.toString() + " bytes")
+        }
+    }
+}
+
+@Composable
+private fun InfoRow(label: String, value: String, mono: Boolean = false) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+        Text(
+            label,
+            style = MaterialTheme.typography.labelLarge,
+            modifier = Modifier.width(120.dp),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            value,
+            style = MaterialTheme.typography.bodyMedium,
+            fontFamily = if (mono) androidx.compose.ui.text.font.FontFamily.Monospace else null,
+        )
     }
 }
 
 /** Newest-N window; "Load older" grows it. */
 private const val PAGE_SIZE = 50
-
-/** Long-press actions on a message: copy, quote-reply, and details. */
-@Composable
-private fun MessageActionsDialog(
-    message: MessageEntity,
-    isChannel: Boolean,
-    onDismiss: () -> Unit,
-    onCopy: (androidx.compose.ui.platform.ClipboardManager) -> Unit,
-    onQuote: () -> Unit,
-) {
-    val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
-    androidx.compose.material3.AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Message") },
-        text = {
-            Column {
-                Text(message.text, style = MaterialTheme.typography.bodyMedium)
-                Text(
-                    buildString {
-                        append(
-                            DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT)
-                                .format(Date(message.timestamp * 1000)),
-                        )
-                        message.senderName?.let { append(" · $it") }
-                        message.snr?.let { append(" · %.1f dB".format(it)) }
-                        if (message.outgoing && message.attempts > 0) {
-                            append(" · ${message.attempts} attempt(s)")
-                        }
-                        message.ackHash?.let { append(" · ack %08x".format(it)) }
-                    },
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        },
-        confirmButton = {
-            androidx.compose.material3.TextButton(onClick = { onCopy(clipboard) }) { Text("Copy") }
-        },
-        dismissButton = {
-            Row {
-                if (isChannel) {
-                    androidx.compose.material3.TextButton(onClick = onQuote) { Text("Quote") }
-                }
-                androidx.compose.material3.TextButton(onClick = onDismiss) { Text("Close") }
-            }
-        },
-    )
-}

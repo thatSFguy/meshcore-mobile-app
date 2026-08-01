@@ -25,6 +25,7 @@ import io.github.thatsfguy.meshcore.model.DeviceInfo
 import io.github.thatsfguy.meshcore.model.SelfInfo
 import io.github.thatsfguy.meshcore.protocol.ChannelCrypto
 import io.github.thatsfguy.meshcore.protocol.Codes
+import io.github.thatsfguy.meshcore.protocol.Reactions
 import io.github.thatsfguy.meshcore.protocol.ShareUri
 import io.github.thatsfguy.meshcore.transport.ConnectionMemory
 import io.github.thatsfguy.meshcore.transport.SavedNode
@@ -202,13 +203,17 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
         if (key.isEmpty()) flowOf(emptyList()) else db.channels().all(key)
     }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
+    /** Bumped when a private nickname changes, so [conversations] recomputes. */
+    private val nicknameRevision = MutableStateFlow(0)
+
     val conversations: StateFlow<List<ConversationRow>> = combine(
         selfKey.flatMapLatest { key ->
             if (key.isEmpty()) flowOf(emptyList()) else db.messages().latestPerThread(key)
         },
         dbContacts,
         dbChannels,
-    ) { latest, contacts, channels ->
+        nicknameRevision,
+    ) { latest, contacts, channels, _ ->
         val contactByKey = contacts.associateBy { it.keyHex }
         val channelByIdx = channels.associateBy { it.idx }
         val rows = ArrayList<ConversationRow>()
@@ -222,7 +227,7 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
                     ConversationRow(
                         kind = m.kind, key = m.peerKey,
                         title = ch?.name?.ifBlank { "Channel $idx" } ?: "Channel $idx",
-                        subtitle = "${m.senderName?.plus(": ") ?: ""}${m.text}".take(80),
+                        subtitle = (m.senderName?.plus(": ") ?: "") + previewOf(m),
                         timestamp = m.timestamp,
                         unread = ch?.unread ?: 0,
                         isChannel = true,
@@ -239,8 +244,10 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
                 rows.add(
                     ConversationRow(
                         kind = m.kind, key = m.peerKey,
-                        title = c?.name?.ifBlank { null } ?: m.peerKey.take(12),
-                        subtitle = m.text.take(80),
+                        title = prefs.nicknameFor(m.peerKey)
+                            ?: c?.name?.ifBlank { null }
+                            ?: m.peerKey.take(12),
+                        subtitle = previewOf(m),
                         timestamp = m.timestamp,
                         unread = c?.unread ?: 0,
                         isChannel = false,
@@ -382,6 +389,101 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
             svc.repository.markChannelResult(contentKey, accepted)
             if (!accepted) transientMessage.value = "Radio did not accept the message"
         }
+    }
+
+    /**
+     * One-line preview for the conversation list. A reaction that never
+     * found its target is still a message row, so render it the way the
+     * thread does rather than leaking "r:1a2b:00" into the list.
+     */
+    private fun previewOf(m: io.github.thatsfguy.meshcore.android.storage.MessageEntity): String {
+        Reactions.parse(m.text)?.let { return it.emoji + " reacted" }
+        return m.text.take(80)
+    }
+
+    /** Local-only display name for a contact; see [Preferences.nicknameFor]. */
+    fun nicknameFor(keyHex: String): String? = prefs.nicknameFor(keyHex)
+
+    fun setNickname(keyHex: String, nickname: String?) {
+        prefs.setNickname(keyHex, nickname)
+        // The conversations flow reads prefs, so nudge it to recompute.
+        nicknameRevision.value = nicknameRevision.value + 1
+    }
+
+    /**
+     * Per-thread composer drafts, held for the life of the ViewModel so
+     * stepping out of a conversation (to check a node, to answer another
+     * thread) doesn't discard what was half-typed.
+     */
+    private val drafts = mutableMapOf<String, String>()
+
+    fun draftFor(threadKey: String): String = drafts[threadKey].orEmpty()
+
+    fun setDraft(threadKey: String, text: String) {
+        if (text.isEmpty()) drafts.remove(threadKey) else drafts[threadKey] = text
+    }
+
+    /**
+     * Send a failed message again. The original row is removed once the
+     * retry is queued, so the thread shows one message rather than a
+     * failed copy next to a live one.
+     */
+    fun resendMessage(messageId: Long) {
+        val svc = _service.value ?: return
+        viewModelScope.launch {
+            val row = svc.repository.messageById(messageId) ?: return@launch
+            svc.repository.deleteMessage(messageId)
+            if (row.kind == MessageRepository.KIND_CHANNEL) {
+                row.peerKey.toIntOrNull()?.let { sendChannelMessage(it, row.text) }
+            } else {
+                sendDirectMessage(row.peerKey, row.text)
+            }
+        }
+    }
+
+    /**
+     * React to a message.
+     *
+     * The reaction goes out as an ordinary text message (`r:HHHH:II`) —
+     * MeshCore has no reaction field — and is attached locally straight
+     * away rather than round-tripping through our own echo, since the
+     * wire text would otherwise show up as a line of gibberish in the
+     * thread.
+     */
+    fun sendReaction(messageId: Long, emoji: String) {
+        val svc = _service.value ?: return
+        viewModelScope.launch {
+            val target = svc.repository.messageById(messageId) ?: return@launch
+            val isChannel = target.kind == MessageRepository.KIND_CHANNEL
+            val wire = svc.repository.reactionWireText(target, emoji, isChannel)
+            if (wire == null) {
+                transientMessage.value = "That emoji can't be sent as a reaction"
+                return@launch
+            }
+            svc.repository.addReaction(target, emoji)
+            val sent = runCatching {
+                if (isChannel) {
+                    val idx = target.peerKey.toIntOrNull() ?: return@runCatching false
+                    val ts = System.currentTimeMillis() / 1000
+                    val selfName = svc.engine.selfInfo.value?.name ?: "me"
+                    // Register the echo before it can come back.
+                    svc.repository.noteOwnReaction(
+                        svc.engine.channelContentKey(idx, ts, selfName, wire),
+                    )
+                    svc.engine.sendChannelMessage(idx, wire, ts)
+                } else {
+                    val key = hexToBytesOrNull(target.peerKey) ?: return@runCatching false
+                    svc.engine.sendDirectMessage(key, wire) != null
+                }
+            }.getOrDefault(false)
+            if (!sent) transientMessage.value = "Reaction not sent"
+        }
+    }
+
+    /** Delete one message from this phone (nothing leaves the radio). */
+    fun deleteMessage(messageId: Long) {
+        val svc = _service.value ?: return
+        viewModelScope.launch { svc.repository.deleteMessage(messageId) }
     }
 
     // ------------------------------------------------------------------

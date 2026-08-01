@@ -165,6 +165,36 @@ class Preferences(context: Context) {
         mutedChannels = if (muted) mutedChannels + idx else mutedChannels - idx
     }
 
+    /**
+     * Conversations pinned to the top of the Chats list, as
+     * "kind|peerKey" keys. Local-only — nothing is sent to the radio.
+     */
+    var pinnedThreads: Set<String>
+        get() = prefs.getStringSet("pinned_threads", emptySet())!!
+        set(v) { prefs.edit().putStringSet("pinned_threads", v).apply() }
+
+    fun isThreadPinned(key: String): Boolean = key in pinnedThreads
+
+    fun setThreadPinned(key: String, pinned: Boolean) {
+        pinnedThreads = if (pinned) pinnedThreads + key else pinnedThreads - key
+    }
+
+    /**
+     * Private per-contact nickname, keyed by pubkey hex.
+     *
+     * Distinct from Rename, which rewrites the contact record on the
+     * radio and is therefore visible to the rest of the mesh. A nickname
+     * never leaves this phone.
+     */
+    fun nicknameFor(keyHex: String): String? =
+        prefs.getString("nick_$keyHex", null)?.takeIf { it.isNotBlank() }
+
+    fun setNickname(keyHex: String, nickname: String?) {
+        prefs.edit().apply {
+            if (nickname.isNullOrBlank()) remove("nick_$keyHex") else putString("nick_$keyHex", nickname)
+        }.apply()
+    }
+
     /** Map: show only nodes of these types (empty = all). */
     var mapTypeFilter: Set<Int>
         get() = prefs.getStringSet("map_types", emptySet())!!
