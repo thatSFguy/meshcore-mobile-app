@@ -123,6 +123,7 @@ fun ConversationScreen(
     var clearConfirm by remember { mutableStateOf(false) }
     var showContact by remember { mutableStateOf(false) }
     var showChannelEditor by remember { mutableStateOf(false) }
+    var showSendersSheet by remember { mutableStateOf(false) }
     var replyingTo by remember(kind, peerKey) { mutableStateOf<MessageEntity?>(null) }
     var pendingUrl by remember { mutableStateOf<String?>(null) }
     var reactingTo by remember { mutableStateOf<MessageEntity?>(null) }
@@ -170,6 +171,7 @@ fun ConversationScreen(
             },
             MenuAction("Mark unread") { vm.markUnread(kind, peerKey); nav.popBackStack() },
             MenuAction("Channel settings…") { showChannelEditor = true },
+            MenuAction("Names seen…") { showSendersSheet = true },
             MenuAction("Clear thread…", destructive = true) { clearConfirm = true },
         )
     } else {
@@ -350,6 +352,11 @@ fun ConversationScreen(
         channels.firstOrNull { it.idx == peerKey.toIntOrNull() }?.let { ch ->
             ChannelEditSheet(vm, ch, onDismiss = { showChannelEditor = false })
         } ?: run { showChannelEditor = false }
+    }
+    if (showSendersSheet) {
+        peerKey.toIntOrNull()?.let { idx ->
+            ChannelSendersSheet(vm, idx, onDismiss = { showSendersSheet = false })
+        } ?: run { showSendersSheet = false }
     }
 }
 

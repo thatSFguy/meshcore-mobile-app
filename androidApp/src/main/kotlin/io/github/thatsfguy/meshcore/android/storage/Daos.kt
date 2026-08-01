@@ -10,6 +10,13 @@ import kotlinx.coroutines.flow.Flow
 /** One (kind, peerKey) thread identity — the unit retention works on. */
 data class ThreadKey(val kind: String, val peerKey: String)
 
+/**
+ * A name seen posting on a channel. Deliberately not called a
+ * "participant" or "member": the name is unauthenticated display text,
+ * so this counts appearances, not people.
+ */
+data class ChannelSender(val name: String, val messageCount: Int, val lastSeenAt: Long)
+
 @Dao
 interface MessageDao {
     /** IGNORE + the unique (selfKey, contentKey) index = channel dedup. */
@@ -138,6 +145,22 @@ interface MessageDao {
 
     @Query("SELECT COUNT(*) FROM messages WHERE selfKey = :selfKey")
     suspend fun countAll(selfKey: String): Int
+
+    /**
+     * Distinct sender names seen on a channel, newest first.
+     *
+     * NOT a membership list and the UI must never present it as one: a
+     * channel message carries no sender key (MESHCORE_PROTOCOL §9), so
+     * this is "names that have appeared", which anyone holding the PSK
+     * can add to at will.
+     */
+    @Query(
+        "SELECT senderName AS name, COUNT(*) AS messageCount, MAX(receivedAt) AS lastSeenAt " +
+            "FROM messages WHERE selfKey = :selfKey AND kind = 'ch' AND peerKey = :channelIdx " +
+            "AND senderName IS NOT NULL AND senderName != '' AND outgoing = 0 " +
+            "GROUP BY senderName ORDER BY lastSeenAt DESC",
+    )
+    suspend fun channelSenders(selfKey: String, channelIdx: String): List<ChannelSender>
 }
 
 @Dao

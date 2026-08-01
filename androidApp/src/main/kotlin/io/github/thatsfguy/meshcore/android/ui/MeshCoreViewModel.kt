@@ -517,6 +517,21 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /**
+     * Per-contact telemetry permission (PARITY §2,
+     * `ContactPermissionsScreen`). Only bites when the matching global
+     * policy is "Flags" — see [MeshCoreEngine.setContactFlag].
+     */
+    fun setContactTelemetryFlag(keyHex: String, flag: Int, enabled: Boolean) {
+        val svc = _service.value ?: return
+        val key = hexToBytesOrNull(keyHex) ?: return
+        viewModelScope.launch {
+            val ok = runCatching { svc.engine.setContactFlag(key, flag, enabled) }
+                .getOrDefault(false)
+            if (!ok) transientMessage.value = "Radio rejected the change"
+        }
+    }
+
     // --- Routing / paths ---------------------------------------------
 
     /** Routing mode the radio's contact record currently implies. */
@@ -1030,6 +1045,37 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
         } else {
             "No longer hiding \"$name\""
         }
+    }
+
+    /**
+     * Names seen posting on a channel — NOT a membership list; see
+     * [io.github.thatsfguy.meshcore.android.storage.ChannelSender].
+     */
+    suspend fun channelSenders(
+        channelIndex: Int,
+    ): List<io.github.thatsfguy.meshcore.android.storage.ChannelSender> {
+        val key = selfKeyHex()
+        if (key.isEmpty()) return emptyList()
+        return runCatching {
+            db.messages().channelSenders(key, channelIndex.toString())
+        }.getOrDefault(emptyList())
+    }
+
+    /**
+     * Broadcast a discovery request and report which known repeaters
+     * answered (PARITY §2 active discovery). Returns their contact
+     * entries; a prefix that matches more than one contact yields all
+     * of them, and the caller shows the ambiguity rather than picking.
+     */
+    suspend fun discoverNodes(): List<ContactEntity> {
+        val svc = _service.value ?: return emptyList()
+        if (engineState.value != EngineState.Ready) return emptyList()
+        return runCatching {
+            val prefixes = svc.engine.discoverNodePrefixes()
+            val known = dbContacts.value
+            prefixes.flatMap { p -> NodeDiscovery.matching(p, known) { it.keyHex } }
+                .distinctBy { it.keyHex }
+        }.getOrDefault(emptyList())
     }
 
     // --- Retention + purge (PARITY §1, §3) ---

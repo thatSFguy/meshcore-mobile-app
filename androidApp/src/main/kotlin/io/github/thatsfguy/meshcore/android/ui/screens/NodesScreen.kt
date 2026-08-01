@@ -73,6 +73,7 @@ fun NodesScreen(vm: MeshCoreViewModel, nav: NavController) {
         result.contents?.let { vm.importContactUri(it) }
     }
     var showSelfQr by remember { mutableStateOf(false) }
+    var discovering by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -91,6 +92,10 @@ fun NodesScreen(vm: MeshCoreViewModel, nav: NavController) {
                     },
                     MenuAction("Share my node QR…") { showSelfQr = true },
                     MenuAction("Sync contacts") { vm.syncContactsNow() },
+                    // Active discovery (PARITY §2): a broadcast asking
+                    // nearby repeaters to speak up, as opposed to the
+                    // passive advert inbox on the New tab.
+                    MenuAction("Discover nearby repeaters") { discovering = true },
                 ),
             )
         },
@@ -210,6 +215,9 @@ fun NodesScreen(vm: MeshCoreViewModel, nav: NavController) {
 
     if (showSelfQr) {
         SelfQrDialog(vm, onDismiss = { showSelfQr = false })
+    }
+    if (discovering) {
+        DiscoverNodesDialog(vm, nav, onDismiss = { discovering = false })
     }
 
     val pendingChannel by vm.pendingChannelShare.collectAsState()
@@ -370,6 +378,7 @@ fun ContactDetailSheet(
     var routingOpen by remember { mutableStateOf(false) }
     var removeConfirm by remember { mutableStateOf(false) }
     var shareQrOpen by remember { mutableStateOf(false) }
+    var permissionsOpen by remember { mutableStateOf(false) }
     var telemetryOpen by remember { mutableStateOf(false) }
     val isAdminable = contact.type == Codes.ADV_TYPE_REPEATER || contact.type == Codes.ADV_TYPE_ROOM
     val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
@@ -498,6 +507,12 @@ fun ContactDetailSheet(
                 vm.setFavourite(contact.keyHex, !isFav)
                 onDismiss()
             }) { Text(if (isFav) "★ Remove favourite" else "☆ Add favourite") }
+            TextButton(onClick = { permissionsOpen = !permissionsOpen }) {
+                Text(if (permissionsOpen) "Hide permissions" else "Permissions…")
+            }
+            if (permissionsOpen) {
+                ContactPermissions(vm, contact)
+            }
             TextButton(onClick = { shareQrOpen = true }) { Text("Share contact QR…") }
             TextButton(onClick = { telemetryOpen = true }) { Text("Telemetry…") }
             TextButton(onClick = { routingOpen = true }) { Text("Routing / paths…") }
@@ -808,5 +823,114 @@ private fun ShareQrDialog(
                 }) { Text("Copy link") }
             }
         },
+    )
+}
+
+/**
+ * Per-contact permissions (PARITY §2, `ContactPermissionsScreen`).
+ *
+ * These are the CONTACT_FLAG_TELE_* bits on the radio's contact record:
+ * which parts of THIS node's telemetry that contact may read. They only
+ * take effect when the matching global policy is set to "Flags" — a
+ * per-contact grant cannot widen a global Deny, and a switch that
+ * silently does nothing is worse than no switch, so the state is said
+ * out loud.
+ */
+@Composable
+private fun ContactPermissions(
+    vm: io.github.thatsfguy.meshcore.android.ui.MeshCoreViewModel,
+    contact: io.github.thatsfguy.meshcore.android.storage.ContactEntity,
+) {
+    val self by vm.selfInfo.collectAsState()
+    val modes = self?.telemetryModes ?: 0
+    val live by vm.liveContacts.collectAsState()
+    val flags = live[contact.keyHex]?.flags ?: contact.flags
+
+    HintText(
+        "Which of YOUR telemetry this contact may read. Also mute their notifications " +
+            "here — that part is local and never leaves this phone.",
+    )
+    for ((label, flag, shift) in listOf(
+        Triple("Battery", Codes.CONTACT_FLAG_TELE_BASE, 0),
+        Triple("Location", Codes.CONTACT_FLAG_TELE_LOC, 2),
+        Triple("Environment", Codes.CONTACT_FLAG_TELE_ENV, 4),
+    )) {
+        val globalMode = (modes shr shift) and 0x03
+        SettingRow("$label telemetry", flags and flag != 0) {
+            vm.setContactTelemetryFlag(contact.keyHex, flag, it)
+        }
+        // 0 = Deny everyone, 1 = per-contact flags, 2 = allow all.
+        HintText(
+            when (globalMode) {
+                1 -> "Global policy is Flags — this switch decides."
+                2 -> "Global policy is All: everyone can read this regardless of the switch."
+                else -> "Global policy is Deny: nobody can read this, switch or not."
+            },
+        )
+    }
+
+    var muted by remember(contact.keyHex) {
+        mutableStateOf(vm.prefs.isContactMuted(contact.keyHex))
+    }
+    SettingRow("Mute notifications", muted) {
+        muted = it
+        vm.prefs.setContactMuted(contact.keyHex, it)
+    }
+}
+
+/**
+ * Active discovery (PARITY §2, `DiscoverScreen`/`DiscoverNodesScreen`).
+ *
+ * A broadcast asking nearby repeaters to answer, as opposed to the
+ * passive advert inbox on the New tab. Responders identify themselves
+ * with a public-key PREFIX, which is not an identity (PARITY §12) — so
+ * this only reports contacts already known, and says plainly that a
+ * silent node is not necessarily an absent one.
+ */
+@Composable
+private fun DiscoverNodesDialog(
+    vm: MeshCoreViewModel,
+    nav: NavController,
+    onDismiss: () -> Unit,
+) {
+    var found by remember { mutableStateOf<List<ContactEntity>?>(null) }
+    LaunchedEffect(Unit) { found = vm.discoverNodes() }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Nearby repeaters") },
+        text = {
+            val list = found
+            Column {
+                when {
+                    list == null -> SectionSpinner("Listening for answers…")
+                    list.isEmpty() -> Text(
+                        "Nothing answered. That can mean none are in range, that they " +
+                            "answered with a key prefix matching no contact you hold, or " +
+                            "that they run firmware without discovery.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    else -> {
+                        Text(
+                            "Answered within range. These are contacts you already hold " +
+                                "whose key matched a responder's prefix — a prefix is not " +
+                                "proof of identity.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        for (contact in list) {
+                            TextButton(onClick = {
+                                onDismiss()
+                                nav.navigate("repeater/${contact.keyHex}")
+                            }) {
+                                Text(contact.name.ifBlank { contact.keyHex.take(12) })
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },
     )
 }

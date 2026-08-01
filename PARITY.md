@@ -49,8 +49,8 @@ Status key: ✅ have · ◐ partial · ❌ missing · ⛔ out of scope
 | `ShareContactScreen` | Share contact QR | ✅ | Byte-identical `meshcore://contact/add?…` payload. |
 | `RenameContactScreen` | Rename | ✅ | |
 | `ContactSettingsScreen` | Contact sheet actions | ◐ | Need to see what else lives there. |
-| `ContactPermissionsScreen` | — | ❌ | **Work item.** Per-contact telemetry/ACL permissions. |
-| `DiscoverScreen`, `DiscoverNodesScreen`, `DiscoveredContactScreen` | Nodes → New tab | ◐ | Ours is a passive inbox of verified adverts; theirs has an active discovery flow. |
+| `ContactPermissionsScreen` | Contact sheet → Permissions | ✅ | Closed 2026-08-01. The CONTACT_FLAG_TELE_* bits, plus a local notification mute. Each switch states whether the global policy makes it decisive — a per-contact grant cannot widen a global Deny, and a switch that silently does nothing is worse than no switch. |
+| `DiscoverScreen`, `DiscoverNodesScreen`, `DiscoveredContactScreen` | Nodes → New tab + Discover nearby repeaters | ✅ | Closed 2026-08-01. Active broadcast discovery alongside the passive advert inbox. ⚠ Responders identify by key PREFIX, so only already-known contacts are reported and a silent node is not reported as absent. |
 | `DiscoverMapScreen` | Map | ◐ | |
 | `KnownRepeatersBottomSheet` | Nodes → Repeaters | ✅ | |
 | `ContactSelectorBottomSheet` | — | ◐ | We navigate instead of picking. |
@@ -63,7 +63,7 @@ Status key: ✅ have · ◐ partial · ❌ missing · ⛔ out of scope
 | `ContactMessagesScreen`, `ChannelMessagesScreen` | Conversation | ✅ | Reactions, quote-replies, links, hops/SNR, info sheet, delete, resend, drafts. |
 | `MessageSettingsScreen` | — | ❌ | **Work item.** Message-level preferences. |
 | `ChannelMessageRetentionSettingsScreen` | Settings → App → Message retention | ✅ | Closed 2026-08-01. Forever / N days / newest N, global with a per-channel override. Count-trimming orders by ARRIVAL, not the sender-claimed timestamp. |
-| `NotificationSettingsScreen`, `ChannelNotificationSettingsScreen` | Per-channel mute, global toggle | ◐ | **Work item.** Finer control. |
+| `NotificationSettingsScreen`, `ChannelNotificationSettingsScreen` | Global toggle → per-kind → per-thread mute | ✅ | Closed 2026-08-01. Three levels, narrowest last. A muted thread still counts unread: silence is about interruption, not about hiding that something arrived. |
 | `BlockedChannelSendersScreen` | Settings → App → Blocked contacts + Hidden channel names | ✅ | Closed 2026-08-01. ⚠ **Corrected:** block-by-key is impossible for channels — see below. DMs block on the full public key; channel names are a *filter*, labelled as one. |
 | `RepeatSettingsScreen` | Automatic retry with airtime backoff | ◐ | |
 
@@ -98,7 +98,7 @@ both:
 | `AddChannelScreen`, `CreateChannelScreen`, `AddExistingChannel` | Channel add sheet | ✅ | `#hashtag` derivation, explicit PSK, generated key. |
 | `ChannelSettingsScreen`, `RenameChannelScreen` | Channel edit sheet | ✅ | |
 | `ShareChannelScreen` | Share channel QR | ✅ | Closed 2026-08-01. Their `meshcore://channel/add?…&channel_secret=…` form. ⚠ Behind a confirmation: the code IS the key. |
-| `ChannelParticipantsScreen` | — | ❌ | ⚠ **Work item with a caveat**: channel "participants" can only ever be *names seen*, which are unauthenticated. Ship it as "senders seen", never as a membership list. |
+| `ChannelParticipantsScreen` | Conversation → Names seen | ✅ | Closed 2026-08-01, as the caveat demanded. Titled "Names seen", counts appearances not people, and nothing is tappable to message someone — there is no identity behind a channel name to message. The only action offered is Hide. |
 | `ChannelSelectorBottomSheet` | — | ◐ | |
 
 ## 5. Rooms

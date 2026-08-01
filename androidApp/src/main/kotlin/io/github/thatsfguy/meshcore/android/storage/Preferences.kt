@@ -170,6 +170,28 @@ class Preferences(context: Context) {
             prefs.edit().putStringSet("muted_channels", v.map { it.toString() }.toSet()).apply()
         }
 
+    /** Contact keys whose notifications are muted (PARITY §3). */
+    var mutedContacts: Set<String>
+        get() = prefs.getStringSet("muted_contacts", emptySet())!!
+        set(v) { prefs.edit().putStringSet("muted_contacts", v).apply() }
+
+    fun isContactMuted(keyHex: String): Boolean = keyHex in mutedContacts
+
+    fun setContactMuted(keyHex: String, muted: Boolean) {
+        mutedContacts = if (muted) mutedContacts + keyHex else mutedContacts - keyHex
+    }
+
+    /** Notify for direct messages (PARITY §3, finer control). */
+    var notifyDirect: Boolean
+        get() = prefs.getBoolean("notify_direct", true)
+        set(v) { prefs.edit().putBoolean("notify_direct", v).apply() }
+
+    /** Notify for channel messages. Off by default is tempting but
+     *  would silently change behaviour for existing users. */
+    var notifyChannels: Boolean
+        get() = prefs.getBoolean("notify_channels", true)
+        set(v) { prefs.edit().putBoolean("notify_channels", v).apply() }
+
     fun isChannelMuted(idx: Int): Boolean = idx in mutedChannels
 
     fun setChannelMuted(idx: Int, muted: Boolean) {

@@ -875,13 +875,22 @@ class MeshCoreEngine(
      * Toggle the favourite bit in a contact's flags (the radio owns the
      * flag, so this is a contact-record rewrite like routing changes).
      */
-    suspend fun setFavourite(pubKey: ByteArray, favourite: Boolean): Boolean {
+    suspend fun setFavourite(pubKey: ByteArray, favourite: Boolean): Boolean =
+        setContactFlag(pubKey, Codes.CONTACT_FLAG_FAVORITE, favourite)
+
+    /**
+     * Set or clear one CONTACT_FLAG_* bit on a contact record.
+     *
+     * The telemetry bits (TELE_BASE / TELE_LOC / TELE_ENV) are what
+     * PARITY §2 calls per-contact permissions: they say which of this
+     * node's telemetry THIS contact is allowed to read. They only take
+     * effect when the corresponding global policy is set to "Flags"
+     * (SELF_INFO's telemetryModes) — a per-contact grant cannot widen a
+     * global Deny, and the UI has to say so or the switch looks broken.
+     */
+    suspend fun setContactFlag(pubKey: ByteArray, flag: Int, enabled: Boolean): Boolean {
         val c = _contacts.value[pubKey.toHex()] ?: return false
-        val flags = if (favourite) {
-            c.flags or Codes.CONTACT_FLAG_FAVORITE
-        } else {
-            c.flags and Codes.CONTACT_FLAG_FAVORITE.inv()
-        }
+        val flags = if (enabled) c.flags or flag else c.flags and flag.inv()
         val ok = sendRaw(
             Frames.addUpdateContact(
                 pubKey = pubKey,

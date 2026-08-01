@@ -712,6 +712,25 @@ private fun AppSection(vm: MeshCoreViewModel) {
         notifications = it
         vm.prefs.notificationsEnabled = it
     }
+    // Finer control (PARITY §3). Per-thread mutes live on the channel
+    // and contact sheets; these are the per-kind switches above them.
+    if (notifications) {
+        var notifyDirect by remember { mutableStateOf(vm.prefs.notifyDirect) }
+        var notifyChannels by remember { mutableStateOf(vm.prefs.notifyChannels) }
+        SettingRow("  · Direct messages", notifyDirect) {
+            notifyDirect = it
+            vm.prefs.notifyDirect = it
+        }
+        SettingRow("  · Channel messages", notifyChannels) {
+            notifyChannels = it
+            vm.prefs.notifyChannels = it
+        }
+        HintText(
+            "Mute one conversation from its own screen. A muted thread still counts " +
+                "unread — silence is about interruption, not about hiding that something " +
+                "arrived.",
+        )
+    }
     SettingRow("Diagnostics log (redaction-aware)", diagnostics) {
         diagnostics = it
         vm.prefs.diagnosticsEnabled = it

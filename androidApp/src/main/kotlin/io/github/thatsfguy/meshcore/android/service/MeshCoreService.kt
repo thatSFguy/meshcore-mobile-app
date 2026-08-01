@@ -376,8 +376,13 @@ class MeshCoreService : Service() {
         }
 
         val isChannel = kind == MessageRepository.KIND_CHANNEL
-        // Muted channels stay silent (they still count unread).
+        // Three levels, narrowest last: the per-kind switch, then the
+        // per-thread mute. Muted threads still count unread — silence is
+        // about interruption, not about hiding that something arrived.
+        if (isChannel && !prefs.notifyChannels) return
+        if (!isChannel && !prefs.notifyDirect) return
         if (isChannel && peerKey.toIntOrNull()?.let { prefs.isChannelMuted(it) } == true) return
+        if (!isChannel && prefs.isContactMuted(peerKey)) return
         val title = if (isChannel) {
             val idx = peerKey.toIntOrNull()
             val name = engine.channels.value.firstOrNull { it.index == idx }?.name
