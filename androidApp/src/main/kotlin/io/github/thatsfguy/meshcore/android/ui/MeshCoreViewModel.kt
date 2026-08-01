@@ -995,6 +995,43 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
         it?.engine?.floodScopeStuck ?: flowOf(null)
     }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
+    // --- Repeater identity key (PARITY §6) ---
+
+    fun generateIdentityKey(): String =
+        io.github.thatsfguy.meshcore.protocol.IdentityKey.generate(crypto)
+
+    fun publicKeyFor(seedHex: String): String? =
+        io.github.thatsfguy.meshcore.protocol.IdentityKey.publicKeyHex(crypto, seedHex)
+
+    /**
+     * Read a repeater's private key. The reply is returned to the caller
+     * and NOT stored, logged or cached — the diagnostics log already
+     * redacts `prv.key`, and this keeps it out of everything else.
+     */
+    suspend fun readIdentityKey(repeaterKeyHex: String): String? {
+        val reply = cliQuery(
+            repeaterKeyHex,
+            io.github.thatsfguy.meshcore.protocol.IdentityKey.getCommand(),
+        ) ?: return null
+        // Firmware answers "> <hex>"; hand back only something that
+        // actually looks like a key, so a "??:" error isn't displayed as
+        // if it were one.
+        val value = io.github.thatsfguy.meshcore.protocol.CliReplies.extractGetValue(reply)
+        return io.github.thatsfguy.meshcore.protocol.IdentityKey.canonicalHex(value)
+    }
+
+    /** Replace a repeater's identity key. Not undoable; see IdentityKey. */
+    suspend fun replaceIdentityKey(repeaterKeyHex: String, newKeyHex: String): String {
+        val command = runCatching {
+            io.github.thatsfguy.meshcore.protocol.IdentityKey.setCommand(newKeyHex)
+        }.getOrElse { return "Refused: ${it.message}" }
+
+        val reply = cliQuery(repeaterKeyHex, command)
+            ?: return "No reply — the change may or may not have applied. Check with `get prv.key`."
+        return "Node replied: ${reply.trim()}. Its identity has changed; contacts must " +
+            "re-add it."
+    }
+
     // --- Blocking and filtering (PARITY §3) ---
 
     private val blockRevision = MutableStateFlow(0)

@@ -8,12 +8,15 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material3.AlertDialog
@@ -85,12 +88,13 @@ fun RepeaterAdminScreen(vm: MeshCoreViewModel, nav: NavController, keyHex: Strin
         passwordPrefilled = password.isNotEmpty()
     }
 
-    // 0 Status, 1 Settings, 2 Regions, 3 Console, 4 Help. Regions only
-    // exist on repeaters — room servers don't run the `region` CLI.
+    // Regions only exist on repeaters — room servers don't run the
+    // `region` CLI. Identity is separated from Settings deliberately:
+    // it is the one tab where a mistake cannot be undone.
     val tabs = if (isRoom) {
-        listOf("Status", "Settings", "Console", "Help")
+        listOf("Status", "Settings", "Identity", "Console", "Help")
     } else {
-        listOf("Status", "Settings", "Regions", "Console", "Help")
+        listOf("Status", "Settings", "Regions", "Identity", "Console", "Help")
     }
     var tab by remember(isRoom) { mutableIntStateOf(0) }
     var consolePrefill by remember { mutableStateOf("") }
@@ -178,6 +182,17 @@ fun RepeaterAdminScreen(vm: MeshCoreViewModel, nav: NavController, keyHex: Strin
                 }
                 "Regions" -> androidx.compose.foundation.layout.Box(Modifier.weight(1f)) {
                     RepeaterRegionsPanel(vm, keyHex, isAdmin)
+                }
+                "Identity" -> androidx.compose.foundation.layout.Box(Modifier.weight(1f)) {
+                    Column(
+                        Modifier
+                            .fillMaxSize()
+                            .verticalScroll(rememberScrollState())
+                            .padding(horizontal = 16.dp),
+                    ) {
+                        RepeaterIdentityPanel(vm, keyHex, isAdmin)
+                        Spacer(Modifier.height(24.dp))
+                    }
                 }
                 "Console" -> CliConsole(vm, keyHex, messages, prefill = consolePrefill) {
                     consolePrefill = ""
