@@ -17,10 +17,12 @@ channels remain obfuscated-not-secure and the app must keep saying so.
 Feature work is now driven by **[`PARITY.md`](PARITY.md)** — the mainstream MeshCore
 Android app is the agreed floor for the feature set, with an explicit out-of-scope list
 and the places we deliberately keep our own (stricter) handling. **Read PARITY.md before
-picking up feature work**; it carries per-row status, dates, and one blocked item.
-Blocks 1 and 2 are done (regions §8 closed 2026-08-01, except the blocked ACL-write row);
-**block 3 — safety & data (config export/import, purge, retention, blocked senders by
-key) — is the next unit of work.**
+picking up feature work**; it carries per-row status, dates, and the reasons behind
+each deliberate difference. As of 2026-08-01 the tally is **42 ✅ · 11 ◐ · 9 ❌ · 2 ⛔ ·
+1 ⚠**; blocks 1–4 are done. What remains is listed with its reason in PARITY §13 — the
+short version is map-polyline rendering, coverage/LOS overlays, heard-via, and a handful
+of rows that are blocked on hardware, on seeing the mainstream app run, or on a
+translation programme.
 
 Layout:
 - **`shared/`** — KMP. `protocol/` (Codes, guarded Buffers, Frames, ResponseParser,
@@ -120,10 +122,12 @@ channels as obfuscated (AES-ECB + 2-byte MAC), not secure.
   `adb pull` + a strings pass if more detail is needed.
 ## Suggested next steps
 
-1. **Work `PARITY.md` block 3 (safety & data)** — config export/import (must never export
-   secrets in the clear), purge-everything-local, message retention, blocked senders
-   *by key*. The export/import row is the one with real security weight.
-2. Notifications for inbound messages (service already has the channel; wire
+1. **Validate against the radio.** Everything added since `android-v0.2.4` is tests +
+   build only. Regions, backup/restore, retention, blocking, presets, sensors,
+   neighbours and identity-key management have never run against hardware.
+2. **`PARITY.md` §13 leftovers** — map polyline rendering is the most valuable and the
+   groundwork (`PathGeometry`, `Neighbours`) is already done and tested.
+3. Notifications for inbound messages (service already has the channel; wire
    MessageRepository events → NotificationCompat).
 3. iOS Phase 2 — `IosBleTransport` (CoreBluetooth port of the sibling's), CryptoKit
    Ed25519 bridge (copy `iosCryptoBridge` pattern), SQLDelight persistence.

@@ -107,7 +107,7 @@ both:
 |---|---|---|---|
 | `RoomLoginScreen` | Admin/guest login | ✅ | Password sealed in the Keystore. |
 | `RoomManagementScreen` | Repeater admin (shared UI) | ◐ | **Work item.** Room-specific management surface. |
-| `RoomServerReadOnlySettingsScreen` | Settings form (role-filtered) | ◐ | |
+| `RoomServerReadOnlySettingsScreen` | Settings form (role-filtered) | ✅ | Reassessed 2026-08-01: guest sessions already see only read commands, asserted by test. |
 | Room post authorship | Author label + avatar | ✅ | Closed 2026-08-01. ⚠ We show `Name [PREFIX]` and refuse to guess on collision. |
 
 ## 6. Repeater administration
@@ -119,15 +119,15 @@ both:
 | `RepeaterHealthScreen` | Status panel | ◐ | Battery, uptime, queue, RSSI/SNR, airtime, packet counts. Theirs may chart over time. |
 | `AccessControlScreen` (read) | Admin → Status → Access list | ✅ | Closed 2026-08-01. Read-only by design. Note: firmware on the test repeater answers `??: acl`, i.e. no ACL support — unparsed replies are shown verbatim rather than rendered as an empty list. |
 | `AccessControlAddUserScreen` (write) | — | ❌ | **Work item, blocked.** Writing an ACL entry grants control of a repeater; the set syntax couldn't be confirmed from their binary and needs a node that supports ACLs to verify against. Not guessing. |
-| `ChangeAdminPasswordScreen`, `ChangeGuestPasswordScreen` | Settings form (CLI) | ◐ | Present but not as first-class screens. |
-| `ChangeAdvertIntervalsScreen` | Settings form (CLI) | ◐ | |
-| `ChangeOwnerInfoScreen`, `ViewOwnerInfoScreen` | Settings form (`owner.info`) | ◐ | |
+| `ChangeAdminPasswordScreen`, `ChangeGuestPasswordScreen` | Settings form (CLI, masked + confirmed) | ✅ | Reassessed 2026-08-01: functionally complete via the role-filtered settings form, which masks input and confirms. A dedicated screen would add surface, not capability. |
+| `ChangeAdvertIntervalsScreen` | Settings form (CLI) | ✅ | Reassessed 2026-08-01: `advert.interval` and `flood.advert.interval` are both in the form. |
+| `ChangeOwnerInfoScreen`, `ViewOwnerInfoScreen` | Settings form (`owner.info`) | ✅ | Reassessed 2026-08-01: read and write both present. |
 | `ChangePositionScreen`, `PositionSettingsScreen`, `PositionSelectorScreen` | Settings → advert lat/lon + **Pick on map** | ✅ | Closed 2026-08-01. Crosshair picker; warns that the position is broadcast mesh-wide. |
 | `ChangeIdentityKeyScreen`, `ManageIdentityKeyScreen` | Repeater admin → Identity tab | ✅ | Closed 2026-08-01, carefully. ⚠ Three refusals shape it: the key is never shown unasked (reading it puts it back on the air, with its own confirmation), it is never stored by this app, and replacing it needs a typed confirmation after the consequences are listed. Degenerate keys (all one byte) are refused despite being structurally valid. |
 | `ClockDriftScreen` | Settings → Clock | ✅ | Closed 2026-08-01. Drift shown with direction, flagged past the 30 s auto-correct threshold. |
 | `RepeaterNeighboursMapScreen` | Admin → Status → Neighbours | ◐ | Closed 2026-08-01 as a LIST, not a map. ⚠ Entries carry a 4-byte key prefix, so a name is offered only on a unique match and "(N matches)" otherwise. The table is hearsay — what the repeater says it hears, relayed by it. Map rendering awaits the same polyline work as §9. |
 | `NoiseFloorScreen` | Admin → Status → Noise floor | ✅ | Closed 2026-08-01. 5 s polling with min/max/history while the screen is open; stops on leave, since each sample costs airtime on someone else's node. |
-| `RxLogScreen` | Diagnostics log | ◐ | Ours is redaction-aware and off by default; keep that. |
+| `RxLogScreen` | Diagnostics log | ⚠ | **Not a gap — a deliberate difference.** Theirs is an always-available packet log; ours is off by default and redacts `set prv.key`, passwords and long hex before a line is stored. Reclassified 2026-08-01: this row was never going to become ✅ by copying them. |
 
 ## 7. Sensors & telemetry
 
@@ -236,7 +236,24 @@ Grouped so each block is shippable:
 3. ~~**Safety & data** — config export/import (secret-safe), purge data, retention,
    blocked senders (by key).~~ **Done 2026-08-01**, with the block-by-key row corrected
    (see §3) — channels carry no sender key, so that half ships as a labelled filter.
-4. **Onboarding & polish** — setup flow, radio presets, About/changelog, tools hub.
-5. **Bigger asks** — sensor nodes, path/coverage map rendering, neighbours map.
-6. **Revisit deferrals** — LOS/coverage overlays, neighbours, discovery-as-separate:
-   all deferred under the old scope, all now in-bounds under this policy.
+4. ~~**Onboarding & polish** — setup flow, radio presets, About/changelog, tools hub.~~
+   **Done 2026-08-01** except the tools hub, which is deliberately skipped: every tool
+   (trace, noise floor, discovery, regions) is reachable from the node it applies to, and
+   a hub would duplicate navigation rather than add capability. Revisit if a tool appears
+   that belongs to no particular node.
+5. **Bigger asks** — sensor nodes ✅, neighbours ✅ (as a list), path map rendering ◐.
+6. **Revisit deferrals** — what is genuinely left, and why:
+   - **Map polyline rendering** (§9, and the map half of the neighbours row). The
+     per-hop geometry and its ambiguity rules are done and tested; drawing the overlay on
+     the osmdroid map is the remaining piece.
+   - **Coverage / LOS overlays** (§9). Substantial: needs terrain data and a propagation
+     model, neither of which this app has any business guessing at.
+   - **Heard-via / heard-repeats** (§2). Needs the relay path captured onto the message
+     row — a schema migration plus RX-log plumbing.
+   - **`AccessControlAddUserScreen`** (§6). Still blocked on a node that supports ACLs.
+   - **`LanguageSelectorScreen`** (§10). A translation programme, not a coding task.
+     Machine-translating safety-critical warning copy into languages nobody here can
+     check would be worse than shipping English.
+   - **`MessageSettingsScreen`, `ContactSettingsScreen`** — cannot be specified without
+     seeing the running mainstream app; the inventory gives class names, not behaviour.
+   - **`PrintScreen`, `AddMapMarker`, developer menu** — low priority, no security weight.
