@@ -11,6 +11,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -74,6 +76,12 @@ fun RepeaterStatusPanel(vm: MeshCoreViewModel, keyHex: String) {
         if (loading) SectionSpinner("Waiting for the node…")
         note?.let { HintText(it) }
 
+        // --- Access list -------------------------------------------------
+        AccessListSection(vm, keyHex)
+
+        // --- Live noise floor ---------------------------------------------
+        NoiseFloorSection(vm, keyHex)
+
         status?.let { s ->
             Spacer(Modifier.height(8.dp))
             Text("Status", style = MaterialTheme.typography.titleSmall)
@@ -123,3 +131,133 @@ private fun StatField(label: String, value: String) {
         Text(value, style = MaterialTheme.typography.bodyMedium)
     }
 }
+
+
+/**
+ * Who the node grants admin or guest access to.
+ *
+ * Read-only on purpose: writing an ACL entry grants someone control of
+ * a repeater, and the set-command syntax varies by firmware. Reading is
+ * unambiguous; guessing at a write is not.
+ */
+@Composable
+private fun AccessListSection(vm: MeshCoreViewModel, keyHex: String) {
+    val scope = rememberCoroutineScope()
+    var parsed by remember(keyHex) {
+        mutableStateOf<io.github.thatsfguy.meshcore.protocol.AccessList.Parsed?>(null)
+    }
+    var loading by remember { mutableStateOf(false) }
+    var note by remember { mutableStateOf<String?>(null) }
+
+    Spacer(Modifier.height(12.dp))
+    Text("Access list", style = MaterialTheme.typography.titleSmall)
+    ButtonFlowRow {
+        TextButton(
+            enabled = !loading,
+            onClick = {
+                scope.launch {
+                    loading = true; note = null
+                    val reply = vm.cliQuery(keyHex, "get acl")
+                    parsed = io.github.thatsfguy.meshcore.protocol.AccessList.parse(reply)
+                    if (reply == null) note = "No reply — logged in and in range?"
+                    loading = false
+                }
+            },
+        ) { Text("Fetch access list") }
+    }
+    if (loading) SectionSpinner("Asking the node…")
+    note?.let { HintText(it) }
+    parsed?.let { p ->
+        if (p.isEmpty) {
+            HintText("The node reported no access-list entries.")
+        }
+        for (entry in p.entries) {
+            Row(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
+                Text(
+                    entry.keyPrefixHex,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontFamily = FontFamily.Monospace,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(entry.permission, style = MaterialTheme.typography.bodySmall)
+            }
+        }
+        // Anything the parser didn't recognise is shown as the node said
+        // it. A dropped line in an access list reads as "nobody has that
+        // access", which is exactly the wrong thing to imply.
+        for (line in p.unparsed) {
+            Text(
+                line,
+                style = MaterialTheme.typography.bodySmall,
+                fontFamily = FontFamily.Monospace,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        if (p.entries.isNotEmpty()) {
+            HintText(
+                "Prefixes, not full keys — a prefix identifies a node only as far as it " +
+                    "goes. Editing the list is done from the node's own console.",
+            )
+        } else if (p.unparsed.isNotEmpty()) {
+            // Seen in the field: firmware without ACL support answers
+            // "??: acl". Show its words, then explain them.
+            HintText(
+                "That's the node's reply verbatim. A \"??\" means this firmware doesn't " +
+                    "know the command; some builds also require an admin login first.",
+            )
+        }
+    }
+}
+
+/**
+ * Noise floor, polled while the screen is open.
+ *
+ * Each sample is a round-trip over the air, so the interval is seconds,
+ * not milliseconds, and it stops when you leave — a background poller
+ * against someone else's repeater is airtime you're spending on their
+ * behalf.
+ */
+@Composable
+private fun NoiseFloorSection(vm: MeshCoreViewModel, keyHex: String) {
+    var watching by remember(keyHex) { mutableStateOf(false) }
+    var samples by remember(keyHex) { mutableStateOf<List<Int>>(emptyList()) }
+
+    LaunchedEffect(watching, keyHex) {
+        while (watching) {
+            vm.repeaterStatus(keyHex)?.let { status ->
+                samples = (samples + status.noiseFloor).takeLast(WATCH_SAMPLES)
+            }
+            kotlinx.coroutines.delay(WATCH_INTERVAL_MS)
+        }
+    }
+
+    Spacer(Modifier.height(12.dp))
+    Text("Noise floor", style = MaterialTheme.typography.titleSmall)
+    ButtonFlowRow {
+        TextButton(onClick = { watching = !watching }) {
+            Text(if (watching) "Stop watching" else "Watch noise floor")
+        }
+        if (samples.isNotEmpty()) {
+            TextButton(onClick = { samples = emptyList() }) { Text("Clear") }
+        }
+    }
+    if (samples.isEmpty()) {
+        HintText("Polls the node every ${WATCH_INTERVAL_MS / 1000}s while this is on.")
+    } else {
+        Text(
+            "Now ${samples.last()} · min ${samples.min()} · max ${samples.max()} " +
+                "(${samples.size} samples)",
+            style = MaterialTheme.typography.bodySmall,
+        )
+        Text(
+            samples.joinToString(" ") { it.toString() },
+            style = MaterialTheme.typography.labelSmall,
+            fontFamily = FontFamily.Monospace,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+/** Seconds between noise-floor samples — each one costs airtime. */
+private const val WATCH_INTERVAL_MS = 5_000L
+private const val WATCH_SAMPLES = 24

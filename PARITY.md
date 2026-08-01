@@ -93,7 +93,8 @@ Status key: ✅ have · ◐ partial · ❌ missing · ⛔ out of scope
 | `RepeaterLoginScreen` | Login (admin + guest) | ✅ | |
 | `RepeaterCommandHelpScreen` | Admin → Help tab | ✅ | Closed 2026-08-01. Role- AND session-filtered, searchable; tapping loads the console rather than running. |
 | `RepeaterHealthScreen` | Status panel | ◐ | Battery, uptime, queue, RSSI/SNR, airtime, packet counts. Theirs may chart over time. |
-| `AccessControlScreen`, `AccessControlAddUserScreen` | — | ❌ | **Work item.** Repeater ACL management. |
+| `AccessControlScreen` (read) | Admin → Status → Access list | ✅ | Closed 2026-08-01. Read-only by design. Note: firmware on the test repeater answers `??: acl`, i.e. no ACL support — unparsed replies are shown verbatim rather than rendered as an empty list. |
+| `AccessControlAddUserScreen` (write) | — | ❌ | **Work item, blocked.** Writing an ACL entry grants control of a repeater; the set syntax couldn't be confirmed from their binary and needs a node that supports ACLs to verify against. Not guessing. |
 | `ChangeAdminPasswordScreen`, `ChangeGuestPasswordScreen` | Settings form (CLI) | ◐ | Present but not as first-class screens. |
 | `ChangeAdvertIntervalsScreen` | Settings form (CLI) | ◐ | |
 | `ChangeOwnerInfoScreen`, `ViewOwnerInfoScreen` | Settings form (`owner.info`) | ◐ | |
@@ -101,7 +102,7 @@ Status key: ✅ have · ◐ partial · ❌ missing · ⛔ out of scope
 | `ChangeIdentityKeyScreen`, `ManageIdentityKeyScreen` | — | ❌ | ⚠ **Work item, carefully.** Identity key handling is the highest-consequence screen in the app. |
 | `ClockDriftScreen` | Settings → Clock | ✅ | Closed 2026-08-01. Drift shown with direction, flagged past the 30 s auto-correct threshold. |
 | `RepeaterNeighboursMapScreen` | — | ❌ | Deferred in SCOPE.md; revisit under this policy. |
-| `NoiseFloorScreen` | — | ❌ | **Work item.** |
+| `NoiseFloorScreen` | Admin → Status → Noise floor | ✅ | Closed 2026-08-01. 5 s polling with min/max/history while the screen is open; stops on leave, since each sample costs airtime on someone else's node. |
 | `RxLogScreen` | Diagnostics log | ◐ | Ours is redaction-aware and off by default; keep that. |
 
 ## 7. Sensors & telemetry
