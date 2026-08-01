@@ -991,12 +991,22 @@ class MeshCoreEngine(
      */
     suspend fun tracePath(
         tag: Long,
+        path: ByteArray = ByteArray(0),
+        hashWidth: Int = _deviceInfo.value?.pathHashByteWidth ?: 1,
         auth: Long = 0L,
-        flags: Int = 0,
         timeoutMs: Long = 30_000,
     ): TraceResult? {
+        // The flags byte DECLARES the hop-hash width, and our own parser
+        // reads it back as `1 shl (flags and 0x03)`. Sending a hardcoded
+        // 0 told a 2-byte mesh we were using 1-byte hashes, so the trace
+        // went out malformed and nothing came back.
+        val flags = TracePath.flagsForHashWidth(hashWidth)
+        // The firmware wants at least one payload byte; the reference
+        // client sends 0x00 when there is no route to trace. An empty
+        // payload is not the same thing as "no path".
+        val payload = if (path.isEmpty()) byteArrayOf(0x00) else path
         val ev = sendAndAwait(
-            Frames.sendTracePath(tag, auth, flags),
+            Frames.sendTracePath(tag, auth, flags, payload),
             timeoutMs = timeoutMs,
         ) { it is DeviceEvent.TraceData && TracePath.parse(traceFrame(it))?.tag == tag }
         return (ev as? DeviceEvent.TraceData)?.let { TracePath.parse(traceFrame(it)) }

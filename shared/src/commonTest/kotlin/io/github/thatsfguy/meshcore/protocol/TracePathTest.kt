@@ -125,4 +125,34 @@ class TracePathTest {
         assertEquals("good", PathCodec.qualityLabel(3, 2, isFlood = false))
         assertEquals("fair", PathCodec.qualityLabel(1, 3, isFlood = false))
     }
+
+    // ------------------------------------------------------------------
+    // Trace flags (regression: a trace that silently did nothing)
+    // ------------------------------------------------------------------
+
+    @Test
+    fun flagsDeclareTheHopHashWidth() {
+        // The sender hardcoded 0, which told a 2-byte mesh that hops
+        // were 1 byte wide. The probe went out malformed and nothing
+        // ever came back — the failure looked like "the button does
+        // nothing", not like an error.
+        assertEquals(0, TracePath.flagsForHashWidth(1))
+        assertEquals(1, TracePath.flagsForHashWidth(2))
+        assertEquals(2, TracePath.flagsForHashWidth(3))
+        assertEquals(2, TracePath.flagsForHashWidth(4))
+        // Nonsense widths must still produce a legal flag value.
+        assertEquals(0, TracePath.flagsForHashWidth(0))
+        assertEquals(0, TracePath.flagsForHashWidth(-1))
+    }
+
+    @Test
+    fun flagsRoundTripThroughTheWidthTheParserDerives() {
+        // The parser reads the width back as `1 shl (flags and 0x03)`,
+        // so encode-then-decode must land on the same width for every
+        // width the protocol supports.
+        for (width in listOf(1, 2, 4)) {
+            val flags = TracePath.flagsForHashWidth(width)
+            assertEquals(width, 1 shl (flags and 0x03), "width $width did not round trip")
+        }
+    }
 }

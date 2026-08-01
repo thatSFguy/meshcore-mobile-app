@@ -605,12 +605,24 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /** Run a path trace; returns the per-hop result or null on timeout. */
-    suspend fun tracePath(): io.github.thatsfguy.meshcore.protocol.TraceResult? {
+    /**
+     * Run a path trace toward [keyHex] and return the per-hop result,
+     * or null on timeout.
+     *
+     * The route traced is the contact's stored path — that is what a
+     * trace is FOR: probing the route you would actually use, so each
+     * repeater on it reports back its hash and the SNR it heard. Called
+     * without a contact it traced nothing in particular, which is why
+     * it appeared to do nothing at all.
+     */
+    suspend fun tracePath(keyHex: String? = null): io.github.thatsfguy.meshcore.protocol.TraceResult? {
         val svc = _service.value ?: return null
         // Tag correlates the reply; any non-zero value works.
         val tag = (System.currentTimeMillis() and 0xFFFFFFFFL)
-        return runCatching { svc.engine.tracePath(tag) }.getOrNull()
+        val contact = keyHex?.let { svc.engine.contacts.value[it] }
+        val path = contact?.storedPath ?: ByteArray(0)
+        val width = deviceInfo.value?.pathHashByteWidth ?: 1
+        return runCatching { svc.engine.tracePath(tag, path, width) }.getOrNull()
     }
 
     fun resetPath(keyHex: String) {

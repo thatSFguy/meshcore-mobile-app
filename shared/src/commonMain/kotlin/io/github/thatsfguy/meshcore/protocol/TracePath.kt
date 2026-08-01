@@ -35,6 +35,21 @@ data class TraceResult(
 
 object TracePath {
 
+    /**
+     * The trace flags byte that declares a hop-hash width.
+     *
+     * The receiving side reads the width back as
+     * `1 shl (flags and 0x03)`, so this is the exact inverse: 1 byte →
+     * 0, 2 bytes → 1, 4 bytes → 2. Getting it wrong doesn't degrade the
+     * trace, it voids it — the mesh and the probe disagree about how
+     * wide a hop is.
+     */
+    fun flagsForHashWidth(hashWidth: Int): Int = when {
+        hashWidth <= 1 -> 0
+        hashWidth == 2 -> 1
+        else -> 2
+    }
+
     /** Parse a PUSH_CODE_TRACE_DATA frame; null on malformed input. */
     fun parse(frame: ByteArray): TraceResult? {
         if (frame.size < 12) return null

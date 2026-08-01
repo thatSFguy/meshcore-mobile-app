@@ -198,10 +198,20 @@ fun RoutingSheet(
                     onClick = {
                         scope.launch {
                             tracing = true
-                            trace = vm.tracePath()
+                            trace = vm.tracePath(keyHex)
                             tracing = false
                             if (trace == null) {
-                                vm.transientMessage.value = "Trace timed out"
+                                // Distinguish the two silences: a
+                                // flood-routed contact has no route to
+                                // probe in the first place.
+                                vm.transientMessage.value =
+                                    if (contact.pathLen == 0xFF || contact.pathLen < 0) {
+                                        "No stored route to trace — this contact is reached " +
+                                            "by flooding. Pin a path first, or trace a " +
+                                            "contact that has one."
+                                    } else {
+                                        "Trace timed out — no repeater on the path answered."
+                                    }
                             }
                         }
                     },
