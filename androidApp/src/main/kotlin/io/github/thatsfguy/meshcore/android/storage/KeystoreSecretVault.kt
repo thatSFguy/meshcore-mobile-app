@@ -60,7 +60,7 @@ import javax.crypto.spec.GCMParameterSpec
  * shape as the .rmid passphrase: if you lose the key, you lose
  * the identity.
  */
-internal class KeystoreSecretVault : SecretVault {
+class KeystoreSecretVault : SecretVault {
 
     override suspend fun seal(plaintext: ByteArray): ByteArray {
         val key = getOrCreateKey()
@@ -248,7 +248,7 @@ internal class KeystoreSecretVault : SecretVault {
  * plaintext-column storage rather than crashing the app. Audit
  * reference: 2026-05-13 HIGH-1 follow-up.
  */
-internal class KeystoreUnavailableException(
+class KeystoreUnavailableException(
     message: String,
     cause: Throwable?,
 ) : RuntimeException(message, cause) {

@@ -171,6 +171,11 @@ class Preferences(context: Context) {
             .mapNotNull { it.toIntOrNull() }.toSet()
         set(v) { prefs.edit().putStringSet("map_types", v.map { it.toString() }.toSet()).apply() }
 
+    /** Fetch OSM tiles on the Map tab — the app's only outbound HTTP. */
+    var mapTilesEnabled: Boolean
+        get() = prefs.getBoolean("map_tiles_enabled", true)
+        set(v) { prefs.edit().putBoolean("map_tiles_enabled", v).apply() }
+
     var notificationsEnabled: Boolean
         get() = prefs.getBoolean("notifications_enabled", true)
         set(v) { prefs.edit().putBoolean("notifications_enabled", v).apply() }

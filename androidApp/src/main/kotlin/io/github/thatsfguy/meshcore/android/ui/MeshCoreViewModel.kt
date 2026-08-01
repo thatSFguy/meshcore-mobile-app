@@ -54,8 +54,20 @@ data class ConversationRow(
 @OptIn(ExperimentalCoroutinesApi::class)
 class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
 
-    private val db = MeshCoreDatabase.get(app)
     val prefs = Preferences(app)
+
+    // MeshCoreService opens the encrypted database first and the handle
+    // is a singleton; resolving the key here too keeps the VM correct if
+    // it ever wins the race.
+    private val db = MeshCoreDatabase.get(
+        app,
+        kotlinx.coroutines.runBlocking {
+            io.github.thatsfguy.meshcore.android.storage.DatabaseKey.passphrase(
+                prefs,
+                io.github.thatsfguy.meshcore.android.storage.KeystoreSecretVault(),
+            )
+        },
+    )
 
     private val _service = MutableStateFlow<MeshCoreService?>(null)
     val service: StateFlow<MeshCoreService?> = _service

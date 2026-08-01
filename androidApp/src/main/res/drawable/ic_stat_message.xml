@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Status-bar small icon for incoming mesh messages.
+
+  The system renders a notification small icon from its ALPHA CHANNEL
+  only (flattened to a white-on-transparent silhouette), so the colour
+  launcher icon can't be reused — it would appear as a solid white
+  blob. This is a monochrome reproduction of the launcher's three-node
+  mesh motif, sized to the 24dp status-bar grid.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- Mesh links -->
+    <path
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="1.3"
+        android:fillColor="#00000000"
+        android:pathData="M6,16.5 L12,7.5 L18,16.5 Z" />
+    <!-- Nodes -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M12,7.5 m-2.4,0 a2.4,2.4 0 1,1 4.8,0 a2.4,2.4 0 1,1 -4.8,0
+            M6,16.5 m-2.2,0 a2.2,2.2 0 1,1 4.4,0 a2.2,2.2 0 1,1 -4.4,0
+            M18,16.5 m-2.2,0 a2.2,2.2 0 1,1 4.4,0 a2.2,2.2 0 1,1 -4.4,0" />
+</vector>

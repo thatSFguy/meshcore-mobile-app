@@ -614,6 +614,30 @@ private fun AppSection(vm: MeshCoreViewModel) {
             ) { Text(option.replaceFirstChar { it.uppercase() }) }
         }
     }
+    // Storage encryption status — if the Keystore failed, the user must
+    // know the database is NOT encrypted rather than assume it is.
+    val dbWarning = io.github.thatsfguy.meshcore.android.storage.DatabaseKey
+        .encryptionUnavailableReason
+    if (dbWarning == null) {
+        HintText("Message storage is encrypted (SQLCipher, key sealed in the device keystore).")
+    } else {
+        Text(
+            "⚠ $dbWarning",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.error,
+        )
+    }
+
+    var tiles by remember { mutableStateOf(vm.prefs.mapTilesEnabled) }
+    SettingRow("Load map tiles (network)", tiles) {
+        tiles = it
+        vm.prefs.mapTilesEnabled = it
+    }
+    HintText(
+        "The map is the app's only outbound HTTP. Off = markers still plot, " +
+            "but no tiles are fetched, so no third party learns where you're looking.",
+    )
+
     var notifications by remember { mutableStateOf(vm.prefs.notificationsEnabled) }
     SettingRow("Message notifications", notifications) {
         notifications = it

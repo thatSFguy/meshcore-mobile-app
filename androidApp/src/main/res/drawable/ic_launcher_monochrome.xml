@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Themed-icon silhouette (Android 13+). The launcher recolours this with
+  the wallpaper palette and ignores our colours, so it is drawn as a
+  single flat shape: the same three-node mesh triangle as the colour
+  foreground, sized to the adaptive-icon safe zone.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="3"
+        android:fillColor="#00000000"
+        android:pathData="M34,66 L54,38 L74,66 Z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M54,38 m-6,0 a6,6 0 1,1 12,0 a6,6 0 1,1 -12,0" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M34,66 m-6,0 a6,6 0 1,1 12,0 a6,6 0 1,1 -12,0" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M74,66 m-6,0 a6,6 0 1,1 12,0 a6,6 0 1,1 -12,0" />
+</vector>

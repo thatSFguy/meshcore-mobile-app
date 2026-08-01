@@ -53,15 +53,13 @@ tests (`HardeningTest.kt`) pin the fixes.
 
 ## Accepted risks (not fixed, with reasoning)
 
-- **Room database is not encrypted at rest** (A-Medium). Message text, contact names/keys/GPS,
-  discovered adverts and path history sit in cleartext SQLite. Mitigations in place: file-based
-  encryption, app-private storage, `allowBackup=false`, and secrets (passwords, PSKs, community
-  keys) sealed separately in the Keystore. Full SQLCipher is the correct next step and is the
-  single biggest remaining hardening item; it is deferred rather than dismissed.
-- **OSM tile fetches disclose regions of interest** (A-Info). The Map is the only HTTP the app
-  makes; tile requests tell OpenStreetMap roughly where you're looking. The user agent is the
-  package name (identifies the app, not the user) and tiles cache app-privately. A future
-  offline-tiles or map-disable toggle would close this; documented in the README instead.
+- ~~**Room database is not encrypted at rest**~~ — **FIXED (2026-07-31, follow-up).** The database
+  is now SQLCipher-encrypted with a 32-byte random passphrase sealed by the Android Keystore.
+  An existing plaintext database is converted in place via `sqlcipher_export`, and Settings → App
+  states plainly whether encryption is active.
+- ~~**OSM tile fetches disclose regions of interest**~~ — **ADDRESSED.** Settings → App and the Map
+  ⋮ menu carry a *Load map tiles (network)* toggle; with it off the map still plots markers but
+  fetches nothing, so the app makes no outbound HTTP at all.
 - **Channel crypto is weak by protocol** — AES-ECB with a 2-byte MAC. Unfixable without breaking
   interop; the app labels channels "obfuscated, not secure" in the UI rather than implying privacy
   it cannot provide.
@@ -69,6 +67,27 @@ tests (`HardeningTest.kt`) pin the fixes.
   one-time stern warning, and flagged in the UI for the whole time it's connected.
 - **Per-packet SHA-256 fan-out** when matching channel hashes (P-Info): cheap at LoRa rates,
   worth caching if flooding ever becomes a concern.
+
+## Follow-up hardening (2026-07-31, after the initial fixes)
+
+**Database encryption at rest.** SQLCipher via `SupportOpenHelperFactory`, keyed by a 32-byte
+random passphrase generated on first run and sealed by the Keystore vault. Migration of an existing
+plaintext database was written to be **strictly non-destructive**, because the sibling repo lost a
+database to exactly this class of bug:
+
+- No `fallbackToDestructiveMigration*` anywhere in the builder. An unexpected schema version now
+  fails loudly instead of silently deleting history.
+- The encrypted copy is **verified before anything is destroyed** (it must open with our key and
+  carry at least as many tables as the source).
+- The swap goes original → `.plaintext-backup` → encrypted into place, and restores the backup if
+  the rename fails. No delete-then-rename window where a crash loses the file.
+- If the key is ever unrecoverable (Keystore invalidated), the encrypted file is **left untouched**
+  and the app runs from a separate empty database rather than opening the real one destructively.
+- If the SQLCipher native library can't load, that is treated exactly like a missing key.
+
+Verified on-device: the pre-existing plaintext database migrated cleanly (8 tables, schema v4), the
+file header is now random bytes rather than `SQLite format 3`, every conversation survived, and a
+message received after the migration persisted normally.
 
 ## Verified sound
 

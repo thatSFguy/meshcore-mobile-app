@@ -116,6 +116,14 @@ dependencies {
     // lazy-loaded and cached on disk by osmdroid itself.
     implementation("org.osmdroid:osmdroid-android:6.1.18")
 
+    // SQLCipher — the Room DB is encrypted at rest with a key sealed in
+    // the Android Keystore (2026-07-31 security review, accepted-risk
+    // item #1). Adds ~4 MB of native libs; the tradeoff is deliberate:
+    // message history, contacts and GPS were previously cleartext SQLite
+    // protected only by file-based encryption.
+    implementation("net.zetetic:sqlcipher-android:4.6.1")
+    implementation("androidx.sqlite:sqlite-ktx:2.4.0")
+
     // Room
     implementation("androidx.room:room-runtime:2.6.1")
     implementation("androidx.room:room-ktx:2.6.1")

@@ -18,6 +18,7 @@ import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import io.github.thatsfguy.meshcore.android.MainActivity
+import io.github.thatsfguy.meshcore.android.R
 import io.github.thatsfguy.meshcore.android.storage.DiagnosticsLog
 import io.github.thatsfguy.meshcore.android.storage.KeystoreSecretVault
 import io.github.thatsfguy.meshcore.android.storage.MeshCoreDatabase
@@ -112,7 +113,14 @@ class MeshCoreService : Service() {
             nowSeconds = { System.currentTimeMillis() / 1000 },
             log = { diagnostics.log("Engine", it) },
         )
-        repository = MessageRepository(MeshCoreDatabase.get(this), secrets, scope)
+        // The DB is opened encrypted with a Keystore-sealed passphrase.
+        // Blocking here is deliberate and brief (one Keystore unseal):
+        // nothing may touch the database before the key is resolved.
+        val vault = KeystoreSecretVault()
+        val dbKey = kotlinx.coroutines.runBlocking {
+            io.github.thatsfguy.meshcore.android.storage.DatabaseKey.passphrase(prefs, vault)
+        }
+        repository = MessageRepository(MeshCoreDatabase.get(this, dbKey), secrets, scope)
         repository.start(engine)
 
         scope.launch {
@@ -311,7 +319,7 @@ class MeshCoreService : Service() {
             PendingIntent.FLAG_IMMUTABLE,
         )
         return NotificationCompat.Builder(this, NOTIF_CHANNEL)
-            .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
+            .setSmallIcon(R.drawable.ic_stat_link)
             .setContentTitle("MeshCore")
             .setContentText(text)
             .setContentIntent(intent)
@@ -358,7 +366,7 @@ class MeshCoreService : Service() {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
         val notification = NotificationCompat.Builder(this, MSG_CHANNEL)
-            .setSmallIcon(android.R.drawable.stat_notify_chat)
+            .setSmallIcon(R.drawable.ic_stat_message)
             .setContentTitle(title)
             .setContentText(text)
             .setStyle(NotificationCompat.BigTextStyle().bigText(text))
@@ -370,7 +378,7 @@ class MeshCoreService : Service() {
             .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
             .setPublicVersion(
                 NotificationCompat.Builder(this, MSG_CHANNEL)
-                    .setSmallIcon(android.R.drawable.stat_notify_chat)
+                    .setSmallIcon(R.drawable.ic_stat_message)
                     .setContentTitle("MeshCore")
                     .setContentText("New message")
                     .setContentIntent(intent)

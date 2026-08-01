@@ -44,6 +44,7 @@ fun MapScreen(vm: MeshCoreViewModel) {
     var showLabels by remember { mutableStateOf(true) }
     var fitRequest by remember { mutableIntStateOf(0) }
     var typeFilter by remember { mutableStateOf(vm.prefs.mapTypeFilter) }
+    var tilesEnabled by remember { mutableStateOf(vm.prefs.mapTilesEnabled) }
 
     val located = contacts.filter {
         val lat = it.latitude
@@ -79,6 +80,10 @@ fun MapScreen(vm: MeshCoreViewModel) {
                         checked = io.github.thatsfguy.meshcore.protocol.Codes.ADV_TYPE_ROOM in typeFilter,
                     ) { toggleType(io.github.thatsfguy.meshcore.protocol.Codes.ADV_TYPE_ROOM) },
                     MenuAction("Export nodes as GPX") { vm.exportGpx(located.size) },
+                    MenuAction("Load tiles (network)", checked = tilesEnabled) {
+                        tilesEnabled = !tilesEnabled
+                        vm.prefs.mapTilesEnabled = tilesEnabled
+                    },
                     MenuAction("Clear tile cache") {
                         runCatching {
                             java.io.File(context.cacheDir, "osmdroid-tiles").deleteRecursively()
@@ -109,6 +114,10 @@ fun MapScreen(vm: MeshCoreViewModel) {
             }
             MapView(context).apply {
                 setTileSource(TileSourceFactory.MAPNIK)
+                // Tile fetching is the app's only outbound HTTP; when the
+                // user turns it off the map still plots markers on a blank
+                // canvas and nothing leaves the device.
+                setUseDataConnection(tilesEnabled)
                 setMultiTouchControls(true)
                 if (savedCamera != null) {
                     controller.setZoom(savedCamera.third)
@@ -136,6 +145,7 @@ fun MapScreen(vm: MeshCoreViewModel) {
             factory = { mapView },
             modifier = Modifier.fillMaxSize().padding(padding),
             update = { map ->
+                map.setUseDataConnection(tilesEnabled)
                 map.overlays.removeAll { it is Marker }
 
                 val points = ArrayList<GeoPoint>()
