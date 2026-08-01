@@ -82,6 +82,9 @@ fun RepeaterStatusPanel(vm: MeshCoreViewModel, keyHex: String) {
         // --- Live noise floor ---------------------------------------------
         NoiseFloorSection(vm, keyHex)
 
+        // --- One-hop neighbours -------------------------------------------
+        NeighboursSection(vm, keyHex)
+
         status?.let { s ->
             Spacer(Modifier.height(8.dp))
             Text("Status", style = MaterialTheme.typography.titleSmall)
@@ -261,3 +264,67 @@ private fun NoiseFloorSection(vm: MeshCoreViewModel, keyHex: String) {
 /** Seconds between noise-floor samples — each one costs airtime. */
 private const val WATCH_INTERVAL_MS = 5_000L
 private const val WATCH_SAMPLES = 24
+
+/**
+ * A repeater's one-hop neighbour table (PARITY §6).
+ *
+ * Two honesty requirements, both from §12. Entries identify nodes by a
+ * 4-byte key prefix, so a name is offered only when exactly one contact
+ * matches and "(N matches)" otherwise. And the whole table is hearsay:
+ * it is what this repeater says it hears, relayed by that repeater —
+ * useful for understanding coverage, useless as evidence about anyone.
+ */
+@Composable
+private fun NeighboursSection(vm: MeshCoreViewModel, keyHex: String) {
+    val scope = rememberCoroutineScope()
+    var table by remember(keyHex) {
+        mutableStateOf<io.github.thatsfguy.meshcore.protocol.Neighbours.Table?>(null)
+    }
+    var loading by remember { mutableStateOf(false) }
+    var note by remember { mutableStateOf<String?>(null) }
+
+    Spacer(Modifier.height(12.dp))
+    Text("Neighbours", style = MaterialTheme.typography.titleSmall)
+    ButtonFlowRow {
+        TextButton(
+            enabled = !loading,
+            onClick = {
+                scope.launch {
+                    loading = true; note = null
+                    table = vm.repeaterNeighbours(keyHex)
+                    if (table == null) note = "No reply — in range and logged in?"
+                    loading = false
+                }
+            },
+        ) { Text("Fetch neighbours") }
+    }
+    if (loading) SectionSpinner("Asking the node…")
+    note?.let { HintText(it) }
+
+    table?.let { t ->
+        if (t.entries.isEmpty()) {
+            HintText("The node answered and reported no neighbours.")
+        }
+        for (n in t.entries) {
+            val names = vm.neighbourNames(n)
+            Row(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
+                Text(
+                    io.github.thatsfguy.meshcore.protocol.Neighbours.label(n, names),
+                    style = MaterialTheme.typography.bodySmall,
+                    fontFamily = FontFamily.Monospace,
+                    modifier = Modifier.weight(1f),
+                )
+                Text("%.1f dB".format(n.snr), style = MaterialTheme.typography.bodySmall)
+            }
+        }
+        if (t.isPartial) {
+            HintText("Showing ${t.entries.size} of ${t.total} the node knows.")
+        }
+        if (t.entries.isNotEmpty()) {
+            HintText(
+                "Prefixes, not full keys — a prefix names a node only as far as it goes. " +
+                    "This is what this repeater says it hears, relayed by that repeater.",
+            )
+        }
+    }
+}

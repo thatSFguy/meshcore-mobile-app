@@ -13,6 +13,7 @@ import io.github.thatsfguy.meshcore.protocol.ChannelCrypto
 import io.github.thatsfguy.meshcore.protocol.Codes
 import io.github.thatsfguy.meshcore.protocol.DeviceEvent
 import io.github.thatsfguy.meshcore.protocol.Frames
+import io.github.thatsfguy.meshcore.protocol.Neighbours
 import io.github.thatsfguy.meshcore.protocol.NodeDiscovery
 import io.github.thatsfguy.meshcore.protocol.PathCodec
 import io.github.thatsfguy.meshcore.protocol.Regions
@@ -797,6 +798,24 @@ class MeshCoreEngine(
 
     private fun statusFrame(ev: DeviceEvent.StatusResponse): ByteArray =
         byteArrayOf(Codes.PUSH_CODE_STATUS_RESPONSE.toByte()) + ev.payload
+
+    /**
+     * Ask a repeater for its one-hop neighbour table (PARITY §6).
+     *
+     * Null means no answer; an empty table means "answered, knows
+     * nobody" — which are different facts about a repeater's coverage.
+     */
+    suspend fun requestNeighbours(
+        repeaterPubKey: ByteArray,
+        timeoutMs: Long = 30_000,
+    ): Neighbours.Table? {
+        val ev = sendAndAwait(
+            Frames.sendBinaryRequest(repeaterPubKey, Neighbours.requestPayload()),
+            timeoutMs = timeoutMs,
+        ) { it is DeviceEvent.BinaryResponse }
+        val payload = (ev as? DeviceEvent.BinaryResponse)?.payload ?: return null
+        return Neighbours.parse(binaryResponseBody(payload))
+    }
 
     /** Request Cayenne-LPP telemetry from a node; empty on timeout. */
     suspend fun requestTelemetry(

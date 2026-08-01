@@ -1015,6 +1015,25 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
         it?.engine?.floodScopeStuck ?: flowOf(null)
     }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
+    /**
+     * A repeater's one-hop neighbours, each resolved against known
+     * contacts. Null = no answer; empty = answered knowing nobody.
+     */
+    suspend fun repeaterNeighbours(
+        keyHex: String,
+    ): io.github.thatsfguy.meshcore.protocol.Neighbours.Table? {
+        val svc = _service.value ?: return null
+        val key = hexToBytesOrNull(keyHex) ?: return null
+        return runCatching { svc.engine.requestNeighbours(key) }.getOrNull()
+    }
+
+    /** Names a neighbour prefix could belong to — plural stays plural. */
+    fun neighbourNames(
+        neighbour: io.github.thatsfguy.meshcore.protocol.Neighbours.Neighbour,
+    ): List<String> = io.github.thatsfguy.meshcore.protocol.Neighbours
+        .resolve(neighbour, dbContacts.value) { it.keyHex }
+        .map { it.name.ifBlank { it.keyHex.take(12) } }
+
     // --- Repeater identity key (PARITY §6) ---
 
     fun generateIdentityKey(): String =

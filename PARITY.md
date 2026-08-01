@@ -125,7 +125,7 @@ both:
 | `ChangePositionScreen`, `PositionSettingsScreen`, `PositionSelectorScreen` | Settings → advert lat/lon + **Pick on map** | ✅ | Closed 2026-08-01. Crosshair picker; warns that the position is broadcast mesh-wide. |
 | `ChangeIdentityKeyScreen`, `ManageIdentityKeyScreen` | Repeater admin → Identity tab | ✅ | Closed 2026-08-01, carefully. ⚠ Three refusals shape it: the key is never shown unasked (reading it puts it back on the air, with its own confirmation), it is never stored by this app, and replacing it needs a typed confirmation after the consequences are listed. Degenerate keys (all one byte) are refused despite being structurally valid. |
 | `ClockDriftScreen` | Settings → Clock | ✅ | Closed 2026-08-01. Drift shown with direction, flagged past the 30 s auto-correct threshold. |
-| `RepeaterNeighboursMapScreen` | — | ❌ | Deferred in SCOPE.md; revisit under this policy. |
+| `RepeaterNeighboursMapScreen` | Admin → Status → Neighbours | ◐ | Closed 2026-08-01 as a LIST, not a map. ⚠ Entries carry a 4-byte key prefix, so a name is offered only on a unique match and "(N matches)" otherwise. The table is hearsay — what the repeater says it hears, relayed by it. Map rendering awaits the same polyline work as §9. |
 | `NoiseFloorScreen` | Admin → Status → Noise floor | ✅ | Closed 2026-08-01. 5 s polling with min/max/history while the screen is open; stops on leave, since each sample costs airtime on someone else's node. |
 | `RxLogScreen` | Diagnostics log | ◐ | Ours is redaction-aware and off by default; keep that. |
 
