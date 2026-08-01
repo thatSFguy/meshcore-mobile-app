@@ -1,5 +1,14 @@
 # v1 Scope
 
+
+> **Scope policy update (2026-08-01).** The mainstream MeshCore Android app
+> (`com.liamcottle.meshcore.android`) is now the **floor** for this app's feature set:
+> anything it does that we don't is a gap to close unless explicitly ruled out. See
+> **[`PARITY.md`](PARITY.md)** for the full surface-by-surface matrix, the out-of-scope
+> list (billing, crash telemetry, server-mediated features), and the places where we
+> deliberately keep our own handling for security reasons. Where this document and
+> PARITY.md disagree, PARITY.md wins.
+
 Derived by pruning the MeshCore Open feature inventory (~26 screens) down to a deliberate
 v1, then implementing it natively (KMP) on the reticulum-mobile-app foundation. Decisions
 below are locked for v1; "Deferred" items are post-v1, "Cut" items are not planned.

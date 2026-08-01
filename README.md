@@ -176,6 +176,9 @@ Requires JDK 17+ and the Android SDK (compileSdk 34).
 - **[`MESHCORE_PROTOCOL.md`](MESHCORE_PROTOCOL.md)** — the companion + over-the-air wire spec
   (frames, command/response/push codes, advert signatures, channel crypto, PSK derivation).
 - **[`SCOPE.md`](SCOPE.md)** — the locked v1 feature set, and what's deliberately deferred or cut.
+- **[`PARITY.md`](PARITY.md)** — surface-by-surface comparison against the mainstream MeshCore
+  Android app, which is treated as the minimum feature bar: what's done, what's outstanding,
+  what's out of scope, and where this app deliberately handles something differently.
 - **[`REUSE.md`](REUSE.md)** — the file-by-file map of what was carried over from
   reticulum-mobile-app.
 - **[`SECURITY_REVIEW.md`](SECURITY_REVIEW.md)** — the 2026-07-31 full-surface security review:
