@@ -148,6 +148,7 @@ fun SettingsScreen(vm: MeshCoreViewModel) {
             }
             ExpandableSection("Channels") { ChannelsSection(vm, onEdit = { editChannel = it }) }
             ExpandableSection("App") { AppSection(vm) }
+            ExpandableSection("About") { AboutSection(vm) }
             Spacer(Modifier.height(32.dp))
         }
     }
@@ -354,6 +355,31 @@ private fun RadioSection(vm: MeshCoreViewModel) {
     var tx by remember(info.txPowerDbm) { mutableStateOf(info.txPowerDbm.toString()) }
 
     HintText("Parameters must match your mesh or the node goes deaf.")
+
+    // Which preset (if any) the radio is currently sitting on. More than
+    // one can match — several Russian city presets share parameters — so
+    // all matches are named rather than one being picked.
+    var presetSheet by remember { mutableStateOf(false) }
+    val matches = remember(info.freqHz, info.bwHz, info.sf, info.cr) {
+        io.github.thatsfguy.meshcore.protocol.RadioPresets.matching(
+            info.freqHz, info.bwHz, info.sf, info.cr,
+        )
+    }
+    HintText(
+        when {
+            matches.isEmpty() -> "Current settings match no known preset."
+            matches.size == 1 -> "Currently: ${matches[0].name}."
+            else -> "Currently matches ${matches.size} presets: " +
+                matches.joinToString(", ") { it.name }
+        },
+    )
+    ButtonFlowRow {
+        TextButton(onClick = { presetSheet = true }) { Text("Use a regional preset…") }
+    }
+    if (presetSheet) {
+        RadioPresetSheet(vm, onDismiss = { presetSheet = false })
+    }
+
     Row(verticalAlignment = Alignment.CenterVertically) {
         OutlinedTextField(
             value = freq, onValueChange = { freq = it },

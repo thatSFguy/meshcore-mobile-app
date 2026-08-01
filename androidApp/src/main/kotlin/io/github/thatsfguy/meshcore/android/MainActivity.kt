@@ -35,6 +35,7 @@ import io.github.thatsfguy.meshcore.android.ui.screens.ConversationScreen
 import io.github.thatsfguy.meshcore.android.ui.screens.MapScreen
 import io.github.thatsfguy.meshcore.android.ui.screens.NodesScreen
 import io.github.thatsfguy.meshcore.android.ui.screens.RepeaterAdminScreen
+import io.github.thatsfguy.meshcore.android.ui.screens.SetupScreen
 import io.github.thatsfguy.meshcore.android.ui.screens.SettingsScreen
 import io.github.thatsfguy.meshcore.android.ui.theme.MeshCoreTheme
 
@@ -114,9 +115,16 @@ private fun AppShell(vm: MeshCoreViewModel) {
     ) { padding ->
         NavHost(
             navController = nav,
-            startDestination = "chats",
+            // First run lands on setup rather than an empty Chats list
+            // with no hint that a radio is required (PARITY §1).
+            startDestination = if (vm.prefs.setupComplete) "chats" else "setup",
             modifier = Modifier.padding(padding),
         ) {
+            composable("setup") {
+                SetupScreen(vm) {
+                    nav.navigate("chats") { popUpTo("setup") { inclusive = true } }
+                }
+            }
             composable("chats") { ChatsScreen(vm, nav) }
             composable("nodes") { NodesScreen(vm, nav) }
             composable("map") { MapScreen(vm) }

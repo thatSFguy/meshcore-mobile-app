@@ -33,9 +33,9 @@ Status key: ✅ have · ◐ partial · ❌ missing · ⛔ out of scope
 | Their surface | Us | Status | Notes |
 |---|---|---|---|
 | `ConnectScreen`, `BluetoothSettingsScreen` | Settings → Connection, Transports | ✅ | We also gate each transport with an enable toggle; TCP is off by default behind a warning. |
-| `SetupScreen` (first-run onboarding) | — | ❌ | **Work item.** We drop the user straight into an empty app. |
-| `SuggestedRadioSettingsSelectorBottomSheet` (radio presets) | Settings → Radio (manual fields) | ◐ | **Work item.** Presets per region/profile, rather than typing freq/BW/SF/CR. |
-| `FactoryResetScreen` | — | ❌ | **Work item**, low risk: it's a CLI command behind a confirmation. |
+| `SetupScreen` (first-run onboarding) | First-run setup checklist | ✅ | Closed 2026-08-01. A checklist, not a wizard — plenty of users arrive with a radio someone else configured and can skip straight past. Names the four params that must match, and that a wrong match looks like an empty app rather than an error. |
+| `SuggestedRadioSettingsSelectorBottomSheet` (radio presets) | Settings → Radio → regional presets | ✅ | Closed 2026-08-01. All 47 presets transcribed from the reference client, grouped and searchable; the live radio's matching preset(s) are named. ⚠ Carries a regulatory caveat: these are what communities run, not legal advice. |
+| `FactoryResetScreen` | Repeater admin → `erase` (confirmed) | ◐ | The CLI `erase` is repeater/room only and already ships behind a confirmation. **No companion-side factory reset is implemented**: the companion protocol has no such command (§4 lists reboot, not erase), and the mainstream app's mechanism couldn't be confirmed from its binary. Not guessing at one that wipes a radio. |
 | `ExportConfigurationScreen`, `ImportConfigurationScreen` | Settings → App → Backup | ✅ | Closed 2026-08-01. Plain half = settings/regions/contact keys+names/channel names; sealed half = PSKs, passwords, identity seed under AES-256-GCM + PBKDF2(600k). Encoding secrets without a passphrase is refused, not silently dropped. |
 | `PurgeDataScreen` | Settings → App → Purge local data | ✅ | Closed 2026-08-01. Explicit list of what goes and what doesn't; type-the-word confirmation; forgetting keys is a separate opt-in. Does not touch the radio. |
 
@@ -187,7 +187,7 @@ Notes on this block:
 | Their surface | Us | Status | Notes |
 |---|---|---|---|
 | `SettingsScreen` | Settings | ✅ | |
-| `AboutScreen`, `ChangeLogScreen` | — | ❌ | **Work item**, small. |
+| `AboutScreen`, `ChangeLogScreen` | Settings → About | ✅ | Closed 2026-08-01. States the app's checkable promises (one outbound connection, no accounts/analytics, channels obfuscated-not-secure) rather than slogans. Changelog ships in-app — a changelog behind a link is one you can't read in the field. |
 | `LanguageSelectorScreen` | — | ❌ | We're English-only. Their app ships 30+ locales. |
 | `DeveloperMenuScreen`, `DeveloperModePasswordScreen`, `ExperimentalSettingsScreen` | — | ❌ | Low priority. |
 | `DebugLogsScreen` | Diagnostics | ✅ | |

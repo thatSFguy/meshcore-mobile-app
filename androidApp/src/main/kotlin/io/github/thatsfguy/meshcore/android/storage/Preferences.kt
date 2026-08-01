@@ -122,6 +122,14 @@ class Preferences(context: Context) {
             themeFlow.value = v
         }
 
+    /**
+     * Whether first-run setup has been dismissed. Not "has a radio" —
+     * a user who skips it should not be shown it again every launch.
+     */
+    var setupComplete: Boolean
+        get() = prefs.getBoolean("setup_complete", false)
+        set(v) { prefs.edit().putBoolean("setup_complete", v).apply() }
+
     /** Redaction-aware diagnostics log, off by default (SCOPE.md). */
     var diagnosticsEnabled: Boolean
         get() = prefs.getBoolean("diagnostics_enabled", false)

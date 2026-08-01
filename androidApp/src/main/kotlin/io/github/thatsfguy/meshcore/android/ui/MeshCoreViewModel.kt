@@ -902,6 +902,38 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
 
     fun setTxPower(dbm: Int) = deviceAction("TX power updated") { it.setTxPower(dbm) }
 
+    /**
+     * Apply a regional preset: the four LoRa parameters, then TX power.
+     *
+     * Ordered deliberately. If the parameter write succeeds and the
+     * power write fails, the radio is on the right mesh at the wrong
+     * power — recoverable, and the user is told. The other order could
+     * leave it transmitting at a power chosen for a band it is no
+     * longer on.
+     */
+    fun applyRadioPreset(preset: io.github.thatsfguy.meshcore.protocol.RadioPresets.Preset) {
+        val svc = _service.value ?: return
+        viewModelScope.launch {
+            val paramsOk = runCatching {
+                svc.engine.setRadioParams(
+                    preset.frequencyHz, preset.bandwidthHz,
+                    preset.spreadingFactor, preset.codingRate,
+                )
+            }.getOrDefault(false)
+            if (!paramsOk) {
+                transientMessage.value = "Radio rejected the ${preset.name} parameters"
+                return@launch
+            }
+            val powerOk = runCatching { svc.engine.setTxPower(preset.txPowerDbm) }
+                .getOrDefault(false)
+            transientMessage.value = if (powerOk) {
+                "Applied ${preset.name}"
+            } else {
+                "Applied ${preset.name}, but TX power stayed unchanged — set it by hand"
+            }
+        }
+    }
+
     // --- Mesh policy / advanced device settings (CLI-equivalent
     //     companion commands, Settings revamp) ---
 
