@@ -32,7 +32,7 @@ permissions:
 
 jobs:
   build:
-    runs-on: macos-14
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -61,6 +61,14 @@ jobs:
 
       - name: Build the shared XCFramework
         run: ./gradlew :shared:assembleSharedXCFramework
+
+      # XcodeGen emits the current project format (objectVersion 77),
+      # which only Xcode 16+ can read — the macos-14 image's default
+      # Xcode 15.4 fails with "future Xcode project file format".
+      - name: Select the newest Xcode
+        run: |
+          sudo xcode-select -s /Applications/Xcode.app
+          xcodebuild -version
 
       - name: Install XcodeGen
         run: brew install xcodegen
