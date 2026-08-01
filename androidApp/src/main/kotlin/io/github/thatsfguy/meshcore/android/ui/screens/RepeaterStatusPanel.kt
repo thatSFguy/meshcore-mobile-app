@@ -302,8 +302,19 @@ private fun NeighboursSection(vm: MeshCoreViewModel, keyHex: String) {
     note?.let { HintText(it) }
 
     table?.let { t ->
+        // "Answered with nothing" and "answered with a page of nothing"
+        // are different facts. Seen on real hardware: a repeater
+        // reported total=1 with zero entries, and saying "no
+        // neighbours" alongside "0 of 1" contradicted itself.
         if (t.entries.isEmpty()) {
-            HintText("The node answered and reported no neighbours.")
+            HintText(
+                if (t.total > 0) {
+                    "The node says it knows ${t.total} neighbour(s) but returned none in " +
+                        "this reply. Try again — the table may be paged."
+                } else {
+                    "The node answered and reported no neighbours."
+                },
+            )
         }
         for (n in t.entries) {
             val names = vm.neighbourNames(n)
@@ -317,7 +328,7 @@ private fun NeighboursSection(vm: MeshCoreViewModel, keyHex: String) {
                 Text("%.1f dB".format(n.snr), style = MaterialTheme.typography.bodySmall)
             }
         }
-        if (t.isPartial) {
+        if (t.isPartial && t.entries.isNotEmpty()) {
             HintText("Showing ${t.entries.size} of ${t.total} the node knows.")
         }
         if (t.entries.isNotEmpty()) {

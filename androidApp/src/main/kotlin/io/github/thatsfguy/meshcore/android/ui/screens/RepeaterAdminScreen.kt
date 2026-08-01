@@ -28,9 +28,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.ScrollableTabRow
+import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -172,16 +171,21 @@ fun RepeaterAdminScreen(vm: MeshCoreViewModel, nav: NavController, keyHex: Strin
                 modifier = Modifier.padding(horizontal = 12.dp),
             )
 
-            // --- Console / Settings switch ---
-            SingleChoiceSegmentedButtonRow(
-                Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
-            ) {
+            // --- Tab switch ---
+            //
+            // ScrollableTabRow, not a segmented row: six tabs divided
+            // evenly across a 720px screen truncated every label to
+            // "Statu"/"Settin"/"Regio". Scrollable tabs size to their
+            // text and scroll if they overflow, which also respects a
+            // raised display-size setting — the same reasoning as the
+            // Nodes screen.
+            ScrollableTabRow(selectedTabIndex = tab, edgePadding = 12.dp) {
                 for ((i, label) in tabs.withIndex()) {
-                    SegmentedButton(
+                    Tab(
                         selected = tab == i,
                         onClick = { tab = i },
-                        shape = SegmentedButtonDefaults.itemShape(index = i, count = tabs.size),
-                    ) { Text(label, maxLines = 1, softWrap = false) }
+                        text = { Text(label, maxLines = 1, softWrap = false) },
+                    )
                 }
             }
 
