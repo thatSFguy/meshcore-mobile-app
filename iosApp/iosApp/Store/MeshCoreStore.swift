@@ -108,7 +108,13 @@ final class MeshCoreStore: ObservableObject {
     func sendDirectMessage(peerHex: String, text: String) {
         guard let engine, let key = HexKt.hexToBytesOrNull(hex: peerHex) else { return }
         Task {
-            _ = try? await engine.sendDirectMessage(recipientPubKey: key, text: text)
+            // K/N doesn't export Kotlin default params — attempt and
+            // timestamp have to be passed explicitly here too (the
+            // channel send below has always done this).
+            _ = try? await engine.sendDirectMessage(
+                recipientPubKey: key, text: text,
+                attempt: 0,
+                timestampSeconds: Int64(Date().timeIntervalSince1970))
             self.append(thread: "dm|\(peerHex)", message: UiMessage(
                 senderName: nil, text: text,
                 timestamp: Int64(Date().timeIntervalSince1970), outgoing: true))
