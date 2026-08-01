@@ -20,6 +20,7 @@ fetches on the Map tab — everything else is MeshCore frames over the transport
 
 [![Latest release](https://img.shields.io/github/v/release/thatSFguy/meshcore-mobile-app?label=latest&sort=semver&color=blue)](https://github.com/thatSFguy/meshcore-mobile-app/releases/latest)
 [![Android CI](https://github.com/thatSFguy/meshcore-mobile-app/actions/workflows/android-ci.yml/badge.svg)](https://github.com/thatSFguy/meshcore-mobile-app/actions/workflows/android-ci.yml)
+[![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0--only-blue.svg)](LICENSE)
 
 ## Project scope — personal app, shared in the open
 
@@ -30,13 +31,15 @@ welcome to:
 
 - **Use it** — install the signed APK, attach your own MeshCore radio over BLE or USB, and message
   people. No account, no server, no telemetry.
-- **Fork it** — build your own version with whatever features you want; that's what a fork is for.
-- **Report security issues** — vulnerability reports are the one kind of report I actively want.
+- **Fork it** — it's [AGPL-3.0](LICENSE). Build your own version with whatever features you want;
+  that's what the licence is for.
+- **Report security issues** — see **[SECURITY.md](SECURITY.md)**. Vulnerability reports are the
+  one kind of report I actively want; please report privately rather than opening a public issue.
 - **Report bugs** in the *existing* feature set — a focused bug report is welcome.
 
 What I'm **not** taking: feature requests, "please add X" issues, or feature PRs — they'll be closed
 unmerged. Not because they're bad ideas, but because every added surface works against the security
-goal. Fork away instead.
+goal. Fork away instead. See [CONTRIBUTING.md](CONTRIBUTING.md) for the full policy.
 
 ## Install
 
@@ -174,6 +177,11 @@ Requires JDK 17+ and the Android SDK (compileSdk 34).
 - **[`SECURITY_REVIEW.md`](SECURITY_REVIEW.md)** — the 2026-07-31 full-surface security review:
   findings, fixes, accepted risks, and what was verified sound.
 - **[`CLAUDE.md`](CLAUDE.md)** — orientation for a fresh contributor (or agent).
+
+## Licence
+
+[AGPL-3.0-only](LICENSE). Third-party components keep their own licences: osmdroid and ZXing
+(Apache-2.0), SQLCipher (BSD-3-Clause), Bouncy Castle (MIT), AndroidX/Room/Compose (Apache-2.0).
 
 ## Platform status
 
