@@ -53,6 +53,12 @@ data class MessageEntity(
      * not an authenticated fact about who reacted.
      */
     val reactionsJson: String? = null,
+    /**
+     * Hops this message travelled. -1 (MeshCoreEngine.FLOOD_HOPS) means
+     * it flooded; null means unknown — outgoing rows, or anything
+     * received before this was recorded.
+     */
+    val hops: Int? = null,
 )
 
 enum class MessageStatus { Pending, Sent, Delivered, Failed }

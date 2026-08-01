@@ -58,6 +58,8 @@ sealed class MeshEvent {
         val snr: Double?,
         /** "Name [AABBCCDD]" for a room post; null for a plain DM. */
         val roomAuthorLabel: String? = null,
+        /** Hops travelled; [FLOOD_HOPS] when flooded, null if unknown. */
+        val hops: Int? = null,
     ) : MeshEvent()
 
     /**
@@ -72,6 +74,9 @@ sealed class MeshEvent {
         val text: String,
         val timestamp: Long,
         val contentKey: String,
+        /** Hops travelled; [FLOOD_HOPS] when flooded, null if unknown. */
+        val hops: Int? = null,
+        val snr: Double? = null,
     ) : MeshEvent()
 
     /** The radio accepted an outbound message (RESP_CODE_SENT). */
@@ -407,6 +412,7 @@ class MeshCoreEngine(
                         txtType = event.txtType,
                         snr = event.snr,
                         roomAuthorLabel = event.roomAuthorPrefix?.let { roomAuthorLabel(it) },
+                        hops = hopsFromPathBytes(event.pathLen),
                     ),
                 )
             }
@@ -414,6 +420,7 @@ class MeshCoreEngine(
             is DeviceEvent.ChannelMessage -> {
                 emitChannelMessage(
                     event.channelIndex, event.senderName, event.text, event.timestamp,
+                    hops = hopsFromPathBytes(event.pathLen),
                 )
             }
 
@@ -487,11 +494,15 @@ class MeshCoreEngine(
         senderName: String,
         text: String,
         timestamp: Long,
+        hops: Int? = null,
+        snr: Double? = null,
     ) {
         emitMeshEvent(
             MeshEvent.ChannelMessageReceived(
                 channelIndex, senderName, text, timestamp,
                 channelContentKey(channelIndex, timestamp, senderName, text),
+                hops = hops,
+                snr = snr,
             ),
         )
     }
@@ -521,7 +532,13 @@ class MeshCoreEngine(
                     if (ChannelCrypto.channelHash(crypto, channel.psk) != channelHash) continue
                     val plain = ChannelCrypto.decrypt(crypto, channel.psk, encrypted) ?: continue
                     val msg = ChannelCrypto.parsePlaintext(plain) ?: continue
-                    emitChannelMessage(channel.index, msg.senderName, msg.text, msg.timestamp)
+                    emitChannelMessage(
+                        channel.index, msg.senderName, msg.text, msg.timestamp,
+                        // An RX-log packet states its hop count directly,
+                        // no width arithmetic needed.
+                        hops = packet.hopCount,
+                        snr = event.snr,
+                    )
                     break
                 }
             }
@@ -882,6 +899,21 @@ class MeshCoreEngine(
 
     /** The parser expects the whole frame; TraceData carries the tail. */
     /**
+     * Convert a companion frame's path LENGTH (bytes) into hops.
+     *
+     * A stored path is a hash per hop, and the hash width is a device
+     * setting (1-4 bytes) — so the byte count alone doesn't say how far
+     * a message travelled. Returns [FLOOD_HOPS] for a flooded frame and
+     * null when the width isn't known yet.
+     */
+    private fun hopsFromPathBytes(pathLenBytes: Int): Int? {
+        if (pathLenBytes == PathCodec.PATH_LEN_FLOOD || pathLenBytes < 0) return FLOOD_HOPS
+        if (pathLenBytes == 0) return 0
+        val width = _deviceInfo.value?.pathHashByteWidth?.takeIf { it > 0 } ?: return null
+        return pathLenBytes / width
+    }
+
+    /**
      * Display label for the author of a room post.
      *
      * The room server asserts a 4-byte pubkey prefix; four bytes is not
@@ -1085,6 +1117,9 @@ class MeshCoreEngine(
     }
 
     companion object {
+        /** Sentinel hop count for a flooded (pathless) message. */
+        const val FLOOD_HOPS = -1
+
         private const val DEFAULT_TIMEOUT_MS = 6_000L
 
         /** Minimum gap between contact-record refreshes per node. */

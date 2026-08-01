@@ -50,6 +50,9 @@ import io.github.thatsfguy.meshcore.android.platform.PortraitCaptureActivity
 import io.github.thatsfguy.meshcore.android.platform.Qr
 import io.github.thatsfguy.meshcore.android.storage.ContactEntity
 import io.github.thatsfguy.meshcore.android.ui.MeshCoreViewModel
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import io.github.thatsfguy.meshcore.protocol.PathCodec
 import io.github.thatsfguy.meshcore.protocol.Codes
 import java.text.DateFormat
 import java.util.Date
@@ -337,9 +340,18 @@ fun ContactDetailSheet(
     var removeConfirm by remember { mutableStateOf(false) }
     var shareQrOpen by remember { mutableStateOf(false) }
     val isAdminable = contact.type == Codes.ADV_TYPE_REPEATER || contact.type == Codes.ADV_TYPE_ROOM
+    val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
+    val live = vm.liveContacts.collectAsState().value[contact.keyHex]
+    val self = vm.selfInfo.collectAsState().value
+    val hashWidth = vm.deviceInfo.collectAsState().value?.pathHashByteWidth
 
     ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(Modifier.padding(horizontal = 24.dp).padding(bottom = 32.dp)) {
+        Column(
+            Modifier
+                .padding(horizontal = 24.dp)
+                .padding(bottom = 32.dp)
+                .verticalScroll(rememberScrollState()),
+        ) {
             Text(
                 contact.name.ifBlank { "Unnamed node" },
                 style = MaterialTheme.typography.headlineSmall,
@@ -350,20 +362,71 @@ fun ContactDetailSheet(
                 color = MaterialTheme.colorScheme.primary,
             )
             Spacer(Modifier.height(12.dp))
-            Text("Public key", style = MaterialTheme.typography.labelLarge)
-            Text(
-                contact.keyHex,
-                style = MaterialTheme.typography.bodySmall,
-                fontFamily = FontFamily.Monospace,
-            )
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Public key", style = MaterialTheme.typography.labelLarge)
+                    Text(
+                        contact.keyHex,
+                        style = MaterialTheme.typography.bodySmall,
+                        fontFamily = FontFamily.Monospace,
+                    )
+                }
+                TextButton(onClick = {
+                    clipboard.setText(androidx.compose.ui.text.AnnotatedString(contact.keyHex))
+                }) { Text("Copy") }
+            }
+
             if (contact.latitude != null && contact.longitude != null) {
                 Spacer(Modifier.height(8.dp))
-                Text("Location", style = MaterialTheme.typography.labelLarge)
-                Text(
-                    "%.5f, %.5f".format(contact.latitude, contact.longitude),
-                    style = MaterialTheme.typography.bodySmall,
+                DetailRow("Position", "%.5f, %.5f".format(contact.latitude, contact.longitude))
+                // Distance is only meaningful once BOTH ends have a
+                // position; the radio reports 0,0 when it has no fix, and
+                // treating that as the equator would invent a distance.
+                val selfLat = self?.latitude?.takeIf { it != 0.0 }
+                val selfLon = self?.longitude?.takeIf { it != 0.0 }
+                val theirLat = contact.latitude.takeIf { it != 0.0 }
+                val theirLon = contact.longitude.takeIf { it != 0.0 }
+                val distance = if (selfLat != null && selfLon != null &&
+                    theirLat != null && theirLon != null
+                ) {
+                    formatDistance(haversineMetres(selfLat, selfLon, theirLat, theirLon))
+                } else {
+                    "Unknown"
+                }
+                DetailRow("Distance away", distance)
+            }
+
+            if (contact.lastSeen > 0) {
+                DetailRow(
+                    "Last advert heard",
+                    relativeAge(contact.lastSeen) + " · " +
+                        DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
+                            .format(Date(contact.lastSeen * 1000)),
                 )
             }
+
+            // Path, mirroring what the radio actually holds for this
+            // contact rather than what we last asked for.
+            val pathLen = live?.pathLen ?: contact.pathLen
+            DetailRow(
+                "Hops away",
+                when {
+                    pathLen == PathCodec.PATH_LEN_FLOOD || pathLen < 0 -> "Flood (no stored path)"
+                    pathLen == 0 -> "Direct (0 hops)"
+                    hashWidth != null && hashWidth > 0 -> "${pathLen / hashWidth} hops"
+                    else -> "$pathLen bytes"
+                },
+            )
+            live?.takeIf { it.pathLen in 1..64 && it.pathLen <= it.path.size }?.let { c ->
+                DetailRow(
+                    "Out path",
+                    PathCodec.formatHops(c.path.copyOfRange(0, c.pathLen)),
+                    mono = true,
+                )
+            }
+            hashWidth?.let { DetailRow("Path hash size", "$it-byte${if (it == 1) "" else "s"} per hop") }
+
             Spacer(Modifier.height(16.dp))
 
             if (contact.type == Codes.ADV_TYPE_CHAT || contact.type == Codes.ADV_TYPE_ROOM) {
@@ -430,6 +493,48 @@ fun ContactDetailSheet(
                 TextButton(onClick = { removeConfirm = false }) { Text("Cancel") }
             },
         )
+    }
+}
+
+
+/** One label/value line in the contact sheet. */
+@Composable
+private fun DetailRow(label: String, value: String, mono: Boolean = false) {
+    Column(Modifier.padding(top = 8.dp)) {
+        Text(label, style = MaterialTheme.typography.labelLarge)
+        Text(
+            value,
+            style = MaterialTheme.typography.bodySmall,
+            fontFamily = if (mono) FontFamily.Monospace else null,
+        )
+    }
+}
+
+/** Great-circle distance in metres. */
+private fun haversineMetres(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
+    val r = 6_371_000.0
+    val dLat = Math.toRadians(lat2 - lat1)
+    val dLon = Math.toRadians(lon2 - lon1)
+    val a = kotlin.math.sin(dLat / 2) * kotlin.math.sin(dLat / 2) +
+        kotlin.math.cos(Math.toRadians(lat1)) * kotlin.math.cos(Math.toRadians(lat2)) *
+        kotlin.math.sin(dLon / 2) * kotlin.math.sin(dLon / 2)
+    return 2 * r * kotlin.math.atan2(kotlin.math.sqrt(a), kotlin.math.sqrt(1 - a))
+}
+
+private fun formatDistance(metres: Double): String = when {
+    metres < 1000 -> "%.0f m".format(metres)
+    metres < 100_000 -> "%.1f km".format(metres / 1000)
+    else -> "%.0f km".format(metres / 1000)
+}
+
+/** "9 hours ago" — the at-a-glance half of a timestamp. */
+private fun relativeAge(epochSeconds: Long): String {
+    val seconds = (System.currentTimeMillis() / 1000 - epochSeconds).coerceAtLeast(0)
+    return when {
+        seconds < 60 -> "just now"
+        seconds < 3600 -> "${seconds / 60} min ago"
+        seconds < 86_400 -> "${seconds / 3600} hours ago"
+        else -> "${seconds / 86_400} days ago"
     }
 }
 

@@ -279,6 +279,18 @@ fun ConversationScreen(
         }
     }
 
+    // Render site for the Info action. This block was lost when the
+    // long-press dialog became an inline action bar — `details` was still
+    // being set, so Info silently did nothing.
+    details?.let { m ->
+        MessageInfoSheet(
+            m,
+            isChannel = isChannel,
+            showSender = showSenders,
+            onDismiss = { details = null },
+        )
+    }
+
     reactingTo?.let { target ->
         ReactionPicker(
             onPick = { emoji ->
@@ -561,6 +573,12 @@ private fun MessageBubble(
                             // Surface retries so a struggling route is visible.
                             if (m.attempts > 1) append(" (try ${m.attempts})")
                         }
+                        // Link quality for received traffic: how far it
+                        // came and how strong it landed. Both say more
+                        // about whether the mesh is healthy than the
+                        // delivery tick does.
+                        hopsLabel(m.hops)?.let { append("  ·  $it") }
+                        m.snr?.let { append("  ·  %.1f dB".format(it)) }
                     },
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -825,6 +843,7 @@ private fun MessageInfoSheet(
                 m.ackHash?.let { InfoRow("Ack hash", "%08x".format(it), mono = true) }
             }
             m.snr?.let { InfoRow("SNR", "%.1f dB".format(it)) }
+            hopsLabel(m.hops)?.let { InfoRow("Path", it) }
             if (showSender) {
                 InfoRow(
                     "Sender name",
@@ -857,6 +876,19 @@ private fun InfoRow(label: String, value: String, mono: Boolean = false) {
             fontFamily = if (mono) androidx.compose.ui.text.font.FontFamily.Monospace else null,
         )
     }
+}
+
+
+/**
+ * "3 hops" / "direct" / "flood" — null when the message predates hop
+ * recording or we sent it ourselves.
+ */
+internal fun hopsLabel(hops: Int?): String? = when {
+    hops == null -> null
+    hops < 0 -> "flood"
+    hops == 0 -> "direct"
+    hops == 1 -> "1 hop"
+    else -> "$hops hops"
 }
 
 /** Newest-N window; "Load older" grows it. */

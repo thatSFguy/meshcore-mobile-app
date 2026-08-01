@@ -20,18 +20,29 @@ interface MessageDao {
     fun thread(selfKey: String, kind: String, peerKey: String): Flow<List<MessageEntity>>
 
     /** Newest [limit] messages of a thread (paging window). */
+    // Everything EXCEPT CLI replies (txt_type 1). Those are remote-admin
+    // console output, not conversation, and pouring `get radio` into the
+    // chat is noise. They stay in the table — the admin screen's
+    // `thread()` above reads them unfiltered.
+    //
+    // Note this must exclude ONLY type 1: room-server posts arrive as
+    // TXT_TYPE_SIGNED (2), so a `txtType = 0` filter silently empties
+    // every room thread.
     @Query(
         "SELECT * FROM messages WHERE selfKey = :selfKey AND kind = :kind AND peerKey = :peerKey " +
-            "ORDER BY timestamp DESC, receivedAt DESC LIMIT :limit",
+            "AND txtType != 1 ORDER BY timestamp DESC, receivedAt DESC LIMIT :limit",
     )
     fun threadPaged(selfKey: String, kind: String, peerKey: String, limit: Int): Flow<List<MessageEntity>>
 
-    @Query("SELECT COUNT(*) FROM messages WHERE selfKey = :selfKey AND kind = :kind AND peerKey = :peerKey")
+    @Query(
+        "SELECT COUNT(*) FROM messages WHERE selfKey = :selfKey AND kind = :kind " +
+            "AND peerKey = :peerKey AND txtType != 1",
+    )
     fun threadCount(selfKey: String, kind: String, peerKey: String): Flow<Int>
 
     @Query(
-        "SELECT * FROM messages WHERE selfKey = :selfKey GROUP BY kind, peerKey " +
-            "HAVING MAX(timestamp) ORDER BY MAX(timestamp) DESC",
+        "SELECT * FROM messages WHERE selfKey = :selfKey AND txtType != 1 " +
+            "GROUP BY kind, peerKey HAVING MAX(timestamp) ORDER BY MAX(timestamp) DESC",
     )
     fun latestPerThread(selfKey: String): Flow<List<MessageEntity>>
 

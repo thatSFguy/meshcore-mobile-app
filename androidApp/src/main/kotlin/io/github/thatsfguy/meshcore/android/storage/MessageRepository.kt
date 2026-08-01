@@ -135,7 +135,7 @@ class MessageRepository(
                 // A reaction is an ordinary text message by the time it
                 // reaches us; attach it to its target instead of letting
                 // "r:1a2b:00" land in the thread as a line of text.
-                if (event.txtType == 0 && applyReaction(self, KIND_DM, peer, storedText, null)) {
+                if (event.txtType != 1 && applyReaction(self, KIND_DM, peer, storedText, null)) {
                     return
                 }
                 db.messages().insert(
@@ -155,12 +155,13 @@ class MessageRepository(
                         contentKey = null,
                         snr = event.snr,
                         txtType = event.txtType,
+                        hops = event.hops,
                     ),
                 )
                 if (activeThread != "$KIND_DM|$peer") {
                     db.contacts().bumpUnread(self, peer, System.currentTimeMillis())
                     // CLI replies are console output, not messages.
-                    if (event.txtType == 0) {
+                    if (event.txtType != 1) {
                         onNewMessage?.invoke(KIND_DM, peer, event.roomAuthorLabel, event.text)
                     }
                 }
@@ -191,7 +192,8 @@ class MessageRepository(
                         status = MessageStatus.Delivered.ordinal,
                         ackHash = null,
                         contentKey = event.contentKey,
-                        snr = null,
+                        snr = event.snr,
+                        hops = event.hops,
                     ),
                 )
                 // insert == -1 → duplicate (sync + RX-log double delivery,
