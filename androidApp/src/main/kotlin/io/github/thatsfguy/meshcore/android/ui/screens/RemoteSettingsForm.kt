@@ -89,7 +89,8 @@ fun RemoteSettingsForm(
                     ok++
                 }
             } else {
-                values[id] = value
+                // Firmware encodes newlines in owner.info as '|'.
+                values[id] = if (id == "owner.info") value.replace('|', ' ') else value
                 dirty[id] = false
                 ok++
             }
@@ -360,39 +361,55 @@ fun RemoteSettingsForm(
         RemoteSection(
             title = "Advanced",
             isReady = isReady,
-            fetchIds = listOf("radio.rxgain", "dutycycle", "multi.acks", "int.thresh"),
+            fetchIds = listOf("radio.rxgain", "dutycycle", "multi.acks", "int.thresh", "loop.detect"),
             fetch = ::fetch,
-            saveEnabled = isAdmin && listOf("radio.rxgain", "dutycycle", "int.thresh")
-                .any { dirty[it] == true },
+            saveEnabled = isAdmin && listOf("dutycycle", "int.thresh").any { dirty[it] == true },
             buildSaves = {
                 buildList {
-                    for (id in listOf("radio.rxgain", "dutycycle", "int.thresh")) {
-                        values[id]?.trim()?.takeIf { it.isNotEmpty() && dirty[id] == true }
-                            ?.let { add("set $id $it") }
-                    }
+                    // dutycycle is a whole percent on the wire even though
+                    // the firmware REPLIES "50.0%".
+                    values["dutycycle"]?.trim()?.trimEnd('%')?.substringBefore('.')
+                        ?.toIntOrNull()?.takeIf { dirty["dutycycle"] == true && it in 1..100 }
+                        ?.let { add("set dutycycle $it") }
+                    values["int.thresh"]?.trim()?.takeIf {
+                        it.isNotEmpty() && dirty["int.thresh"] == true
+                    }?.let { add("set int.thresh $it") }
                 }
             },
             send = ::send,
             clearDirty = {
-                listOf("radio.rxgain", "dutycycle", "int.thresh").forEach { dirty[it] = false }
+                listOf("dutycycle", "int.thresh").forEach { dirty[it] = false }
             },
         ) {
             SettingRow(
                 "Multi-acks (redundant ACKs)",
                 CliReplies.isTruthy(values["multi.acks"].orEmpty()),
             ) { applySwitch("multi.acks", it, onText = "1", offText = "0") }
+            // RX gain is a BOOLEAN in firmware (LNA boost on/off), not a
+            // numeric gain value — a text field here would send garbage.
+            SettingRow(
+                "RX gain boost (LNA)",
+                CliReplies.isTruthy(values["radio.rxgain"].orEmpty()),
+            ) { applySwitch("radio.rxgain", it) }
             Row {
                 SettingsTextField(
-                    "RX gain", values["radio.rxgain"].orEmpty(), Modifier.weight(1f),
-                ) { edit("radio.rxgain", it) }
-                Spacer(Modifier.width(6.dp))
-                SettingsTextField(
-                    "Duty cycle %", values["dutycycle"].orEmpty(), Modifier.weight(1f),
+                    "Duty cycle %", values["dutycycle"].orEmpty().trimEnd('%'), Modifier.weight(1f),
                 ) { edit("dutycycle", it) }
                 Spacer(Modifier.width(6.dp))
                 SettingsTextField(
                     "Int. thresh", values["int.thresh"].orEmpty(), Modifier.weight(1f),
                 ) { edit("int.thresh", it) }
+            }
+            // loop.detect is an enumerated mode, not free text.
+            Text("Loop detection", style = MaterialTheme.typography.labelMedium)
+            val loopModes = listOf("off", "minimal", "moderate", "strict")
+            ChoiceChips(
+                loopModes.map { it.replaceFirstChar { c -> c.uppercase() } },
+                loopModes.indexOf(values["loop.detect"]?.trim()?.lowercase()).coerceAtLeast(0),
+                enabled = isAdmin,
+            ) { i ->
+                values["loop.detect"] = loopModes[i]
+                scope.launch { vm.cliQuery(keyHex, "set loop.detect ${loopModes[i]}") }
             }
         }
 
