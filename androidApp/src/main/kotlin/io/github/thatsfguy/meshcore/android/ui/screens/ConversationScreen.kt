@@ -122,6 +122,20 @@ fun ConversationScreen(
     var reactingTo by remember { mutableStateOf<MessageEntity?>(null) }
     var details by remember { mutableStateOf<MessageEntity?>(null) }
     val listState = rememberLazyListState()
+    // reverseLayout anchors content that is ALREADY laid out, but a
+    // freshly prepended index 0 — the message you just sent — lands just
+    // past that anchor, hidden behind the composer and the keyboard. The
+    // structural anchor can't fix that on its own, so nudge to index 0
+    // when the newest message changes.
+    //
+    // Gated on being near the bottom already: someone reading back
+    // through history must not be yanked down by an arriving message.
+    val newestId = messages.firstOrNull()?.id
+    LaunchedEffect(newestId) {
+        if (newestId != null && listState.firstVisibleItemIndex <= 2) {
+            listState.animateScrollToItem(0)
+        }
+    }
 
     val selfName = vm.selfInfo.collectAsState().value?.name
     val maxBytes = if (isChannel) {
