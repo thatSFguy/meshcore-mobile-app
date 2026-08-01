@@ -93,6 +93,59 @@ object PathCodec {
     /** path_len value meaning "no stored path — flood". */
     const val PATH_LEN_FLOOD = 0xFF
 
+    /**
+     * A decoded `path_len` byte.
+     *
+     * The byte is NOT a length: the low 6 bits are the hop count and the
+     * top 2 bits are the hash-width mode (width = mode + 1). A path of 4
+     * hops at 2 bytes per hop is 0x44 — read as a byte count that's 68,
+     * which is how "4 hops" turns into "34 hops" on screen.
+     */
+    data class PathInfo(
+        /** Hops travelled; -1 when the message floods. */
+        val hops: Int,
+        /** Bytes per hop hash (1..4). */
+        val hashWidth: Int,
+        /** Bytes of [Contact.path] that are actually the path. */
+        val byteLength: Int,
+    ) {
+        val isFlood: Boolean get() = hops < 0
+    }
+
+    /** Decode a `path_len` byte from a contact record or a frame. */
+    fun decodePathLen(raw: Int): PathInfo {
+        // readInt8 gives -1 for 0xFF; accept either spelling of flood.
+        if (raw < 0 || (raw and 0xFF) == PATH_LEN_FLOOD) return PathInfo(-1, 1, 0)
+        val b = raw and 0xFF
+        val width = ((b and 0xC0) shr 6) + 1
+        val hops = b and 0x3F
+        return PathInfo(hops = hops, hashWidth = width, byteLength = hops * width)
+    }
+
+    /**
+     * Largest hop count representable at [hashWidth].
+     *
+     * Bounded twice: the path itself must fit the record's 64-byte
+     * buffer, and 63 hops at 4-byte hashes would encode to 0xFF — the
+     * flood sentinel — so a route would silently become "no route".
+     */
+    fun maxHopsFor(hashWidth: Int): Int {
+        val width = hashWidth.coerceIn(1, 4)
+        return minOf(0x3F - 1, Codes.MAX_PATH_SIZE / width)
+    }
+
+    /**
+     * Encode hops + hash width back into a `path_len` byte for
+     * CMD_ADD_UPDATE_CONTACT. Negative [hops] means flood.
+     */
+    fun encodePathLen(hops: Int, hashWidth: Int): Int {
+        if (hops < 0) return PATH_LEN_FLOOD
+        val width = hashWidth.coerceIn(1, 4)
+        val mode = width - 1
+        val capped = hops.coerceAtMost(maxHopsFor(width))
+        return (capped and 0x3F) or (mode shl 6)
+    }
+
     /** Max hops a path may contain (MAX_PATH_SIZE / 1-byte hashes). */
     const val MAX_HOPS = Codes.MAX_PATH_SIZE
 
@@ -121,6 +174,54 @@ object PathCodec {
     }
 
     /** Render path bytes as space-separated hop tokens for the editor. */
+    /**
+     * One hop of a stored path, resolved against known contacts.
+     *
+     * A hop is a TRUNCATED hash of a node's public key — typically two
+     * bytes. That is 16 bits: several nodes can legitimately share one,
+     * and an attacker can manufacture a collision cheaply. So this never
+     * picks a winner. Exactly one match gets a name; more than one is
+     * reported as ambiguous with the candidates listed; none stays a
+     * bare hash.
+     */
+    data class Hop(
+        /** The hop hash as lower-case hex, e.g. "b389". */
+        val hashHex: String,
+        /** Names of every contact whose key starts with [hashHex]. */
+        val candidates: List<String>,
+    ) {
+        val isResolved: Boolean get() = candidates.size == 1
+        val isAmbiguous: Boolean get() = candidates.size > 1
+
+        /** "b389 SpartaMI", "b389 (2 matches)", or "b389". */
+        val label: String
+            get() = when {
+                isResolved -> "$hashHex ${candidates[0]}"
+                isAmbiguous -> "$hashHex (${candidates.size} matches)"
+                else -> hashHex
+            }
+    }
+
+    /**
+     * Split [path] into hops and name each one from [contactsByKeyHex]
+     * (full pubkey hex -> display name).
+     */
+    fun resolveHops(
+        path: ByteArray,
+        hashWidth: Int,
+        contactsByKeyHex: Map<String, String>,
+    ): List<Hop> {
+        val width = hashWidth.coerceIn(1, 4)
+        return path.toList().chunked(width) { chunk ->
+            val hex = chunk.toByteArray().toHex()
+            val candidates = contactsByKeyHex.entries
+                .filter { it.key.startsWith(hex, ignoreCase = true) }
+                .map { it.value.ifBlank { it.key.take(12) } }
+                .sorted()
+            Hop(hashHex = hex, candidates = candidates)
+        }
+    }
+
     fun formatHops(path: ByteArray, hashWidth: Int = 1): String =
         path.toList().chunked(hashWidth) { it.toByteArray().toHex() }.joinToString(" ")
 

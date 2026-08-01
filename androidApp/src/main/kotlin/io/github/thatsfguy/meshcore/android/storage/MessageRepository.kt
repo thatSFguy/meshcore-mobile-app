@@ -4,6 +4,7 @@ import io.github.thatsfguy.meshcore.engine.MeshCoreEngine
 import io.github.thatsfguy.meshcore.engine.MeshEvent
 import io.github.thatsfguy.meshcore.model.Channel
 import io.github.thatsfguy.meshcore.model.Contact
+import io.github.thatsfguy.meshcore.protocol.ReactionCounts
 import io.github.thatsfguy.meshcore.protocol.Reactions
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
@@ -395,10 +396,8 @@ class MessageRepository(
 
         // The path in force right now — what we credit or blame.
         val contact = engine.contacts.value[peerKeyHex]
-        val pathHex = if (contact != null && contact.pathLen in 1..64 &&
-            contact.pathLen <= contact.path.size
-        ) {
-            contact.path.copyOfRange(0, contact.pathLen).joinToString("") { "%02x".format(it) }
+        val pathHex = if (contact != null && contact.storedPath.isNotEmpty()) {
+            contact.storedPath.joinToString("") { "%02x".format(it) }
         } else {
             ""
         }

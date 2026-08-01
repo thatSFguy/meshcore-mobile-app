@@ -64,8 +64,9 @@ fun RoutingSheet(
     var mode by remember(keyHex) { mutableStateOf(vm.routingMode(keyHex)) }
     var manualHops by remember(keyHex) {
         mutableStateOf(
-            liveContacts[keyHex]?.takeIf { it.pathLen in 1..64 }
-                ?.let { PathCodec.formatHops(it.path.copyOfRange(0, it.pathLen)) } ?: "",
+            liveContacts[keyHex]?.storedPath?.takeIf { it.isNotEmpty() }?.let { bytes ->
+                PathCodec.formatHops(bytes, liveContacts[keyHex]!!.pathInfo.hashWidth)
+            } ?: "",
         )
     }
     var trace by remember { mutableStateOf<TraceResult?>(null) }

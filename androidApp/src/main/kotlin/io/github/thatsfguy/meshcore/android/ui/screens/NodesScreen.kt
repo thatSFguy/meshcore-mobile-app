@@ -307,7 +307,8 @@ private fun ContactRow(c: ContactEntity, onClick: () -> Unit) {
             Text(
                 buildString {
                     append(c.keyHex.take(12))
-                    if (c.pathLen >= 0 && c.pathLen < 64) append(" · ${c.pathLen} hop path")
+                    val info = PathCodec.decodePathLen(c.pathLen)
+                    if (!info.isFlood) append(" · ${info.hops} hop path")
                     else append(" · flood")
                 },
                 style = MaterialTheme.typography.bodySmall,
@@ -408,24 +409,50 @@ fun ContactDetailSheet(
 
             // Path, mirroring what the radio actually holds for this
             // contact rather than what we last asked for.
-            val pathLen = live?.pathLen ?: contact.pathLen
+            val pathInfo = PathCodec.decodePathLen(live?.pathLen ?: contact.pathLen)
             DetailRow(
                 "Hops away",
                 when {
-                    pathLen == PathCodec.PATH_LEN_FLOOD || pathLen < 0 -> "Flood (no stored path)"
-                    pathLen == 0 -> "Direct (0 hops)"
-                    hashWidth != null && hashWidth > 0 -> "${pathLen / hashWidth} hops"
-                    else -> "$pathLen bytes"
+                    pathInfo.isFlood -> "Flood (no stored path)"
+                    pathInfo.hops == 0 -> "Direct (0 hops)"
+                    pathInfo.hops == 1 -> "1 hop"
+                    else -> "${pathInfo.hops} hops"
                 },
             )
-            live?.takeIf { it.pathLen in 1..64 && it.pathLen <= it.path.size }?.let { c ->
-                DetailRow(
-                    "Out path",
-                    PathCodec.formatHops(c.path.copyOfRange(0, c.pathLen)),
-                    mono = true,
-                )
+            live?.storedPath?.takeIf { it.isNotEmpty() }?.let { bytes ->
+                val known = vm.liveContacts.collectAsState().value
+                    .mapValues { (_, c) -> c.name }
+                val hops = PathCodec.resolveHops(bytes, pathInfo.hashWidth, known)
+                Column(Modifier.padding(top = 8.dp)) {
+                    Text("Out path", style = MaterialTheme.typography.labelLarge)
+                    for ((index, hop) in hops.withIndex()) {
+                        Text(
+                            "${index + 1}. ${hop.label}",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontFamily = if (hop.isResolved) null else FontFamily.Monospace,
+                            color = if (hop.isAmbiguous) {
+                                MaterialTheme.colorScheme.error
+                            } else {
+                                MaterialTheme.colorScheme.onSurface
+                            },
+                        )
+                        // A two-byte hash is 16 bits: more than one node
+                        // can own it, so list the candidates rather than
+                        // asserting one of them is the hop.
+                        if (hop.isAmbiguous) {
+                            Text(
+                                "   " + hop.candidates.joinToString(" or "),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
             }
-            hashWidth?.let { DetailRow("Path hash size", "$it-byte${if (it == 1) "" else "s"} per hop") }
+            // The contact's own record says how wide ITS hashes are; the
+            // device setting only applies to new paths.
+            val width = if (pathInfo.isFlood) hashWidth else pathInfo.hashWidth
+            width?.let { DetailRow("Path hash size", "$it-byte${if (it == 1) "" else "s"} per hop") }
 
             Spacer(Modifier.height(16.dp))
 

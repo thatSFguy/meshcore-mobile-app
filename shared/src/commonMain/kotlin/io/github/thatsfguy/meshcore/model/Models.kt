@@ -8,6 +8,12 @@ data class Contact(
     val publicKey: ByteArray,
     val type: Int,               // Codes.ADV_TYPE_*
     val flags: Int,
+    /**
+     * RAW `path_len` byte as the radio stores it — packed, not a length:
+     * low 6 bits = hops, top 2 bits = hash-width mode. Kept raw so it can
+     * be written straight back in CMD_ADD_UPDATE_CONTACT; read it through
+     * [pathInfo] rather than using it as a count of anything.
+     */
     val pathLen: Int,            // 0xFF/-1 = flood (no stored path)
     val path: ByteArray,
     val name: String,
@@ -17,6 +23,16 @@ data class Contact(
     val lastModified: Long,
 ) {
     val publicKeyHex: String get() = publicKey.toHex()
+
+    /** Decoded view of [pathLen] — hops, hash width, and path byte length. */
+    val pathInfo: io.github.thatsfguy.meshcore.protocol.PathCodec.PathInfo
+        get() = io.github.thatsfguy.meshcore.protocol.PathCodec.decodePathLen(pathLen)
+
+    /** The bytes of [path] that are actually the stored route. */
+    val storedPath: ByteArray
+        get() = pathInfo.byteLength
+            .coerceAtMost(path.size)
+            .let { if (it <= 0) ByteArray(0) else path.copyOfRange(0, it) }
     val isRepeater: Boolean get() = type == Codes.ADV_TYPE_REPEATER
     val isRoom: Boolean get() = type == Codes.ADV_TYPE_ROOM
     val isChat: Boolean get() = type == Codes.ADV_TYPE_CHAT

@@ -65,7 +65,7 @@ import io.github.thatsfguy.meshcore.android.storage.MessageStatus
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
-import io.github.thatsfguy.meshcore.android.storage.ReactionCounts
+import io.github.thatsfguy.meshcore.protocol.ReactionCounts
 import io.github.thatsfguy.meshcore.protocol.Reactions
 import io.github.thatsfguy.meshcore.protocol.Frames
 import java.text.DateFormat

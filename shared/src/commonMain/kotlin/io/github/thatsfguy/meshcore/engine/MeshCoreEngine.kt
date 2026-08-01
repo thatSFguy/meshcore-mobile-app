@@ -412,7 +412,7 @@ class MeshCoreEngine(
                         txtType = event.txtType,
                         snr = event.snr,
                         roomAuthorLabel = event.roomAuthorPrefix?.let { roomAuthorLabel(it) },
-                        hops = hopsFromPathBytes(event.pathLen),
+                        hops = PathCodec.decodePathLen(event.pathLen).hops,
                     ),
                 )
             }
@@ -420,7 +420,13 @@ class MeshCoreEngine(
             is DeviceEvent.ChannelMessage -> {
                 emitChannelMessage(
                     event.channelIndex, event.senderName, event.text, event.timestamp,
-                    hops = hopsFromPathBytes(event.pathLen),
+                    // The V3 channel parser already decodes the packed
+                    // byte to a hop count; older frames carry it raw.
+                    hops = if (event.pathHashWidth != null) {
+                        event.pathLen
+                    } else {
+                        PathCodec.decodePathLen(event.pathLen).hops
+                    },
                 )
             }
 
@@ -846,9 +852,13 @@ class MeshCoreEngine(
         if (mode == RoutingMode.Auto) return resetPath(pubKey)
 
         val contact = _contacts.value[pubKey.toHex()]
+        // path_len is PACKED (hops in the low 6 bits, hash-width mode in
+        // the top 2) — sending a byte count writes a route the firmware
+        // reads as a different number of hops at a different width.
+        val width = _deviceInfo.value?.pathHashByteWidth?.takeIf { it in 1..4 } ?: 1
         val pathLen = when (mode) {
             RoutingMode.Flood -> PathCodec.PATH_LEN_FLOOD
-            else -> manualPath.size
+            else -> PathCodec.encodePathLen(manualPath.size / width, width)
         }
         if (mode == RoutingMode.Manual && manualPath.isEmpty()) return false
 
@@ -898,21 +908,6 @@ class MeshCoreEngine(
     }
 
     /** The parser expects the whole frame; TraceData carries the tail. */
-    /**
-     * Convert a companion frame's path LENGTH (bytes) into hops.
-     *
-     * A stored path is a hash per hop, and the hash width is a device
-     * setting (1-4 bytes) — so the byte count alone doesn't say how far
-     * a message travelled. Returns [FLOOD_HOPS] for a flooded frame and
-     * null when the width isn't known yet.
-     */
-    private fun hopsFromPathBytes(pathLenBytes: Int): Int? {
-        if (pathLenBytes == PathCodec.PATH_LEN_FLOOD || pathLenBytes < 0) return FLOOD_HOPS
-        if (pathLenBytes == 0) return 0
-        val width = _deviceInfo.value?.pathHashByteWidth?.takeIf { it > 0 } ?: return null
-        return pathLenBytes / width
-    }
-
     /**
      * Display label for the author of a room post.
      *
