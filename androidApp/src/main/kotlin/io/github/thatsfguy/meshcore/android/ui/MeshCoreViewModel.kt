@@ -24,6 +24,7 @@ import io.github.thatsfguy.meshcore.model.Contact
 import io.github.thatsfguy.meshcore.model.DeviceInfo
 import io.github.thatsfguy.meshcore.model.SelfInfo
 import io.github.thatsfguy.meshcore.protocol.ChannelCrypto
+import io.github.thatsfguy.meshcore.protocol.ShareUri
 import io.github.thatsfguy.meshcore.transport.ConnectionMemory
 import io.github.thatsfguy.meshcore.transport.SavedNode
 import io.github.thatsfguy.meshcore.util.hexToBytesOrNull
@@ -514,28 +515,41 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
     suspend fun selfShareUri(): String? {
         val svc = _service.value ?: return null
         val blob = runCatching { svc.engine.exportContact() }.getOrNull() ?: return null
-        return "meshcore://${blob.toHex()}"
+        return ShareUri.encode(blob)
+    }
+
+    /**
+     * Share URI for an existing contact. The radio re-exports the stored
+     * advert, so what's shared is the signed blob it verified on import —
+     * not a re-signable reconstruction from local fields.
+     */
+    suspend fun contactShareUri(keyHex: String): String? {
+        val svc = _service.value ?: return null
+        val key = hexToBytesOrNull(keyHex) ?: return null
+        val blob = runCatching { svc.engine.exportContact(key) }.getOrNull() ?: return null
+        return ShareUri.encode(blob)
     }
 
     /** Import a scanned/pasted meshcore:// contact URI. */
     fun importContactUri(text: String) {
         val svc = _service.value ?: return
-        val trimmed = text.trim()
-        if (!trimmed.startsWith("meshcore://")) {
-            transientMessage.value = "Not a meshcore:// contact code"
-            return
-        }
-        val hex = trimmed.removePrefix("meshcore://")
-        // Untrusted input: bound the size before decoding (the reference
-        // client applies the same guard).
-        if (hex.length > 4096) {
-            transientMessage.value = "Contact code too large"
-            return
-        }
-        val blob = hexToBytesOrNull(hex)
-        if (blob == null) {
-            transientMessage.value = "Malformed contact code"
-            return
+        // Scanned QR data is entirely attacker-controlled: decode is
+        // total, and the blob is only handed to the radio (which verifies
+        // the advert signature) once it is structurally sound.
+        val blob = when (val decoded = ShareUri.decode(text)) {
+            is ShareUri.Decoded.Ok -> decoded.blob
+            ShareUri.Decoded.NotAContactCode -> {
+                transientMessage.value = "Not a meshcore:// contact code"
+                return
+            }
+            ShareUri.Decoded.TooLarge -> {
+                transientMessage.value = "Contact code too large"
+                return
+            }
+            ShareUri.Decoded.Malformed -> {
+                transientMessage.value = "Malformed contact code"
+                return
+            }
         }
         viewModelScope.launch {
             val ok = runCatching { svc.engine.importContact(blob) }.getOrDefault(false)

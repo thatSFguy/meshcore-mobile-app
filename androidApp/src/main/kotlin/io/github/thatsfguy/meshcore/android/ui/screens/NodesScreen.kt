@@ -25,7 +25,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
+import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -41,6 +41,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import com.journeyapps.barcodescanner.ScanContract
@@ -131,7 +132,12 @@ fun NodesScreen(vm: MeshCoreViewModel, nav: NavController) {
                     .thenBy { it.name.ifBlank { it.keyHex }.lowercase() },
             )
 
-            TabRow(selectedTabIndex = tab) {
+            // ScrollableTabRow, not TabRow: a fixed row divides the width
+            // evenly and WRAPS labels ("Repeat/ers") once the user raises
+            // the font or display size. Scrollable tabs size to their text
+            // and scroll if they overflow, so the user's accessibility
+            // setting is respected rather than fought.
+            ScrollableTabRow(selectedTabIndex = tab, edgePadding = 12.dp) {
                 val labels = listOf(
                     "Contacts", "Repeaters", "Rooms",
                     if (discovered.isEmpty()) "New" else "New (${discovered.size})",
@@ -143,7 +149,7 @@ fun NodesScreen(vm: MeshCoreViewModel, nav: NavController) {
                             tab = i
                             vm.prefs.nodesTab = i
                         },
-                        text = { Text(label) },
+                        text = { Text(label, maxLines = 1, softWrap = false) },
                     )
                 }
             }
@@ -240,6 +246,8 @@ private fun DiscoveredRow(
             Text(
                 node.name.ifBlank { node.keyHex.take(12) },
                 style = MaterialTheme.typography.bodyLarge,
+                maxLines = 1,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
             )
             Text(
                 "${typeLabel(node.type).dropLast(1)} · ${"%.1f".format(node.snr)} dB · " +
@@ -281,6 +289,8 @@ private fun ContactRow(c: ContactEntity, onClick: () -> Unit) {
                 (if (c.flags and Codes.CONTACT_FLAG_FAVORITE != 0) "★ " else "") +
                     c.name.ifBlank { c.keyHex.take(12) },
                 style = MaterialTheme.typography.bodyLarge,
+                maxLines = 1,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
             )
             Text(
                 buildString {
@@ -290,6 +300,8 @@ private fun ContactRow(c: ContactEntity, onClick: () -> Unit) {
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
             )
         }
         if (c.lastSeen > 0) {
@@ -314,6 +326,7 @@ fun ContactDetailSheet(
     var renameOpen by remember { mutableStateOf(false) }
     var routingOpen by remember { mutableStateOf(false) }
     var removeConfirm by remember { mutableStateOf(false) }
+    var shareQrOpen by remember { mutableStateOf(false) }
     val isAdminable = contact.type == Codes.ADV_TYPE_REPEATER || contact.type == Codes.ADV_TYPE_ROOM
 
     ModalBottomSheet(onDismissRequest = onDismiss) {
@@ -355,6 +368,7 @@ fun ContactDetailSheet(
                 vm.setFavourite(contact.keyHex, !isFav)
                 onDismiss()
             }) { Text(if (isFav) "★ Remove favourite" else "☆ Add favourite") }
+            TextButton(onClick = { shareQrOpen = true }) { Text("Share contact QR…") }
             TextButton(onClick = { routingOpen = true }) { Text("Routing / paths…") }
             TextButton(onClick = { renameOpen = true }) { Text("Rename") }
             TextButton(onClick = { removeConfirm = true }) {
@@ -363,6 +377,9 @@ fun ContactDetailSheet(
         }
     }
 
+    if (shareQrOpen) {
+        ContactQrDialog(vm, contact, onDismiss = { shareQrOpen = false })
+    }
     if (routingOpen) {
         RoutingSheet(vm, contact, onDismiss = { routingOpen = false })
     }
@@ -409,16 +426,53 @@ fun ContactDetailSheet(
 
 /** Self-share QR dialog (used from Settings). */
 @Composable
-fun SelfQrDialog(vm: MeshCoreViewModel, onDismiss: () -> Unit) {
+fun SelfQrDialog(vm: MeshCoreViewModel, onDismiss: () -> Unit) =
+    ShareQrDialog(
+        title = "Share this node",
+        hint = "Scan with another MeshCore app to add this node as a contact.",
+        load = { vm.selfShareUri() },
+        onDismiss = onDismiss,
+    )
+
+/** Share an existing contact so someone else can add the same node. */
+@Composable
+fun ContactQrDialog(vm: MeshCoreViewModel, contact: ContactEntity, onDismiss: () -> Unit) =
+    ShareQrDialog(
+        title = "Share ${contact.name.ifBlank { "contact" }}",
+        hint = "Scan with another MeshCore app to add this node as a contact. " +
+            "The code carries the node's signed advert — the receiving app verifies it.",
+        load = { vm.contactShareUri(contact.keyHex) },
+        onDismiss = onDismiss,
+    )
+
+/**
+ * QR for a `meshcore://` share URI produced by the radio. The blob comes
+ * from the device rather than being rebuilt locally, so a shared contact
+ * keeps its original Ed25519 signature and stays verifiable downstream.
+ */
+@Composable
+private fun ShareQrDialog(
+    title: String,
+    hint: String,
+    load: suspend () -> String?,
+    onDismiss: () -> Unit,
+) {
     var qr by remember { mutableStateOf<Bitmap?>(null) }
+    var uri by remember { mutableStateOf<String?>(null) }
     var failed by remember { mutableStateOf(false) }
+    val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
     LaunchedEffect(Unit) {
-        val uri = vm.selfShareUri()
-        if (uri != null) qr = Qr.encode(uri) else failed = true
+        val text = load()
+        if (text != null) {
+            uri = text
+            qr = Qr.encode(text)
+        } else {
+            failed = true
+        }
     }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Share this node") },
+        title = { Text(title, maxLines = 2, overflow = TextOverflow.Ellipsis) },
         text = {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 qr?.let {
@@ -427,15 +481,19 @@ fun SelfQrDialog(vm: MeshCoreViewModel, onDismiss: () -> Unit) {
                         contentDescription = "Contact QR",
                         modifier = Modifier.size(280.dp),
                     )
-                    Text(
-                        "Scan with another MeshCore app to add this node as a contact.",
-                        style = MaterialTheme.typography.bodySmall,
-                    )
+                    Text(hint, style = MaterialTheme.typography.bodySmall)
                 }
                 if (failed) Text("Radio didn't return an export blob — is it connected?")
                 if (qr == null && !failed) Text("Requesting export from radio…")
             }
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text("Done") } },
+        dismissButton = {
+            uri?.let { text ->
+                TextButton(onClick = {
+                    clipboard.setText(androidx.compose.ui.text.AnnotatedString(text))
+                }) { Text("Copy link") }
+            }
+        },
     )
 }

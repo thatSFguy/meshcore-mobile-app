@@ -157,6 +157,8 @@ private fun ConversationRowItem(row: ConversationRow, onClick: () -> Unit) {
                     text = row.title,
                     style = MaterialTheme.typography.bodyLarge,
                     fontWeight = if (row.unread > 0) FontWeight.Bold else FontWeight.Normal,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                 )
             }
             Text(

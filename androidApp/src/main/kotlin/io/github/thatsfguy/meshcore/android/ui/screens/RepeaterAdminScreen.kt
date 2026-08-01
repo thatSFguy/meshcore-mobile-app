@@ -157,7 +157,7 @@ fun RepeaterAdminScreen(vm: MeshCoreViewModel, nav: NavController, keyHex: Strin
                         selected = tab == i,
                         onClick = { tab = i },
                         shape = SegmentedButtonDefaults.itemShape(index = i, count = 3),
-                    ) { Text(label) }
+                    ) { Text(label, maxLines = 1, softWrap = false) }
                 }
             }
 
