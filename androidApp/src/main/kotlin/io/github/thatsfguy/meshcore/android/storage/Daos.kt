@@ -7,6 +7,9 @@ import androidx.room.Query
 import androidx.room.Upsert
 import kotlinx.coroutines.flow.Flow
 
+/** One (kind, peerKey) thread identity — the unit retention works on. */
+data class ThreadKey(val kind: String, val peerKey: String)
+
 @Dao
 interface MessageDao {
     /** IGNORE + the unique (selfKey, contentKey) index = channel dedup. */
@@ -98,6 +101,43 @@ interface MessageDao {
 
     @Query("DELETE FROM messages WHERE selfKey = :selfKey")
     suspend fun clearAll(selfKey: String)
+
+    /** Retention: drop anything older than [cutoffSeconds]. */
+    @Query("DELETE FROM messages WHERE selfKey = :selfKey AND timestamp < :cutoffSeconds")
+    suspend fun deleteOlderThan(selfKey: String, cutoffSeconds: Long): Int
+
+    /** Retention: same, for one thread. */
+    @Query(
+        "DELETE FROM messages WHERE selfKey = :selfKey AND kind = :kind " +
+            "AND peerKey = :peerKey AND timestamp < :cutoffSeconds",
+    )
+    suspend fun deleteThreadOlderThan(
+        selfKey: String,
+        kind: String,
+        peerKey: String,
+        cutoffSeconds: Long,
+    ): Int
+
+    /**
+     * Retention: keep only the newest [keep] rows of one thread.
+     * Ordered by receivedAt (local arrival), not timestamp — an inbound
+     * message carries a SENDER-CLAIMED time, so trimming by it would let
+     * a peer with a wrong (or chosen) clock decide which of your
+     * messages survive.
+     */
+    @Query(
+        "DELETE FROM messages WHERE selfKey = :selfKey AND kind = :kind AND peerKey = :peerKey " +
+            "AND id NOT IN (SELECT id FROM messages WHERE selfKey = :selfKey AND kind = :kind " +
+            "AND peerKey = :peerKey ORDER BY receivedAt DESC, id DESC LIMIT :keep)",
+    )
+    suspend fun trimThreadTo(selfKey: String, kind: String, peerKey: String, keep: Int): Int
+
+    /** Distinct threads with at least one row, for a retention sweep. */
+    @Query("SELECT DISTINCT kind, peerKey FROM messages WHERE selfKey = :selfKey")
+    suspend fun threadKeys(selfKey: String): List<ThreadKey>
+
+    @Query("SELECT COUNT(*) FROM messages WHERE selfKey = :selfKey")
+    suspend fun countAll(selfKey: String): Int
 }
 
 @Dao

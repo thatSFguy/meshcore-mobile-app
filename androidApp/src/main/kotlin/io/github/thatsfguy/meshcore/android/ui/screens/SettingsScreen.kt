@@ -697,6 +697,9 @@ private fun AppSection(vm: MeshCoreViewModel) {
     Spacer(Modifier.height(12.dp))
     Text("Backup", style = MaterialTheme.typography.labelLarge)
     BackupSection(vm)
+
+    Spacer(Modifier.height(16.dp))
+    DataSection(vm)
 }
 
 // ----------------------------------------------------------------------

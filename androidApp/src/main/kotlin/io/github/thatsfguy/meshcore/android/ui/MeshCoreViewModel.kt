@@ -948,6 +948,40 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
         it?.engine?.floodScopeStuck ?: flowOf(null)
     }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
+    // --- Retention + purge (PARITY §1, §3) ---
+
+    /** Run the retention sweep now; returns rows removed. */
+    suspend fun applyRetentionNow(): Int {
+        val svc = _service.value ?: return 0
+        return runCatching {
+            svc.repository.applyRetention(prefs.retentionPolicy, prefs.channelRetentions())
+        }.getOrDefault(0)
+    }
+
+    /**
+     * Delete this phone's copy of everything. [alsoSecrets] additionally
+     * clears the Keystore-sealed material. Never touches the radio.
+     */
+    suspend fun purgeLocalData(alsoSecrets: Boolean): String {
+        val svc = _service.value ?: return "Not connected — nothing to purge against."
+        val counts = runCatching { svc.repository.purgeLocal() }
+            .getOrElse { return "Purge failed: ${it.message}" }
+
+        // Local-only preference state that mirrors the same history.
+        prefs.pinnedThreads = emptySet()
+        prefs.mutedChannels = emptySet()
+        for (region in prefs.regions) prefs.removeRegion(region)
+        if (alsoSecrets) prefs.clearAllSealed()
+        regionRevision.value++
+
+        return buildString {
+            append("Purged ${counts.messages} message(s), ${counts.contacts} contact(s), ")
+            append("${counts.channels} channel(s)")
+            if (alsoSecrets) append(", and all stored keys and passwords")
+            append(". The radio was not touched.")
+        }
+    }
+
     // --- Config backup / restore (PARITY §1) ---
 
     private val crypto by lazy {

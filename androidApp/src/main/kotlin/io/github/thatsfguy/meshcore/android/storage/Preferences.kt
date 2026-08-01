@@ -3,6 +3,7 @@ package io.github.thatsfguy.meshcore.android.storage
 import android.content.Context
 import android.content.SharedPreferences
 import io.github.thatsfguy.meshcore.protocol.Regions
+import io.github.thatsfguy.meshcore.protocol.Retention
 import io.github.thatsfguy.meshcore.transport.ConnectionMemory
 import io.github.thatsfguy.meshcore.transport.SavedNode
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -272,6 +273,39 @@ class Preferences(context: Context) {
         get() = prefs.getBoolean("notifications_enabled", true)
         set(v) { prefs.edit().putBoolean("notifications_enabled", v).apply() }
 
+    // --- Message retention (PARITY §3) ---
+
+    /**
+     * Default retention for every thread. Stored in [Retention.Policy]'s
+     * own encoding so the settings screen and the pruner can never drift
+     * apart on what "30 days" means.
+     */
+    var retentionPolicy: Retention.Policy
+        get() = Retention.decode(prefs.getString("retention", null))
+        set(v) { prefs.edit().putString("retention", v.encode()).apply() }
+
+    /** Per-channel override; absent means "use the default". */
+    fun channelRetention(idx: Int): Retention.Policy? =
+        prefs.getString("retention_ch_$idx", null)?.let { Retention.decode(it) }
+
+    fun setChannelRetention(idx: Int, policy: Retention.Policy?) {
+        prefs.edit().apply {
+            if (policy == null) remove("retention_ch_$idx") else {
+                putString("retention_ch_$idx", policy.encode())
+            }
+        }.apply()
+    }
+
+    /** Every channel slot carrying an override. */
+    fun channelRetentions(): Map<Int, Retention.Policy> =
+        prefs.all.keys.filter { it.startsWith("retention_ch_") }
+            .mapNotNull { key ->
+                val idx = key.removePrefix("retention_ch_").toIntOrNull() ?: return@mapNotNull null
+                val policy = channelRetention(idx) ?: return@mapNotNull null
+                idx to policy
+            }
+            .toMap()
+
     // --- Config backup (PARITY §1) ---
 
     /**
@@ -361,6 +395,17 @@ class Preferences(context: Context) {
     fun sealedKeys(prefix: String): List<String> =
         prefs.all.keys.filter { it.startsWith("sealed_$prefix") }
             .map { it.removePrefix("sealed_") }
+
+    /**
+     * Drop every sealed blob (purge, PARITY §1). The Keystore key itself
+     * is left alone: it also wraps the message database, and destroying
+     * it would take rows this purge deliberately isn't touching.
+     */
+    fun clearAllSealed() {
+        val editor = prefs.edit()
+        for (key in prefs.all.keys.filter { it.startsWith("sealed_") }) editor.remove(key)
+        editor.apply()
+    }
 }
 
 /**

@@ -125,7 +125,21 @@ class MeshCoreService : Service() {
 
         scope.launch {
             engine.selfInfo.collect { info ->
-                if (info != null) repository.selfKey = info.publicKeyHex
+                if (info == null) return@collect
+                val firstSight = repository.selfKey != info.publicKeyHex
+                repository.selfKey = info.publicKeyHex
+                // Retention runs when a radio's history first becomes
+                // addressable, not on a timer: the sweep is cheap when
+                // the policy is unbounded (it returns immediately) and
+                // there is no point pruning history nobody can see yet.
+                if (firstSight) {
+                    runCatching {
+                        repository.applyRetention(
+                            prefs.retentionPolicy,
+                            prefs.channelRetentions(),
+                        )
+                    }
+                }
             }
         }
         scope.launch {

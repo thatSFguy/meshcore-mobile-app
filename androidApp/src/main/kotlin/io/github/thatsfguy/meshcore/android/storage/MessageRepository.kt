@@ -6,6 +6,7 @@ import io.github.thatsfguy.meshcore.model.Channel
 import io.github.thatsfguy.meshcore.model.Contact
 import io.github.thatsfguy.meshcore.protocol.ReactionCounts
 import io.github.thatsfguy.meshcore.protocol.Reactions
+import io.github.thatsfguy.meshcore.protocol.Retention
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
@@ -298,6 +299,88 @@ class MessageRepository(
     suspend fun messageById(id: Long): MessageEntity? = db.messages().byId(id)
 
     suspend fun deleteMessage(id: Long) = db.messages().deleteById(id)
+
+    // ------------------------------------------------------------------
+    // Retention (PARITY §3) — history that isn't kept can't leak
+    // ------------------------------------------------------------------
+
+    /**
+     * Apply [defaultPolicy] to every thread, with [channelOverrides]
+     * taking precedence for the channel slots that have one. Returns how
+     * many rows were removed.
+     *
+     * Deliberately does nothing when the policy is unbounded: a sweep
+     * that "keeps everything" should not be reading every thread key on
+     * every launch.
+     */
+    suspend fun applyRetention(
+        defaultPolicy: Retention.Policy,
+        channelOverrides: Map<Int, Retention.Policy> = emptyMap(),
+        nowSeconds: Long = System.currentTimeMillis() / 1000,
+    ): Int {
+        val key = selfKey
+        if (key.isEmpty()) return 0
+        if (!defaultPolicy.isBounded && channelOverrides.values.none { it.isBounded }) return 0
+
+        var removed = 0
+        for (thread in db.messages().threadKeys(key)) {
+            val policy = channelOverrides[thread.peerKey.toIntOrNull()]
+                ?.takeIf { thread.kind == KIND_CHANNEL }
+                ?: defaultPolicy
+            if (!policy.isBounded) continue
+
+            policy.cutoffSeconds(nowSeconds)?.let { cutoff ->
+                removed += db.messages()
+                    .deleteThreadOlderThan(key, thread.kind, thread.peerKey, cutoff)
+            }
+            policy.keepPerThread()?.let { keep ->
+                removed += db.messages().trimThreadTo(key, thread.kind, thread.peerKey, keep)
+            }
+        }
+        return removed
+    }
+
+    suspend fun messageCount(): Int =
+        if (selfKey.isEmpty()) 0 else db.messages().countAll(selfKey)
+
+    // ------------------------------------------------------------------
+    // Purge (PARITY §1)
+    // ------------------------------------------------------------------
+
+    /** What a purge removed, so the UI can report facts rather than "done". */
+    data class PurgeCounts(
+        val messages: Int = 0,
+        val contacts: Int = 0,
+        val channels: Int = 0,
+        val paths: Int = 0,
+        val discovered: Int = 0,
+    )
+
+    /**
+     * Delete every local row for the attached radio.
+     *
+     * This is the local mirror ONLY. The radio keeps its own contact
+     * list, channel slots and identity — purging here does not reach
+     * them, and the UI must not imply it does. Nor does it touch the
+     * Keystore; secrets are handled separately so that "forget my
+     * history" and "forget my keys" stay distinct decisions.
+     */
+    suspend fun purgeLocal(): PurgeCounts {
+        val key = selfKey
+        if (key.isEmpty()) return PurgeCounts()
+        val counts = PurgeCounts(
+            messages = db.messages().countAll(key),
+            contacts = db.contacts().allOnce(key).size,
+            channels = db.channels().allOnce(key).size,
+            paths = 0,
+            discovered = 0,
+        )
+        db.messages().clearAll(key)
+        for (contact in db.contacts().allOnce(key)) db.contacts().delete(key, contact.keyHex)
+        for (channel in db.channels().allOnce(key)) db.channels().delete(key, channel.idx)
+        db.discovered().clear(key)
+        return counts
+    }
 
     /**
      * Optimistic outgoing DM row (status Pending) — insert BEFORE the
