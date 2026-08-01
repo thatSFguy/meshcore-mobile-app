@@ -73,7 +73,7 @@ Status key: ✅ have · ◐ partial · ❌ missing · ⛔ out of scope
 |---|---|---|---|
 | `AddChannelScreen`, `CreateChannelScreen`, `AddExistingChannel` | Channel add sheet | ✅ | `#hashtag` derivation, explicit PSK, generated key. |
 | `ChannelSettingsScreen`, `RenameChannelScreen` | Channel edit sheet | ✅ | |
-| `ShareChannelScreen` | Community QR join | ◐ | We import; we don't export a channel QR. **Work item.** |
+| `ShareChannelScreen` | Share channel QR | ✅ | Closed 2026-08-01. Their `meshcore://channel/add?…&channel_secret=…` form. ⚠ Behind a confirmation: the code IS the key. |
 | `ChannelParticipantsScreen` | — | ❌ | ⚠ **Work item with a caveat**: channel "participants" can only ever be *names seen*, which are unauthenticated. Ship it as "senders seen", never as a membership list. |
 | `ChannelSelectorBottomSheet` | — | ◐ | |
 
@@ -97,9 +97,9 @@ Status key: ✅ have · ◐ partial · ❌ missing · ⛔ out of scope
 | `ChangeAdminPasswordScreen`, `ChangeGuestPasswordScreen` | Settings form (CLI) | ◐ | Present but not as first-class screens. |
 | `ChangeAdvertIntervalsScreen` | Settings form (CLI) | ◐ | |
 | `ChangeOwnerInfoScreen`, `ViewOwnerInfoScreen` | Settings form (`owner.info`) | ◐ | |
-| `ChangePositionScreen`, `PositionSettingsScreen`, `PositionSelectorScreen` | Settings → advert lat/lon | ◐ | **Work item.** Pick a position on a map instead of typing coordinates. |
+| `ChangePositionScreen`, `PositionSettingsScreen`, `PositionSelectorScreen` | Settings → advert lat/lon + **Pick on map** | ✅ | Closed 2026-08-01. Crosshair picker; warns that the position is broadcast mesh-wide. |
 | `ChangeIdentityKeyScreen`, `ManageIdentityKeyScreen` | — | ❌ | ⚠ **Work item, carefully.** Identity key handling is the highest-consequence screen in the app. |
-| `ClockDriftScreen` | Sync clock from phone | ◐ | **Work item.** Show the drift, don't just correct it. |
+| `ClockDriftScreen` | Settings → Clock | ✅ | Closed 2026-08-01. Drift shown with direction, flagged past the 30 s auto-correct threshold. |
 | `RepeaterNeighboursMapScreen` | — | ❌ | Deferred in SCOPE.md; revisit under this policy. |
 | `NoiseFloorScreen` | — | ❌ | **Work item.** |
 | `RxLogScreen` | Diagnostics log | ◐ | Ours is redaction-aware and off by default; keep that. |
@@ -109,7 +109,8 @@ Status key: ✅ have · ◐ partial · ❌ missing · ⛔ out of scope
 | Their surface | Us | Status | Notes |
 |---|---|---|---|
 | `SensorLoginScreen`, `SensorManagementScreen` | — | ❌ | **Work item.** Sensor nodes are a first-class node type we don't handle. |
-| `ContactTelemetryScreen`, `TelemetrySettingsScreen` | Cayenne-LPP decode in admin | ◐ | **Work item.** Per-contact telemetry view. |
+| `ContactTelemetryScreen` | Contact sheet → Telemetry | ✅ | Closed 2026-08-01. Silence (no telemetry, or no permission) reads as such, not as an error. |
+| `TelemetrySettingsScreen` | Mesh policies → telemetry permissions | ◐ | **Work item.** |
 
 ## 8. Regions (flood scope)
 
@@ -172,8 +173,8 @@ These are not gaps to close by copying:
 
 Grouped so each block is shippable:
 
-1. **Finish what's started** — channel QR export, per-contact telemetry view, position
-   picker on a map, clock drift display.
+1. ~~**Finish what's started** — channel QR export, per-contact telemetry view, position
+   picker on a map, clock drift display.~~ **Done 2026-08-01.**
 2. **Admin depth** — access control, command help, repeater regions, noise floor.
 3. **Safety & data** — config export/import (secret-safe), purge data, retention,
    blocked senders (by key).

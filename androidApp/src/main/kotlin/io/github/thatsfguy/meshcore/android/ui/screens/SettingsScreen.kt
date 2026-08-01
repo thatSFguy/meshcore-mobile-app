@@ -298,6 +298,20 @@ private fun IdentitySection(vm: MeshCoreViewModel, onShowSelfQr: () -> Unit) {
             enabled = name.trim() != info.name && name.isNotBlank(),
         ) { Text("Set") }
     }
+    var pickPosition by remember { mutableStateOf(false) }
+    if (pickPosition) {
+        PositionPickerDialog(
+            vm = vm,
+            initialLat = lat.toDoubleOrNull() ?: info.latitude,
+            initialLon = lon.toDoubleOrNull() ?: info.longitude,
+            onPick = { pickedLat, pickedLon ->
+                lat = "%.5f".format(pickedLat)
+                lon = "%.5f".format(pickedLon)
+                pickPosition = false
+            },
+            onDismiss = { pickPosition = false },
+        )
+    }
     Row(verticalAlignment = Alignment.CenterVertically) {
         OutlinedTextField(
             value = lat, onValueChange = { lat = it },
@@ -317,6 +331,7 @@ private fun IdentitySection(vm: MeshCoreViewModel, onShowSelfQr: () -> Unit) {
         }) { Text("Set") }
     }
     ButtonFlowRow {
+        OutlinedButton(onClick = { pickPosition = true }) { Text("Pick on map") }
         OutlinedButton(onClick = { vm.sendSelfAdvert(flood = false) }) { Text("Advert (0-hop)") }
         OutlinedButton(onClick = { vm.sendSelfAdvert(flood = true) }) { Text("Advert (flood)") }
         OutlinedButton(onClick = onShowSelfQr) { Text("Share QR") }
