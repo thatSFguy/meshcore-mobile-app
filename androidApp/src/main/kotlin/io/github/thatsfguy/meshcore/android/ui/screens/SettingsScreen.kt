@@ -699,6 +699,9 @@ private fun AppSection(vm: MeshCoreViewModel) {
     BackupSection(vm)
 
     Spacer(Modifier.height(16.dp))
+    BlockingSection(vm)
+
+    Spacer(Modifier.height(16.dp))
     DataSection(vm)
 }
 

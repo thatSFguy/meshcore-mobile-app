@@ -502,6 +502,21 @@ fun ContactDetailSheet(
             TextButton(onClick = { telemetryOpen = true }) { Text("Telemetry…") }
             TextButton(onClick = { routingOpen = true }) { Text("Routing / paths…") }
             TextButton(onClick = { renameOpen = true }) { Text("Rename") }
+            // Blocking is local and key-based: it drops their direct
+            // messages before they are written down. Removing the
+            // contact does NOT block them — the radio would happily
+            // re-add them on the next advert.
+            val blocked = vm.isBlocked(contact.keyHex)
+            TextButton(onClick = { vm.setBlocked(contact.keyHex, !blocked) }) {
+                Text(
+                    if (blocked) "Unblock" else "Block",
+                    color = if (blocked) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.error
+                    },
+                )
+            }
             TextButton(onClick = { removeConfirm = true }) {
                 Text("Remove contact", color = MaterialTheme.colorScheme.error)
             }

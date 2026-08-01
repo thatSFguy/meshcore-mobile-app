@@ -122,6 +122,11 @@ class MeshCoreService : Service() {
         }
         repository = MessageRepository(MeshCoreDatabase.get(this, dbKey), secrets, scope)
         repository.start(engine)
+        // The block/filter sets are read on every inbound message, so
+        // they live on the repository rather than behind a prefs lookup
+        // in the hot path. Refreshed whenever the app could have changed
+        // them (see refreshBlockLists).
+        refreshBlockLists()
 
         scope.launch {
             engine.selfInfo.collect { info ->
@@ -163,6 +168,16 @@ class MeshCoreService : Service() {
             diagnostics.log("Service", "Auto-reconnecting to remembered ${memory.kind}")
             connect(memory)
         }
+    }
+
+    /**
+     * Re-read the block/filter sets into the repository. Called at start
+     * and whenever the UI changes them — they sit on the hot path for
+     * every inbound message, so they are cached rather than looked up.
+     */
+    fun refreshBlockLists() {
+        repository.blockedKeys = prefs.blockedKeys
+        repository.filteredChannelNames = prefs.filteredChannelNames
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int = START_STICKY

@@ -948,6 +948,58 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
         it?.engine?.floodScopeStuck ?: flowOf(null)
     }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
+    // --- Blocking and filtering (PARITY §3) ---
+
+    private val blockRevision = MutableStateFlow(0)
+
+    /** Public keys whose direct messages are dropped — a real block. */
+    val blockedKeys: StateFlow<List<String>> = blockRevision
+        .map { prefs.blockedKeys.sorted() }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, prefs.blockedKeys.sorted())
+
+    /** Channel sender names hidden — a noise filter, NOT a block. */
+    val filteredChannelNames: StateFlow<List<String>> = blockRevision
+        .map { prefs.filteredChannelNames.sorted() }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, prefs.filteredChannelNames.sorted())
+
+    fun isBlocked(keyHex: String): Boolean = prefs.isKeyBlocked(keyHex)
+
+    fun setBlocked(keyHex: String, blocked: Boolean) {
+        if (blocked) {
+            if (!prefs.blockKey(keyHex)) {
+                transientMessage.value = "That isn't a full public key — can't block it"
+                return
+            }
+        } else {
+            prefs.unblockKey(keyHex)
+        }
+        _service.value?.refreshBlockLists()
+        blockRevision.value++
+        transientMessage.value = if (blocked) {
+            "Blocked. Their direct messages will be dropped, not stored."
+        } else {
+            "Unblocked."
+        }
+    }
+
+    fun setChannelNameFiltered(name: String, filtered: Boolean) {
+        if (filtered) {
+            if (!prefs.filterChannelName(name)) {
+                transientMessage.value = "That name can't be filtered"
+                return
+            }
+        } else {
+            prefs.unfilterChannelName(name)
+        }
+        _service.value?.refreshBlockLists()
+        blockRevision.value++
+        transientMessage.value = if (filtered) {
+            "Hiding messages that claim the name \"$name\""
+        } else {
+            "No longer hiding \"$name\""
+        }
+    }
+
     // --- Retention + purge (PARITY §1, §3) ---
 
     /** Run the retention sweep now; returns rows removed. */

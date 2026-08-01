@@ -36,8 +36,8 @@ Status key: ✅ have · ◐ partial · ❌ missing · ⛔ out of scope
 | `SetupScreen` (first-run onboarding) | — | ❌ | **Work item.** We drop the user straight into an empty app. |
 | `SuggestedRadioSettingsSelectorBottomSheet` (radio presets) | Settings → Radio (manual fields) | ◐ | **Work item.** Presets per region/profile, rather than typing freq/BW/SF/CR. |
 | `FactoryResetScreen` | — | ❌ | **Work item**, low risk: it's a CLI command behind a confirmation. |
-| `ExportConfigurationScreen`, `ImportConfigurationScreen` | — | ❌ | **Work item.** Config backup/restore. Must never export secrets in the clear — see §11. |
-| `PurgeDataScreen` | Clear thread / Clear console | ◐ | **Work item.** A single "purge everything local" with an explicit list of what goes. |
+| `ExportConfigurationScreen`, `ImportConfigurationScreen` | Settings → App → Backup | ✅ | Closed 2026-08-01. Plain half = settings/regions/contact keys+names/channel names; sealed half = PSKs, passwords, identity seed under AES-256-GCM + PBKDF2(600k). Encoding secrets without a passphrase is refused, not silently dropped. |
+| `PurgeDataScreen` | Settings → App → Purge local data | ✅ | Closed 2026-08-01. Explicit list of what goes and what doesn't; type-the-word confirmation; forgetting keys is a separate opt-in. Does not touch the radio. |
 
 ## 2. Contacts & nodes
 
@@ -62,10 +62,34 @@ Status key: ✅ have · ◐ partial · ❌ missing · ⛔ out of scope
 |---|---|---|---|
 | `ContactMessagesScreen`, `ChannelMessagesScreen` | Conversation | ✅ | Reactions, quote-replies, links, hops/SNR, info sheet, delete, resend, drafts. |
 | `MessageSettingsScreen` | — | ❌ | **Work item.** Message-level preferences. |
-| `ChannelMessageRetentionSettingsScreen` | — | ❌ | **Work item.** Retention/auto-prune. Also a privacy feature: history that isn't kept can't leak. |
+| `ChannelMessageRetentionSettingsScreen` | Settings → App → Message retention | ✅ | Closed 2026-08-01. Forever / N days / newest N, global with a per-channel override. Count-trimming orders by ARRIVAL, not the sender-claimed timestamp. |
 | `NotificationSettingsScreen`, `ChannelNotificationSettingsScreen` | Per-channel mute, global toggle | ◐ | **Work item.** Finer control. |
-| `BlockedChannelSendersScreen` | — | ❌ | **Work item.** ⚠ Block by *key*, not by the sender name, which is unauthenticated. |
+| `BlockedChannelSendersScreen` | Settings → App → Blocked contacts + Hidden channel names | ✅ | Closed 2026-08-01. ⚠ **Corrected:** block-by-key is impossible for channels — see below. DMs block on the full public key; channel names are a *filter*, labelled as one. |
 | `RepeatSettingsScreen` | Automatic retry with airtime backoff | ◐ | |
+
+**Correction to this section's own ⚠ (2026-08-01).** The row above used to
+say "block by *key*, not by the sender name". That is right for direct
+messages and **not possible for channels**: a MeshCore group message is
+`"name: text"` inside the channel ciphertext and carries no sender key at
+all (MESHCORE_PROTOCOL §9/§10). A channel has no per-sender identity —
+anyone holding the PSK can write any name. So the feature ships as two
+mechanisms with two different promises, rather than one word covering
+both:
+
+- **Blocked contacts** — matched on the full 32-byte public key. A real
+  block: renaming doesn't evade it, and their DMs are dropped before
+  they become rows (a message stored-and-hidden is still on the phone,
+  still in a backup). A 6-byte prefix is never accepted as an entry: 48
+  bits would block everyone who collides. An *unresolved* sender is
+  never treated as blocked, or traffic from anyone not yet a contact
+  would vanish silently.
+- **Hidden channel names** — matched on the display name, exact after
+  case-folding (a substring match would make its effects unpredictable).
+  Shipped as a noise filter and labelled as one, with the caveat string
+  living in `BlockList` next to the matching code so the two can't
+  drift. Calling this "blocking" is the actual security bug available
+  here: a user who believes someone cannot reach them behaves
+  differently from one who knows they've hidden a name.
 
 ## 4. Channels
 
@@ -209,8 +233,9 @@ Grouped so each block is shippable:
 2. ~~**Admin depth** — access control, command help, repeater regions, noise floor.~~
    **Done 2026-08-01**, except `AccessControlAddUserScreen` (§6, blocked on a node that
    supports ACLs).
-3. **Safety & data** — config export/import (secret-safe), purge data, retention,
-   blocked senders (by key).
+3. ~~**Safety & data** — config export/import (secret-safe), purge data, retention,
+   blocked senders (by key).~~ **Done 2026-08-01**, with the block-by-key row corrected
+   (see §3) — channels carry no sender key, so that half ships as a labelled filter.
 4. **Onboarding & polish** — setup flow, radio presets, About/changelog, tools hub.
 5. **Bigger asks** — sensor nodes, path/coverage map rendering, neighbours map.
 6. **Revisit deferrals** — LOS/coverage overlays, neighbours, discovery-as-separate:

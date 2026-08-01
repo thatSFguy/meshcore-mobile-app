@@ -4,6 +4,7 @@ import io.github.thatsfguy.meshcore.engine.MeshCoreEngine
 import io.github.thatsfguy.meshcore.engine.MeshEvent
 import io.github.thatsfguy.meshcore.model.Channel
 import io.github.thatsfguy.meshcore.model.Contact
+import io.github.thatsfguy.meshcore.protocol.BlockList
 import io.github.thatsfguy.meshcore.protocol.ReactionCounts
 import io.github.thatsfguy.meshcore.protocol.Reactions
 import io.github.thatsfguy.meshcore.protocol.Retention
@@ -22,6 +23,17 @@ class MessageRepository(
 ) {
     /** The radio currently attached — set by the service on SELF_INFO. */
     @Volatile var selfKey: String = ""
+
+    /**
+     * Blocked sender keys and filtered channel names, refreshed from
+     * preferences by the service. Held here because the check has to
+     * happen before the row is written: a blocked message that is stored
+     * and merely hidden is still on the phone, still in a backup, and
+     * still there to be found.
+     */
+    @Volatile var blockedKeys: Set<String> = emptySet()
+
+    @Volatile var filteredChannelNames: Set<String> = emptySet()
 
     /** Thread the UI currently displays ("dm|<key>" / "ch|<idx>") —
      *  suppresses unread bumps for the open conversation. */
@@ -127,6 +139,12 @@ class MessageRepository(
         when (event) {
             is MeshEvent.DirectMessageReceived -> {
                 val peer = event.senderKeyHex ?: event.senderPrefixHex
+                // Dropped before it becomes a row. An unresolved sender
+                // (prefix only, no matching contact) is never treated as
+                // blocked — a 6-byte prefix is 48 bits, and blocking on
+                // one would silently discard messages from whoever
+                // collides with it.
+                if (BlockList.isBlockedSender(event.senderKeyHex, blockedKeys)) return
                 // CLI replies can echo secrets (`get guest.password`,
                 // `get prv.key`); redact before they become durable rows.
                 val storedText = if (event.txtType == 1) {
@@ -170,6 +188,11 @@ class MessageRepository(
             }
 
             is MeshEvent.ChannelMessageReceived -> {
+                // A NOISE FILTER, not a block: the name is unauthenticated
+                // display text (MESHCORE_PROTOCOL §9 — a group message
+                // carries no sender key), so this stops a spammer who
+                // keeps their name and nothing more.
+                if (BlockList.isFilteredChannelName(event.senderName, filteredChannelNames)) return
                 if (applyReaction(
                         self,
                         KIND_CHANNEL,

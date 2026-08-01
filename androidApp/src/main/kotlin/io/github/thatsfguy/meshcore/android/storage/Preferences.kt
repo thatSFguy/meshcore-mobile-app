@@ -2,6 +2,7 @@ package io.github.thatsfguy.meshcore.android.storage
 
 import android.content.Context
 import android.content.SharedPreferences
+import io.github.thatsfguy.meshcore.protocol.BlockList
 import io.github.thatsfguy.meshcore.protocol.Regions
 import io.github.thatsfguy.meshcore.protocol.Retention
 import io.github.thatsfguy.meshcore.transport.ConnectionMemory
@@ -272,6 +273,55 @@ class Preferences(context: Context) {
     var notificationsEnabled: Boolean
         get() = prefs.getBoolean("notifications_enabled", true)
         set(v) { prefs.edit().putBoolean("notifications_enabled", v).apply() }
+
+    // --- Blocking and filtering (PARITY §3) ---
+    //
+    // Two separate stores because they are two different promises: a
+    // blocked KEY is a real block, a filtered NAME is a noise filter.
+    // See BlockList for why channels can only have the latter.
+
+    /** Public keys whose direct messages are dropped. */
+    var blockedKeys: Set<String>
+        get() = prefs.getStringSet("blocked_keys", emptySet())!!
+            .mapNotNull { BlockList.canonicalKey(it) }.toSet()
+        set(v) {
+            val clean = v.mapNotNull { BlockList.canonicalKey(it) }
+                .take(BlockList.MAX_ENTRIES).toSet()
+            prefs.edit().putStringSet("blocked_keys", clean).apply()
+        }
+
+    fun blockKey(keyHex: String): Boolean {
+        val canonical = BlockList.canonicalKey(keyHex) ?: return false
+        blockedKeys = blockedKeys + canonical
+        return true
+    }
+
+    fun unblockKey(keyHex: String) {
+        BlockList.canonicalKey(keyHex)?.let { blockedKeys = blockedKeys - it }
+    }
+
+    fun isKeyBlocked(keyHex: String?): Boolean =
+        BlockList.isBlockedSender(keyHex, blockedKeys)
+
+    /** Channel sender names hidden from view — NOT a block. */
+    var filteredChannelNames: Set<String>
+        get() = prefs.getStringSet("filtered_channel_names", emptySet())!!
+            .mapNotNull { BlockList.canonicalName(it) }.toSet()
+        set(v) {
+            val clean = v.mapNotNull { BlockList.canonicalName(it) }
+                .take(BlockList.MAX_ENTRIES).toSet()
+            prefs.edit().putStringSet("filtered_channel_names", clean).apply()
+        }
+
+    fun filterChannelName(name: String): Boolean {
+        val canonical = BlockList.canonicalName(name) ?: return false
+        filteredChannelNames = filteredChannelNames + canonical
+        return true
+    }
+
+    fun unfilterChannelName(name: String) {
+        BlockList.canonicalName(name)?.let { filteredChannelNames = filteredChannelNames - it }
+    }
 
     // --- Message retention (PARITY §3) ---
 
