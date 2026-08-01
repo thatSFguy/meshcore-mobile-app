@@ -21,3 +21,6 @@ keystore.properties
 # OS
 .DS_Store
 Thumbs.db
+
+# Unredacted screenshot originals — never commit these
+docs/screenshots/raw/
