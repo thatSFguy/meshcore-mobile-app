@@ -906,6 +906,37 @@ class MeshCoreEngine(
         return false
     }
 
+    /**
+     * Add a contact from an unsigned contact card (the QR form the
+     * mainstream app shares).
+     *
+     * SECURITY: unlike [importContact] there is nothing to verify — the
+     * card carries no signature, so the only assurance is that the user
+     * scanned it off someone's screen in person. The caller MUST have
+     * confirmed the key with the user first; this function does not, and
+     * cannot, authenticate anything. The name is stored as display text
+     * only, never as identity.
+     *
+     * No path is known for an out-of-band contact, so it starts in flood
+     * mode until the mesh teaches us a route.
+     */
+    suspend fun addContactFromCard(pubKey: ByteArray, name: String, type: Int): Boolean {
+        if (pubKey.size != Codes.PUB_KEY_SIZE) return false
+        val ok = sendRaw(
+            Frames.addUpdateContact(
+                pubKey = pubKey,
+                type = type,
+                flags = 0,
+                pathLen = PathCodec.PATH_LEN_FLOOD,
+                path = ByteArray(0),
+                name = name,
+                timestampSeconds = nowSeconds(),
+            ),
+        )
+        if (ok) syncContacts()
+        return ok
+    }
+
     suspend fun shareContactZeroHop(pubKey: ByteArray): Boolean =
         sendAndAwait(Frames.shareContact(pubKey)) { it is DeviceEvent.Ok } is DeviceEvent.Ok
 

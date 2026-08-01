@@ -24,6 +24,7 @@ import io.github.thatsfguy.meshcore.model.Contact
 import io.github.thatsfguy.meshcore.model.DeviceInfo
 import io.github.thatsfguy.meshcore.model.SelfInfo
 import io.github.thatsfguy.meshcore.protocol.ChannelCrypto
+import io.github.thatsfguy.meshcore.protocol.Codes
 import io.github.thatsfguy.meshcore.protocol.ShareUri
 import io.github.thatsfguy.meshcore.transport.ConnectionMemory
 import io.github.thatsfguy.meshcore.transport.SavedNode
@@ -511,51 +512,79 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
         return runCatching { svc.engine.sendRaw(frame) }.getOrDefault(false)
     }
 
-    /** Self advert blob for the share-QR (meshcore://<hex>). */
+    /**
+     * Share URI for this node, in the `meshcore://contact/add?…` form the
+     * mainstream MeshCore app emits and scans. Built from local state, so
+     * sharing works whether or not the radio answers right now.
+     */
     suspend fun selfShareUri(): String? {
-        val svc = _service.value ?: return null
-        val blob = runCatching { svc.engine.exportContact() }.getOrNull() ?: return null
-        return ShareUri.encode(blob)
+        val info = selfInfo.value ?: return null
+        val key = info.publicKeyHex.ifBlank { return null }
+        return ShareUri.encodeContact(
+            name = info.name,
+            pubKeyHex = key,
+            type = Codes.ADV_TYPE_CHAT,
+        )
     }
+
+    /** Share URI for an existing contact, same interoperable form. */
+    fun contactShareUri(contact: ContactEntity): String =
+        ShareUri.encodeContact(
+            name = contact.name,
+            pubKeyHex = contact.keyHex,
+            type = contact.type,
+        )
 
     /**
-     * Share URI for an existing contact. The radio re-exports the stored
-     * advert, so what's shared is the signed blob it verified on import —
-     * not a re-signable reconstruction from local fields.
+     * A scanned contact card awaiting the user's confirmation.
+     *
+     * Cards are unsigned, so the app never adds one silently: the UI
+     * shows the key and asks. Signed advert blobs skip this — the radio
+     * verifies those itself.
      */
-    suspend fun contactShareUri(keyHex: String): String? {
-        val svc = _service.value ?: return null
-        val key = hexToBytesOrNull(keyHex) ?: return null
-        val blob = runCatching { svc.engine.exportContact(key) }.getOrNull() ?: return null
-        return ShareUri.encode(blob)
+    val pendingContactCard = MutableStateFlow<ShareUri.Decoded.Contact?>(null)
+
+    /** Handle a scanned/pasted meshcore:// code, in either form. */
+    fun importContactUri(text: String) {
+        if (_service.value == null) return
+        // Scanned QR data is entirely attacker-controlled: decode is
+        // total and returns a typed result rather than throwing.
+        when (val decoded = ShareUri.decode(text)) {
+            is ShareUri.Decoded.Advert -> importAdvertBlob(decoded.blob)
+            is ShareUri.Decoded.Contact -> pendingContactCard.value = decoded
+            ShareUri.Decoded.NotAContactCode ->
+                transientMessage.value = "Not a meshcore:// contact code"
+            ShareUri.Decoded.TooLarge ->
+                transientMessage.value = "Contact code too large"
+            ShareUri.Decoded.Malformed ->
+                transientMessage.value = "Malformed contact code"
+        }
     }
 
-    /** Import a scanned/pasted meshcore:// contact URI. */
-    fun importContactUri(text: String) {
+    private fun importAdvertBlob(blob: ByteArray) {
         val svc = _service.value ?: return
-        // Scanned QR data is entirely attacker-controlled: decode is
-        // total, and the blob is only handed to the radio (which verifies
-        // the advert signature) once it is structurally sound.
-        val blob = when (val decoded = ShareUri.decode(text)) {
-            is ShareUri.Decoded.Ok -> decoded.blob
-            ShareUri.Decoded.NotAContactCode -> {
-                transientMessage.value = "Not a meshcore:// contact code"
-                return
-            }
-            ShareUri.Decoded.TooLarge -> {
-                transientMessage.value = "Contact code too large"
-                return
-            }
-            ShareUri.Decoded.Malformed -> {
-                transientMessage.value = "Malformed contact code"
-                return
-            }
-        }
         viewModelScope.launch {
             val ok = runCatching { svc.engine.importContact(blob) }.getOrDefault(false)
             transientMessage.value =
                 if (ok) "Contact imported" else "Import failed (bad signature?)"
         }
+    }
+
+    /** Commit a contact card the user has confirmed. */
+    fun confirmContactCard(card: ShareUri.Decoded.Contact) {
+        val svc = _service.value ?: return
+        pendingContactCard.value = null
+        val key = hexToBytesOrNull(card.pubKeyHex) ?: return
+        viewModelScope.launch {
+            val ok = runCatching {
+                svc.engine.addContactFromCard(key, card.name, card.type)
+            }.getOrDefault(false)
+            transientMessage.value = if (ok) "Contact added" else "Add failed"
+        }
+    }
+
+    fun dismissContactCard() {
+        pendingContactCard.value = null
     }
 
     // ------------------------------------------------------------------

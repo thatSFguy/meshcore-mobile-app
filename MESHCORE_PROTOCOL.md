@@ -361,6 +361,29 @@ bw_hz 7 000–500 000, sf 5–12, cr 5–8.
 **LoRa airtime / ACK timeout** — Semtech SX127x airtime formula; direct-path timeout
 `500ms + (airtime*6 + 250ms)*(hops+1)`, flood `500ms + 16*airtime`. Used to time out ACKs.
 
+**Contact-share URIs (QR codes).** Two forms exist in the wild; a client should emit the
+first and accept both:
+
+1. **Contact card** — what the mainstream MeshCore app emits and scans:
+   ```
+   meshcore://contact/add?name=<pct-encoded UTF-8>&public_key=<64 hex, UPPER>&type=<adv type>
+   ```
+   Spaces are `%20` (not `+`); `type` matches the ADVERT type byte (`1` chat, `2` repeater,
+   `3` room, `4` sensor). Verified byte-for-byte against a QR that app produced.
+2. **Advert blob** — `meshcore://<hex>`, the exported advert payload. Used by MeshCore Open
+   and by early versions of this client. Import with `CMD_IMPORT_CONTACT`.
+
+The two differ in what they prove. Form 2 is the signed advert, so the radio verifies it on
+import. **Form 1 is unsigned** — name, key and type are plain query parameters anyone can
+mint — so it cannot be imported through the verify path; it becomes a contact only via
+`CMD_ADD_UPDATE_CONTACT` (path unknown, so flood until a route is learned), and the client
+must ask the user to confirm the key rather than adding it silently. Treat the name as
+display text in both forms; only the public key identifies anyone.
+
+Note also that QR codes rendered by dark-mode apps are **inverted** (light modules on a dark
+field). ZXing rejects those unless `DecodeHintType.ALSO_INVERTED` is set — worth doing, or
+half the codes in circulation won't scan.
+
 ---
 
 ## 12. Identity & security notes for the client

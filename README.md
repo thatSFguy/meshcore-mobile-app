@@ -109,7 +109,11 @@ copy / quote / message details (SNR, attempts, ack hash), mark-unread, per-chann
 it). Channels are presented as *obfuscated, not secure* — see the security note below.
 
 **Nodes** — Contacts / Repeaters / Rooms tabs plus a **discovery inbox** of signature-verified
-adverts you haven't added yet. Favourites, search, hash-colored avatars, QR share/import, rename.
+adverts you haven't added yet. Favourites, search, hash-colored avatars, rename, and **QR
+share/import that interoperates with the mainstream MeshCore app** — codes are emitted in its
+`meshcore://contact/add?…` form (and the older signed-advert form is still accepted on scan).
+A scanned contact card is unsigned, so the app shows you the public key and asks before adding
+it, rather than trusting the name in the code.
 
 **Routing** — per-contact **Auto / Flood / Manual** routing, a hop-by-hop manual path editor, a
 record of every path seen or used with success/failure quality labels, and a **path trace** showing

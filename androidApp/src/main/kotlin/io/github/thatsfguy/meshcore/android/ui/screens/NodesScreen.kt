@@ -209,6 +209,15 @@ fun NodesScreen(vm: MeshCoreViewModel, nav: NavController) {
         SelfQrDialog(vm, onDismiss = { showSelfQr = false })
     }
 
+    val pendingCard by vm.pendingContactCard.collectAsState()
+    pendingCard?.let { card ->
+        ContactCardConfirmDialog(
+            card = card,
+            onConfirm = { vm.confirmContactCard(card) },
+            onDismiss = { vm.dismissContactCard() },
+        )
+    }
+
     detail?.let { contact ->
         ContactDetailSheet(
             vm = vm,
@@ -439,16 +448,64 @@ fun SelfQrDialog(vm: MeshCoreViewModel, onDismiss: () -> Unit) =
 fun ContactQrDialog(vm: MeshCoreViewModel, contact: ContactEntity, onDismiss: () -> Unit) =
     ShareQrDialog(
         title = "Share ${contact.name.ifBlank { "contact" }}",
-        hint = "Scan with another MeshCore app to add this node as a contact. " +
-            "The code carries the node's signed advert — the receiving app verifies it.",
-        load = { vm.contactShareUri(contact.keyHex) },
+        hint = "Scan with any MeshCore app to add this node as a contact.",
+        load = { vm.contactShareUri(contact) },
         onDismiss = onDismiss,
     )
 
 /**
- * QR for a `meshcore://` share URI produced by the radio. The blob comes
- * from the device rather than being rebuilt locally, so a shared contact
- * keeps its original Ed25519 signature and stays verifiable downstream.
+ * Confirmation for a scanned contact card.
+ *
+ * A card is unsigned — the name is whatever the sender typed, and only
+ * the public key identifies anyone — so the app shows the key in full
+ * and makes the user accept it rather than adding the contact silently.
+ */
+@Composable
+private fun ContactCardConfirmDialog(
+    card: io.github.thatsfguy.meshcore.protocol.ShareUri.Decoded.Contact,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Add contact?") },
+        text = {
+            Column {
+                Text(
+                    card.name.ifBlank { "(unnamed)" },
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                Text(
+                    typeLabel(card.type).dropLast(1),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                Spacer(Modifier.height(12.dp))
+                Text("Public key", style = MaterialTheme.typography.labelLarge)
+                Text(
+                    card.pubKeyHex,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontFamily = FontFamily.Monospace,
+                )
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    "This code carries no signature — the name is whatever " +
+                        "the sender typed. Only add it if you scanned it from " +
+                        "someone you trust, and check the key matches theirs.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+        },
+        confirmButton = { TextButton(onClick = onConfirm) { Text("Add contact") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+/**
+ * QR for a `meshcore://contact/add?…` card — the form the mainstream
+ * MeshCore app scans. Built from local state, so it works whether or not
+ * the radio is answering.
  */
 @Composable
 private fun ShareQrDialog(

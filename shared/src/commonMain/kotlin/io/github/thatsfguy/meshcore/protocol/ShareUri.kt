@@ -4,53 +4,228 @@ import io.github.thatsfguy.meshcore.util.hexToBytesOrNull
 import io.github.thatsfguy.meshcore.util.toHex
 
 /**
- * The `meshcore://<hex>` contact-share encoding used by QR codes and
- * pasted links.
+ * The `meshcore://` contact-share encoding used by QR codes and pasted
+ * links.
  *
- * The payload is an advert blob the *radio* exported, so it still carries
- * the node's Ed25519 signature; the importing device re-verifies it. This
- * object only does the transport encoding — it deliberately does not
- * validate the blob's contents, since that check belongs to the firmware
- * that owns the key material.
+ * Two forms exist in the wild and both are accepted on scan:
  *
- * Decoding runs on scanned QR data, i.e. wholly attacker-controlled
- * input, so every failure mode returns a typed error rather than
- * throwing.
+ *  1. **Contact card** — `meshcore://contact/add?name=…&public_key=…&type=…`,
+ *     what the mainstream MeshCore app emits. This is what we *emit* too,
+ *     so a code from this app scans in theirs and vice versa.
+ *  2. **Advert blob** — `meshcore://<hex>`, used by MeshCore Open and by
+ *     this app's earlier releases. Decoded for backward compatibility.
+ *
+ * The security difference between them is not cosmetic. An advert blob
+ * carries the node's Ed25519 signature, so the radio can verify it on
+ * import. A contact card carries **only a name, a public key and a type
+ * byte — nothing is signed**, and the name is whatever the sender typed.
+ * The trust in form 1 comes entirely from the out-of-band channel the QR
+ * travelled over (someone's screen, in person). Callers must keep the
+ * two apart and must not present a card-imported contact as verified;
+ * [Decoded] makes the distinction impossible to ignore.
+ *
+ * Decoding runs on scanned QR data — wholly attacker-controlled input —
+ * so every failure returns a typed error rather than throwing.
  */
 object ShareUri {
 
     const val SCHEME = "meshcore://"
 
+    /** Path of the contact-card form, after the scheme. */
+    const val CONTACT_PATH = "contact/add"
+
     /**
-     * Upper bound on the hex payload. An advert blob is ~100 bytes; the
-     * cap is generous but keeps a hostile QR from making us allocate
-     * megabytes before any parse happens.
+     * Upper bound on the whole URI. A contact card is ~150 bytes and an
+     * advert blob ~100 bytes of payload; the cap is generous but keeps a
+     * hostile QR from making us allocate before any parse happens.
      */
-    const val MAX_HEX_LENGTH = 4096
+    const val MAX_URI_LENGTH = 4096
 
     /** Shortest blob the radio will accept back as a contact import. */
     const val MIN_BLOB_BYTES = 32
 
-    fun encode(blob: ByteArray): String = SCHEME + blob.toHex()
+    /** Public keys are Ed25519 — always exactly 32 bytes. */
+    const val PUB_KEY_BYTES = 32
+
+    /** Firmware stores the name as a 32-byte C string, so 31 usable. */
+    const val MAX_NAME_BYTES = 31
+
+    // ------------------------------------------------------------------
+    // Encoding
+    // ------------------------------------------------------------------
+
+    /**
+     * Build the contact card other MeshCore apps expect. [name] is
+     * truncated to what the firmware can store, and [pubKeyHex] is
+     * emitted upper-case to match the mainstream app byte for byte.
+     */
+    fun encodeContact(name: String, pubKeyHex: String, type: Int): String =
+        SCHEME + CONTACT_PATH +
+            "?name=" + percentEncode(truncateToBytes(name, MAX_NAME_BYTES)) +
+            "&public_key=" + pubKeyHex.trim().uppercase() +
+            "&type=" + type
+
+    /** Legacy signed-advert form, still emitted by MeshCore Open. */
+    fun encodeAdvert(blob: ByteArray): String = SCHEME + blob.toHex()
+
+    // ------------------------------------------------------------------
+    // Decoding
+    // ------------------------------------------------------------------
 
     sealed interface Decoded {
-        data class Ok(val blob: ByteArray) : Decoded
+        /**
+         * An unsigned contact card. Nothing here is authenticated: treat
+         * [name] as display text supplied by whoever made the QR, and
+         * [pubKeyHex] as the only field that identifies anyone.
+         */
+        data class Contact(
+            val name: String,
+            val pubKeyHex: String,
+            val type: Int,
+        ) : Decoded
+
+        /** A signed advert blob; the radio verifies it on import. */
+        data class Advert(val blob: ByteArray) : Decoded {
+            override fun equals(other: Any?): Boolean =
+                this === other || (other is Advert && blob.contentEquals(other.blob))
+
+            override fun hashCode(): Int = blob.contentHashCode()
+        }
+
         /** Not a contact code at all (wrong scheme, or plain text). */
         data object NotAContactCode : Decoded
+
         /** Correct scheme but oversized — rejected before decoding. */
         data object TooLarge : Decoded
-        /** Correct scheme, unusable payload (odd length, non-hex, stub). */
+
+        /** Correct scheme, unusable payload. */
         data object Malformed : Decoded
     }
 
     fun decode(text: String): Decoded {
         val trimmed = text.trim()
-        // Case-insensitive: some QR generators upper-case the scheme.
+        // Case-insensitive: some generators upper-case the scheme.
         if (!trimmed.lowercase().startsWith(SCHEME)) return Decoded.NotAContactCode
-        val hex = trimmed.substring(SCHEME.length)
-        if (hex.length > MAX_HEX_LENGTH) return Decoded.TooLarge
+        if (trimmed.length > MAX_URI_LENGTH) return Decoded.TooLarge
+        val body = trimmed.substring(SCHEME.length)
+        return if (body.substringBefore('?').lowercase() == CONTACT_PATH) {
+            decodeContactCard(body.substringAfter('?', ""))
+        } else {
+            decodeAdvert(body)
+        }
+    }
+
+    private fun decodeContactCard(query: String): Decoded {
+        if (query.isEmpty()) return Decoded.Malformed
+        val params = mutableMapOf<String, String>()
+        for (pair in query.split('&')) {
+            if (pair.isEmpty()) continue
+            val key = pair.substringBefore('=').lowercase()
+            val raw = pair.substringAfter('=', "")
+            // First occurrence wins: a duplicated public_key must not let
+            // a trailing copy override the one a human might have read.
+            if (key.isNotEmpty() && key !in params) {
+                params[key] = percentDecode(raw) ?: return Decoded.Malformed
+            }
+        }
+
+        val pubKeyHex = params["public_key"]?.trim()?.lowercase() ?: return Decoded.Malformed
+        val pubKey = hexToBytesOrNull(pubKeyHex) ?: return Decoded.Malformed
+        if (pubKey.size != PUB_KEY_BYTES) return Decoded.Malformed
+
+        // A type byte is what the firmware stores; anything wider is
+        // malformed rather than silently masked down to a byte.
+        val type = params["type"]?.let { it.trim().toIntOrNull() ?: return Decoded.Malformed }
+            ?: Codes.ADV_TYPE_CHAT
+        if (type !in 0..255) return Decoded.Malformed
+
+        val name = sanitizeName(params["name"].orEmpty())
+        return Decoded.Contact(name = name, pubKeyHex = pubKeyHex, type = type)
+    }
+
+    private fun decodeAdvert(hex: String): Decoded {
         val blob = hexToBytesOrNull(hex) ?: return Decoded.Malformed
         if (blob.size < MIN_BLOB_BYTES) return Decoded.Malformed
-        return Decoded.Ok(blob)
+        return Decoded.Advert(blob)
+    }
+
+    // ------------------------------------------------------------------
+    // Helpers
+    // ------------------------------------------------------------------
+
+    /**
+     * Strip control characters from a scanned name before it reaches the
+     * UI or a `cstr` field: an embedded NUL would truncate the record on
+     * the radio, and newlines let a hostile QR fake extra lines of UI.
+     */
+    fun sanitizeName(raw: String): String =
+        truncateToBytes(
+            raw.filter { it.code >= 0x20 && it.code != 0x7F }.trim(),
+            MAX_NAME_BYTES,
+        )
+
+    /** Truncate on a code-point boundary so UTF-8 never splits mid-char. */
+    fun truncateToBytes(text: String, maxBytes: Int): String {
+        if (text.encodeToByteArray().size <= maxBytes) return text
+        var end = text.length
+        while (end > 0) {
+            // Don't cut between a surrogate pair.
+            if (end < text.length && text[end - 1].isHighSurrogate()) {
+                end--
+                continue
+            }
+            val candidate = text.substring(0, end)
+            if (candidate.encodeToByteArray().size <= maxBytes) return candidate
+            end--
+        }
+        return ""
+    }
+
+    private const val UNRESERVED =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_.~"
+
+    private const val HEX_DIGITS = "0123456789ABCDEF"
+
+    fun percentEncode(text: String): String = buildString {
+        for (byte in text.encodeToByteArray()) {
+            val value = byte.toInt() and 0xFF
+            val ch = value.toChar()
+            if (value < 0x80 && ch in UNRESERVED) {
+                append(ch)
+            } else {
+                append('%').append(HEX_DIGITS[value shr 4]).append(HEX_DIGITS[value and 0x0F])
+            }
+        }
+    }
+
+    /**
+     * Percent-decode to UTF-8. Returns null on a truncated or non-hex
+     * escape. `+` is left literal: the mainstream app encodes spaces as
+     * `%20`, so a `+` in a scanned name is a real plus sign.
+     */
+    fun percentDecode(text: String): String? {
+        val out = ArrayList<Byte>(text.length)
+        var i = 0
+        while (i < text.length) {
+            val c = text[i]
+            if (c == '%') {
+                if (i + 2 >= text.length) return null
+                val hi = hexDigit(text[i + 1]) ?: return null
+                val lo = hexDigit(text[i + 2]) ?: return null
+                out.add(((hi shl 4) or lo).toByte())
+                i += 3
+            } else {
+                for (b in c.toString().encodeToByteArray()) out.add(b)
+                i++
+            }
+        }
+        return out.toByteArray().decodeToString()
+    }
+
+    private fun hexDigit(c: Char): Int? = when (c) {
+        in '0'..'9' -> c - '0'
+        in 'a'..'f' -> c - 'a' + 10
+        in 'A'..'F' -> c - 'A' + 10
+        else -> null
     }
 }
