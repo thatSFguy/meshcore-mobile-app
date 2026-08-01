@@ -116,11 +116,6 @@ channels as obfuscated (AES-ECB + 2-byte MAC), not secure.
 - **The mainstream app's surface** was inventoried by pulling its APK and extracting Dart
   class names from `libapp.so` (it's Flutter). PARITY.md lists the results; re-derive with
   `adb pull` + a strings pass if more detail is needed.
-- **Test before claiming.** `JAVA_HOME=/home/robw/android-tools/jdk ./gradlew
-  :shared:testDebugUnitTest :androidApp:testDebugUnitTest` — ~280 tests. Protocol
-  behaviour that came from reading another client's source should be pinned with a test
-  including the real captured value, not just a property.
-
 ## Suggested next steps
 
 1. **Work `PARITY.md` §8 (regions)** — add/manage/discover regions and the repeater's
@@ -132,6 +127,32 @@ channels as obfuscated (AES-ECB + 2-byte MAC), not secure.
    Ed25519 bridge (copy `iosCryptoBridge` pattern), SQLDelight persistence.
 4. Release plumbing (signing env vars are already read by `androidApp/build.gradle.kts`;
    tag scheme `android-vX.Y.Z` matches the sibling).
+
+## Testing — the standing expectation
+
+**Everything fixed or added gets tests.** This is the user's explicit instruction, not a
+nice-to-have, and it has repeatedly paid for itself:
+
+- `JAVA_HOME=/home/robw/android-tools/jdk ./gradlew :shared:testDebugUnitTest
+  :androidApp:testDebugUnitTest` — ~280 tests, seconds to run. Run it before claiming
+  anything works.
+- **Pin the real captured value, not just a property.** The `path_len` bug ("34 hops"
+  for a 4-hop node) is pinned with the actual `0x44` byte from a live contact. The
+  reference client's own reaction tests assert only that its hash is deterministic and
+  four hex digits — which is exactly why there were no ground-truth vectors to check our
+  Dart-hash reimplementation against. Don't repeat that mistake here.
+- **Negative and hostile cases carry the weight.** Anything parsed off the mesh or out of
+  a QR is attacker-controlled: test truncation, wrong lengths, non-hex, duplicate
+  parameters, all-zero keys, oversized input. Several of these found real defects.
+- **Exhaustive sweeps find what examples miss.** Round-tripping the whole `path_len`
+  space surfaced that 63 hops at 4-byte hashes encodes to `0xFF` — the flood sentinel —
+  so a pinned route would have silently become "no route".
+- **Let testability drive design.** `ReactionCounts` moved from androidApp to `shared` and
+  dropped `org.json` because that class isn't available in local unit tests; the codec is
+  now testable off-device and reusable on iOS.
+- **Protocol logic belongs in `shared`**, where it can be tested without a device or an
+  emulator. UI helpers that carry real logic (hop labels, quote splitting, drift
+  formatting) should be pure functions so `androidApp/src/test` can reach them.
 
 ## Conventions
 
