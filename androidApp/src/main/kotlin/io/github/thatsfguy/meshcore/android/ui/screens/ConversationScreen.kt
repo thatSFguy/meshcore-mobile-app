@@ -92,8 +92,9 @@ fun ConversationScreen(
     val messages by remember(kind, peerKey, pageSize) {
         vm.threadPaged(kind, peerKey, pageSize)
     }.collectAsState()
-    // threadPaged returns newest-first; render oldest-first.
-    val ordered = remember(messages) { messages.reversed() }
+    // threadPaged returns newest-first, which is exactly what the
+    // reversed layout below wants — index 0 is the newest bubble and is
+    // drawn at the bottom.
     val contacts by vm.dbContacts.collectAsState()
     val channels by vm.dbChannels.collectAsState()
 
@@ -121,18 +122,6 @@ fun ConversationScreen(
     var reactingTo by remember { mutableStateOf<MessageEntity?>(null) }
     var details by remember { mutableStateOf<MessageEntity?>(null) }
     val listState = rememberLazyListState()
-    // Follow new messages only when the user is already at the bottom.
-    // Yanking the view down mid-scrollback is how you lose your place in
-    // a thread you were reading.
-    val atBottom by remember {
-        androidx.compose.runtime.derivedStateOf {
-            val last = listState.layoutInfo.visibleItemsInfo.lastOrNull()
-            last == null || last.index >= listState.layoutInfo.totalItemsCount - 2
-        }
-    }
-    LaunchedEffect(ordered.size) {
-        if (ordered.isNotEmpty() && atBottom) listState.animateScrollToItem(ordered.size - 1)
-    }
 
     val selfName = vm.selfInfo.collectAsState().value?.name
     val maxBytes = if (isChannel) {
@@ -183,20 +172,25 @@ fun ConversationScreen(
         },
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding).imePadding()) {
+            // Newest-message visibility is structural, not a scroll
+            // effect: reverseLayout anchors index 0 (the newest bubble)
+            // to the bottom of the viewport. It therefore stays visible
+            // through conversation entry, new arrivals, and the keyboard
+            // opening — adjustResize shrinks the viewport from the
+            // bottom, and the anchor moves with it. A scrollToItem pin
+            // has to be re-fired on every one of those events and misses
+            // whichever one you forgot; this cannot.
+            //
+            // It also preserves the reading position for free: someone
+            // scrolled up in the scrollback is far from the anchor, so an
+            // arriving message doesn't yank the view.
             LazyColumn(
                 state = listState,
                 modifier = Modifier.weight(1f).fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
+                reverseLayout = true,
             ) {
-                if (total > ordered.size) {
-                    item(key = "load_older") {
-                        TextButton(
-                            onClick = { pageSize += PAGE_SIZE },
-                            modifier = Modifier.fillMaxWidth(),
-                        ) { Text("Load older (${total - ordered.size} more)") }
-                    }
-                }
-                items(ordered, key = { it.id }) { m ->
+                items(messages, key = { it.id }) { m ->
                     MessageBubble(
                         m,
                         showSender = isChannel,
@@ -211,6 +205,15 @@ fun ConversationScreen(
                         onHttpLink = { pendingUrl = it },
                         onMeshcoreLink = { vm.importContactUri(it) },
                     )
+                }
+                if (total > messages.size) {
+                    // Last item in a reversed list == top of the screen.
+                    item(key = "load_older") {
+                        TextButton(
+                            onClick = { pageSize += PAGE_SIZE },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) { Text("Load older (${total - messages.size} more)") }
+                    }
                 }
             }
 
