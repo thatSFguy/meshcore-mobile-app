@@ -210,7 +210,11 @@ CMD_SEND_SELF_ADVERT (7)        [1] flood(0/1)
 CMD_SET_PATH_HASH_MODE (61)     [1] 0 | [1] mode(0..3)   // hop-hash width = mode+1 bytes
 CMD_SET_FLOOD_SCOPE (54)        [1] 0 [| [16] scope]     // scope = SHA256("#region")[:16]; omit=reset
 
-CMD_SEND_TRACE_PATH (36)        u32 tag | u32 auth | [1] flag | payload?
+CMD_SEND_TRACE_PATH (36)        u32 tag | u32 auth | [1] flag | payload
+      flag    = hop-hash width, encoded: 1 byte→0, 2 bytes→1, ≥3 bytes→2
+                (the receiver derives width back as `1 << (flag & 0x03)`)
+      payload = the ROUTE to trace, hop hashes in path order. NOT optional:
+                a trace with no route is answered with RESP_CODE_ERR.
 CMD_SEND_TELEMETRY_REQ (39)     [3] reserved | [32] pubkey?
 CMD_SEND_BINARY_REQ (50)        [32] pubkey | payload      // payload[0]=req_type (see §11)
 CMD_SEND_ANON_REQ (57)
@@ -218,6 +222,58 @@ CMD_SEND_ANON_REQ (57)
       enc_path_len = ((hash_width-1) << 6) | (hop_count & 0x3F)
 CMD_SEND_CONTROL_DATA (55)      payload   // discovery: [ (0x8<<4)|prefixOnly ][ type_mask ][ u32 tag ][ u32 since ]
 ```
+
+### Path trace in detail (`CMD_SEND_TRACE_PATH`, corrected 2026-08-01)
+
+The one-line summary above used to read `[1] flag | payload?`, which is
+true and useless: it names the fields without saying what goes in them.
+Reading it alone produces a trace the radio accepts and no node answers.
+The details below are from live captures against a companion radio
+(Galaxy A42 + MeshCore-Blue, 2-byte hop hashes), cross-checked against
+the reference client's `lib/screens/path_trace_map.dart`.
+
+**`flag` carries the hop-hash width.** It is not a bitfield of options.
+The encoding is `1 byte→0, 2 bytes→1, ≥3 bytes→2`, and the receiving
+side derives the width back out as `1 << (flag & 0x03)`. Sending a
+hardcoded `0` on a 2-byte mesh produces a packet the radio will accept,
+transmit, and never get an answer to.
+
+**`payload` is the route, and it is required.** It is the hop hashes of
+the path being traced, `width` bytes each, in path order. The reference
+client sends a single `0x00` when it has no route; a companion radio
+answers that with `RESP_CODE_ERR`. There is nothing to trace on a
+direct contact — no intermediate node exists to report — so a client
+should refuse locally rather than spend airtime being told no.
+
+**Path direction is genuinely ambiguous.** The reference client exposes
+`reversePathAround` and `flipPathAround` as *user-facing toggles*
+rather than committing to one order, which is itself the finding: try
+both and use whichever answers.
+
+**`auth` is 0** in every observed request.
+
+Captured exchange — a 2-hop route (`b389` → `c985`), accepted:
+```
+TX  24 9e6ba8bf 00000000 01 b3 89 c9 85
+RX  06 00 9e6ba8bf de0e0000        // RESP_CODE_SENT, airtime estimate 3806 ms
+```
+The same request with no route, refused:
+```
+TX  24 5e32afbf 00000000 01 00
+RX  RESP_CODE_ERR
+```
+
+**Timing.** `RESP_CODE_SENT` carries the radio's own airtime estimate
+for the round trip (u32 ms, `0x0ede` = 3806 above). Wait on that plus
+grace rather than a fixed timeout — a fixed one makes a dead trace and
+a slow one indistinguishable.
+
+**Unresolved.** A well-formed routed trace is accepted and transmitted,
+and in our testing nothing replied within the radio's own estimate, in
+either path direction. That is confirmed NOT to be a malformed request.
+Remaining candidates: the intermediate repeaters not implementing trace
+replies, or a field the firmware accepts but ignores. Settling it needs
+a repeater whose firmware is known to answer traces.
 
 ---
 

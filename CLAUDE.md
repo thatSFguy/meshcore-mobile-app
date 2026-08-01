@@ -45,7 +45,10 @@ Reference docs:
   command/response/push codes, frame layouts, advert Ed25519 signature, channel AES-ECB
   crypto, PSK derivation). Reverse-engineered from `../meshcore-open` during a security
   review. Read this before touching protocol code. (§2 framing corrected 2026-07-31:
-  USB/TCP use start-byte+length framing per the reference client, not COBS.)
+  USB/TCP use start-byte+length framing per the reference client, not COBS. §7
+  `CMD_SEND_TRACE_PATH` expanded 2026-08-01 from live captures: the `flag` byte carries
+  the hop-hash width and the payload is the route and is NOT optional — the one-line
+  summary alone produces a trace no node answers.)
 - **`PARITY.md`** — the live feature plan: surface-by-surface vs the mainstream app,
   what's done, what's out of scope and why, and where we deliberately differ. Supersedes
   SCOPE.md where they disagree.
@@ -142,6 +145,13 @@ nice-to-have, and it has repeatedly paid for itself:
 - `JAVA_HOME=/home/robw/android-tools/jdk ./gradlew :shared:testDebugUnitTest
   :androidApp:testDebugUnitTest` — ~280 tests, seconds to run. Run it before claiming
   anything works.
+- **A parser tested against captured frames proves nothing about the builder.** The
+  trace feature shipped with nine tests, all on the RECEIVE side, and a sender that
+  emitted a packet no radio would answer: it hardcoded the flags byte to 0 while our own
+  parser read the hop-hash width back out of that same byte. Both halves of one codebase,
+  disagreeing, with a green suite. When a spec line names a field without saying what
+  goes in it (`[1] flag | payload?`), that is the moment to go read the reference
+  client's *sender*, not just its parser.
 - **Pin the real captured value, not just a property.** The `path_len` bug ("34 hops"
   for a 4-hop node) is pinned with the actual `0x44` byte from a live contact. The
   reference client's own reaction tests assert only that its hash is deterministic and
