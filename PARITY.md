@@ -91,7 +91,7 @@ Status key: ✅ have · ◐ partial · ❌ missing · ⛔ out of scope
 | Their surface | Us | Status | Notes |
 |---|---|---|---|
 | `RepeaterLoginScreen` | Login (admin + guest) | ✅ | |
-| `RepeaterCommandHelpScreen` | — | ❌ | **Work item.** We have the 55-command catalog already; this is a help view over it. |
+| `RepeaterCommandHelpScreen` | Admin → Help tab | ✅ | Closed 2026-08-01. Role- AND session-filtered, searchable; tapping loads the console rather than running. |
 | `RepeaterHealthScreen` | Status panel | ◐ | Battery, uptime, queue, RSSI/SNR, airtime, packet counts. Theirs may chart over time. |
 | `AccessControlScreen`, `AccessControlAddUserScreen` | — | ❌ | **Work item.** Repeater ACL management. |
 | `ChangeAdminPasswordScreen`, `ChangeGuestPasswordScreen` | Settings form (CLI) | ◐ | Present but not as first-class screens. |

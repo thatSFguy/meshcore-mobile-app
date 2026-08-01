@@ -85,7 +85,8 @@ fun RepeaterAdminScreen(vm: MeshCoreViewModel, nav: NavController, keyHex: Strin
         passwordPrefilled = password.isNotEmpty()
     }
 
-    var tab by remember { mutableIntStateOf(0) } // 0 = Console, 1 = Settings
+    var tab by remember { mutableIntStateOf(0) } // 0 Status, 1 Settings, 2 Console, 3 Help
+    var consolePrefill by remember { mutableStateOf("") }
 
     Scaffold(
         topBar = {
@@ -152,11 +153,11 @@ fun RepeaterAdminScreen(vm: MeshCoreViewModel, nav: NavController, keyHex: Strin
             SingleChoiceSegmentedButtonRow(
                 Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
             ) {
-                for ((i, label) in listOf("Status", "Settings", "Console").withIndex()) {
+                for ((i, label) in listOf("Status", "Settings", "Console", "Help").withIndex()) {
                     SegmentedButton(
                         selected = tab == i,
                         onClick = { tab = i },
-                        shape = SegmentedButtonDefaults.itemShape(index = i, count = 3),
+                        shape = SegmentedButtonDefaults.itemShape(index = i, count = 4),
                     ) { Text(label, maxLines = 1, softWrap = false) }
                 }
             }
@@ -168,7 +169,17 @@ fun RepeaterAdminScreen(vm: MeshCoreViewModel, nav: NavController, keyHex: Strin
                 1 -> androidx.compose.foundation.layout.Box(Modifier.weight(1f)) {
                     RemoteSettingsForm(vm, keyHex, contact, role, isAdmin)
                 }
-                else -> CliConsole(vm, keyHex, messages)
+                2 -> CliConsole(vm, keyHex, messages, prefill = consolePrefill) {
+                    consolePrefill = ""
+                }
+                else -> androidx.compose.foundation.layout.Box(Modifier.weight(1f)) {
+                    CliHelpPanel(role = role, isAdmin = isAdmin) { usage ->
+                        // Land the command in the console rather than
+                        // running it — plenty of these are destructive.
+                        consolePrefill = usage
+                        tab = 2
+                    }
+                }
             }
         }
     }
@@ -179,8 +190,18 @@ private fun androidx.compose.foundation.layout.ColumnScope.CliConsole(
     vm: MeshCoreViewModel,
     keyHex: String,
     messages: List<io.github.thatsfguy.meshcore.android.storage.MessageEntity>,
+    prefill: String = "",
+    onPrefillConsumed: () -> Unit = {},
 ) {
     var cli by remember { mutableStateOf("") }
+    // A command chosen from Help arrives here ready to edit — the arg
+    // placeholders still need filling in, so it is never auto-sent.
+    LaunchedEffect(prefill) {
+        if (prefill.isNotBlank()) {
+            cli = prefill
+            onPrefillConsumed()
+        }
+    }
     val listState = rememberLazyListState()
     LaunchedEffect(messages.size) {
         if (messages.isNotEmpty()) listState.animateScrollToItem(messages.size - 1)
