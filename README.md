@@ -1,7 +1,11 @@
-# MeshCore Mobile App
+# MeshCore Hardened
 
-*A minimal, native [MeshCore](https://meshcore.co.uk/) client for Android — off-grid encrypted
-messaging over LoRa, with no servers, no accounts, and no app-store lock-in.*
+*A hardened, minimal [MeshCore](https://meshcore.co.uk/) client for Android — off-grid
+encrypted messaging over LoRa, with no servers, no accounts, and no app-store lock-in.*
+
+**Not affiliated with the official MeshCore app.** This is an independent third-party client;
+"Hardened" refers to this build's posture (small attack surface, keystore-sealed secrets,
+encrypted local storage) — not to any change in the MeshCore protocol's own guarantees.
 
 Native Kotlin Multiplatform client for the MeshCore mesh, built in the mold of its sibling
 [reticulum-mobile-app](https://github.com/thatSFguy/reticulum-mobile-app): a real native app —
@@ -38,7 +42,7 @@ goal. Fork away instead.
 
 ### Via Obtainium (recommended for ongoing updates)
 
-<a href='obtainium://app/{"id":"io.github.thatsfguy.meshcore.native","url":"https://github.com/thatSFguy/meshcore-mobile-app","author":"thatSFguy","name":"MeshCore","preferredApkIndex":0,"additionalSettings":"{\"includePrereleases\":false,\"fallbackToOlderReleases\":true,\"filterReleaseTitlesByRegEx\":\"\",\"filterReleaseNotesByRegEx\":\"\",\"verifyLatestTag\":false,\"dontSortReleasesList\":false,\"useLatestAssetDateAsReleaseDate\":false,\"trackOnly\":false,\"versionExtractionRegEx\":\"\",\"matchGroupToUse\":\"\",\"versionDetection\":true,\"releaseDateAsVersion\":false,\"useVersionCodeAsOSVersion\":false,\"apkFilterRegEx\":\"MeshCore-Android-.*-release\\\\.apk\\\$\",\"invertAPKFilter\":false,\"autoApkFilterByArch\":true,\"appName\":\"MeshCore\",\"shizukuPretendToBeGooglePlay\":false,\"allowInsecure\":false,\"exemptFromBackgroundUpdates\":false,\"skipUpdateNotifications\":false,\"about\":\"\"}"}'>
+<a href='obtainium://app/{"id":"io.github.thatsfguy.meshcore.native","url":"https://github.com/thatSFguy/meshcore-mobile-app","author":"thatSFguy","name":"MeshCore Hardened","preferredApkIndex":0,"additionalSettings":"{\"includePrereleases\":false,\"fallbackToOlderReleases\":true,\"filterReleaseTitlesByRegEx\":\"\",\"filterReleaseNotesByRegEx\":\"\",\"verifyLatestTag\":false,\"dontSortReleasesList\":false,\"useLatestAssetDateAsReleaseDate\":false,\"trackOnly\":false,\"versionExtractionRegEx\":\"\",\"matchGroupToUse\":\"\",\"versionDetection\":true,\"releaseDateAsVersion\":false,\"useVersionCodeAsOSVersion\":false,\"apkFilterRegEx\":\"MeshCoreHardened-Android-.*-release\\\\.apk\\\$\",\"invertAPKFilter\":false,\"autoApkFilterByArch\":true,\"appName\":\"MeshCore Hardened\",\"shizukuPretendToBeGooglePlay\":false,\"allowInsecure\":false,\"exemptFromBackgroundUpdates\":false,\"skipUpdateNotifications\":false,\"about\":\"\"}"}'>
   <img src="https://raw.githubusercontent.com/ImranR98/Obtainium/main/assets/graphics/badge_obtainium.png" alt="Get it on Obtainium" height="80">
 </a>
 
@@ -51,13 +55,13 @@ the import sheet.
 **Manual setup** (Obtainium → **Add App**):
 
 - **App source URL:** `https://github.com/thatSFguy/meshcore-mobile-app`
-- **Filter APKs by Regex** (optional): `MeshCore-Android-.*-release\.apk$` — explicit; Obtainium
+- **Filter APKs by Regex** (optional): `MeshCoreHardened-Android-.*-release\.apk$` — explicit; Obtainium
   skips the `.aab` regardless.
 - Leave *Include prereleases* off.
 
 ### Manual APK
 
-Download `MeshCore-Android-<version>-release.apk` from the
+Download `MeshCoreHardened-Android-<version>-release.apk` from the
 [latest release](https://github.com/thatSFguy/meshcore-mobile-app/releases/latest) and install it.
 Every release is built and signed by CI from a tagged commit; `versionName` / `versionCode` are
 derived from the git tag, so what you install matches what the release page advertises.

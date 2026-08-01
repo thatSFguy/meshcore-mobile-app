@@ -93,8 +93,8 @@ jobs:
           set -e
           APK_DIR="androidApp/build/outputs/apk/release"
           AAB_DIR="androidApp/build/outputs/bundle/release"
-          NEW_APK="MeshCore-Android-${VERSION_NAME}-release.apk"
-          NEW_AAB="MeshCore-Android-${VERSION_NAME}-release.aab"
+          NEW_APK="MeshCoreHardened-Android-${VERSION_NAME}-release.apk"
+          NEW_AAB="MeshCoreHardened-Android-${VERSION_NAME}-release.aab"
           mv "$APK_DIR/androidApp-release.apk" "$APK_DIR/$NEW_APK"
           mv "$AAB_DIR/androidApp-release.aab" "$AAB_DIR/$NEW_AAB"
           echo "APK_NAME=$NEW_APK" >> "$GITHUB_ENV"
@@ -103,7 +103,7 @@ jobs:
       - name: Create GitHub release
         uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
         with:
-          name: MeshCore Android ${{ env.VERSION_NAME }}
+          name: MeshCore Hardened ${{ env.VERSION_NAME }}
           generate_release_notes: true
           files: |
             androidApp/build/outputs/apk/release/${{ env.APK_NAME }}

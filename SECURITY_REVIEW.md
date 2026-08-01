@@ -1,6 +1,6 @@
 # Security review — 2026-07-31
 
-Full-surface review of the MeshCore mobile app at commit `31354e6`, covering the protocol/crypto
+Full-surface review of MeshCore Hardened at commit `31354e6`, covering the protocol/crypto
 layer (`shared/`) and the Android app layer (`androidApp/`). Two independent reviews were run, each
 adversarial and each required to report negative results (what was checked and found sound) as well
 as findings.

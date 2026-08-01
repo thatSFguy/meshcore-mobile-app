@@ -1,9 +1,15 @@
-# MeshCore Mobile App — project context
+# MeshCore Hardened (repo: meshcore-mobile-app) — project context
 
-A minimal, native **MeshCore** client (off-grid encrypted LoRa messaging), built in the
+A hardened, minimal **MeshCore** client for off-grid encrypted LoRa messaging, built in the
 mold of the sibling `../reticulum-mobile-app`: no servers, no accounts, no Google Play
 Services, no analytics, smallest attack surface possible. This file orients a fresh agent;
 the detailed specs are the three docs below.
+
+**Naming (2026-07-31):** display name **MeshCore Hardened**, launcher label **MC Hardened**
+(`app_name` / `app_name_full` in strings.xml), APP_START identifies as `MeshCoreHardened`, release
+artifacts are `MeshCoreHardened-Android-<ver>-release.{apk,aab}`. Renamed to avoid collision with
+the official MeshCore app; "Hardened" describes this build's posture, NOT a protocol guarantee —
+channels remain obfuscated-not-secure and the app must keep saying so.
 
 ## Status
 

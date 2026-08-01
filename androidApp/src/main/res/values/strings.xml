@@ -1,4 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">MeshCore</string>
+    <!-- Launcher label: kept short so it doesn't truncate under the
+         icon. The full name lives in app_name_full (About, notifications). -->
+    <string name="app_name">MC Hardened</string>
+    <string name="app_name_full">MeshCore Hardened</string>
 </resources>

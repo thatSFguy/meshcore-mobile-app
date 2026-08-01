@@ -18,7 +18,7 @@ import io.github.thatsfguy.meshcore.protocol.Codes.PUB_KEY_SIZE
 object Frames {
 
     /** CMD_APP_START: [cmd][app_ver][reserved x6][app_name…]\0 */
-    fun appStart(appName: String = "MeshCoreMobile", appVersion: Int = 1): ByteArray {
+    fun appStart(appName: String = "MeshCoreHardened", appVersion: Int = 1): ByteArray {
         val w = BufferWriter()
         w.writeByte(Codes.CMD_APP_START)
         w.writeByte(appVersion)

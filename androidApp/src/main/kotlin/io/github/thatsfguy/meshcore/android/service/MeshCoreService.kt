@@ -320,7 +320,7 @@ class MeshCoreService : Service() {
         )
         return NotificationCompat.Builder(this, NOTIF_CHANNEL)
             .setSmallIcon(R.drawable.ic_stat_link)
-            .setContentTitle("MeshCore")
+            .setContentTitle(getString(R.string.app_name_full))
             .setContentText(text)
             .setContentIntent(intent)
             .setOngoing(true)
@@ -379,7 +379,7 @@ class MeshCoreService : Service() {
             .setPublicVersion(
                 NotificationCompat.Builder(this, MSG_CHANNEL)
                     .setSmallIcon(R.drawable.ic_stat_message)
-                    .setContentTitle("MeshCore")
+                    .setContentTitle(getString(R.string.app_name_full))
                     .setContentText("New message")
                     .setContentIntent(intent)
                     .setAutoCancel(true)

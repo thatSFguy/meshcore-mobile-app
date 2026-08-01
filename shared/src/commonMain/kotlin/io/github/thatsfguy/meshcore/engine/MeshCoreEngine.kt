@@ -122,7 +122,7 @@ class MeshCoreEngine(
     private val scope: CoroutineScope,
     private val crypto: CryptoProvider,
     private val nowSeconds: () -> Long,
-    private val appName: String = "MeshCoreMobile",
+    private val appName: String = "MeshCoreHardened",
     private val log: (String) -> Unit = {},
 ) {
     private val _state = MutableStateFlow(EngineState.Detached)
