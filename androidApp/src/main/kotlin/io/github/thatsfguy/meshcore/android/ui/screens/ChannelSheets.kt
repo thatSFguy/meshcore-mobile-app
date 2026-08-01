@@ -143,6 +143,12 @@ fun ChannelEditSheet(vm: MeshCoreViewModel, channel: ChannelEntity, onDismiss: (
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontFamily = FontFamily.Default,
             )
+            Spacer(Modifier.height(12.dp))
+            // The region is local-only routing state (PARITY §8): it
+            // scopes which repeaters carry this channel's traffic and is
+            // never written to the radio's channel slot.
+            ChannelRegionPicker(vm, channel.idx)
+            Spacer(Modifier.height(8.dp))
             TextButton(onClick = {
                 vm.editChannel(channel.idx, name.trim(), pskHex.trim())
                 onDismiss()

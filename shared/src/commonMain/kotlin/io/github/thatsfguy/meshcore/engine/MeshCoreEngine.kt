@@ -8,11 +8,14 @@ import io.github.thatsfguy.meshcore.model.DeviceInfo
 import io.github.thatsfguy.meshcore.model.SelfInfo
 import io.github.thatsfguy.meshcore.protocol.Advert
 import io.github.thatsfguy.meshcore.protocol.AdvertInfo
+import io.github.thatsfguy.meshcore.protocol.BufferReader
 import io.github.thatsfguy.meshcore.protocol.ChannelCrypto
 import io.github.thatsfguy.meshcore.protocol.Codes
 import io.github.thatsfguy.meshcore.protocol.DeviceEvent
 import io.github.thatsfguy.meshcore.protocol.Frames
+import io.github.thatsfguy.meshcore.protocol.NodeDiscovery
 import io.github.thatsfguy.meshcore.protocol.PathCodec
+import io.github.thatsfguy.meshcore.protocol.Regions
 import io.github.thatsfguy.meshcore.protocol.RoutingMode
 import io.github.thatsfguy.meshcore.protocol.TracePath
 import io.github.thatsfguy.meshcore.protocol.TraceResult
@@ -29,6 +32,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
+import kotlinx.coroutines.channels.Channel as CoroutineChannel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -162,6 +166,15 @@ class MeshCoreEngine(
     private val _floodScopeRegion = MutableStateFlow<String?>(null)
     val floodScopeRegion: StateFlow<String?> = _floodScopeRegion.asStateFlow()
 
+    /**
+     * Set to the region the radio may still be stuck on when restoring
+     * the scope after a region-scoped channel send failed. While this is
+     * non-null every flood packet the radio sends may carry that scope,
+     * so the UI must say so rather than let it pass silently.
+     */
+    private val _floodScopeStuck = MutableStateFlow<String?>(null)
+    val floodScopeStuck: StateFlow<String?> = _floodScopeStuck.asStateFlow()
+
     /** Whether the active link is plaintext (TCP) — surface in the UI. */
     private val _plaintextLink = MutableStateFlow(false)
     val plaintextLink: StateFlow<Boolean> = _plaintextLink.asStateFlow()
@@ -178,6 +191,18 @@ class MeshCoreEngine(
     private var rxJob: Job? = null
     private var stateJob: Job? = null
     private val commandMutex = Mutex()
+
+    /**
+     * Held across a whole region-scoped channel send (set scope → send →
+     * restore). The flood scope is GLOBAL radio state, so two sends that
+     * interleave would put one channel's traffic into another channel's
+     * region. [commandMutex] cannot do this job: it is released between
+     * commands by design, and it is not reentrant.
+     */
+    private val scopedSendMutex = Mutex()
+
+    /** Rolling correlation tag for control/anonymous requests. */
+    private var controlTagCounter = 0
 
     // Contact sync accumulator (CONTACTS_START … CONTACT* … END_OF_CONTACTS).
     private var syncingContacts: MutableMap<String, Contact>? = null
@@ -295,6 +320,13 @@ class MeshCoreEngine(
             refreshBattery()
             requestCustomVars()
             requestAutoAddConfig()
+            // A reconnect (or a radio reboot) starts from an unknown
+            // flood scope. Re-assert whatever this app last set, so a
+            // scope left behind by a failed restore can't outlive the
+            // link that created it.
+            _floodScopeRegion.value?.let {
+                scopedSendMutex.withLock { applyFloodScope(it.takeIf(String::isNotBlank)) }
+            }
             drainMessageQueue()
         } catch (t: Throwable) {
             log("Handshake error: ${t.message}")
@@ -662,11 +694,46 @@ class MeshCoreEngine(
      * RESP_CODE_SENT — the reference client accepts either
      * (`expectsGenericAck: true`), so we do too. Flood group messages
      * have no end-to-end ACK; "accepted by radio" is the terminal state.
+     *
+     * When the channel carries a [region] (PARITY §8), the send is
+     * wrapped in set-scope → send → restore-scope. The flood scope is a
+     * single global radio setting, so the whole sequence holds
+     * [scopedSendMutex] — including unscoped sends, which would
+     * otherwise be able to slip inside another channel's scope window
+     * and flood into a region they were never meant for.
      */
     suspend fun sendChannelMessage(
         channelIndex: Int,
         text: String,
         timestampSeconds: Long = nowSeconds(),
+        region: String? = null,
+    ): Boolean = scopedSendMutex.withLock {
+        val scoped = Regions.canonical(region)
+        if (scoped == null) return@withLock rawChannelSend(channelIndex, text, timestampSeconds)
+
+        if (!applyFloodScope(scoped)) {
+            // Sending anyway would put the message on whatever scope the
+            // radio happens to hold — the wrong region, silently.
+            log("Flood scope #$scoped refused; channel $channelIndex message not sent")
+            return@withLock false
+        }
+        try {
+            rawChannelSend(channelIndex, text, timestampSeconds)
+        } finally {
+            // Restore the *user's* global scope, not blank: the Settings
+            // screen owns that value and a per-channel send must not
+            // quietly clear it.
+            if (!applyFloodScope(_floodScopeRegion.value?.takeIf { it.isNotBlank() })) {
+                _floodScopeStuck.value = scoped
+                log("Flood scope restore failed — radio may still be scoped to #$scoped")
+            }
+        }
+    }
+
+    private suspend fun rawChannelSend(
+        channelIndex: Int,
+        text: String,
+        timestampSeconds: Long,
     ): Boolean {
         val ev = sendAndAwait(
             Frames.sendChannelTextMessage(channelIndex, text, timestampSeconds),
@@ -1068,13 +1135,173 @@ class MeshCoreEngine(
         sendAndAwait(Frames.getAutoAddConfig()) { it is DeviceEvent.AutoAddConfig }
     }
 
-    /** Set (or clear, with null/blank) the flood scope region tag. */
-    suspend fun setFloodScope(region: String?): Boolean {
+    /**
+     * Set (or clear, with null/blank) the global flood scope region tag,
+     * and remember it as the app's global scope. A name that isn't a
+     * canonical region ([Regions.canonical]) is refused rather than sent
+     * — the radio would hash whatever it was given and scope traffic to
+     * a region nobody else is using.
+     */
+    suspend fun setFloodScope(region: String?): Boolean = scopedSendMutex.withLock {
+        val wanted = region?.takeIf { it.isNotBlank() }
+        val canonical = if (wanted == null) {
+            ""
+        } else {
+            Regions.canonical(wanted) ?: return@withLock false
+        }
+        val ok = applyFloodScope(canonical.ifEmpty { null })
+        if (ok) _floodScopeRegion.value = canonical
+        ok
+    }
+
+    /**
+     * Push a scope to the radio without touching the remembered global
+     * value — the primitive behind both [setFloodScope] and the
+     * per-channel scope window in [sendChannelMessage].
+     */
+    private suspend fun applyFloodScope(region: String?): Boolean {
         val scope = region?.takeIf { it.isNotBlank() }
             ?.let { ChannelCrypto.floodScopeHash(crypto, it) }
         val ok = sendAndAwait(Frames.setFloodScope(scope)) { it is DeviceEvent.Ok } is DeviceEvent.Ok
-        if (ok) _floodScopeRegion.value = region?.takeIf { it.isNotBlank() } ?: ""
+        if (ok) _floodScopeStuck.value = null
         return ok
+    }
+
+    // ------------------------------------------------------------------
+    // Regions (PARITY §8)
+    // ------------------------------------------------------------------
+
+    /**
+     * Broadcast a discovery request and collect the public-key prefixes
+     * that answer within [timeoutMs].
+     *
+     * A prefix is NOT an identity (PARITY §12): callers match it against
+     * contacts they already hold, and an ambiguous match stays
+     * ambiguous. Nothing about a reply is authenticated — anyone in
+     * range can answer with a prefix they don't own.
+     */
+    suspend fun discoverNodePrefixes(
+        nodeType: Int = Codes.ADV_TYPE_REPEATER,
+        timeoutMs: Long = 10_000,
+    ): Set<String> = coroutineScope {
+        val tag = nextControlTag()
+        val found = CoroutineChannel<String>(CoroutineChannel.UNLIMITED)
+        // Subscribe before sending: a 0-hop neighbour can answer before
+        // send() has even returned.
+        val pump = launch(start = CoroutineStart.UNDISPATCHED) {
+            events.collect { ev ->
+                if (ev is DeviceEvent.ControlData) {
+                    NodeDiscovery.parseDiscoveryResponse(ev.payload, tag, nodeType)
+                        ?.let { found.trySend(it) }
+                }
+            }
+        }
+        sendOnly(
+            Frames.sendControlData(
+                Frames.discoveryRequestPayload(tag, typeMask = 1 shl nodeType),
+            ),
+        )
+        val prefixes = LinkedHashSet<String>()
+        withTimeoutOrNull(timeoutMs) {
+            for (prefix in found) {
+                prefixes += prefix
+                // A hostile node can answer at line rate; stop listening
+                // rather than let one flood the picker.
+                if (prefixes.size >= MAX_DISCOVERY_REPLIES) break
+            }
+        }
+        pump.cancel()
+        found.close()
+        prefixes
+    }
+
+    /**
+     * Ask a repeater for its region list (CMD_SEND_ANON_REQ type 0x01).
+     *
+     * Returns the canonical names it answered with; an empty list means
+     * "answered, no regions" and null means "never answered" — the two
+     * must not be shown the same way.
+     *
+     * [replyPath]/[replyHopCount] describe the route the *answer* takes;
+     * pass the contact's stored path so the reply comes back the way the
+     * request went. Unlike the reference client we never rewrite the
+     * contact's stored path to force a direct reply: clobbering a pinned
+     * route (and restoring it afterwards, if the app is still alive) is
+     * a worse failure than a request that goes unanswered.
+     */
+    suspend fun requestRegions(
+        repeaterPubKey: ByteArray,
+        replyPath: ByteArray = ByteArray(0),
+        replyHopCount: Int = 0,
+        timeoutMs: Long = 30_000,
+    ): List<String>? = coroutineScope {
+        val width = _deviceInfo.value?.pathHashByteWidth ?: 1
+        val replies = CoroutineChannel<ByteArray>(CoroutineChannel.UNLIMITED)
+        // Buffer binary responses from before the send: the correlation
+        // tag only becomes known when the radio's Sent receipt arrives,
+        // and a fast reply must not be lost in that gap.
+        val pump = launch(start = CoroutineStart.UNDISPATCHED) {
+            events.collect { if (it is DeviceEvent.BinaryResponse) replies.trySend(it.payload) }
+        }
+        val sent = sendAndAwait(
+            Frames.sendAnonRequest(
+                repeaterPubKey,
+                Codes.ANON_REQ_TYPE_REGIONS,
+                replyPath,
+                replyHopCount,
+                width,
+            ),
+            timeoutMs = 10_000,
+        ) { it is DeviceEvent.Sent } as? DeviceEvent.Sent
+
+        val body = if (sent == null) {
+            null
+        } else {
+            // The radio's own airtime estimate is the best wait; bound it.
+            val wait = (sent.timeoutMs + REGION_REPLY_GRACE_MS).coerceIn(5_000, timeoutMs)
+            withTimeoutOrNull(wait) {
+                var match: ByteArray? = null
+                for (payload in replies) {
+                    if (binaryResponseTag(payload) == sent.ackHash) {
+                        match = binaryResponseBody(payload)
+                        break
+                    }
+                }
+                match
+            }
+        }
+        pump.cancel()
+        replies.close()
+        when {
+            sent == null -> null
+            body == null -> null
+            else -> Regions.parseDiscoveryResponse(body)
+        }
+    }
+
+    /** u32 tag echoed in a PUSH_CODE_BINARY_RESPONSE, or null if short. */
+    private fun binaryResponseTag(payload: ByteArray): Long? {
+        if (payload.size < Codes.BINARY_RESPONSE_BODY_OFFSET) return null
+        val r = BufferReader(payload)
+        r.readBytes(Codes.BINARY_RESPONSE_TAG_OFFSET)
+        return r.readUInt32LE()
+    }
+
+    private fun binaryResponseBody(payload: ByteArray): ByteArray =
+        if (payload.size <= Codes.BINARY_RESPONSE_BODY_OFFSET) {
+            ByteArray(0)
+        } else {
+            payload.copyOfRange(Codes.BINARY_RESPONSE_BODY_OFFSET, payload.size)
+        }
+
+    /**
+     * Non-zero, non-repeating-within-a-session correlation tag. It ties
+     * our own request to its replies; it is not a secret and not
+     * authentication — anyone who hears the request can echo the tag.
+     */
+    private fun nextControlTag(): Long {
+        controlTagCounter = if (controlTagCounter >= 0xFFFF) 1 else controlTagCounter + 1
+        return ((nowSeconds() shl 16) or controlTagCounter.toLong()) and 0xFFFFFFFFL
     }
 
     /** Re-query DEVICE_INFO (fw version, slot counts, path-hash width). */
@@ -1122,6 +1349,12 @@ class MeshCoreEngine(
 
         /** Hard ceiling on tracked contacts, independent of firmware. */
         private const val MAX_TRACKED_CONTACTS = 1024
+
+        /** Cap on responders collected from one discovery broadcast. */
+        private const val MAX_DISCOVERY_REPLIES = 64
+
+        /** Slack added to the radio's airtime estimate for a region reply. */
+        private const val REGION_REPLY_GRACE_MS = 2_000L
         private const val DEFAULT_MAX_CHANNELS = 8
 
         /**

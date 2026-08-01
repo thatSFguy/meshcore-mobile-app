@@ -20,6 +20,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.yield
 import kotlin.test.Test
+import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
@@ -358,6 +359,246 @@ class MeshCoreEngineTest {
 
         assertEquals(0, advertEvents)
         collector.cancel()
+    }
+
+    // ------------------------------------------------------------------
+    // Regions / flood scope (PARITY §8)
+    // ------------------------------------------------------------------
+
+    /** SET_FLOOD_SCOPE payloads in send order; null = "cleared". */
+    private fun FakeRadio.scopeFrames(): List<ByteArray?> =
+        sentFrames.filter { it[0].toInt() and 0xFF == Codes.CMD_SET_FLOOD_SCOPE }
+            .map { if (it.size > 2) it.copyOfRange(2, it.size) else null }
+
+    /**
+     * Scope + channel-send frames in order. Background syncs (battery,
+     * custom vars) keep running after the handshake and would otherwise
+     * show up between them; they are unrelated to the scope window.
+     */
+    private fun FakeRadio.scopeAndSendKinds(): List<Int> =
+        sentFrames.map { it[0].toInt() and 0xFF }
+            .filter { it == Codes.CMD_SET_FLOOD_SCOPE || it == Codes.CMD_SEND_CHANNEL_TXT_MSG }
+
+    @Test
+    fun regionScopedChannelSendWrapsTheSendInAScopeWindow() = runTest {
+        val radio = FakeRadio()
+        radio.responder = standardResponder(radio)
+        val engine = MeshCoreEngine(backgroundScope, crypto, { now })
+        engine.attach(radio)
+        radio.connect()
+        engine.awaitReady()
+        radio.sentFrames.clear()
+
+        assertTrue(engine.sendChannelMessage(0, "hello", now, region = "bayarea"))
+
+        // Scope set, message sent, scope released — in that order. The
+        // radio must never be left holding a region after the send.
+        assertEquals(
+            listOf(
+                Codes.CMD_SET_FLOOD_SCOPE,
+                Codes.CMD_SEND_CHANNEL_TXT_MSG,
+                Codes.CMD_SET_FLOOD_SCOPE,
+            ),
+            radio.scopeAndSendKinds(),
+        )
+        val scopes = radio.scopeFrames()
+        assertEquals(2, scopes.size)
+        assertContentEquals(ChannelCrypto.floodScopeHash(crypto, "bayarea"), scopes[0])
+        assertEquals(null, scopes[1])
+    }
+
+    @Test
+    fun anUnscopedChannelSendNeverTouchesTheFloodScope() = runTest {
+        // Plain channels must keep working against firmware that predates
+        // CMD_SET_FLOOD_SCOPE.
+        val radio = FakeRadio()
+        radio.responder = standardResponder(radio)
+        val engine = MeshCoreEngine(backgroundScope, crypto, { now })
+        engine.attach(radio)
+        radio.connect()
+        engine.awaitReady()
+        radio.sentFrames.clear()
+
+        assertTrue(engine.sendChannelMessage(0, "hello", now))
+        assertTrue(engine.sendChannelMessage(0, "hello", now, region = "  "))
+        assertEquals(listOf(Codes.CMD_SEND_CHANNEL_TXT_MSG, Codes.CMD_SEND_CHANNEL_TXT_MSG), radio.scopeAndSendKinds())
+    }
+
+    @Test
+    fun aScopedSendRestoresTheUsersGlobalScopeRatherThanClearingIt() = runTest {
+        // The Settings screen owns the global scope; a per-channel send
+        // must put it back, not quietly blank it.
+        val radio = FakeRadio()
+        radio.responder = standardResponder(radio)
+        val engine = MeshCoreEngine(backgroundScope, crypto, { now })
+        engine.attach(radio)
+        radio.connect()
+        engine.awaitReady()
+
+        assertTrue(engine.setFloodScope("socal"))
+        radio.sentFrames.clear()
+
+        assertTrue(engine.sendChannelMessage(0, "hello", now, region = "bayarea"))
+        val scopes = radio.scopeFrames()
+        assertContentEquals(ChannelCrypto.floodScopeHash(crypto, "bayarea"), scopes[0])
+        assertContentEquals(ChannelCrypto.floodScopeHash(crypto, "socal"), scopes[1])
+        assertEquals("socal", engine.floodScopeRegion.value)
+    }
+
+    @Test
+    fun aRefusedScopeAbortsTheSendInsteadOfUsingTheWrongRegion() = runTest {
+        val radio = FakeRadio()
+        radio.responder = { frame ->
+            when (frame[0].toInt() and 0xFF) {
+                Codes.CMD_SET_FLOOD_SCOPE -> listOf(byteArrayOf(Codes.RESP_CODE_ERR.toByte(), 1))
+                else -> standardResponder(radio)(frame)
+            }
+        }
+        val engine = MeshCoreEngine(backgroundScope, crypto, { now })
+        engine.attach(radio)
+        radio.connect()
+        engine.awaitReady()
+        radio.sentFrames.clear()
+
+        // Sending anyway would put the message on whatever scope the
+        // radio happens to hold — a different region, silently.
+        assertTrue(!engine.sendChannelMessage(0, "hello", now, region = "bayarea"))
+        assertTrue(radio.scopeAndSendKinds().none { it == Codes.CMD_SEND_CHANNEL_TXT_MSG })
+    }
+
+    @Test
+    fun setFloodScopeRefusesANameThatIsNotARegion() = runTest {
+        val radio = FakeRadio()
+        radio.responder = standardResponder(radio)
+        val engine = MeshCoreEngine(backgroundScope, crypto, { now })
+        engine.attach(radio)
+        radio.connect()
+        engine.awaitReady()
+        radio.sentFrames.clear()
+
+        // Hashing junk would scope traffic to a region nobody uses.
+        assertTrue(!engine.setFloodScope("bay area"))
+        assertTrue(!engine.setFloodScope("b".repeat(31)))
+        assertTrue(radio.scopeFrames().isEmpty())
+
+        // "#BayArea" is the same region as "bayarea" once canonicalised.
+        assertTrue(engine.setFloodScope("#BayArea"))
+        assertEquals("bayarea", engine.floodScopeRegion.value)
+        assertContentEquals(
+            ChannelCrypto.floodScopeHash(crypto, "bayarea"),
+            radio.scopeFrames().last(),
+        )
+    }
+
+    @Test
+    fun requestRegionsCorrelatesTheReplyByTag() = runTest {
+        val radio = FakeRadio()
+        val ackHash = 0x0BADF00DL
+        radio.responder = { frame ->
+            when (frame[0].toInt() and 0xFF) {
+                Codes.CMD_SEND_ANON_REQ -> {
+                    val sent = BufferWriter().apply {
+                        writeByte(Codes.RESP_CODE_SENT)
+                        writeByte(1)
+                        writeUInt32LE(ackHash)
+                        writeUInt32LE(4000L)
+                    }.toBytes()
+                    // A reply for someone else's request first — it must
+                    // not be mistaken for ours.
+                    val decoy = BufferWriter().apply {
+                        writeByte(Codes.PUSH_CODE_BINARY_RESPONSE)
+                        writeByte(0)
+                        writeUInt32LE(0xDEADBEEFL)
+                        writeUInt32LE(0)
+                        writeString("elsewhere")
+                    }.toBytes()
+                    val reply = BufferWriter().apply {
+                        writeByte(Codes.PUSH_CODE_BINARY_RESPONSE)
+                        writeByte(0)
+                        writeUInt32LE(ackHash)
+                        writeUInt32LE(0) // 4-byte body header
+                        writeString("bayarea,socal,BAD NAME")
+                    }.toBytes()
+                    listOf(sent, decoy, reply)
+                }
+                else -> standardResponder(radio)(frame)
+            }
+        }
+        val engine = MeshCoreEngine(backgroundScope, crypto, { now })
+        engine.attach(radio)
+        radio.connect()
+        engine.awaitReady()
+
+        val regions = engine.requestRegions(peerKey)
+        assertEquals(listOf("bayarea", "socal"), regions)
+
+        // The request must carry the anon req type and a 0-hop reply path.
+        val frame = radio.sentFrames.last { it[0].toInt() and 0xFF == Codes.CMD_SEND_ANON_REQ }
+        assertEquals(Codes.ANON_REQ_TYPE_REGIONS, frame[33].toInt() and 0xFF)
+        assertEquals(0, frame[34].toInt() and 0xFF)
+    }
+
+    @Test
+    fun requestRegionsReturnsNullWhenTheNodeNeverAnswers() = runTest {
+        // "no answer" and "answered with nothing" are different facts and
+        // the UI has to be able to tell them apart.
+        val radio = FakeRadio()
+        radio.responder = { frame ->
+            when (frame[0].toInt() and 0xFF) {
+                Codes.CMD_SEND_ANON_REQ -> listOf(
+                    BufferWriter().apply {
+                        writeByte(Codes.RESP_CODE_SENT)
+                        writeByte(1)
+                        writeUInt32LE(1L)
+                        writeUInt32LE(1000L)
+                    }.toBytes(),
+                )
+                else -> standardResponder(radio)(frame)
+            }
+        }
+        val engine = MeshCoreEngine(backgroundScope, crypto, { now })
+        engine.attach(radio)
+        radio.connect()
+        engine.awaitReady()
+
+        assertEquals(null, engine.requestRegions(peerKey))
+    }
+
+    @Test
+    fun discoveryCollectsOnlyRepliesCarryingOurOwnTag() = runTest {
+        val radio = FakeRadio()
+        radio.responder = { frame ->
+            when (frame[0].toInt() and 0xFF) {
+                Codes.CMD_SEND_CONTROL_DATA -> {
+                    // Echo the tag the engine chose back in two responses,
+                    // plus one carrying a stranger's tag.
+                    val r = io.github.thatsfguy.meshcore.protocol.BufferReader(frame)
+                    r.skipBytes(3)
+                    val tag = r.readUInt32LE()
+                    fun resp(t: Long, prefix: ByteArray) = BufferWriter().apply {
+                        writeByte(Codes.PUSH_CODE_CONTROL_DATA)
+                        writeByte(10); writeByte(0xB0); writeByte(0)
+                        writeByte((Codes.CONTROL_SUBTYPE_DISCOVER_RESP shl 4) or Codes.ADV_TYPE_REPEATER)
+                        writeByte(12)
+                        writeUInt32LE(t)
+                        writeBytes(prefix)
+                    }.toBytes()
+                    listOf(
+                        resp(tag, byteArrayOf(0xAA.toByte(), 0xBB.toByte())),
+                        resp(tag + 1, byteArrayOf(0x11, 0x22)),
+                        resp(tag, byteArrayOf(0xCC.toByte(), 0xDD.toByte())),
+                    )
+                }
+                else -> standardResponder(radio)(frame)
+            }
+        }
+        val engine = MeshCoreEngine(backgroundScope, crypto, { now })
+        engine.attach(radio)
+        radio.connect()
+        engine.awaitReady()
+
+        val prefixes = engine.discoverNodePrefixes()
+        assertEquals(setOf("aabb", "ccdd"), prefixes)
     }
 
     @Test

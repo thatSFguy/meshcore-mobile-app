@@ -159,6 +159,7 @@ fun ConversationScreen(
     var muted by remember(peerKey) {
         mutableStateOf(peerKey.toIntOrNull()?.let { vm.prefs.isChannelMuted(it) } ?: false)
     }
+    val channelRegions by vm.channelRegions.collectAsState()
     val menu = if (isChannel) {
         listOf(
             MenuAction("Mute notifications", checked = muted) {
@@ -186,7 +187,15 @@ fun ConversationScreen(
                 title = title,
                 vm = vm,
                 nav = nav,
-                subtitle = if (isChannel) "Obfuscated, not secure" else null,
+                // A scoped channel goes out on a narrower flood, which
+                // changes who carries it — worth seeing before sending,
+                // without diluting the "not secure" part.
+                subtitle = if (isChannel) {
+                    val region = peerKey.toIntOrNull()?.let { channelRegions[it] }
+                    if (region != null) "Obfuscated, not secure · #$region" else "Obfuscated, not secure"
+                } else {
+                    null
+                },
                 menuActions = menu,
             )
         },

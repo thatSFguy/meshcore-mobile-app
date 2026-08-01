@@ -85,7 +85,14 @@ fun RepeaterAdminScreen(vm: MeshCoreViewModel, nav: NavController, keyHex: Strin
         passwordPrefilled = password.isNotEmpty()
     }
 
-    var tab by remember { mutableIntStateOf(0) } // 0 Status, 1 Settings, 2 Console, 3 Help
+    // 0 Status, 1 Settings, 2 Regions, 3 Console, 4 Help. Regions only
+    // exist on repeaters — room servers don't run the `region` CLI.
+    val tabs = if (isRoom) {
+        listOf("Status", "Settings", "Console", "Help")
+    } else {
+        listOf("Status", "Settings", "Regions", "Console", "Help")
+    }
+    var tab by remember(isRoom) { mutableIntStateOf(0) }
     var consolePrefill by remember { mutableStateOf("") }
 
     Scaffold(
@@ -153,23 +160,26 @@ fun RepeaterAdminScreen(vm: MeshCoreViewModel, nav: NavController, keyHex: Strin
             SingleChoiceSegmentedButtonRow(
                 Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
             ) {
-                for ((i, label) in listOf("Status", "Settings", "Console", "Help").withIndex()) {
+                for ((i, label) in tabs.withIndex()) {
                     SegmentedButton(
                         selected = tab == i,
                         onClick = { tab = i },
-                        shape = SegmentedButtonDefaults.itemShape(index = i, count = 4),
+                        shape = SegmentedButtonDefaults.itemShape(index = i, count = tabs.size),
                     ) { Text(label, maxLines = 1, softWrap = false) }
                 }
             }
 
-            when (tab) {
-                0 -> androidx.compose.foundation.layout.Box(Modifier.weight(1f)) {
+            when (tabs[tab]) {
+                "Status" -> androidx.compose.foundation.layout.Box(Modifier.weight(1f)) {
                     RepeaterStatusPanel(vm, keyHex)
                 }
-                1 -> androidx.compose.foundation.layout.Box(Modifier.weight(1f)) {
+                "Settings" -> androidx.compose.foundation.layout.Box(Modifier.weight(1f)) {
                     RemoteSettingsForm(vm, keyHex, contact, role, isAdmin)
                 }
-                2 -> CliConsole(vm, keyHex, messages, prefill = consolePrefill) {
+                "Regions" -> androidx.compose.foundation.layout.Box(Modifier.weight(1f)) {
+                    RepeaterRegionsPanel(vm, keyHex, isAdmin)
+                }
+                "Console" -> CliConsole(vm, keyHex, messages, prefill = consolePrefill) {
                     consolePrefill = ""
                 }
                 else -> androidx.compose.foundation.layout.Box(Modifier.weight(1f)) {
@@ -177,7 +187,7 @@ fun RepeaterAdminScreen(vm: MeshCoreViewModel, nav: NavController, keyHex: Strin
                         // Land the command in the console rather than
                         // running it — plenty of these are destructive.
                         consolePrefill = usage
-                        tab = 2
+                        tab = tabs.indexOf("Console")
                     }
                 }
             }

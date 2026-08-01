@@ -117,8 +117,34 @@ Status key: ✅ have · ◐ partial · ❌ missing · ⛔ out of scope
 
 | Their surface | Us | Status | Notes |
 |---|---|---|---|
-| `AddRegionScreen`, `RegionSelectorScreen`, `DiscoverRegionsScreen` | Settings → Mesh policies → flood scope | ◐ | **Work item.** We set a scope; they manage named regions. |
-| `RepeaterAddRegionScreen`, `RepeaterManageRegionsScreen`, `RepeaterDefaultRegionScopeScreen` | — | ❌ | **Work item.** Region management on a repeater. |
+| `AddRegionScreen`, `RegionSelectorScreen`, `DiscoverRegionsScreen` | Settings → Mesh policies → Regions; per-channel picker in the channel editor | ✅ | Closed 2026-08-01. Named region list, per-channel scope, and discovery over `CMD_SEND_CONTROL_DATA` + `CMD_SEND_ANON_REQ` (type 0x01). ⚠ Discovery never rewrites a contact's stored path — see below. |
+| `RepeaterAddRegionScreen`, `RepeaterManageRegionsScreen`, `RepeaterDefaultRegionScopeScreen` | Repeater admin → Regions tab | ✅ | Closed 2026-08-01. `region get/put/remove/allowf/denyf/default/home/save` behind validation and confirmations; role-gated. `region load` deliberately not offered. |
+
+Notes on this block:
+
+- **A region is a routing tag, not a boundary.** The radio hashes the name
+  (`SHA256("#name")[0..15]`) and floods only matching packets. Nothing about it is
+  authenticated and nothing about it is private — the UI says so on every surface.
+- **The flood scope is global radio state**, so a region-scoped channel send is
+  set-scope → send → restore, held under one lock. Unscoped sends take the same lock:
+  otherwise one could slip inside another channel's scope window and flood into a region
+  it was never meant for. A refused scope aborts the send rather than putting the message
+  on whatever scope the radio happens to hold, and a failed restore is surfaced
+  (`floodScopeStuck`) instead of leaving the radio quietly scoped.
+- **Restores put the user's global scope back**, not blank — Settings owns that value.
+- **⚠ Discovery does not touch stored paths.** The reference client rewrites the target
+  repeater's contact path to force a direct reply and restores it afterwards; we send the
+  contact's existing path as the reply path instead. Clobbering a pinned route — and
+  leaving it clobbered if the app dies mid-request — is a worse failure than a query that
+  goes unanswered.
+- **⚠ Nothing discovered is imported.** Region names arrive from unauthenticated nodes,
+  so they are canonicalised, capped, and shown for the user to choose from.
+- **⚠ Names are validated before they reach a CLI line.** `region load` puts the node into
+  a multi-line mode where each following line is a region name, which makes whitespace in
+  a name a command-injection vector rather than a cosmetic problem. `region load` itself
+  isn't offered: a one-shot CLI message would strand the node in that mode.
+- **`region save` is never automatic.** Region edits live in RAM until it runs; the panel
+  says so rather than silently making an experiment permanent.
 
 ## 9. Map & tools
 
@@ -169,6 +195,10 @@ These are not gaps to close by copying:
   saying so.
 - **Diagnostics are off by default and redact secrets** (`set prv.key`, passwords, long
   hex) before a line is stored.
+- **Region discovery leaves stored paths alone.** A pinned route is user state; we read it
+  to build the reply path rather than overwriting it and hoping to restore it.
+- **Regions are routing, not privacy.** Scoping a channel changes which repeaters carry
+  it, not who can read it — and every region surface says exactly that.
 
 ## 13. Suggested order
 
@@ -176,7 +206,9 @@ Grouped so each block is shippable:
 
 1. ~~**Finish what's started** — channel QR export, per-contact telemetry view, position
    picker on a map, clock drift display.~~ **Done 2026-08-01.**
-2. **Admin depth** — access control, command help, repeater regions, noise floor.
+2. ~~**Admin depth** — access control, command help, repeater regions, noise floor.~~
+   **Done 2026-08-01**, except `AccessControlAddUserScreen` (§6, blocked on a node that
+   supports ACLs).
 3. **Safety & data** — config export/import (secret-safe), purge data, retention,
    blocked senders (by key).
 4. **Onboarding & polish** — setup flow, radio presets, About/changelog, tools hub.

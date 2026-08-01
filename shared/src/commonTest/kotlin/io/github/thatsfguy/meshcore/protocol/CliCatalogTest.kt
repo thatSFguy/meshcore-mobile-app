@@ -35,6 +35,12 @@ class CliCatalogTest {
         // bridge family (repeater serial bridge)
         "bridge.enabled", "bridge.type", "bridge.source", "bridge.channel",
         "bridge.baud", "bridge.delay", "bridge.secret",
+        // region family (PARITY §8). Deliberately absent: bare `region`
+        // (serial-only on the firmware) and `region load` (a multi-line
+        // mode — a one-shot CLI message would strand the node in it).
+        "region get", "region put", "region remove", "region allowf", "region denyf",
+        "region home", "region default", "region list allowed", "region list denied",
+        "region save",
     )
 
     @Test

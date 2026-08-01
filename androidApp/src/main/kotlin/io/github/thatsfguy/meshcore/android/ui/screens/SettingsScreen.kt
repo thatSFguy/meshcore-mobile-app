@@ -52,6 +52,7 @@ import io.github.thatsfguy.meshcore.android.storage.ChannelEntity
 import io.github.thatsfguy.meshcore.android.ui.MeshCoreViewModel
 import io.github.thatsfguy.meshcore.engine.EngineState
 import io.github.thatsfguy.meshcore.protocol.Codes
+import io.github.thatsfguy.meshcore.protocol.Regions
 import java.text.DateFormat
 import java.util.Date
 
@@ -506,8 +507,13 @@ private fun PoliciesSection(vm: MeshCoreViewModel) {
     }
 
     Spacer(Modifier.height(8.dp))
-    Text("Flood scope region", style = MaterialTheme.typography.labelLarge)
-    HintText("Restricts flood routing to a named region (#region tag). Blank = global. Radio state can't be read back — this shows the last value set from this app.")
+    Text("Global flood scope", style = MaterialTheme.typography.labelLarge)
+    HintText(
+        "Restricts flood routing to a named region for everything this radio sends. " +
+            "Blank = global. Per-channel regions (below) override it for the duration of " +
+            "each send. Radio state can't be read back — this shows the last value set " +
+            "from this app.",
+    )
     val currentRegion by vm.floodScopeRegion.collectAsState()
     var region by remember(currentRegion) { mutableStateOf(currentRegion ?: "") }
     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -516,16 +522,22 @@ private fun PoliciesSection(vm: MeshCoreViewModel) {
             onValueChange = { region = it },
             label = { Text("Region (e.g. bayarea)") },
             singleLine = true,
+            isError = region.isNotBlank() && !Regions.isValid(region),
             modifier = Modifier.weight(1f),
         )
-        TextButton(onClick = { vm.setFloodScope(region.trim()) }, enabled = region.isNotBlank()) {
-            Text("Set")
-        }
+        TextButton(
+            onClick = { vm.setFloodScope(region.trim()) },
+            enabled = Regions.isValid(region),
+        ) { Text("Set") }
         TextButton(onClick = {
             region = ""
             vm.setFloodScope(null)
         }) { Text("Clear") }
     }
+
+    Spacer(Modifier.height(12.dp))
+    Text("Regions", style = MaterialTheme.typography.labelLarge)
+    RegionsSection(vm)
 }
 
 @Composable

@@ -1,0 +1,119 @@
+package io.github.thatsfguy.meshcore.android.storage
+
+import androidx.test.core.app.ApplicationProvider
+import io.github.thatsfguy.meshcore.protocol.Regions
+import org.junit.Before
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertNull
+
+/**
+ * Region storage (PARITY §8). Two behaviours carry weight:
+ *
+ *  - everything stored is canonical, including names that arrived from
+ *    a repeater's discovery reply;
+ *  - forgetting a region clears it from the channels that used it, so a
+ *    channel can never keep scoping its traffic to a name the user
+ *    believes is gone.
+ */
+@RunWith(RobolectricTestRunner::class)
+class RegionPreferencesTest {
+
+    private lateinit var prefs: Preferences
+
+    @Before
+    fun setUp() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        context.getSharedPreferences("meshcore_prefs", android.content.Context.MODE_PRIVATE)
+            .edit().clear().commit()
+        prefs = Preferences(context)
+    }
+
+    @Test
+    fun regionsStartEmpty() {
+        assertEquals(emptyList(), prefs.regions)
+        assertNull(prefs.channelRegion(0))
+        assertEquals(emptyMap(), prefs.channelRegions())
+    }
+
+    @Test
+    fun addingCanonicalisesAndSorts() {
+        assertEquals("bayarea", prefs.addRegion("#BayArea"))
+        assertEquals("socal", prefs.addRegion("  socal  "))
+        assertEquals("alpha", prefs.addRegion("alpha"))
+        assertEquals(listOf("alpha", "bayarea", "socal"), prefs.regions)
+    }
+
+    @Test
+    fun addingTheSameRegionTwiceKeepsOneCopy() {
+        prefs.addRegion("bayarea")
+        prefs.addRegion("#bayarea")
+        prefs.addRegion("BAYAREA")
+        assertEquals(listOf("bayarea"), prefs.regions)
+    }
+
+    @Test
+    fun aNameThatIsNotARegionIsRefusedNotStored() {
+        for (bad in listOf("bay area", "bay/area", "", "#", "b".repeat(31), "bay\nregion save")) {
+            assertNull(prefs.addRegion(bad), "stored: $bad")
+        }
+        assertEquals(emptyList(), prefs.regions)
+    }
+
+    @Test
+    fun channelRegionsRoundTripAndCanonicalise() {
+        prefs.setChannelRegion(2, "#BayArea")
+        assertEquals("bayarea", prefs.channelRegion(2))
+        assertEquals(mapOf(2 to "bayarea"), prefs.channelRegions())
+
+        prefs.setChannelRegion(2, null)
+        assertNull(prefs.channelRegion(2))
+        assertEquals(emptyMap(), prefs.channelRegions())
+    }
+
+    @Test
+    fun anInvalidChannelRegionIsTreatedAsUnscoped() {
+        // Never send a scope we can't name: unscoped is the safe default.
+        prefs.setChannelRegion(1, "bay area")
+        assertNull(prefs.channelRegion(1))
+    }
+
+    @Test
+    fun forgettingARegionUnscopesTheChannelsThatUsedIt() {
+        prefs.addRegion("bayarea")
+        prefs.addRegion("socal")
+        prefs.setChannelRegion(0, "bayarea")
+        prefs.setChannelRegion(1, "bayarea")
+        prefs.setChannelRegion(3, "socal")
+
+        prefs.removeRegion("#BayArea")
+
+        assertEquals(listOf("socal"), prefs.regions)
+        // The two channels fall back to unscoped (global flood)…
+        assertNull(prefs.channelRegion(0))
+        assertNull(prefs.channelRegion(1))
+        // …and the unrelated one is untouched.
+        assertEquals("socal", prefs.channelRegion(3))
+    }
+
+    @Test
+    fun forgettingSomethingThatIsNotARegionChangesNothing() {
+        prefs.addRegion("bayarea")
+        prefs.setChannelRegion(0, "bayarea")
+        prefs.removeRegion("bay area")
+        assertEquals(listOf("bayarea"), prefs.regions)
+        assertEquals("bayarea", prefs.channelRegion(0))
+    }
+
+    @Test
+    fun storedNamesSurviveARereadAndStayValid() {
+        prefs.regions = listOf("socal", "bayarea", "bay area", "", "SIERRA")
+        val stored = prefs.regions
+        assertEquals(listOf("bayarea", "sierra", "socal"), stored)
+        for (name in stored) {
+            assertEquals(name, Regions.canonical(name), "stored a non-canonical name")
+        }
+    }
+}

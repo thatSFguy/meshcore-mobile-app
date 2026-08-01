@@ -18,7 +18,9 @@ Feature work is now driven by **[`PARITY.md`](PARITY.md)** — the mainstream Me
 Android app is the agreed floor for the feature set, with an explicit out-of-scope list
 and the places we deliberately keep our own (stricter) handling. **Read PARITY.md before
 picking up feature work**; it carries per-row status, dates, and one blocked item.
-Blocks 1 and most of 2 are done; **regions (§8) is the next unit of work.**
+Blocks 1 and 2 are done (regions §8 closed 2026-08-01, except the blocked ACL-write row);
+**block 3 — safety & data (config export/import, purge, retention, blocked senders by
+key) — is the next unit of work.**
 
 Layout:
 - **`shared/`** — KMP. `protocol/` (Codes, guarded Buffers, Frames, ResponseParser,
@@ -118,9 +120,9 @@ channels as obfuscated (AES-ECB + 2-byte MAC), not secure.
   `adb pull` + a strings pass if more detail is needed.
 ## Suggested next steps
 
-1. **Work `PARITY.md` §8 (regions)** — add/manage/discover regions and the repeater's
-   default region scope. We expose flood scope as a single setting today. No security
-   landmines in this one, just four screens' worth of work.
+1. **Work `PARITY.md` block 3 (safety & data)** — config export/import (must never export
+   secrets in the clear), purge-everything-local, message retention, blocked senders
+   *by key*. The export/import row is the one with real security weight.
 2. Notifications for inbound messages (service already has the channel; wire
    MessageRepository events → NotificationCompat).
 3. iOS Phase 2 — `IosBleTransport` (CoreBluetooth port of the sibling's), CryptoKit

@@ -25,7 +25,9 @@ import io.github.thatsfguy.meshcore.model.DeviceInfo
 import io.github.thatsfguy.meshcore.model.SelfInfo
 import io.github.thatsfguy.meshcore.protocol.ChannelCrypto
 import io.github.thatsfguy.meshcore.protocol.Codes
+import io.github.thatsfguy.meshcore.protocol.NodeDiscovery
 import io.github.thatsfguy.meshcore.protocol.Reactions
+import io.github.thatsfguy.meshcore.protocol.Regions
 import io.github.thatsfguy.meshcore.protocol.ShareUri
 import io.github.thatsfguy.meshcore.transport.ConnectionMemory
 import io.github.thatsfguy.meshcore.transport.SavedNode
@@ -38,6 +40,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import org.json.JSONObject
@@ -384,7 +387,10 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
             val contentKey = svc.engine.channelContentKey(channelIndex, ts, selfName, text)
             svc.repository.recordOutgoingChannel(channelIndex, selfName, text, ts, contentKey)
             val accepted = runCatching {
-                svc.engine.sendChannelMessage(channelIndex, text, ts)
+                // A region-scoped channel sends inside a flood-scope
+                // window; the engine serialises those so one channel's
+                // message can never inherit another's region.
+                svc.engine.sendChannelMessage(channelIndex, text, ts, prefs.channelRegion(channelIndex))
             }.getOrDefault(false)
             svc.repository.markChannelResult(contentKey, accepted)
             if (!accepted) transientMessage.value = "Radio did not accept the message"
@@ -470,7 +476,7 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
                     svc.repository.noteOwnReaction(
                         svc.engine.channelContentKey(idx, ts, selfName, wire),
                     )
-                    svc.engine.sendChannelMessage(idx, wire, ts)
+                    svc.engine.sendChannelMessage(idx, wire, ts, prefs.channelRegion(idx))
                 } else {
                     val key = hexToBytesOrNull(target.peerKey) ?: return@runCatching false
                     svc.engine.sendDirectMessage(key, wire) != null
@@ -917,10 +923,99 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
     fun setAutoAddConfig(flags: Int) =
         deviceAction("Auto-add policy updated") { it.setAutoAddConfig(flags) }
 
-    fun setFloodScope(region: String?) =
+    fun setFloodScope(region: String?) {
+        if (!region.isNullOrBlank() && !Regions.isValid(region)) {
+            transientMessage.value =
+                "Region names are lowercase letters, digits and hyphens (max ${Regions.MAX_NAME_LENGTH})"
+            return
+        }
         deviceAction(
-            if (region.isNullOrBlank()) "Flood scope cleared" else "Flood scope set to #${region.removePrefix("#")}",
+            if (region.isNullOrBlank()) {
+                "Flood scope cleared"
+            } else {
+                "Flood scope set to #${Regions.canonical(region)}"
+            },
         ) { it.setFloodScope(region) }
+    }
+
+    /**
+     * The region the radio may still be scoped to after a failed
+     * restore. Non-null means every flood packet may be carrying it.
+     */
+    val floodScopeStuck: StateFlow<String?> = _service.flatMapLatest {
+        it?.engine?.floodScopeStuck ?: flowOf(null)
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    // --- Regions (PARITY §8) ---
+
+    private val regionRevision = MutableStateFlow(0)
+
+    /** Locally known region names, canonical and sorted. */
+    val regions: StateFlow<List<String>> = regionRevision
+        .map { prefs.regions }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, prefs.regions)
+
+    /** Channel slot → region, for the slots that carry one. */
+    val channelRegions: StateFlow<Map<Int, String>> = regionRevision
+        .map { prefs.channelRegions() }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, prefs.channelRegions())
+
+    fun regionFor(channelIndex: Int): String? = prefs.channelRegion(channelIndex)
+
+    fun addRegion(name: String) {
+        val added = prefs.addRegion(name)
+        transientMessage.value = if (added == null) {
+            "Region names are lowercase letters, digits and hyphens (max ${Regions.MAX_NAME_LENGTH})"
+        } else {
+            "Added #$added"
+        }
+        regionRevision.value++
+    }
+
+    fun removeRegion(name: String) {
+        prefs.removeRegion(name)
+        regionRevision.value++
+        transientMessage.value = "Removed #${Regions.canonical(name) ?: name}"
+    }
+
+    fun setChannelRegion(channelIndex: Int, region: String?) {
+        prefs.setChannelRegion(channelIndex, region)
+        regionRevision.value++
+    }
+
+    /**
+     * Ask nearby repeaters which regions they know.
+     *
+     * Two round trips: a discovery broadcast to find who is reachable,
+     * then one anonymous request per matching contact. Names come back
+     * from other people's nodes, so nothing is stored automatically —
+     * the caller shows them and the user decides.
+     */
+    suspend fun discoverRegions(): List<String> {
+        val svc = _service.value ?: return emptyList()
+        if (engineState.value != EngineState.Ready) return emptyList()
+        return runCatching {
+            val prefixes = svc.engine.discoverNodePrefixes()
+            val contacts = svc.engine.contacts.value.values.filter { it.isRepeater }
+            val targets = prefixes
+                .flatMap { p -> NodeDiscovery.matching(p, contacts) { it.publicKeyHex } }
+                .distinctBy { it.publicKeyHex }
+            val found = LinkedHashSet<String>()
+            for (repeater in targets) {
+                // The reply travels the route the request took. We never
+                // rewrite the contact's stored path to force a direct
+                // answer the way the reference client does — clobbering a
+                // pinned route is worse than an unanswered query.
+                val hops = repeater.pathInfo.hops.coerceAtLeast(0)
+                svc.engine.requestRegions(
+                    repeater.publicKey,
+                    replyPath = repeater.storedPath,
+                    replyHopCount = hops,
+                )?.let { found += it }
+            }
+            found.toList().sorted()
+        }.getOrDefault(emptyList())
+    }
 
     fun setPathHashMode(mode: Int) =
         deviceAction("Path hash mode set to $mode (${mode + 1} B/hop)") { it.setPathHashMode(mode) }

@@ -128,6 +128,26 @@ object Codes {
     const val REQ_TYPE_GET_ACCESS_LIST = 0x05
     const val REQ_TYPE_GET_NEIGHBORS = 0x06
 
+    // Anonymous request types (CMD_SEND_ANON_REQ)
+    const val ANON_REQ_TYPE_REGIONS = 0x01
+
+    // Control-data subtypes (CMD_SEND_CONTROL_DATA / PUSH_CODE_CONTROL_DATA,
+    // high nibble of the first payload byte).
+    const val CONTROL_SUBTYPE_DISCOVER_REQ = 0x08
+    const val CONTROL_SUBTYPE_DISCOVER_RESP = 0x09
+
+    /** DISCOVER_REQ low-nibble flag: reply with a key prefix, not the full key. */
+    const val DISCOVER_FLAG_PREFIX_ONLY = 0x01
+
+    /**
+     * PUSH_CODE_BINARY_RESPONSE header before the body: `[reserved]` then
+     * the u32 tag echoing the RESP_CODE_SENT ack hash. Offsets are
+     * relative to [DeviceEvent.BinaryResponse.payload], which already has
+     * the push code stripped.
+     */
+    const val BINARY_RESPONSE_TAG_OFFSET = 1
+    const val BINARY_RESPONSE_BODY_OFFSET = 5
+
     // Auto-add config flags
     const val AUTO_ADD_OVERWRITE_OLDEST = 0x01
     const val AUTO_ADD_CHAT = 0x02

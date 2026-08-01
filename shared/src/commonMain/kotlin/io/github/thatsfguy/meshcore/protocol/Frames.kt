@@ -350,6 +350,82 @@ object Frames {
         return w.toBytes()
     }
 
+    /**
+     * CMD_SEND_ANON_REQ: `[cmd][pubkey x32][req_type][enc_path_len][reply_path]`
+     * where `enc_path_len = ((hash_width - 1) << 6) | (hop_count & 0x3F)`.
+     *
+     * The reply path is the route the *answer* takes, so it is the
+     * request path reversed hop-by-hop — each hop is [pathHashWidth]
+     * bytes wide, and reversing the raw bytes would scramble multi-byte
+     * hop hashes rather than the hop order (MESHCORE_PROTOCOL §7).
+     */
+    fun sendAnonRequest(
+        pubKey: ByteArray,
+        reqType: Int,
+        replyPath: ByteArray = ByteArray(0),
+        replyHopCount: Int = 0,
+        pathHashWidth: Int = 1,
+    ): ByteArray {
+        require(pubKey.size == PUB_KEY_SIZE) { "pubkey must be 32 bytes" }
+        val width = pathHashWidth.coerceIn(1, 4)
+        val w = BufferWriter()
+        w.writeByte(Codes.CMD_SEND_ANON_REQ)
+        w.writeBytes(pubKey)
+        w.writeByte(reqType and 0xFF)
+        w.writeByte(((width - 1) shl 6) or (replyHopCount and 0x3F))
+        w.writeBytes(reversePathByHop(replyPath, width))
+        return w.toBytes()
+    }
+
+    /** Reverse hop order in a path, keeping each [width]-byte hop hash intact. */
+    fun reversePathByHop(path: ByteArray, width: Int): ByteArray {
+        if (path.isEmpty()) return ByteArray(0)
+        val w = width.coerceIn(1, 4)
+        // A path that isn't a whole number of hops is malformed; reverse
+        // the bytes rather than dropping it, matching the reference.
+        if (path.size % w != 0) return path.reversedArray()
+        val hops = path.size / w
+        val out = ByteArray(path.size)
+        for (i in 0 until hops) {
+            path.copyInto(out, i * w, (hops - 1 - i) * w, (hops - i) * w)
+        }
+        return out
+    }
+
+    /** CMD_SEND_CONTROL_DATA: [cmd][payload] */
+    fun sendControlData(payload: ByteArray): ByteArray {
+        val w = BufferWriter()
+        w.writeByte(Codes.CMD_SEND_CONTROL_DATA)
+        w.writeBytes(payload)
+        return w.toBytes()
+    }
+
+    /**
+     * Discovery request payload:
+     * `[(subtype << 4) | flags][type_mask][tag u32][since u32]`.
+     *
+     * [typeMask] is a bitmask over the advert types to wake — the
+     * default asks repeaters only. `since = 0` asks for any recent
+     * advert. [prefixOnly] keeps replies to a key prefix; a prefix is
+     * NOT an identity (PARITY §12), so callers must match it against
+     * known contacts rather than treating it as one.
+     */
+    fun discoveryRequestPayload(
+        tag: Long,
+        prefixOnly: Boolean = true,
+        typeMask: Int = 1 shl Codes.ADV_TYPE_REPEATER,
+    ): ByteArray {
+        val w = BufferWriter()
+        w.writeByte(
+            (Codes.CONTROL_SUBTYPE_DISCOVER_REQ shl 4) or
+                (if (prefixOnly) Codes.DISCOVER_FLAG_PREFIX_ONLY else 0),
+        )
+        w.writeByte(typeMask and 0xFF)
+        w.writeUInt32LE(tag)
+        w.writeUInt32LE(0)
+        return w.toBytes()
+    }
+
     /** Binary payload for a keep-alive to a room server. */
     fun keepAlivePayload(): ByteArray = byteArrayOf(Codes.REQ_TYPE_KEEP_ALIVE.toByte())
 

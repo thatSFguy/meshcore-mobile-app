@@ -59,7 +59,9 @@ data class CliCommand(
 
     private companion object {
         /** Bare actions that still change state on the node. */
-        val MUTATING_ACTIONS = setOf("advert", "clock sync", "log start", "log stop")
+        val MUTATING_ACTIONS = setOf(
+            "advert", "clock sync", "log start", "log stop", "region save",
+        )
     }
 
     /** The `get` command string, for kinds that support it. */
@@ -323,6 +325,67 @@ object CliCatalog {
             "bridge.secret", CliKind.GetSet, "Bridge secret",
             "Bridge shared secret.", setOf(NodeRole.Repeater), "Bridge",
             argHint = "<secret>", sensitive = true,
+        ),
+
+        // ---- Regions (flood scope; PARITY §8) ------------------------------
+        //
+        // `region` on its own is serial-only on the firmware, and
+        // `region load` puts the node into a multi-line mode where every
+        // following line is a region name — neither survives a one-shot
+        // CLI message, so neither is offered here.
+        CliCommand(
+            "region get", CliKind.ActionWithArg, "Find region",
+            "Search for a region by name prefix, or \"*\" for the global scope. " +
+                "Replies \"-> region-name (parent-name) 'F'\".",
+            setOf(NodeRole.Repeater), "Region", argHint = "<* | name-prefix>",
+        ),
+        CliCommand(
+            "region put", CliKind.ActionWithArg, "Add/update region",
+            "Add or update a region definition under a parent (\"*\" = global scope).",
+            setOf(NodeRole.Repeater), "Region", argHint = "<name> <* | parent-prefix>",
+        ),
+        CliCommand(
+            "region remove", CliKind.ActionWithArg, "Remove region",
+            "Remove a region definition. Name must match exactly and have no child regions.",
+            setOf(NodeRole.Repeater), "Region", argHint = "<name>", requiresConfirm = true,
+        ),
+        CliCommand(
+            "region allowf", CliKind.ActionWithArg, "Allow flood",
+            "Grant the 'F'lood permission for a region (\"*\" = global scope).",
+            setOf(NodeRole.Repeater), "Region", argHint = "<* | name-prefix>",
+        ),
+        CliCommand(
+            "region denyf", CliKind.ActionWithArg, "Deny flood",
+            "Revoke the 'F'lood permission. The firmware itself warns against doing " +
+                "this to the global scope \"*\" — it stops flood traffic entirely.",
+            setOf(NodeRole.Repeater), "Region", argHint = "<* | name-prefix>",
+            requiresConfirm = true,
+        ),
+        CliCommand(
+            "region home", CliKind.Action, "Home region",
+            "Read the 'home' region (reserved by the firmware; not applied anywhere yet). " +
+                "`region home <* | name-prefix>` sets it.",
+            setOf(NodeRole.Repeater), "Region",
+        ),
+        CliCommand(
+            "region default", CliKind.Action, "Default region scope",
+            "Read the default region scope. `region default <* | name-prefix | <null>>` " +
+                "sets it; \"<null>\" clears it.",
+            setOf(NodeRole.Repeater), "Region",
+        ),
+        CliCommand(
+            "region list allowed", CliKind.Action, "List allowed regions",
+            "Regions that allow flood traffic.", setOf(NodeRole.Repeater), "Region",
+        ),
+        CliCommand(
+            "region list denied", CliKind.Action, "List denied regions",
+            "Regions that deny flood traffic.", setOf(NodeRole.Repeater), "Region",
+        ),
+        CliCommand(
+            "region save", CliKind.Action, "Save regions",
+            "Persist the region list to the node's storage. Region edits are lost on " +
+                "reboot until this runs.",
+            setOf(NodeRole.Repeater), "Region",
         ),
 
         // ---- Maintenance ---------------------------------------------------

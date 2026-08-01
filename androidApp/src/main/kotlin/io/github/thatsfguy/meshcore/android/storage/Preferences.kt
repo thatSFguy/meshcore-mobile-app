@@ -2,6 +2,7 @@ package io.github.thatsfguy.meshcore.android.storage
 
 import android.content.Context
 import android.content.SharedPreferences
+import io.github.thatsfguy.meshcore.protocol.Regions
 import io.github.thatsfguy.meshcore.transport.ConnectionMemory
 import io.github.thatsfguy.meshcore.transport.SavedNode
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -194,6 +195,67 @@ class Preferences(context: Context) {
             if (nickname.isNullOrBlank()) remove("nick_$keyHex") else putString("nick_$keyHex", nickname)
         }.apply()
     }
+
+    // --- Regions (flood scope; PARITY §8) ---
+    //
+    // Region names are local routing labels, not secrets, so plain prefs
+    // are the right home. They are still validated on the way in:
+    // discovered names come off the mesh, and a name is pasted into CLI
+    // commands sent to a repeater.
+
+    /** Known region names, canonical and sorted. */
+    var regions: List<String>
+        get() = prefs.getStringSet("regions", emptySet())!!
+            .mapNotNull { Regions.canonical(it) }
+            .distinct()
+            .sorted()
+        set(v) {
+            val clean = v.mapNotNull { Regions.canonical(it) }.distinct().sorted()
+            prefs.edit().putStringSet("regions", clean.toSet()).apply()
+        }
+
+    /** Add [name] if it canonicalises; returns the stored form, or null. */
+    fun addRegion(name: String): String? {
+        val canonical = Regions.canonical(name) ?: return null
+        regions = regions + canonical
+        return canonical
+    }
+
+    /**
+     * Forget a region, and clear it from every channel that used it — a
+     * channel left pointing at a region the user deleted would keep
+     * scoping its traffic to it.
+     */
+    fun removeRegion(name: String) {
+        val canonical = Regions.canonical(name) ?: return
+        regions = regions - canonical
+        for ((idx, region) in channelRegions()) {
+            if (region == canonical) setChannelRegion(idx, null)
+        }
+    }
+
+    /** Region assigned to channel slot [idx], or null when unscoped. */
+    fun channelRegion(idx: Int): String? =
+        Regions.canonical(prefs.getString("channel_region_$idx", null))
+
+    fun setChannelRegion(idx: Int, region: String?) {
+        val canonical = region?.let { Regions.canonical(it) }
+        prefs.edit().apply {
+            if (canonical == null) remove("channel_region_$idx") else {
+                putString("channel_region_$idx", canonical)
+            }
+        }.apply()
+    }
+
+    /** Every channel slot that carries a region, as slot → region. */
+    fun channelRegions(): Map<Int, String> =
+        prefs.all.keys.filter { it.startsWith("channel_region_") }
+            .mapNotNull { key ->
+                val idx = key.removePrefix("channel_region_").toIntOrNull() ?: return@mapNotNull null
+                val region = channelRegion(idx) ?: return@mapNotNull null
+                idx to region
+            }
+            .toMap()
 
     /** Map: show only nodes of these types (empty = all). */
     var mapTypeFilter: Set<Int>
