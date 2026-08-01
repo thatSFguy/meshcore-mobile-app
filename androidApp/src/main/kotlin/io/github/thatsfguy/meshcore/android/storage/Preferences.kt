@@ -272,6 +272,82 @@ class Preferences(context: Context) {
         get() = prefs.getBoolean("notifications_enabled", true)
         set(v) { prefs.edit().putBoolean("notifications_enabled", v).apply() }
 
+    // --- Config backup (PARITY §1) ---
+
+    /**
+     * Preference keys a backup may carry, as an explicit ALLOW-list.
+     *
+     * A deny-list would be the wrong shape here: every future preference
+     * would be exported by default, and the day someone adds one holding
+     * a token or a path to something private, it ships in every backup
+     * silently. This list is the review point — adding a key to it is a
+     * deliberate act.
+     *
+     * Deliberately absent: everything under `sealed_` (that is the
+     * Keystore's business and goes in the encrypted section), and
+     * `last_*` connection details, which are device-specific.
+     */
+    private val EXPORTABLE_KEYS = listOf(
+        "transport_ble_enabled", "transport_usb_enabled", "transport_tcp_enabled",
+        "auto_reconnect", "theme", "diagnostics_enabled",
+        "map_tiles_enabled", "notifications_enabled",
+        "nodes_tab",
+    )
+
+    /** Boolean-valued keys, so import can put them back with the right type. */
+    private val BOOLEAN_KEYS = setOf(
+        "transport_ble_enabled", "transport_usb_enabled", "transport_tcp_enabled",
+        "auto_reconnect", "diagnostics_enabled", "map_tiles_enabled",
+        "notifications_enabled",
+    )
+
+    private val INT_KEYS = setOf("nodes_tab")
+
+    /** The allow-listed preferences, as strings, for a backup file. */
+    fun exportableSettings(): Map<String, String> {
+        val out = LinkedHashMap<String, String>()
+        for (key in EXPORTABLE_KEYS) {
+            if (!prefs.contains(key)) continue
+            val value = when (key) {
+                in BOOLEAN_KEYS -> prefs.getBoolean(key, false).toString()
+                in INT_KEYS -> prefs.getInt(key, 0).toString()
+                else -> prefs.getString(key, null) ?: continue
+            }
+            out[key] = value
+        }
+        return out
+    }
+
+    /**
+     * Restore allow-listed preferences. Returns how many were applied;
+     * anything unrecognised or ill-typed is ignored, since a backup file
+     * is as much "handed to me" as "written by me".
+     *
+     * TCP stays off unless its warning was already accepted on THIS
+     * device — a backup must not be able to turn on a plaintext
+     * transport behind the one-time warning.
+     */
+    fun importSettings(settings: Map<String, String>): Int {
+        var applied = 0
+        val editor = prefs.edit()
+        for ((key, value) in settings) {
+            if (key !in EXPORTABLE_KEYS) continue
+            when (key) {
+                in BOOLEAN_KEYS -> {
+                    val bool = value.toBooleanStrictOrNull() ?: continue
+                    if (key == "transport_tcp_enabled" && bool && !tcpWarningAccepted) continue
+                    editor.putBoolean(key, bool)
+                }
+                in INT_KEYS -> editor.putInt(key, value.toIntOrNull() ?: continue)
+                else -> editor.putString(key, value)
+            }
+            applied++
+        }
+        editor.apply()
+        themeFlow.value = theme
+        return applied
+    }
+
     // --- Secret storage backing (sealed blobs, base64; see SecretsRepository) ---
 
     fun putSealed(key: String, sealedB64: String?) {

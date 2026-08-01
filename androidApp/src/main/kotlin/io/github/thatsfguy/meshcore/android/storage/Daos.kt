@@ -138,6 +138,9 @@ interface ChannelDao {
     @Query("SELECT * FROM channels WHERE selfKey = :selfKey ORDER BY idx")
     fun all(selfKey: String): Flow<List<ChannelEntity>>
 
+    @Query("SELECT * FROM channels WHERE selfKey = :selfKey ORDER BY idx")
+    suspend fun allOnce(selfKey: String): List<ChannelEntity>
+
     @Query("SELECT * FROM channels WHERE selfKey = :selfKey AND idx = :idx")
     suspend fun byIdx(selfKey: String, idx: Int): ChannelEntity?
 

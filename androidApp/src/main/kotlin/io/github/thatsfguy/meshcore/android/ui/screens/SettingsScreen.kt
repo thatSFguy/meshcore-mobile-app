@@ -693,6 +693,10 @@ private fun AppSection(vm: MeshCoreViewModel) {
     if (diagnostics) {
         DiagnosticsViewer(vm)
     }
+
+    Spacer(Modifier.height(12.dp))
+    Text("Backup", style = MaterialTheme.typography.labelLarge)
+    BackupSection(vm)
 }
 
 // ----------------------------------------------------------------------

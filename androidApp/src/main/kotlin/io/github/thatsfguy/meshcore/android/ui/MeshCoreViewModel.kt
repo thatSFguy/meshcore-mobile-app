@@ -25,6 +25,7 @@ import io.github.thatsfguy.meshcore.model.DeviceInfo
 import io.github.thatsfguy.meshcore.model.SelfInfo
 import io.github.thatsfguy.meshcore.protocol.ChannelCrypto
 import io.github.thatsfguy.meshcore.protocol.Codes
+import io.github.thatsfguy.meshcore.protocol.ConfigBackup
 import io.github.thatsfguy.meshcore.protocol.NodeDiscovery
 import io.github.thatsfguy.meshcore.protocol.Reactions
 import io.github.thatsfguy.meshcore.protocol.Regions
@@ -43,6 +44,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
 /** One row in the merged conversation list. */
@@ -946,6 +948,117 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
         it?.engine?.floodScopeStuck ?: flowOf(null)
     }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
+    // --- Config backup / restore (PARITY §1) ---
+
+    private val crypto by lazy {
+        io.github.thatsfguy.meshcore.platform.androidCryptoProvider()
+    }
+
+    private val backupRepo by lazy {
+        io.github.thatsfguy.meshcore.android.storage.ConfigBackupRepository(
+            prefs,
+            io.github.thatsfguy.meshcore.android.storage.SecretsRepository(
+                prefs,
+                io.github.thatsfguy.meshcore.android.storage.KeystoreSecretVault(),
+            ),
+            db,
+            crypto,
+        )
+    }
+
+    /** False where the platform can't write a genuinely encrypted file. */
+    val supportsBackupEncryption: Boolean get() = crypto.supportsAuthenticatedEncryption
+
+    fun nowSeconds(): Long = System.currentTimeMillis() / 1000
+
+    fun selfKeyHex(): String = selfInfo.value?.publicKeyHex.orEmpty()
+
+    /** Render a backup; null on failure. [passphrase] null = no secrets. */
+    suspend fun buildBackup(passphrase: String?): String? = runCatching {
+        backupRepo.export(
+            selfKeyHex = selfKeyHex(),
+            appVersion = appVersionName(),
+            nowSeconds = nowSeconds(),
+            passphrase = passphrase,
+        )
+    }.getOrNull()
+
+    suspend fun writeBackupFile(uri: android.net.Uri, text: String): String =
+        withContext(kotlinx.coroutines.Dispatchers.IO) {
+            runCatching {
+                getApplication<Application>().contentResolver.openOutputStream(uri)?.use {
+                    it.write(text.encodeToByteArray())
+                } ?: error("could not open the file for writing")
+                "Backup written."
+            }.getOrElse { "Backup failed: ${it.message}" }
+        }
+
+    /** Read and parse a picked file; null when it isn't a backup. */
+    suspend fun readBackupFile(uri: android.net.Uri): ConfigBackup.Parsed? =
+        withContext(kotlinx.coroutines.Dispatchers.IO) {
+            runCatching {
+                val bytes = getApplication<Application>().contentResolver
+                    .openInputStream(uri)?.use { stream ->
+                        // A picked file is arbitrary. Read a bounded
+                        // prefix rather than pulling a multi-gigabyte
+                        // "backup" into memory on the user's behalf.
+                        val buf = ByteArray(MAX_BACKUP_BYTES)
+                        var filled = 0
+                        while (filled < buf.size) {
+                            val n = stream.read(buf, filled, buf.size - filled)
+                            if (n <= 0) break
+                            filled += n
+                        }
+                        buf.copyOf(filled)
+                    } ?: return@runCatching null
+                ConfigBackup.decode(bytes.decodeToString())
+            }.getOrNull()
+        }
+
+    suspend fun applyBackup(
+        parsed: ConfigBackup.Parsed,
+        options: io.github.thatsfguy.meshcore.android.storage.ConfigBackupRepository.ApplyOptions,
+        passphrase: String?,
+    ): String {
+        val result = runCatching { backupRepo.apply(parsed, options, passphrase) }
+            .getOrElse { return "Restore failed: ${it.message}" }
+
+        // Radio-side writes happen here, one at a time, because they go
+        // through the same serialised command queue as everything else.
+        var channelsWritten = 0
+        val svc = _service.value
+        if (svc != null && options.channels) {
+            for (channel in parsed.plain.channels) {
+                val psk = backupRepo.pendingChannelPsks[channel.index] ?: continue
+                val ok = runCatching { svc.engine.setChannel(channel.index, channel.name, psk) }
+                    .getOrDefault(false)
+                if (ok) channelsWritten++
+            }
+            backupRepo.pendingChannelPsks.clear()
+        }
+        regionRevision.value++
+
+        return buildString {
+            append("Restored: ${result.settingsRestored} setting(s)")
+            if (result.regionsRestored > 0) append(", ${result.regionsRestored} region(s)")
+            if (result.secretsRestored > 0) append(", ${result.secretsRestored} secret(s)")
+            if (options.channels) {
+                // Channels without their key can't be written, and saying
+                // "restored 4 channels" when 4 arrived empty would be a lie.
+                append(", $channelsWritten of ${parsed.plain.channels.size} channel(s)")
+            }
+            if (result.contactsQueued > 0) {
+                append(". Contacts were not written — import them from the backup's QR flow instead")
+            }
+            for (skip in result.skipped) append(". Skipped: $skip")
+        }
+    }
+
+    private fun appVersionName(): String = runCatching {
+        val ctx = getApplication<Application>()
+        ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName ?: ""
+    }.getOrDefault("")
+
     // --- Regions (PARITY §8) ---
 
     private val regionRevision = MutableStateFlow(0)
@@ -1141,5 +1254,14 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
             val ok = runCatching { action(svc.engine) }.getOrDefault(false)
             transientMessage.value = if (ok) successMessage else "Radio rejected the change"
         }
+    }
+
+    private companion object {
+        /**
+         * Ceiling on a picked backup file. A real one is kilobytes; the
+         * cap is what stops a hostile or mistaken pick from being read
+         * into memory whole.
+         */
+        const val MAX_BACKUP_BYTES = 4 * 1024 * 1024
     }
 }

@@ -138,6 +138,29 @@ class IosCryptoProvider : CryptoProvider {
         }
         return out
     }
+
+    override val supportsAuthenticatedEncryption: Boolean get() = false
+
+    // AES-GCM is Phase-2 work alongside the CryptoKit bridge. Sealing
+    // returns nothing and opening fails closed, so an iOS build cannot
+    // silently write an unencrypted "encrypted" backup, and cannot claim
+    // to have read one. The config-backup UI must check
+    // [supportsAuthenticatedEncryption] before offering the option.
+    override fun aesGcmSeal(
+        key32: ByteArray,
+        nonce12: ByteArray,
+        plaintext: ByteArray,
+        aad: ByteArray,
+    ): ByteArray = throw UnsupportedOperationException(
+        "AES-GCM is not bridged on iOS yet — see iosApp/README.md Phase 2",
+    )
+
+    override fun aesGcmOpen(
+        key32: ByteArray,
+        nonce12: ByteArray,
+        ciphertextAndTag: ByteArray,
+        aad: ByteArray,
+    ): ByteArray? = null
 }
 
 @OptIn(ExperimentalForeignApi::class)

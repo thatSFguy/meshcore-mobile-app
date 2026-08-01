@@ -99,5 +99,17 @@ class HardeningTest {
         override fun ed25519Sign(message: ByteArray, seed: ByteArray) = ByteArray(64)
         override fun ed25519Verify(signature: ByteArray, message: ByteArray, publicKey: ByteArray) = false
         override fun randomBytes(length: Int) = ByteArray(length)
+        override fun aesGcmSeal(
+            key32: ByteArray,
+            nonce12: ByteArray,
+            plaintext: ByteArray,
+            aad: ByteArray,
+        ) = plaintext
+        override fun aesGcmOpen(
+            key32: ByteArray,
+            nonce12: ByteArray,
+            ciphertextAndTag: ByteArray,
+            aad: ByteArray,
+        ) = ciphertextAndTag
     }
 }

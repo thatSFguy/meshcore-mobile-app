@@ -8,6 +8,7 @@ import java.security.MessageDigest
 import java.security.SecureRandom
 import javax.crypto.Cipher
 import javax.crypto.Mac
+import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.SecretKeySpec
 
 /**
@@ -78,6 +79,51 @@ class AndroidCryptoProvider : CryptoProvider {
         val out = ByteArray(length)
         random.nextBytes(out)
         return out
+    }
+
+    override fun aesGcmSeal(
+        key32: ByteArray,
+        nonce12: ByteArray,
+        plaintext: ByteArray,
+        aad: ByteArray,
+    ): ByteArray {
+        require(key32.size == 32) { "AES-256 key must be 32 bytes, got ${key32.size}" }
+        require(nonce12.size == GCM_NONCE_LEN) { "GCM nonce must be 12 bytes" }
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(
+            Cipher.ENCRYPT_MODE,
+            SecretKeySpec(key32, "AES"),
+            GCMParameterSpec(GCM_TAG_BITS, nonce12),
+        )
+        if (aad.isNotEmpty()) cipher.updateAAD(aad)
+        return cipher.doFinal(plaintext)
+    }
+
+    override fun aesGcmOpen(
+        key32: ByteArray,
+        nonce12: ByteArray,
+        ciphertextAndTag: ByteArray,
+        aad: ByteArray,
+    ): ByteArray? {
+        if (key32.size != 32 || nonce12.size != GCM_NONCE_LEN) return null
+        if (ciphertextAndTag.size < GCM_TAG_BITS / 8) return null
+        return runCatching {
+            val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+            cipher.init(
+                Cipher.DECRYPT_MODE,
+                SecretKeySpec(key32, "AES"),
+                GCMParameterSpec(GCM_TAG_BITS, nonce12),
+            )
+            if (aad.isNotEmpty()) cipher.updateAAD(aad)
+            cipher.doFinal(ciphertextAndTag)
+            // A bad tag throws AEADBadTagException; a wrong passphrase and
+            // a tampered file are the same answer to the caller — null.
+        }.getOrNull()
+    }
+
+    private companion object {
+        const val GCM_NONCE_LEN = 12
+        const val GCM_TAG_BITS = 128
     }
 }
 
