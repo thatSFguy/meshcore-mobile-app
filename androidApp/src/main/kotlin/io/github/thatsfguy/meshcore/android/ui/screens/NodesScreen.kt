@@ -115,15 +115,17 @@ fun NodesScreen(vm: MeshCoreViewModel, nav: NavController) {
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
             // Selection persists across tab switches and restarts.
-            var tab by remember { mutableIntStateOf(vm.prefs.nodesTab.coerceIn(0, 3)) }
+            var tab by remember { mutableIntStateOf(vm.prefs.nodesTab.coerceIn(0, 4)) }
             val discovered by vm.discovered.collectAsState()
             var query by remember { mutableStateOf("") }
             // Contacts tab folds in sensors/unknown types.
             val tabContacts = when (tab) {
                 1 -> contacts.filter { it.type == Codes.ADV_TYPE_REPEATER }
                 2 -> contacts.filter { it.type == Codes.ADV_TYPE_ROOM }
+                3 -> contacts.filter { it.type == Codes.ADV_TYPE_SENSOR }
                 else -> contacts.filter {
-                    it.type != Codes.ADV_TYPE_REPEATER && it.type != Codes.ADV_TYPE_ROOM
+                    it.type != Codes.ADV_TYPE_REPEATER && it.type != Codes.ADV_TYPE_ROOM &&
+                        it.type != Codes.ADV_TYPE_SENSOR
                 }
             }.filter { c ->
                 query.isBlank() ||
@@ -147,7 +149,7 @@ fun NodesScreen(vm: MeshCoreViewModel, nav: NavController) {
             // setting is respected rather than fought.
             ScrollableTabRow(selectedTabIndex = tab, edgePadding = 12.dp) {
                 val labels = listOf(
-                    "Contacts", "Repeaters", "Rooms",
+                    "Contacts", "Repeaters", "Rooms", "Sensors",
                     if (discovered.isEmpty()) "New" else "New (${discovered.size})",
                 )
                 for ((i, label) in labels.withIndex()) {
@@ -162,7 +164,7 @@ fun NodesScreen(vm: MeshCoreViewModel, nav: NavController) {
                 }
             }
 
-            if (tab != 3) {
+            if (tab != 4) {
                 OutlinedTextField(
                     value = query,
                     onValueChange = { query = it },
@@ -172,7 +174,7 @@ fun NodesScreen(vm: MeshCoreViewModel, nav: NavController) {
                 )
             }
 
-            if (tab == 3) {
+            if (tab == 4) {
                 // Discovery inbox — heard over the air, not yet contacts.
                 if (discovered.isEmpty()) {
                     EmptyHint(
@@ -380,7 +382,10 @@ fun ContactDetailSheet(
     var shareQrOpen by remember { mutableStateOf(false) }
     var permissionsOpen by remember { mutableStateOf(false) }
     var telemetryOpen by remember { mutableStateOf(false) }
-    val isAdminable = contact.type == Codes.ADV_TYPE_REPEATER || contact.type == Codes.ADV_TYPE_ROOM
+    // Sensors run the same CLI (PARITY §7): login, settings, telemetry.
+    val isAdminable = contact.type == Codes.ADV_TYPE_REPEATER ||
+        contact.type == Codes.ADV_TYPE_ROOM ||
+        contact.type == Codes.ADV_TYPE_SENSOR
     val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
     val live = vm.liveContacts.collectAsState().value[contact.keyHex]
     val self = vm.selfInfo.collectAsState().value

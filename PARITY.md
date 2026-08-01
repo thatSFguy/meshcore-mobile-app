@@ -133,7 +133,7 @@ both:
 
 | Their surface | Us | Status | Notes |
 |---|---|---|---|
-| `SensorLoginScreen`, `SensorManagementScreen` | — | ❌ | **Work item.** Sensor nodes are a first-class node type we don't handle. |
+| `SensorLoginScreen`, `SensorManagementScreen` | Nodes → Sensors tab → admin (login/CLI/settings/telemetry) | ✅ | Closed 2026-08-01. `NodeRole.Sensor` added to the CLI catalog with `sensor get/set/list`; sensors see the universal node commands but not repeater/room or region surface. |
 | `ContactTelemetryScreen` | Contact sheet → Telemetry | ✅ | Closed 2026-08-01. Silence (no telemetry, or no permission) reads as such, not as an error. |
 | `TelemetrySettingsScreen` | Mesh policies → telemetry permissions | ◐ | **Work item.** |
 
@@ -176,7 +176,7 @@ Notes on this block:
 |---|---|---|---|
 | Node map | Map tab (osmdroid) | ✅ | Labels, type filter, GPX export, tile cache control. |
 | `ToolsScreen` (hub) | — | ❌ | Organisational; follows once there are tools to hub. |
-| `TracePathScreen`, `TracePathMapScreen`, `ViewPathScreen`, `SetContactPathScreen` | Routing sheet + trace | ◐ | We trace and pin paths; no map rendering of the route. **Work item.** |
+| `TracePathScreen`, `TracePathMapScreen`, `ViewPathScreen`, `SetContactPathScreen` | Routing sheet + trace + per-hop location | ◐ | Each traced hop is now resolved to a position where it honestly can be. ⚠ An **ambiguous** hop is reported as a gap, never pinned to a guess — a map that guesses looks exactly like one that knows. A drawn polyline overlay on the Map tab is still outstanding. |
 | `CoverageMapToolScreen`, `LosMapToolScreen` (+ settings) | — | ❌ | Deferred in SCOPE.md; revisit. |
 | `InternetMapScreen` | — | ⛔ | Uploads/queries node positions via their server. |
 | `PrintScreen` | — | ❌ | Low priority. |

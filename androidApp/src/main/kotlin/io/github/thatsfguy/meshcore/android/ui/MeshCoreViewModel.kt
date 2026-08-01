@@ -532,6 +532,26 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /**
+     * Where a path's hops are, as far as can honestly be said
+     * (PARITY §9). Ambiguous hops come back as gaps, never as a guess.
+     */
+    fun plotPath(hopTokens: String): io.github.thatsfguy.meshcore.protocol.PathGeometry.Plot {
+        val width = deviceInfo.value?.pathHashByteWidth ?: 1
+        val path = io.github.thatsfguy.meshcore.protocol.PathCodec
+            .parseHopTokens(hopTokens, width)
+            ?: return io.github.thatsfguy.meshcore.protocol.PathGeometry.Plot(emptyList())
+        return io.github.thatsfguy.meshcore.protocol.PathGeometry.plot(
+            path,
+            width,
+            dbContacts.value.map {
+                io.github.thatsfguy.meshcore.protocol.PathGeometry.PositionedContact(
+                    it.keyHex, it.name, it.latitude, it.longitude,
+                )
+            },
+        )
+    }
+
     // --- Routing / paths ---------------------------------------------
 
     /** Routing mode the radio's contact record currently implies. */

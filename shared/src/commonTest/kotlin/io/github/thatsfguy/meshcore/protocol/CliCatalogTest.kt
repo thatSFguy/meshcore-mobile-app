@@ -41,6 +41,8 @@ class CliCatalogTest {
         "region get", "region put", "region remove", "region allowf", "region denyf",
         "region home", "region default", "region list allowed", "region list denied",
         "region save",
+        // sensor family (PARITY §7)
+        "sensor get", "sensor set", "sensor list",
     )
 
     @Test
@@ -175,10 +177,25 @@ class CliCatalogTest {
         // Companion alone would be unreachable — nothing would display it.
         for (c in CliCatalog.all) {
             assertTrue(
-                NodeRole.Repeater in c.roles || NodeRole.Room in c.roles,
+                NodeRole.Repeater in c.roles || NodeRole.Room in c.roles ||
+                    NodeRole.Sensor in c.roles,
                 "'${c.id}' reachable by no CLI-speaking role",
             )
         }
+    }
+
+    @Test
+    fun sensorsSeeSensorCommandsAndTheUniversalOnes() {
+        val sensor = CliCatalog.forRole(NodeRole.Sensor).map { it.id }.toSet()
+        assertTrue("sensor list" in sensor)
+        assertTrue("sensor set" in sensor)
+        // Universal node commands apply to a sensor too.
+        assertTrue("ver" in sensor)
+        assertTrue("name" in sensor)
+        // Repeater/room-only surface does not.
+        assertTrue("repeat" !in sensor)
+        assertTrue("guest.password" !in sensor)
+        assertTrue("region get" !in sensor)
     }
 
     @Test

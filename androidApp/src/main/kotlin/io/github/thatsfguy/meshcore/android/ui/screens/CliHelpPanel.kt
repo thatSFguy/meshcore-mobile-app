@@ -151,5 +151,6 @@ internal fun usageOf(command: CliCommand): String = when (command.kind) {
 private fun roleWord(role: NodeRole): String = when (role) {
     NodeRole.Repeater -> "repeater"
     NodeRole.Room -> "room server"
+    NodeRole.Sensor -> "sensor"
     NodeRole.Companion -> "node"
 }

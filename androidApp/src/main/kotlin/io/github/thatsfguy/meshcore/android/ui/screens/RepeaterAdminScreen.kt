@@ -71,7 +71,12 @@ fun RepeaterAdminScreen(vm: MeshCoreViewModel, nav: NavController, keyHex: Strin
     val contact = contacts.firstOrNull { it.keyHex == keyHex }
     val title = contact?.name?.ifBlank { null } ?: keyHex.take(12)
     val isRoom = contact?.type == Codes.ADV_TYPE_ROOM
-    val role = if (isRoom) NodeRole.Room else NodeRole.Repeater
+    val isSensor = contact?.type == Codes.ADV_TYPE_SENSOR
+    val role = when {
+        isRoom -> NodeRole.Room
+        isSensor -> NodeRole.Sensor
+        else -> NodeRole.Repeater
+    }
 
     val messages by remember(keyHex) {
         vm.thread(MessageRepository.KIND_DM, keyHex)
@@ -91,10 +96,13 @@ fun RepeaterAdminScreen(vm: MeshCoreViewModel, nav: NavController, keyHex: Strin
     // Regions only exist on repeaters — room servers don't run the
     // `region` CLI. Identity is separated from Settings deliberately:
     // it is the one tab where a mistake cannot be undone.
-    val tabs = if (isRoom) {
-        listOf("Status", "Settings", "Identity", "Console", "Help")
-    } else {
-        listOf("Status", "Settings", "Regions", "Identity", "Console", "Help")
+    val tabs = when {
+        // Sensors publish telemetry and custom settings; they don't
+        // repeat, so neither the region tree nor a room's surface
+        // applies to them.
+        isSensor -> listOf("Status", "Settings", "Identity", "Console", "Help")
+        isRoom -> listOf("Status", "Settings", "Identity", "Console", "Help")
+        else -> listOf("Status", "Settings", "Regions", "Identity", "Console", "Help")
     }
     var tab by remember(isRoom) { mutableIntStateOf(0) }
     var consolePrefill by remember { mutableStateOf("") }
@@ -105,7 +113,11 @@ fun RepeaterAdminScreen(vm: MeshCoreViewModel, nav: NavController, keyHex: Strin
                 title = title,
                 vm = vm,
                 nav = nav,
-                subtitle = if (isRoom) "Room server admin" else "Repeater admin",
+                subtitle = when {
+                    isRoom -> "Room server admin"
+                    isSensor -> "Sensor admin"
+                    else -> "Repeater admin"
+                },
                 menuActions = listOf(
                     MenuAction("Request status") { vm.requestRepeaterStatus(keyHex) },
                     MenuAction("Sync clock from phone") {

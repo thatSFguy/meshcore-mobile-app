@@ -221,6 +221,33 @@ fun RoutingSheet(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 if (t.hops.isNotEmpty()) {
+                    // Where the route goes, as far as it can honestly be
+                    // said (PARITY §9). An ambiguous hop is reported as a
+                    // gap rather than pinned to a guess — a map that
+                    // guesses looks exactly like one that knows.
+                    val plot = vm.plotPath(t.hops.joinToString(" "))
+                    HintText(plot.summary())
+                    for (hop in plot.hops) {
+                        val where = when {
+                            hop.isPlotted ->
+                                "${hop.name} · %.4f, %.4f".format(hop.latitude, hop.longitude)
+                            hop.gap != null ->
+                                (hop.name?.plus(" · ") ?: "") +
+                                    io.github.thatsfguy.meshcore.protocol.PathGeometry
+                                        .gapReason(hop.gap!!)
+                            else -> "unknown"
+                        }
+                        Text(
+                            "${hop.hashHex}  $where",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontFamily = FontFamily.Monospace,
+                            color = if (hop.isPlotted) {
+                                MaterialTheme.colorScheme.onSurface
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                        )
+                    }
                     TextButton(onClick = {
                         manualHops = t.hops.joinToString(" ")
                         mode = RoutingMode.Manual

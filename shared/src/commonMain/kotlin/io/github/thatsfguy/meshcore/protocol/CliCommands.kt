@@ -6,14 +6,15 @@ package io.github.thatsfguy.meshcore.protocol
  * inventoried from the MeshCore Open reference client's CLI screen.
  *
  * Role model:
- *  - [NodeRole.Repeater] / [NodeRole.Room] nodes speak this CLI —
- *    the admin screen shows each role only its applicable commands.
+ *  - [NodeRole.Repeater] / [NodeRole.Room] / [NodeRole.Sensor] nodes
+ *    speak this CLI — the admin screen shows each role only its
+ *    applicable commands.
  *  - [NodeRole.Companion] nodes do NOT run the text CLI; entries
  *    tagged Companion exist to assert coverage: each MUST name the
  *    companion-frame equivalent the Settings screen already uses
  *    ([companionEquivalent]), and the UI never sends them as CLI.
  */
-enum class NodeRole { Companion, Repeater, Room }
+enum class NodeRole { Companion, Repeater, Room, Sensor }
 
 /** How a catalog entry is invoked. */
 enum class CliKind {
@@ -88,7 +89,11 @@ data class CliCommand(
 object CliCatalog {
 
     private val REPEATER_AND_ROOM = setOf(NodeRole.Repeater, NodeRole.Room)
-    private val ALL = setOf(NodeRole.Companion, NodeRole.Repeater, NodeRole.Room)
+    // Universal node commands. Sensors are included: they have a name,
+    // a position and radio parameters like anything else on the mesh.
+    private val ALL = setOf(
+        NodeRole.Companion, NodeRole.Repeater, NodeRole.Room, NodeRole.Sensor,
+    )
 
     val all: List<CliCommand> = listOf(
         // ---- Info / status -------------------------------------------------
@@ -325,6 +330,27 @@ object CliCatalog {
             "bridge.secret", CliKind.GetSet, "Bridge secret",
             "Bridge shared secret.", setOf(NodeRole.Repeater), "Bridge",
             argHint = "<secret>", sensitive = true,
+        ),
+
+        // ---- Sensors (PARITY §7) -------------------------------------------
+        //
+        // A sensor node speaks the same CLI as a repeater and adds a
+        // custom-settings namespace. Its telemetry is read with the
+        // binary telemetry request, not through here.
+        CliCommand(
+            "sensor get", CliKind.ActionWithArg, "Read sensor setting",
+            "Read one custom sensor setting by key.",
+            setOf(NodeRole.Sensor), "Sensor", argHint = "<key>",
+        ),
+        CliCommand(
+            "sensor set", CliKind.ActionWithArg, "Write sensor setting",
+            "Write a custom sensor setting.",
+            setOf(NodeRole.Sensor), "Sensor", argHint = "<key> <value>",
+        ),
+        CliCommand(
+            "sensor list", CliKind.Action, "List sensor settings",
+            "List all custom sensor settings.",
+            setOf(NodeRole.Sensor), "Sensor",
         ),
 
         // ---- Regions (flood scope; PARITY §8) ------------------------------
