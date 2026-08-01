@@ -41,6 +41,16 @@ android {
         versionCode = (project.findProperty("versionCode") as? String)?.toInt()
             ?: gitVersion?.second
             ?: 1
+
+        // SQLCipher statically links OpenSSL + SQLite, so libsqlcipher.so
+        // is ~5 MB PER ABI — shipping all four took the APK from 14 MB to
+        // 31 MB, and 11 MB of that is x86/x86_64 that no phone runs. ARM
+        // only: arm64 for every current device, armeabi-v7a for old 32-bit
+        // ones. (Consequence: no x86_64 emulator/Chromebook builds. The
+        // project has no instrumented tests, so CI is unaffected.)
+        ndk {
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+        }
     }
 
     compileOptions {

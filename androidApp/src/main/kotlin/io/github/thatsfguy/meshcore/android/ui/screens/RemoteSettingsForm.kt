@@ -27,6 +27,7 @@ import io.github.thatsfguy.meshcore.android.storage.ContactEntity
 import io.github.thatsfguy.meshcore.android.ui.MeshCoreViewModel
 import io.github.thatsfguy.meshcore.engine.EngineState
 import io.github.thatsfguy.meshcore.protocol.CliReplies
+import io.github.thatsfguy.meshcore.protocol.CliValues
 import io.github.thatsfguy.meshcore.protocol.NodeRole
 import kotlinx.coroutines.launch
 
@@ -90,7 +91,9 @@ fun RemoteSettingsForm(
                 }
             } else {
                 // Firmware encodes newlines in owner.info as '|'.
-                values[id] = if (id == "owner.info") value.replace('|', ' ') else value
+                values[id] =
+                    if (id == "owner.info") CliValues.decodeOwnerInfo(value).replace('\n', ' ')
+                    else value
                 dirty[id] = false
                 ok++
             }
@@ -104,8 +107,9 @@ fun RemoteSettingsForm(
     /** Immediate-apply switch (matches the local Settings tab's switches). */
     fun applySwitch(id: String, on: Boolean, onText: String = "on", offText: String = "off") {
         if (!isAdmin) return
-        values[id] = if (on) onText else offText
-        scope.launch { vm.cliQuery(keyHex, "set $id ${if (on) onText else offText}") }
+        val word = if (on) onText else offText
+        values[id] = word
+        scope.launch { vm.cliQuery(keyHex, "set $id $word") }
     }
 
     Column(
@@ -366,14 +370,17 @@ fun RemoteSettingsForm(
             saveEnabled = isAdmin && listOf("dutycycle", "int.thresh").any { dirty[it] == true },
             buildSaves = {
                 buildList {
-                    // dutycycle is a whole percent on the wire even though
-                    // the firmware REPLIES "50.0%".
-                    values["dutycycle"]?.trim()?.trimEnd('%')?.substringBefore('.')
-                        ?.toIntOrNull()?.takeIf { dirty["dutycycle"] == true && it in 1..100 }
-                        ?.let { add("set dutycycle $it") }
-                    values["int.thresh"]?.trim()?.takeIf {
-                        it.isNotEmpty() && dirty["int.thresh"] == true
-                    }?.let { add("set int.thresh $it") }
+                    // Coercions live in CliValues (unit-tested, positive
+                    // and negative) because a bad one sends a malformed
+                    // `set` to somebody's repeater.
+                    if (dirty["dutycycle"] == true) {
+                        CliValues.parsePercent(values["dutycycle"].orEmpty())
+                            ?.let { add("set dutycycle $it") }
+                    }
+                    if (dirty["int.thresh"] == true) {
+                        CliValues.parseInt(values["int.thresh"].orEmpty())
+                            ?.let { add("set int.thresh $it") }
+                    }
                 }
             },
             send = ::send,
@@ -384,7 +391,12 @@ fun RemoteSettingsForm(
             SettingRow(
                 "Multi-acks (redundant ACKs)",
                 CliReplies.isTruthy(values["multi.acks"].orEmpty()),
-            ) { applySwitch("multi.acks", it, onText = "1", offText = "0") }
+            ) {
+                applySwitch(
+                    "multi.acks", it,
+                    onText = CliValues.oneZero(true), offText = CliValues.oneZero(false),
+                )
+            }
             // RX gain is a BOOLEAN in firmware (LNA boost on/off), not a
             // numeric gain value — a text field here would send garbage.
             SettingRow(
@@ -402,14 +414,20 @@ fun RemoteSettingsForm(
             }
             // loop.detect is an enumerated mode, not free text.
             Text("Loop detection", style = MaterialTheme.typography.labelMedium)
-            val loopModes = listOf("off", "minimal", "moderate", "strict")
+            val loopModes = CliValues.LOOP_DETECT_MODES
+            // An unrecognised reply selects nothing rather than falsely
+            // showing "off".
+            val loopSelected = CliValues.parseLoopDetect(values["loop.detect"].orEmpty()) ?: -1
             ChoiceChips(
                 loopModes.map { it.replaceFirstChar { c -> c.uppercase() } },
-                loopModes.indexOf(values["loop.detect"]?.trim()?.lowercase()).coerceAtLeast(0),
+                loopSelected,
                 enabled = isAdmin,
             ) { i ->
                 values["loop.detect"] = loopModes[i]
                 scope.launch { vm.cliQuery(keyHex, "set loop.detect ${loopModes[i]}") }
+            }
+            if (loopSelected < 0 && !values["loop.detect"].isNullOrBlank()) {
+                HintText("Node reported an unrecognised mode: ${values["loop.detect"]}")
             }
         }
 
