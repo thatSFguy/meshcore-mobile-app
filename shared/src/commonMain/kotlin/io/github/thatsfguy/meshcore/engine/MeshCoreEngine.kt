@@ -246,6 +246,7 @@ class MeshCoreEngine(
                 // platform crypto stub) is logged and dropped, not
                 // propagated out of the collector.
                 try {
+                    logFrame("RX", incoming.frame)
                     val event = ResponseParser.parse(incoming.frame) ?: return@collect
                     if (!_events.tryEmit(event)) log("Diagnostics event dropped (buffer full)")
                     handleEvent(event)
@@ -359,6 +360,7 @@ class MeshCoreEngine(
                     _events.first { predicate(it) || it is DeviceEvent.Err }
                 }
             }
+            logFrame("TX", frame)
             t.send(frame)
             waiter.await()
         }
@@ -366,7 +368,38 @@ class MeshCoreEngine(
 
     /** Fire-and-forget send (no response expected / caller listens itself). */
     private suspend fun sendOnly(frame: ByteArray) {
-        commandMutex.withLock { transport?.send(frame) }
+        commandMutex.withLock {
+            logFrame("TX", frame)
+            transport?.send(frame)
+        }
+    }
+
+    /**
+     * Frame-level diagnostics.
+     *
+     * Every frame logs its code and length — enough to see what the
+     * radio answered, or that it didn't. Full bytes are logged ONLY for
+     * [FRAME_LOG_FULL_CODES], a whitelist of frames that structurally
+     * cannot carry a secret. A blanket hex dump would put channel PSKs
+     * (CMD_SET_CHANNEL) and `set prv.key` text into the log, and the
+     * redaction pass can't reliably catch either once they're bytes.
+     *
+     * Bytes are space-separated deliberately: DiagnosticsLog redacts
+     * runs of 32+ hex characters, which would otherwise blank exactly
+     * the frames this exists to show.
+     */
+    private fun logFrame(direction: String, frame: ByteArray) {
+        if (frame.isEmpty()) return
+        val code = frame[0].toInt() and 0xFF
+        val hex = if (code in FRAME_LOG_FULL_CODES) {
+            " " + frame.joinToString(" ") { b ->
+                val v = b.toInt() and 0xFF
+                if (v < 16) "0${v.toString(16)}" else v.toString(16)
+            }
+        } else {
+            ""
+        }
+        log("$direction code=0x${code.toString(16)} len=${frame.size}$hex")
     }
 
     // ------------------------------------------------------------------
@@ -1001,15 +1034,74 @@ class MeshCoreEngine(
         // 0 told a 2-byte mesh we were using 1-byte hashes, so the trace
         // went out malformed and nothing came back.
         val flags = TracePath.flagsForHashWidth(hashWidth)
-        // The firmware wants at least one payload byte; the reference
-        // client sends 0x00 when there is no route to trace. An empty
-        // payload is not the same thing as "no path".
-        val payload = if (path.isEmpty()) byteArrayOf(0x00) else path
-        val ev = sendAndAwait(
+        // Try the stored path as-is, then reversed. Which direction a
+        // trace wants is genuinely ambiguous — the reference client
+        // exposes "reverse path"/"flip path" as user toggles rather than
+        // committing to one — so rather than making the user guess, try
+        // both and report the one that answers.
+        val candidates = if (path.isEmpty()) {
+            // Confirmed on hardware: a trace with an empty path is
+            // answered with RESP_CODE_ERR. There is nothing to trace on
+            // a direct contact — no intermediate hop exists to report —
+            // so refuse locally rather than spend airtime being told so.
+            log("Trace needs a multi-hop route; this contact is direct or flooded")
+            return null
+        } else {
+            val reversed = Frames.reversePathByHop(path, hashWidth)
+            if (reversed.contentEquals(path)) listOf(path) else listOf(path, reversed)
+        }
+
+        for ((attempt, payload) in candidates.withIndex()) {
+            val result = traceAttempt(tag + attempt, auth, flags, payload, timeoutMs, hashWidth)
+            if (result != null) return result
+        }
+        return null
+    }
+
+    private suspend fun traceAttempt(
+        tag: Long,
+        auth: Long,
+        flags: Int,
+        payload: ByteArray,
+        timeoutMs: Long,
+        hashWidth: Int,
+    ): TraceResult? = coroutineScope {
+        val replies = CoroutineChannel<DeviceEvent>(CoroutineChannel.UNLIMITED)
+        val pump = launch(start = CoroutineStart.UNDISPATCHED) {
+            events.collect {
+                if (it is DeviceEvent.TraceData || it is DeviceEvent.Err) replies.trySend(it)
+            }
+        }
+        // The radio answers with RESP_CODE_SENT carrying its OWN airtime
+        // estimate for the round trip. Waiting a flat 30s ignored that
+        // and made a dead trace indistinguishable from a slow one.
+        val sent = sendAndAwait(
             Frames.sendTracePath(tag, auth, flags, payload),
-            timeoutMs = timeoutMs,
-        ) { it is DeviceEvent.TraceData && TracePath.parse(traceFrame(it))?.tag == tag }
-        return (ev as? DeviceEvent.TraceData)?.let { TracePath.parse(traceFrame(it)) }
+            timeoutMs = 10_000,
+        ) { it is DeviceEvent.Sent }
+
+        if (sent is DeviceEvent.Err) {
+            log("Trace refused by the radio (RESP_CODE_ERR) — flags=$flags width=$hashWidth")
+            pump.cancel(); replies.close()
+            return@coroutineScope null
+        }
+        val estimate = (sent as? DeviceEvent.Sent)?.timeoutMs ?: 0L
+        val wait = (estimate + TRACE_REPLY_GRACE_MS).coerceIn(5_000, timeoutMs)
+        log("Trace sent (estimate ${estimate}ms); waiting ${wait}ms")
+
+        val result = withTimeoutOrNull(wait) {
+            var found: TraceResult? = null
+            for (ev in replies) {
+                if (ev is DeviceEvent.Err) continue
+                val parsed = (ev as? DeviceEvent.TraceData)?.let { TracePath.parse(traceFrame(it)) }
+                if (parsed?.tag == tag) { found = parsed; break }
+            }
+            found
+        }
+        pump.cancel()
+        replies.close()
+        if (result == null) log("Trace got no reply within ${wait}ms")
+        result
     }
 
     /** The parser expects the whole frame; TraceData carries the tail. */
@@ -1393,6 +1485,24 @@ class MeshCoreEngine(
 
         /** Slack added to the radio's airtime estimate for a region reply. */
         private const val REGION_REPLY_GRACE_MS = 2_000L
+
+        /** Same, for a trace reply. */
+        private const val TRACE_REPLY_GRACE_MS = 4_000L
+
+        /**
+         * Frame codes whose FULL bytes are safe to write to the
+         * diagnostics log. Everything here is routing/diagnostic data
+         * with no key or password in it. Deliberately excludes
+         * CMD_SET_CHANNEL (carries a PSK), CMD_SEND_TXT_MSG and the
+         * CLI paths (carry `set prv.key` and passwords as text).
+         */
+        private val FRAME_LOG_FULL_CODES = setOf(
+            Codes.CMD_SEND_TRACE_PATH,
+            Codes.PUSH_CODE_TRACE_DATA,
+            Codes.RESP_CODE_ERR,
+            Codes.RESP_CODE_OK,
+            Codes.RESP_CODE_SENT,
+        )
         private const val DEFAULT_MAX_CHANNELS = 8
 
         /**

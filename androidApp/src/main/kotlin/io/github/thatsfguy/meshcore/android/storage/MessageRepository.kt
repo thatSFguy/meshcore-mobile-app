@@ -90,9 +90,16 @@ class MessageRepository(
                     // Remember every path the radio reports so the
                     // routing sheet can rank routes it has actually seen.
                     for (c in contacts.values) {
-                        val len = c.pathLen
-                        if (len in 1..64 && len <= c.path.size) {
-                            rememberPath(self, c.publicKeyHex, c.path.copyOfRange(0, len))
+                        // c.pathLen is the RAW packed byte — low 6 bits
+                        // are the hop count, top 2 the hash width — and
+                        // the Contact model says in as many words not to
+                        // use it as a length. Doing so recorded a direct
+                        // contact (packed 0x40) as a "64 hop" path of
+                        // zero-padding, which then showed up in the
+                        // routing sheet as a route you could pin.
+                        val stored = c.storedPath
+                        if (stored.isNotEmpty()) {
+                            rememberPath(self, c.publicKeyHex, stored)
                         }
                     }
                     // Anything that became a contact leaves the inbox.

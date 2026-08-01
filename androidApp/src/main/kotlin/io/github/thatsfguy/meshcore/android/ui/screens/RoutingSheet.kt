@@ -191,10 +191,24 @@ fun RoutingSheet(
 
             Spacer(Modifier.height(12.dp))
             Text("Trace", style = MaterialTheme.typography.titleSmall)
-            HintText("Ask the mesh to report the hops (and per-hop SNR) a packet travels.")
+            // Confirmed on hardware: the radio answers a trace with no
+            // path with RESP_CODE_ERR. There is genuinely nothing to
+            // report for a direct contact, so say that instead of
+            // offering a button that spends airtime to be refused.
+            val hasRoute = io.github.thatsfguy.meshcore.protocol.PathCodec
+                .decodePathLen(contact.pathLen).hops > 0
+            HintText(
+                if (hasRoute) {
+                    "Ask the mesh to report the hops (and per-hop SNR) a packet travels."
+                } else {
+                    "Nothing to trace: this contact is reached directly, with no repeater " +
+                        "in between. A trace reports the hops along a route, so it needs a " +
+                        "route with at least one hop."
+                },
+            )
             ButtonFlowRow {
                 TextButton(
-                    enabled = !tracing,
+                    enabled = !tracing && hasRoute,
                     onClick = {
                         scope.launch {
                             tracing = true

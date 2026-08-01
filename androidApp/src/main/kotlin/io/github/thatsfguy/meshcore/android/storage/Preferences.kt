@@ -502,10 +502,20 @@ class DiagnosticsLog(private val prefs: Preferences) {
     @Synchronized
     fun log(tag: String, message: String) {
         if (!prefs.diagnosticsEnabled) return
-        val line = "${System.currentTimeMillis() / 1000} [$tag] ${redact(message)}"
+        val redacted = redact(message)
+        val line = "${System.currentTimeMillis() / 1000} [$tag] $redacted"
         buffer.addLast(line)
         while (buffer.size > MAX_LINES) buffer.removeFirst()
         _lines.value = buffer.toList()
+        // Debug builds also mirror to logcat. The in-app viewer is the
+        // product surface; this exists because driving that viewer over
+        // adb to read one frame is far harder than reading logcat, and
+        // field debugging is what this log is for. Release builds never
+        // mirror — the same redacted text, but logcat is a wider
+        // audience than the app's own screen.
+        if (io.github.thatsfguy.meshcore.android.BuildConfig.DEBUG) {
+            android.util.Log.d("MeshCoreDiag", "[$tag] $redacted")
+        }
     }
 
     @Synchronized

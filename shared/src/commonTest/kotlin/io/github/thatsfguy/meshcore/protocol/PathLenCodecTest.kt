@@ -172,4 +172,21 @@ class PathLenCodecTest {
         assertEquals("b389 c985 6e4d 8eaa", PathCodec.formatHops(path, hashWidth = 2))
         assertEquals("b3 89 c9 85 6e 4d 8e aa", PathCodec.formatHops(path, hashWidth = 1))
     }
+
+    @Test
+    fun rawPathLenIsNeverAByteLength() {
+        // Regression: path history recorded `copyOfRange(0, pathLen)`,
+        // treating the RAW packed byte as a length. A direct contact at
+        // 2-byte hashes packs to 0x40 = 64, so the whole zero-padded
+        // 64-byte buffer became a "64 hop" route the routing sheet
+        // offered you to pin. Seen on a real radio.
+        val directAt2Bytes = PathCodec.encodePathLen(0, 2)
+        assertEquals(0x40, directAt2Bytes)
+        val info = PathCodec.decodePathLen(directAt2Bytes)
+        assertEquals(0, info.hops, "a direct contact has no hops")
+        assertEquals(0, info.byteLength, "and therefore no path bytes")
+        // The raw byte says 64; the decoded length says 0. Anything
+        // reading the raw byte as a length is wrong by 64 bytes.
+        assertTrue(directAt2Bytes != info.byteLength)
+    }
 }
