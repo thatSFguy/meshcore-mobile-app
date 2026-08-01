@@ -13,7 +13,14 @@ channels remain obfuscated-not-secure and the app must keep saying so.
 
 ## Status
 
-**v1 implemented on Android (2026-07-31); iOS is a Phase-1 skeleton.** Layout:
+**v1 shipped on Android (latest release `android-v0.2.4`); iOS builds but is a skeleton.**
+Feature work is now driven by **[`PARITY.md`](PARITY.md)** — the mainstream MeshCore
+Android app is the agreed floor for the feature set, with an explicit out-of-scope list
+and the places we deliberately keep our own (stricter) handling. **Read PARITY.md before
+picking up feature work**; it carries per-row status, dates, and one blocked item.
+Blocks 1 and most of 2 are done; **regions (§8) is the next unit of work.**
+
+Layout:
 - **`shared/`** — KMP. `protocol/` (Codes, guarded Buffers, Frames, ResponseParser,
   RawPacket, Advert w/ Ed25519 verify, ChannelCrypto, MeshIdentity), `engine/MeshCoreEngine`
   (handshake, serialized command queue, contact/channel sync, queue drain, RX-log decrypt,
@@ -35,7 +42,10 @@ Reference docs:
   crypto, PSK derivation). Reverse-engineered from `../meshcore-open` during a security
   review. Read this before touching protocol code. (§2 framing corrected 2026-07-31:
   USB/TCP use start-byte+length framing per the reference client, not COBS.)
-- **`SCOPE.md`** — the locked v1 feature set (pruned from MeshCore Open's inventory).
+- **`PARITY.md`** — the live feature plan: surface-by-surface vs the mainstream app,
+  what's done, what's out of scope and why, and where we deliberately differ. Supersedes
+  SCOPE.md where they disagree.
+- **`SCOPE.md`** — the original v1 feature set (pruned from MeshCore Open's inventory).
 - **`README.md`** — vision + non-goals; **`REUSE.md`** — what was copied from the sibling.
 
 ## The two sibling repos this project draws from
@@ -92,12 +102,30 @@ PSKs, community secrets, identity key) in the platform keystore/keychain, never 
 guard every frame parse against short/malformed input; warn that TCP is plaintext; present
 channels as obfuscated (AES-ECB + 2-byte MAC), not secure.
 
+## Working on this repo — practical notes
+
+- **Installing to the phone.** Plain `adb install` dies mid-transfer on this WSL2 +
+  usbipd setup (the USB tunnel drops on a ~25 MB sustained write). Use
+  `adb install -r -d --no-streaming <apk>` — push-then-`pm install`, which has been
+  reliable. The `-d` matters too: local builds get `versionCode 1` unless HEAD sits
+  exactly on an `android-v*` tag, so installing over a tag-built APK looks like a
+  downgrade. Never uninstall to get around it — that takes the message database with it.
+- **iOS has no local compiler.** The app is developed on Linux; `.github/workflows/ios-ci.yml`
+  on a macOS runner is the only thing that compiles it. Treat a red run there as a build
+  error, and expect a ~7 minute round-trip per attempt.
+- **The mainstream app's surface** was inventoried by pulling its APK and extracting Dart
+  class names from `libapp.so` (it's Flutter). PARITY.md lists the results; re-derive with
+  `adb pull` + a strings pass if more detail is needed.
+- **Test before claiming.** `JAVA_HOME=/home/robw/android-tools/jdk ./gradlew
+  :shared:testDebugUnitTest :androidApp:testDebugUnitTest` — ~280 tests. Protocol
+  behaviour that came from reading another client's source should be pinned with a test
+  including the real captured value, not just a property.
+
 ## Suggested next steps
 
-1. **Hardware validation** — connect to a real MeshCore radio over BLE (then USB): confirm
-   the handshake, framing, contact/channel sync, DM send/ack, RX-log channel decrypt.
-   Expect quirks in exact response ordering / firmware-version gates; fix against the
-   engine's fake-radio tests as ground truth for intent.
+1. **Work `PARITY.md` §8 (regions)** — add/manage/discover regions and the repeater's
+   default region scope. We expose flood scope as a single setting today. No security
+   landmines in this one, just four screens' worth of work.
 2. Notifications for inbound messages (service already has the channel; wire
    MessageRepository events → NotificationCompat).
 3. iOS Phase 2 — `IosBleTransport` (CoreBluetooth port of the sibling's), CryptoKit
