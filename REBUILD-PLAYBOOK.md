@@ -92,14 +92,40 @@ it down. Re-ask whenever scope changes.
 | Open protocol/API only | Match behaviour; reverse-engineer the UI from observation. |
 | Closed binary | Screenshots and driving. Every measurement is a guess. |
 
-In the project behind this playbook, a fully open-source client of the same protocol —
-27 screens, 26 test files — sat in a sibling directory for the entire build. It was used
-as a *protocol* reference and never as a *UI* reference, while UI structure was
-reverse-engineered from a **different, closed** app by scraping class names out of a
-shared object. Nobody asked the obvious question until the last day.
-
 **If a source-available equivalent exists, clone that one's UX, even if it's not the most
 popular one.** The fidelity you gain is worth more than the polish you lose.
+
+### 1.4a Take the navigation graph in the same sitting as the feature list
+
+Having a good reference is not enough — you have to copy the right layer from it.
+
+The project behind this playbook had a fully open-source client of the same protocol in a
+sibling directory, and *did* use it: v1 scope was explicitly "pruning the MeshCore Open
+feature inventory (~26 screens)." What it took was the **list of screens**. What it never
+took was **how those screens connect** — the reference fronts its device admin with a hub
+and five focused screens; the rebuild shipped one screen with six tabs.
+
+Worse, the features were then implemented onto a UI foundation borrowed from a **third**
+app, for a different protocol. So each feature had somewhere to land without anyone ever
+choosing where it should live.
+
+**Rule:** a feature list and a navigation graph are **one artefact**. Extract them
+together or you will faithfully reproduce *what* the reference does while inventing your
+own — worse — answer to *where it lives*.
+
+### 1.4b Never change your reference standard mid-project
+
+In the same project, the standard moved mid-build: a curated ~26-screen scope was
+superseded by a 64-row matrix scraped from a different, closed app's class names, with the
+handover written into the scope doc — *"where this document and PARITY.md disagree, PARITY
+wins."*
+
+Scope tripled in one edit. It was documented and approved, which is exactly what made it
+invisible: it didn't look like creep, it looked like planning.
+
+**Rule:** the reference named in your charter is the reference. Changing it is a **new
+project** and gets the same scrutiny as starting one — §1.1 through §1.5, again, including
+whether you still want to.
 
 ### 1.5 Decide the audience
 
@@ -364,10 +390,11 @@ Copy into the new repo's `README` and don't write code until every box is ticked
 [ ] Five things people like about it, written down
 [ ] Defect list, each item independently verifiable
 [ ] Charter sentence written, ending "and otherwise indistinguishable"
-[ ] Inventoried what open-source references exist  ← do not skip
+[ ] Inventoried what open-source references exist
+[ ] ONE reference named in the charter; changing it later = new project
 [ ] Audience decided: tool-for-me | replacement-for-others
 [ ] Screen inventory captured (screenshots, numbered)
-[ ] Navigation graph drawn
+[ ] Navigation graph drawn  ← from the SAME reference as the feature list
 [ ] Ten task traces with tap counts
 [ ] Incumbent's issue tracker read; do-not-copy list written
 [ ] Kill criteria written down
@@ -380,7 +407,8 @@ Copy into the new repo's `README` and don't write code until every box is ticked
 1. They already solved the UX. **Copy it. You are not designing.**
 2. Your improvements are invisible, so their UX cost must be **zero**.
 3. Copy the **navigation**, not the feature list.
-4. Prefer a source-available reference over a popular one.
+4. Prefer a source-available reference over a popular one — and pick **one**.
+   A feature list without its navigation graph is half an artefact.
 5. Never ask the user what the system already knows.
 6. Pin at least one test value from **outside** your own code.
 7. Count screens **driven**, not screens **written**.
