@@ -920,31 +920,50 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
 
     fun isAdminSession(keyHex: String): Boolean = _adminSessions.value[keyHex] ?: false
 
-    fun repeaterLogin(
-        keyHex: String,
-        password: String,
-        savePassword: Boolean,
-        guest: Boolean = false,
-    ) {
+    /**
+     * Log in to a repeater/room with [password].
+     *
+     * There is no "log in as guest" option, because there is no such
+     * choice to make: you present a password and the NODE decides what
+     * it grants, reporting it in the login reply. The old `guest`
+     * parameter drove a checkbox that set the session's rights from what
+     * the user ticked while the node's own answer was discarded — see
+     * [LoginOutcome].
+     */
+    fun repeaterLogin(keyHex: String, password: String, savePassword: Boolean) {
         val svc = _service.value ?: return
         val key = hexToBytesOrNull(keyHex) ?: return
         viewModelScope.launch {
-            val ok = runCatching { svc.engine.sendLogin(key, password) }.getOrDefault(false)
+            val outcome = runCatching { svc.engine.sendLogin(key, password) }
+                .getOrDefault(io.github.thatsfguy.meshcore.engine.LoginOutcome.Failed)
             // Only seal a credential the node actually accepted.
-            if (ok && savePassword) svc.secrets.storeLoginPassword(keyHex, password, guest)
-            // Only an accepted ADMIN login unlocks state-changing commands;
-            // a guest session stays read-only in the UI regardless.
-            _adminSessions.value = _adminSessions.value + (keyHex to (ok && !guest))
+            if (outcome.accepted && savePassword) {
+                svc.secrets.storeLoginPassword(keyHex, password)
+            }
+            _adminSessions.value =
+                _adminSessions.value + (keyHex to (outcome.accepted && outcome.isAdmin))
             transientMessage.value = when {
-                !ok -> "Login failed"
-                guest -> "Guest (read-only) session"
-                else -> "Admin session"
+                !outcome.accepted -> "Login failed"
+                outcome.isAdmin -> "Logged in as admin"
+                // Say what was GRANTED, not what was asked for. A guest
+                // grant is a successful login, not a failure.
+                else -> "Logged in as guest — read-only"
             }
         }
     }
 
-    suspend fun savedLoginPassword(keyHex: String, guest: Boolean = false): String? =
-        _service.value?.secrets?.loginPassword(keyHex, guest)
+    /**
+     * The saved password for a node.
+     *
+     * Falls back to the legacy `guest_` slot: before the guest checkbox
+     * was removed, a password typed with it ticked was sealed under a
+     * different key, and dropping that silently would look like the
+     * keystore had lost it.
+     */
+    suspend fun savedLoginPassword(keyHex: String): String? =
+        _service.value?.secrets?.let { s ->
+            s.loginPassword(keyHex) ?: s.loginPassword(keyHex, guest = true)
+        }
 
     fun sendCli(keyHex: String, command: String) {
         val svc = _service.value ?: return

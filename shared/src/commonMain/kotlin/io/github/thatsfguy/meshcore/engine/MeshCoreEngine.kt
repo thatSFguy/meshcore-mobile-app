@@ -52,6 +52,28 @@ import kotlinx.coroutines.withTimeoutOrNull
 /** Engine lifecycle, layered above the raw transport state. */
 enum class EngineState { Detached, Connecting, Handshaking, Ready }
 
+/**
+ * What a repeater/room granted in response to a login.
+ *
+ * The NODE decides this, not the user. `PUSH_CODE_LOGIN_SUCCESS` carries
+ * a permission byte (`[1]`, 1 = admin), so whether a session is admin or
+ * guest is a fact reported back over the air — never something to ask
+ * for up front.
+ *
+ * This app used to ask. A "Guest (read-only)" checkbox sat next to the
+ * password field, and the session's rights were set from the CHECKBOX
+ * while the byte the node actually sent was parsed and discarded. That
+ * made the checkbox both confusing (it looks like it selects an access
+ * level; it cannot) and wrong (tick it after an admin password and the
+ * UI locks controls the node would have allowed; leave it clear with a
+ * guest password and the UI offers controls the node will refuse).
+ */
+data class LoginOutcome(val accepted: Boolean, val isAdmin: Boolean) {
+    companion object {
+        val Failed = LoginOutcome(accepted = false, isAdmin = false)
+    }
+}
+
 /** Domain events the app layer persists / notifies on. */
 sealed class MeshEvent {
     /** Inbound direct message (or CLI reply when [txtType] == cli). */
@@ -870,12 +892,13 @@ class MeshCoreEngine(
      * radio link (and the network, on TCP) — never log it; store only in
      * the platform keystore.
      */
-    suspend fun sendLogin(repeaterPubKey: ByteArray, password: String): Boolean {
+    suspend fun sendLogin(repeaterPubKey: ByteArray, password: String): LoginOutcome {
         val ev = sendAndAwait(
             Frames.sendLogin(repeaterPubKey, password),
             timeoutMs = 20_000,
         ) { it is DeviceEvent.LoginSuccess || it is DeviceEvent.LoginFail }
-        return ev is DeviceEvent.LoginSuccess
+        val success = ev as? DeviceEvent.LoginSuccess ?: return LoginOutcome.Failed
+        return LoginOutcome(accepted = true, isAdmin = success.permissions == PERMISSION_ADMIN)
     }
 
     /** Send a raw CLI command to a repeater. Replies arrive as
@@ -1560,6 +1583,14 @@ class MeshCoreEngine(
     companion object {
         /** Sentinel hop count for a flooded (pathless) message. */
         const val FLOOD_HOPS = -1
+
+        /**
+         * `PUSH_CODE_LOGIN_SUCCESS[1]` value meaning an ADMIN session.
+         * Anything else the node sends is a guest/read-only grant — and
+         * "anything else" is deliberate: an unrecognised permission
+         * value must fall to the LESSER right, never the greater.
+         */
+        const val PERMISSION_ADMIN = 1
 
         private const val DEFAULT_TIMEOUT_MS = 6_000L
 

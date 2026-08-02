@@ -298,7 +298,7 @@ class MeshCoreEngineTest {
         radio.connect()
         engine.awaitReady()
 
-        assertTrue(engine.sendLogin(peerKey, "secret"))
+        assertTrue(engine.sendLogin(peerKey, "secret").accepted)
     }
 
     @Test

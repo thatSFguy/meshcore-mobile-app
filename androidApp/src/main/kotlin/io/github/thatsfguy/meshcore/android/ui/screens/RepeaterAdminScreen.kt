@@ -84,11 +84,10 @@ fun RepeaterAdminScreen(vm: MeshCoreViewModel, nav: NavController, keyHex: Strin
     var password by remember { mutableStateOf("") }
     var savePassword by remember { mutableStateOf(true) }
     var passwordPrefilled by remember { mutableStateOf(false) }
-    var guestLogin by remember { mutableStateOf(false) }
     val adminSessions by vm.adminSessions.collectAsState()
     val isAdmin = adminSessions[keyHex] ?: false
-    LaunchedEffect(keyHex, guestLogin) {
-        password = vm.savedLoginPassword(keyHex, guestLogin) ?: ""
+    LaunchedEffect(keyHex) {
+        password = vm.savedLoginPassword(keyHex) ?: ""
         passwordPrefilled = password.isNotEmpty()
     }
 
@@ -149,7 +148,7 @@ fun RepeaterAdminScreen(vm: MeshCoreViewModel, nav: NavController, keyHex: Strin
                 )
                 Spacer(Modifier.width(8.dp))
                 OutlinedButton(onClick = {
-                    vm.repeaterLogin(keyHex, password, savePassword, guest = guestLogin)
+                    vm.repeaterLogin(keyHex, password, savePassword)
                 }) { Text("Login") }
             }
             Row(
@@ -158,13 +157,14 @@ fun RepeaterAdminScreen(vm: MeshCoreViewModel, nav: NavController, keyHex: Strin
             ) {
                 Checkbox(checked = savePassword, onCheckedChange = { savePassword = it })
                 Text("Keep password in keystore", style = MaterialTheme.typography.bodySmall)
-                Spacer(Modifier.width(12.dp))
-                Checkbox(checked = guestLogin, onCheckedChange = { guestLogin = it })
-                Text("Guest (read-only)", style = MaterialTheme.typography.bodySmall)
             }
             Text(
+                // The node decides this and says so in its reply; there
+                // is nothing to select up front. Blank often works — many
+                // repeaters accept an empty guest password.
                 if (isAdmin) "Admin session — settings unlocked"
-                else "Read-only: log in as admin to change settings",
+                else "Read-only. An admin password unlocks settings; many nodes also " +
+                    "accept a blank or guest password for read-only access.",
                 style = MaterialTheme.typography.labelSmall,
                 color = if (isAdmin) MaterialTheme.colorScheme.primary
                 else MaterialTheme.colorScheme.onSurfaceVariant,

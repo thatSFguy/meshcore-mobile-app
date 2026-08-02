@@ -1,0 +1,294 @@
+# Lessons from MeshCore Hardened
+
+Written 2026-08-02, when the project was shut down. Not a post-mortem of a failure to
+ship — it shipped, five releases, 509 passing tests, a working radio client. It's a
+post-mortem of arriving at something **nobody wanted to use**, including the person who
+asked for it.
+
+The verdict that ended it: *"our app is complex, it feels like you need to know what you
+are doing"* and *"there is functionality that just doesn't work."* Both were true, and
+both were predictable months earlier.
+
+---
+
+## The one-sentence version
+
+**We optimised a number that wasn't the goal** — feature coverage against a competitor's
+class list — **and never once measured the thing that was.**
+
+Everything below is a variation on that.
+
+---
+
+## Scoping and product
+
+### 1. A competitor's class names are not a product spec
+
+`PARITY.md` was built by pulling a competitor's APK, extracting Dart class names from
+`libapp.so`, and turning each `*Screen` / `*Sheet` / `*Dialog` into a row. That yields a
+list of **surfaces**. It says nothing about flow, hierarchy, what's one tap versus three,
+or what a user is trying to do.
+
+We then built one screen per row. The result was a complete inventory and an incoherent
+app.
+
+> **Next time:** if you must copy, copy the *information architecture* — what's a tab, what's
+> a screen, what's a sheet, how you get from a node to administering it. That's the part
+> users feel. The widget inventory is downstream of it.
+
+### 2. Check whether the thing you're reverse-engineering is the thing you have source for
+
+The full Flutter source of a perfectly good MeshCore client (**MeshCore Open**, 27 screens,
+26 test files, 5,864 lines of tests) sat in a sibling directory for the entire project. We
+used it as a *protocol* reference and never as a *UI* reference.
+
+Meanwhile we reverse-engineered UI structure from a **different, closed-source** app by
+scraping strings out of a shared object.
+
+Nobody asked the obvious question until the last day. When we finally did, the answer
+reframed a multi-week estimate into a tractable port.
+
+> **Next time:** before reverse-engineering anything, inventory what you already have
+> source for. Write it down. Re-ask when scope changes.
+
+### 3. Decide early who the app is for
+
+This app's real differentiator was posture: no servers, no accounts, no analytics, and a
+refusal to state more than it knew. That's worth something to roughly one person.
+
+It was also, implicitly, competing on features with an established app that has design
+attention and a user base. Feature parity was achievable. UX parity is a different
+discipline and a much longer road, and we never decided we were on it — we just drifted
+onto it, one PARITY row at a time.
+
+> **Next time:** write down "this is a tool for me" or "this competes." They justify
+> opposite investments. Drifting between them gets you the costs of both.
+
+### 4. Whatever you count, you will maximise
+
+The status line read `44 ✅ · 10 ◐ · 8 ❌`. It went up every session. It felt like
+progress and was reported as progress.
+
+It measured screens that existed. Not screens that worked, were reachable, were
+understandable, or had ever been run. A tally with a gradient will be climbed, so be
+extremely careful what gradient you install.
+
+> **Next time:** if you keep a scoreboard, make the top-line number something like
+> "screens driven on real hardware this month." Feature counts belong in a footnote.
+
+---
+
+## Reverse-engineering
+
+### 5. Read the sender, not the type name
+
+Repeated theme, three separate incidents:
+
+- `CMD_SEND_TRACE_PATH` shipped with a hardcoded flags byte because the spec line named a
+  field without saying what went in it. The reference client's **parser** was read; its
+  **sender** wasn't.
+- `freqHz` in the reference client is computed `(freqMHz * 1000)` — it's **kHz**. We
+  copied the name into our spec, our model, our frame builder and our UI label, and sent
+  values 1000× too large. The radio rejected every regional preset.
+- `path_len` is not a length. Low six bits are a hop count, top two bits a width.
+
+Names in reverse-engineered protocols are frequently wrong, because the person who wrote
+them was also guessing. The authoritative answer is at the **call site**.
+
+> **Next time:** for every wire field, find the line that *produces* the value, not the
+> declaration. Paste it into the spec as evidence.
+
+### 6. When a documented range and a field name disagree, believe the range
+
+`MESHCORE_PROTOCOL.md` recorded `freq_hz 300 000–2 500 000` — correct — and then
+annotated it *"firmware uses Hz here."* 300 000 Hz is not a LoRa band. The range was
+decisive on its own and had been sitting in the file, right, the whole time.
+
+The guess written beside the evidence propagated into the code and survived months.
+
+> **Next time:** when you write a `?` or a "probably" into a spec, make it a blocking
+> TODO, not a footnote. Uncertainty recorded next to correct data reads as resolved.
+
+### 7. Derived values are where the bugs live
+
+Four separate defects, one shape: a value that depends on a *mesh property*
+(`pathHashByteWidth` — 2 on this network, 1 by default) computed once, at the wrong
+width, then carried around as truth.
+
+Trace flags. Path-history hop counts. Apply-path token parsing. The repeater picker's
+`take(2)`.
+
+The fix that finally stuck was structural: **stop carrying the derived value.** A picked
+hop now stores the node's full public key and computes its hash at the current width on
+demand. A width that arrives late corrects the display instead of pinning a wrong route.
+
+> **Next time:** if X is derived from context, store the source and derive at use. Caching
+> a derived value is a bet that the context is stable — make that bet explicitly or not
+> at all.
+
+---
+
+## Testing
+
+### 8. A test suite you authored both halves of proves only internal consistency
+
+This is the sharpest lesson of the project.
+
+The frequency bug lived through **509 passing tests**. It survived because we wrote
+`910525000` into the frame builder, the response parser, the SELF_INFO test fixture *and*
+the fake radio. Every component agreed with every other component. The only party that
+disagreed was the radio, and it wasn't in the test suite.
+
+The trace bug was the same class one level down: nine tests, all on the receive side, and
+a sender that emitted a packet no node would answer.
+
+> **Next time:** at least one test per protocol feature must pin a value that came from
+> **outside your codebase** — a capture, a reference implementation's own test vector, a
+> device. If you can't get one, write in the test that you couldn't, and treat the feature
+> as unverified.
+
+### 9. Range assertions catch what example assertions miss
+
+`assertEquals(910_525_000L, usa.frequencyHz)` passed forever. What would have caught it on
+day one:
+
+```kotlin
+assertTrue(p.frequencyKhz in 300_000..2_500_000)   // the band the firmware accepts
+```
+
+Examples confirm what you already believe. Constraints catch what you didn't think of.
+
+### 10. A suite of "asserts null" needs a positive control
+
+Most heard-via tests assert a route is *not* claimed — ambiguous packets, wrong sender,
+stale timing. Every one would pass if the feature did nothing at all. The test carrying
+that suite is the single one asserting a real path reaches the event.
+
+> Whenever correctness means *declining* to answer, pin the case where it must answer.
+
+### 11. Green tests are not "it works", and nothing in the tooling says so
+
+"Build succeeded, 509 tests passed" was reported — by me, repeatedly — as though it meant
+the feature worked. It meant the code compiled and agreed with itself.
+
+Most of this app met a real radio for the first time in a single session near the end.
+Roughly a dozen defects surfaced within hours: phantom channels, a dead trace, an Apply
+button that did nothing, tabs truncated to "Statu", hop counts that were byte counts,
+frequency in the wrong unit.
+
+They were not subtle. They were just never looked for.
+
+---
+
+## UI and UX
+
+### 12. Never ask the user for something the system already knows
+
+The archetype: a **"Guest (read-only)" checkbox** beside the repeater password field.
+
+The node reports what it granted — `PUSH_CODE_LOGIN_SUCCESS[1]`, 1 = admin. We parsed that
+byte, **threw it away**, and set the session's rights from the checkbox. So the control
+could not work: tick it with an admin password and the UI locks controls the node would
+allow; leave it clear with a guest password and it offers controls the node will refuse.
+
+The competing apps have no checkbox. You type a password; the node decides; the UI shows
+`ADMIN` or `GUEST`.
+
+Same smell elsewhere: manual routing demanded hex tokens whose *width* is a property of
+the mesh the user has no way to know.
+
+> **Next time:** for every input, ask "could the system determine this itself?" If yes,
+> it's not a setting, it's a bug with a label.
+
+### 13. Complexity accretes into whatever screen is nearest
+
+We ended with a repeater admin screen of **six scrollable tabs** and a settings screen of
+**ten expandable sections**. Neither was designed; both accumulated, because adding to an
+existing screen is free and creating one has a cost.
+
+MCO solves the same problem with hub-and-spoke: a hub screen fronting separate status,
+settings, CLI, regions, neighbours and telemetry screens.
+
+> **Next time:** make "which screen does this belong on?" a required question per feature,
+> with "a new one" as a normal answer. If a screen grows a third tab, that's the signal to
+> split it, not to add a fourth.
+
+### 14. Honesty in copy has a UX cost — pay it once, not on every row
+
+A genuine strength of this app was refusing to overstate: *"which repeaters carried it
+isn't known"*, *"channels are obfuscated, not secure"*, *"flooded — no route was
+recorded."* Those distinctions are real and I'd keep every one.
+
+But the caveat went on **every row of every screen**, three sentences at a time, until the
+whole app read like a disclaimer. The competing apps say nothing and look clean.
+
+> **Next time:** state the posture loudly in one place. On individual surfaces, use the
+> shortest true label and let a tap reveal the nuance.
+
+### 15. UX is not a finishing pass
+
+The plan was always "features now, polish later." That's not how it works. By the time
+you notice, the navigation is wrong, the mega-screens exist, and fixing it is a rewrite of
+the UI layer rather than a tidy-up.
+
+> **Next time:** build the shell first — navigation, five screens done properly, driven on
+> hardware — and add features into a frame that already works. A feature landing in a good
+> frame stays good. A feature landing in a bad one makes it worse.
+
+---
+
+## Process
+
+### 16. Run the app on a cadence, not at the end
+
+Everything above about hardware defects reduces to this. Weekly would have caught nearly
+all of it while it was one bug rather than a texture.
+
+### 17. A signal nobody reads is not a signal
+
+iOS CI was **red for multiple commits** and I never looked. Worse, the failure wasn't
+iOS-specific: a JVM-only API (`toSortedMap()`) had reached `commonMain`, so the shared
+module had been non-portable for weeks.
+
+> **Next time:** either watch the signal or delete it. A permanently-red check trains you
+> to ignore the whole dashboard.
+
+### 18. Don't let the docs overclaim
+
+`README` said "v1 shipped." `PARITY` said 44 ✅. The in-app changelog credited 0.3.0 with
+four features that landed *after* that tag, so the released build didn't contain them.
+
+Overclaiming docs don't just mislead others — they mislead **you**, three months later,
+about what's actually done.
+
+---
+
+## If I did it again, in order
+
+1. Decide: personal tool, or competitor? Write it down.
+2. Inventory what open-source references exist **before** reverse-engineering anything.
+3. Build the shell: navigation, IA, five screens, running on real hardware.
+4. Add features into that frame, one at a time, each driven on hardware before it counts.
+5. For every wire field, cite the reference implementation's **sender** in the spec.
+6. For every protocol feature, pin at least one value from outside your own codebase.
+7. Keep a scoreboard, but count screens *driven*, not screens *written*.
+8. Re-read every checkbox once a month and ask what the system already knows.
+
+---
+
+## What was actually good, and worth keeping
+
+Not everything here was waste:
+
+- The **protocol layer** (`shared/`) is solid, well-documented and genuinely reusable.
+  `MESHCORE_PROTOCOL.md` is better than anything else publicly available on the companion
+  protocol, unit bug and all — now corrected, with its evidence attached.
+- The **security posture** held. Advert signatures verified before import; secrets in the
+  keystore; the DB encrypted; channels honestly labelled obfuscated; TCP behind a stern
+  warning. None of that was ever traded away for convenience.
+- The **refusal to guess** — ambiguous hops shown as gaps rather than pinned to a plausible
+  candidate; routes refused rather than truncated; "isn't known" instead of "direct". That
+  instinct is right, and the mistake was only in how loudly it was repeated.
+- The **hardware-debugging discipline**, once it finally started: pin the captured value,
+  test hostile input, sweep the space exhaustively. It found real defects every time it
+  was applied. It just started about four months too late.
