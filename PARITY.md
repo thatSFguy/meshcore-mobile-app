@@ -244,14 +244,19 @@ Grouped so each block is shippable:
    that belongs to no particular node.
 5. **Bigger asks** — sensor nodes ✅, neighbours ✅ (as a list), path map rendering ◐.
 6. **Revisit deferrals** — what is genuinely left, and why:
-   - **Heard-via / heard-repeats** (§2), and the visual the user actually wants: "how did
-     this message get to me". The inbound message frame carries `path_len` ONLY — a hop
-     count, not a route (§9) — which is why the message sheet can say "4 hops" and no
-     more. But `PUSH_CODE_LOG_RX_DATA` DOES carry full `pathBytes`, and `RawPacket`
-     already parses them; the engine currently takes `hopCount` and drops the rest.
-     Correlating an RX-log packet with the message it carried recovers the real route.
-     ⚠ An arrival path is the REVERSE of a sending path, so it must be reversed hop-by-hop
-     before ever being offered as a route to reply on.
+   - ~~**Heard-via / heard-repeats** (§2), and the visual the user actually wants: "how
+     did this message get to me".~~ **Done 2026-08-01.** The message sheet grows an
+     "Arrived via" section listing the route in travel order — sender at the top, this
+     radio at the bottom — recovered from `PUSH_CODE_LOG_RX_DATA`, which is the only frame
+     carrying the full path. The two halves are not equally certain and the code keeps
+     them apart (`HeardVia`): a **channel** message is EXACT, because the engine decrypts
+     that very packet; a **direct** message must be correlated on sender byte + hop count
+     + time, and a route is claimed only when exactly one packet fits. Two plausible
+     packets yields "isn't known" — a route credited to the wrong message looks exactly
+     like a correct one. The reversal warning is honoured: the routing sheet's "Reply the
+     way they reached me" reverses the arrival path hop-by-hop before offering it.
+     Remaining: heard-repeats (which repeaters re-broadcast OUR traffic) is a different
+     question and still open.
    - ~~**Hop selection is free-text hex** (§9).~~ **Done 2026-08-01**, verified on the
      radio. Tap a known repeater to append it, reorder with ▲/▼, remove with ×; the hex is
      derived, never typed. Hops carry the node's **full public key** and compute their

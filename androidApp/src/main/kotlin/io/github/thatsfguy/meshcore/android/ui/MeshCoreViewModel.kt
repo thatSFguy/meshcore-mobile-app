@@ -589,6 +589,31 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
         _service.value?.engine?.routingMode(keyHex)
             ?: io.github.thatsfguy.meshcore.protocol.RoutingMode.Auto
 
+    /**
+     * The route the latest message from [keyHex] arrived on, already
+     * REVERSED into a route we could send on.
+     *
+     * An arrival path runs from the sender outward — hop 0 is the
+     * repeater nearest them, the last hop is the one that reached us. A
+     * stored out-path runs the other way, so pinning an arrival path
+     * unreversed produces a specific-looking route that addresses its
+     * hops backwards and cannot work.
+     */
+    fun replyRouteFromArrival(keyHex: String): StateFlow<Pair<String, Int>?> =
+        selfKey.flatMapLatest { key ->
+            if (key.isEmpty()) {
+                flowOf(null)
+            } else {
+                db.messages().latestArrival(key, "dm", keyHex).map { m ->
+                    val path = m?.arrivalPathHex ?: return@map null
+                    val width = m.arrivalHashWidth?.takeIf { it in 1..4 } ?: return@map null
+                    io.github.thatsfguy.meshcore.protocol.HeardVia.reverseHex(path, width)
+                        .takeIf { it.isNotEmpty() }
+                        ?.let { it to width }
+                }
+            }
+        }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
     fun pathHistory(keyHex: String): StateFlow<List<io.github.thatsfguy.meshcore.android.storage.PathHistoryEntity>> =
         selfKey.flatMapLatest { key ->
             if (key.isEmpty()) flowOf(emptyList()) else db.paths().forContact(key, keyHex)

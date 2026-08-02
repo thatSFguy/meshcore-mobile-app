@@ -287,6 +287,33 @@ fun RoutingSheet(
                 }
             }
 
+            // The route their last message came in on, reversed into one
+            // we could send on. Offered separately from "Known paths"
+            // because it is evidence of a route that WORKED in the other
+            // direction, which is not the same as one that has delivered
+            // for us.
+            val replyRoute by remember(keyHex) { vm.replyRouteFromArrival(keyHex) }.collectAsState()
+            replyRoute?.let { (hex, width) ->
+                Spacer(Modifier.height(12.dp))
+                Text("Reply the way they reached me", style = MaterialTheme.typography.titleSmall)
+                val reversedHops = remember(hex, width, contactNames) {
+                    HopSelection.fromPath(hexToBytes(hex), width, contactNames)
+                }
+                HintText(
+                    "Their last message arrived over ${reversedHops.size} repeater(s). " +
+                        "Reversed here into the order a reply would travel.",
+                )
+                Text(
+                    reversedHops.joinToString(" → ") { it.label(width) },
+                    style = MaterialTheme.typography.bodySmall,
+                    fontFamily = FontFamily.Monospace,
+                )
+                TextButton(onClick = {
+                    hops = reversedHops
+                    mode = RoutingMode.Manual
+                }) { Text("Use this route") }
+            }
+
             Spacer(Modifier.height(12.dp))
             Text("Known paths", style = MaterialTheme.typography.titleSmall)
             if (paths.isEmpty()) {

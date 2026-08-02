@@ -16,7 +16,7 @@ import java.io.File
         MessageEntity::class, ContactEntity::class, ChannelEntity::class,
         PathHistoryEntity::class, DiscoveredEntity::class,
     ],
-    version = 7,
+    version = 8,
     exportSchema = true,
 )
 abstract class MeshCoreDatabase : RoomDatabase() {
@@ -104,6 +104,18 @@ abstract class MeshCoreDatabase : RoomDatabase() {
         }
 
         /**
+         * v8 adds messages.arrivalPathHex / arrivalHashWidth — the route
+         * a message came in on. ADD COLUMN only; existing rows keep NULL,
+         * which reads as "not known" rather than "direct".
+         */
+        private val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `messages` ADD COLUMN `arrivalPathHex` TEXT")
+                db.execSQL("ALTER TABLE `messages` ADD COLUMN `arrivalHashWidth` INTEGER")
+            }
+        }
+
+        /**
          * Open the database, encrypted with [passphrase] when one is
          * available (see [DatabaseKey]). A pre-existing PLAINTEXT
          * database is converted in place first, so turning encryption on
@@ -147,7 +159,7 @@ abstract class MeshCoreDatabase : RoomDatabase() {
                 Room.databaseBuilder(context, MeshCoreDatabase::class.java, name)
                     .addMigrations(
                         MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4,
-                        MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7,
+                        MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8,
                     )
 
             if (key == null) {

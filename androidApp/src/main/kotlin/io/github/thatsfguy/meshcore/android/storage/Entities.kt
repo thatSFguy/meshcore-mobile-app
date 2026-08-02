@@ -60,6 +60,21 @@ data class MessageEntity(
      * received before this was recorded.
      */
     val hops: Int? = null,
+    /**
+     * The route this message ARRIVED on, hex, in travel order — hop 0 is
+     * the repeater nearest the sender, the last hop is the one that
+     * reached us.
+     *
+     * Null means the route isn't known, which is NOT the same as
+     * "direct" — the message frame carries a hop count only, so this is
+     * filled from the RX-log packet (exactly for channel messages,
+     * by correlation for direct ones — see HeardVia).
+     *
+     * ⚠ This is an ARRIVAL path. Reverse it hop-by-hop before ever
+     * offering it as a route to reply on.
+     */
+    val arrivalPathHex: String? = null,
+    val arrivalHashWidth: Int? = null,
 )
 
 enum class MessageStatus { Pending, Sent, Delivered, Failed }

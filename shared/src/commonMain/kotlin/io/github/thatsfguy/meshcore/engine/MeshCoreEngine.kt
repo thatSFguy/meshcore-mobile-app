@@ -13,6 +13,7 @@ import io.github.thatsfguy.meshcore.protocol.ChannelCrypto
 import io.github.thatsfguy.meshcore.protocol.Codes
 import io.github.thatsfguy.meshcore.protocol.DeviceEvent
 import io.github.thatsfguy.meshcore.protocol.Frames
+import io.github.thatsfguy.meshcore.protocol.HeardVia
 import io.github.thatsfguy.meshcore.protocol.Neighbours
 import io.github.thatsfguy.meshcore.protocol.NodeDiscovery
 import io.github.thatsfguy.meshcore.protocol.PathCodec
@@ -65,6 +66,14 @@ sealed class MeshEvent {
         val roomAuthorLabel: String? = null,
         /** Hops travelled; [FLOOD_HOPS] when flooded, null if unknown. */
         val hops: Int? = null,
+        /**
+         * The route this arrived on, hex, in TRAVEL order — recovered by
+         * correlating the RX-log packet with this message (see
+         * [HeardVia]). Null when no single packet could be credited; the
+         * UI must show that as "not known", never as "direct".
+         */
+        val arrivalPathHex: String? = null,
+        val arrivalHashWidth: Int? = null,
     ) : MeshEvent()
 
     /**
@@ -82,6 +91,15 @@ sealed class MeshEvent {
         /** Hops travelled; [FLOOD_HOPS] when flooded, null if unknown. */
         val hops: Int? = null,
         val snr: Double? = null,
+        /**
+         * The route this arrived on, hex, in TRAVEL order. EXACT for a
+         * channel message: the engine decrypts the raw packet itself, so
+         * the packet and the message are the same object — no
+         * correlation is involved. Null on the companion-sync copy,
+         * which carries no path.
+         */
+        val arrivalPathHex: String? = null,
+        val arrivalHashWidth: Int? = null,
     ) : MeshEvent()
 
     /** The radio accepted an outbound message (RESP_CODE_SENT). */
@@ -469,6 +487,12 @@ class MeshCoreEngine(
                     it.publicKeyHex.startsWith(prefixHex)
                 }
                 val resolved = matches.singleOrNull()
+                val hops = PathCodec.decodePathLen(event.pathLen).hops
+                // Which raw packet carried this? Only answered when
+                // exactly one fits — see HeardVia. The packet is then
+                // consumed so a second message can't claim it too.
+                val arrival = HeardVia.match(pendingArrivals, prefixHex, hops, nowMillis())
+                if (arrival != null) pendingArrivals = pendingArrivals - arrival
                 emitMeshEvent(
                     MeshEvent.DirectMessageReceived(
                         senderPrefixHex = prefixHex,
@@ -478,7 +502,9 @@ class MeshCoreEngine(
                         txtType = event.txtType,
                         snr = event.snr,
                         roomAuthorLabel = event.roomAuthorPrefix?.let { roomAuthorLabel(it) },
-                        hops = PathCodec.decodePathLen(event.pathLen).hops,
+                        hops = hops,
+                        arrivalPathHex = arrival?.pathHex,
+                        arrivalHashWidth = arrival?.hashWidth,
                     ),
                 )
             }
@@ -568,6 +594,8 @@ class MeshCoreEngine(
         timestamp: Long,
         hops: Int? = null,
         snr: Double? = null,
+        arrivalPathHex: String? = null,
+        arrivalHashWidth: Int? = null,
     ) {
         emitMeshEvent(
             MeshEvent.ChannelMessageReceived(
@@ -575,6 +603,8 @@ class MeshCoreEngine(
                 channelContentKey(channelIndex, timestamp, senderName, text),
                 hops = hops,
                 snr = snr,
+                arrivalPathHex = arrivalPathHex,
+                arrivalHashWidth = arrivalHashWidth,
             ),
         )
     }
@@ -590,9 +620,51 @@ class MeshCoreEngine(
         }
     }
 
+    /**
+     * Raw packets heard but not yet matched to the message they carried.
+     *
+     * Only direct messages need this. A DM payload is encrypted to the
+     * radio's identity key, which this app never holds, so the packet
+     * (with its full path) and the decrypted message arrive by different
+     * routes and have to be correlated — see [HeardVia].
+     */
+    private var pendingArrivals = emptyList<HeardVia.Arrival>()
+
+    /**
+     * Millis since the engine started, from the MONOTONIC clock.
+     *
+     * Correlation only cares about the gap between two events, and a
+     * wall clock can jump — the radio's own `syncDeviceClock` exists
+     * precisely because these clocks disagree. A backwards jump would
+     * make a just-heard packet look stale, or a stale one look fresh.
+     */
+    private val startMark = kotlin.time.TimeSource.Monotonic.markNow()
+
+    private fun nowMillis(): Long = startMark.elapsedNow().inWholeMilliseconds
+
+    private fun rememberArrival(packet: RawPacket) {
+        // dest_hash, src_hash, then the MAC (reference client:
+        // "prefixed with dest/src hashes, MAC").
+        if (packet.payload.size < 2) return
+        if (packet.hopCount <= 0 || packet.pathBytes.isEmpty()) return
+        pendingArrivals = HeardVia.remember(
+            HeardVia.expire(pendingArrivals, nowMillis()),
+            HeardVia.Arrival(
+                pathHex = packet.pathBytes.toHex(),
+                hashWidth = packet.pathHashWidth,
+                hops = packet.hopCount,
+                srcHash = packet.payload[1].toInt() and 0xFF,
+                atMillis = nowMillis(),
+            ),
+        )
+    }
+
     private fun handleRxLog(event: DeviceEvent.LogRxData) {
         val packet = RawPacket.parse(event.packet) ?: return
         when (packet.payloadType) {
+            // We cannot decrypt this — but we CAN keep its route until
+            // the radio hands us the message it carried.
+            Codes.PAYLOAD_TYPE_TXT_MSG -> rememberArrival(packet)
             Codes.PAYLOAD_TYPE_GRP_TXT -> {
                 if (packet.payload.isEmpty()) return
                 val channelHash = packet.payload[0].toInt() and 0xFF
@@ -610,6 +682,11 @@ class MeshCoreEngine(
                         // no width arithmetic needed.
                         hops = packet.hopCount,
                         snr = event.snr,
+                        // EXACT, not correlated: we decrypted this very
+                        // packet, so its path is this message's path.
+                        arrivalPathHex = packet.pathBytes.toHex()
+                            .takeIf { packet.pathBytes.isNotEmpty() },
+                        arrivalHashWidth = packet.pathHashWidth,
                     )
                     break
                 }

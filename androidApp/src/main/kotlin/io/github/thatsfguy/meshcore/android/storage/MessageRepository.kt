@@ -222,6 +222,8 @@ class MessageRepository(
                         snr = event.snr,
                         txtType = event.txtType,
                         hops = event.hops,
+                        arrivalPathHex = event.arrivalPathHex,
+                        arrivalHashWidth = event.arrivalHashWidth,
                     ),
                 )
                 if (activeThread != "$KIND_DM|$peer") {
@@ -265,8 +267,18 @@ class MessageRepository(
                         contentKey = event.contentKey,
                         snr = event.snr,
                         hops = event.hops,
+                        arrivalPathHex = event.arrivalPathHex,
+                        arrivalHashWidth = event.arrivalHashWidth,
                     ),
                 )
+                // The RX-log copy is the ONLY one carrying a route, and
+                // it is also the one the unique index bounces when the
+                // sync copy arrives first. Fill it in either way.
+                if (event.arrivalPathHex != null && event.arrivalHashWidth != null) {
+                    db.messages().fillArrivalPath(
+                        self, event.contentKey, event.arrivalPathHex!!, event.arrivalHashWidth!!,
+                    )
+                }
                 // insert == -1 → duplicate (sync + RX-log double delivery,
                 // or the echo of our own outgoing message)
                 if (inserted != -1L && activeThread != "$KIND_CHANNEL|${event.channelIndex}") {

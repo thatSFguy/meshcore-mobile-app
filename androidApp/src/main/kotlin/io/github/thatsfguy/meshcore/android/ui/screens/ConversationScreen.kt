@@ -65,6 +65,8 @@ import io.github.thatsfguy.meshcore.android.storage.MessageStatus
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import io.github.thatsfguy.meshcore.protocol.HeardVia
+import io.github.thatsfguy.meshcore.protocol.PathCodec
 import io.github.thatsfguy.meshcore.protocol.ReactionCounts
 import io.github.thatsfguy.meshcore.protocol.Reactions
 import io.github.thatsfguy.meshcore.protocol.Frames
@@ -298,6 +300,10 @@ fun ConversationScreen(
             m,
             isChannel = isChannel,
             showSender = showSenders,
+            // Full key hex -> name, so the arrival route can name its
+            // hops instead of showing bare hashes.
+            contactNames = vm.liveContacts.collectAsState().value
+                .values.associate { it.publicKeyHex to it.name },
             onDismiss = { details = null },
         )
     }
@@ -833,6 +839,7 @@ private fun MessageInfoSheet(
     m: MessageEntity,
     isChannel: Boolean,
     showSender: Boolean,
+    contactNames: Map<String, String>,
     onDismiss: () -> Unit,
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss) {
@@ -864,6 +871,7 @@ private fun MessageInfoSheet(
             // radio keeps the route to itself — so calling it "Path"
             // implied we knew which repeaters carried it. We don't.
             hopsLabel(m.hops)?.let { InfoRow("Hops travelled", it) }
+            if (!m.outgoing) ArrivalRoute(m, contactNames)
             if (showSender) {
                 InfoRow(
                     "Sender name",
@@ -878,6 +886,72 @@ private fun MessageInfoSheet(
             ), mono = true)
             InfoRow("Length", m.text.encodeToByteArray().size.toString() + " bytes")
         }
+    }
+}
+
+/**
+ * "How did this get to me" — the route the message arrived on, in the
+ * order it travelled: the sender at the top, this radio at the bottom.
+ *
+ * Only shown when the route is actually known. The message frame states
+ * a hop COUNT and nothing more, so this comes from the RX-log packet —
+ * exactly for a channel message, by correlation for a direct one — and
+ * when no single packet could be credited the honest answer is a
+ * sentence saying so, not an empty diagram (see HeardVia).
+ */
+@Composable
+private fun ArrivalRoute(m: MessageEntity, contactNames: Map<String, String>) {
+    val width = m.arrivalHashWidth?.takeIf { it in 1..4 }
+    val path = m.arrivalPathHex?.takeIf { it.isNotEmpty() && width != null }
+    Spacer(Modifier.height(8.dp))
+    Text("Arrived via", style = MaterialTheme.typography.titleSmall)
+    if (path == null || width == null) {
+        Text(
+            HeardVia.summary(m.hops, null, 1),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        return
+    }
+    val bytes = io.github.thatsfguy.meshcore.util.hexToBytesOrNull(path) ?: return
+    val hops = PathCodec.resolveHops(bytes, width, contactNames)
+    Text(
+        HeardVia.summary(m.hops, path, width),
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    Spacer(Modifier.height(4.dp))
+    // The sender first, then each repeater in the order it carried the
+    // message, then us. Reading it top-to-bottom IS the journey.
+    RouteStep("↑", "sender", dim = true)
+    hops.forEachIndexed { i, hop ->
+        // An ambiguous hop stays a hash. A 2-byte hop is 16 bits: several
+        // nodes can share one and one can be manufactured cheaply, so
+        // naming a winner would be a guess presented as a fact (PARITY §12).
+        RouteStep("${i + 1}.", hop.label)
+    }
+    RouteStep("↓", "this radio", dim = true)
+}
+
+@Composable
+private fun RouteStep(marker: String, label: String, dim: Boolean = false) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 1.dp)) {
+        Text(
+            marker,
+            style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier.width(28.dp),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            label,
+            style = MaterialTheme.typography.bodyMedium,
+            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+            color = if (dim) {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            } else {
+                MaterialTheme.colorScheme.onSurface
+            },
+        )
     }
 }
 

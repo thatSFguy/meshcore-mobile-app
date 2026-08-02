@@ -357,6 +357,21 @@ After the push header (`[0]=0x88, [1]=snr/4, [2]=rssi`), the raw packet is:
 [..] payload         // interpretation per payload_type
 ```
 
+**This is the only place the full route appears.** The companion frames for a received
+message (§8) carry `path_len` and nothing more — a hop COUNT — so "which repeaters
+carried this" is answerable only from the RX log. The path is in TRAVEL order: hop 0 is
+the repeater nearest the SENDER, the last hop is the one that reached this node. ⚠ It is
+therefore the reverse of a stored out-path; reverse it hop-by-hop before pinning it as a
+route to reply on.
+
+Correlating an RX-log packet with the message it carried:
+- **Group text is exact** — the client decrypts the GRP_TXT payload itself, so the packet
+  and the message are the same object.
+- **Direct text must be inferred** — a TXT_MSG payload is encrypted to the recipient's
+  identity key, so the raw packet and the decrypted message arrive separately. They share
+  the sender's key prefix (via `src_hash` below) and the hop count. Match on both, within
+  a time window, and only when exactly one packet fits.
+
 ### Payload types
 ```
 0x00 REQ         0x04 ADVERT        0x08 PATH        0x0B CONTROL
@@ -375,6 +390,19 @@ app_data = [1] flags [ i32 lat | i32 lon ]? [ name… ]?
 with the 64-byte signature spliced out. Verify with `pub_key` as the key. (Confirmed
 against `michaelhart/meshcore-decoder`.) **A client MUST verify this** before trusting an
 advert's name/type/location — an unsigned/forged advert otherwise spoofs identity/GPS.
+
+### TXT_MSG payload (0x02) — direct message (NOT decryptable by a companion client)
+```
+[1]  dest_hash        // first byte of the RECIPIENT's public key
+[1]  src_hash         // first byte of the SENDER's public key
+[2]  mac
+[..] ciphertext       // encrypted to the recipient's identity key
+```
+The prefix layout is from the reference client's own payload-type table ("prefixed with
+dest/src hashes, MAC"), which applies equally to REQ (0x00), RESPONSE (0x01) and PATH
+(0x08). A companion app never holds the identity key, so the body is opaque to it — but
+`src_hash` is enough to narrow which sender a heard packet belongs to. One byte: it
+narrows, it never identifies.
 
 ### GRP_TXT payload (0x05) — channel message (see §10 to decrypt)
 ```

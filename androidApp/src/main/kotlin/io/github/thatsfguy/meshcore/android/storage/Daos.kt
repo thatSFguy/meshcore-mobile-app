@@ -82,6 +82,39 @@ interface MessageDao {
         failed: Int = MessageStatus.Failed.ordinal,
     ): Int
 
+    /**
+     * Fill in the route a channel message arrived on.
+     *
+     * A channel message reaches us twice — once through companion sync
+     * (no path) and once through the RX log (full path) — and whichever
+     * lands second is bounced by the unique contentKey index. Without
+     * this the path is lost exactly when the sync copy wins the race.
+     *
+     * `arrivalPathHex IS NULL` so a known route is never overwritten:
+     * the first packet we actually decoded is the one we saw.
+     */
+    @Query(
+        "UPDATE messages SET arrivalPathHex = :pathHex, arrivalHashWidth = :width " +
+            "WHERE selfKey = :selfKey AND contentKey = :contentKey AND arrivalPathHex IS NULL",
+    )
+    suspend fun fillArrivalPath(
+        selfKey: String,
+        contentKey: String,
+        pathHex: String,
+        width: Int,
+    ): Int
+
+    /**
+     * The most recent inbound message from this peer whose arrival route
+     * we know — the basis for "reply the way they reached me".
+     */
+    @Query(
+        "SELECT * FROM messages WHERE selfKey = :selfKey AND kind = :kind " +
+            "AND peerKey = :peerKey AND outgoing = 0 AND arrivalPathHex IS NOT NULL " +
+            "ORDER BY receivedAt DESC LIMIT 1",
+    )
+    fun latestArrival(selfKey: String, kind: String, peerKey: String): Flow<MessageEntity?>
+
     @Query("UPDATE messages SET reactionsJson = :json WHERE id = :id")
     suspend fun setReactions(id: Long, json: String?)
 

@@ -23,6 +23,7 @@ import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -636,5 +637,209 @@ class MeshCoreEngineTest {
         assertEquals(2, engine.channels.value.size)
         assertEquals("#rescue", engine.channels.value[1].name)
         assertEquals(2, engine.nextFreeChannelIndex())
+    }
+
+    // ------------------------------------------------------------------
+    // Heard-via: the route a message arrived on (PARITY §2, §13)
+    // ------------------------------------------------------------------
+
+    /** `path_len_enc` for [hops] hops at [width] bytes each. */
+    private fun pathLenEnc(hops: Int, width: Int): Int = ((width - 1) shl 6) or (hops and 0x3F)
+
+    /** A two-hop route through b389 then c985, as this mesh encodes it. */
+    private val twoHopPath = byteArrayOf(0xb3.toByte(), 0x89.toByte(), 0xc9.toByte(), 0x85.toByte())
+
+    private fun rxLogPush(packet: ByteArray): ByteArray =
+        byteArrayOf(Codes.PUSH_CODE_LOG_RX_DATA.toByte(), 40, 0xB0.toByte()) + packet
+
+    /** A TXT_MSG packet we CANNOT decrypt — only its route and src_hash. */
+    private fun encryptedDmPacket(
+        srcHash: Int,
+        path: ByteArray = twoHopPath,
+        width: Int = 2,
+    ): ByteArray {
+        val header = (Codes.PAYLOAD_TYPE_TXT_MSG shl 2) or 0x01
+        val hops = if (width > 0) path.size / width else 0
+        // dest_hash, src_hash, 2-byte MAC, then ciphertext we can't read.
+        val payload = byteArrayOf(0x01, srcHash.toByte(), 0x11, 0x22) + ByteArray(16) { 0x5A }
+        return byteArrayOf(header.toByte(), pathLenEnc(hops, width).toByte()) + path + payload
+    }
+
+    private fun contactMsgFrame(hops: Int, width: Int, text: String): ByteArray =
+        BufferWriter().apply {
+            writeByte(Codes.RESP_CODE_CONTACT_MSG_RECV)
+            writeBytes(peerKey.copyOfRange(0, 6))
+            writeByte(((width - 1) shl 6) or (hops and 0x3F))
+            writeByte(0)
+            writeUInt32LE(now)
+            writeString(text)
+            writeByte(0)
+        }.toBytes()
+
+    @Test
+    fun aChannelMessageCarriesTheFullRouteItArrivedOn() = runTest {
+        // The exact case: the engine decrypts this very packet, so its
+        // path IS the message's path — no correlation involved.
+        val radio = FakeRadio()
+        radio.responder = standardResponder(radio)
+        val engine = MeshCoreEngine(backgroundScope, crypto, { now })
+        engine.attach(radio)
+        radio.connect()
+        engine.awaitReady()
+
+        val pw = BufferWriter()
+        pw.writeUInt32LE(1234L)
+        pw.writeByte(0)
+        pw.writeString("carol: off grid")
+        pw.writeByte(0)
+        val encrypted = ChannelCrypto.encryptForTest(crypto, psk, pw.toBytes())
+        val header = (Codes.PAYLOAD_TYPE_GRP_TXT shl 2) or 0x01
+        val packet = byteArrayOf(header.toByte(), pathLenEnc(2, 2).toByte()) + twoHopPath +
+            byteArrayOf(ChannelCrypto.channelHash(crypto, psk).toByte()) + encrypted
+
+        val waiter = async {
+            withTimeout(5_000) { engine.meshEvents.first { it is MeshEvent.ChannelMessageReceived } }
+        }
+        yield()
+        radio.push(rxLogPush(packet))
+        val msg = waiter.await() as MeshEvent.ChannelMessageReceived
+        assertEquals("off grid", msg.text)
+        assertEquals("b389c985", msg.arrivalPathHex)
+        assertEquals(2, msg.arrivalHashWidth)
+        // And the count still agrees with the route it just reported.
+        assertEquals(2, msg.hops)
+    }
+
+    @Test
+    fun aDirectMessageIsCreditedToTheOnePacketThatCouldHaveCarriedIt() = runTest {
+        val radio = FakeRadio()
+        radio.responder = standardResponder(radio)
+        val engine = MeshCoreEngine(backgroundScope, crypto, { now })
+        engine.attach(radio)
+        radio.connect()
+        engine.awaitReady()
+
+        val waiter = async {
+            withTimeout(5_000) { engine.meshEvents.first { it is MeshEvent.DirectMessageReceived } }
+        }
+        yield()
+        // The raw packet is heard first (a push), then the radio hands
+        // over the decrypted message from its queue.
+        radio.push(rxLogPush(encryptedDmPacket(srcHash = peerKey[0].toInt() and 0xFF)))
+        yield(); yield()
+        radio.push(contactMsgFrame(hops = 2, width = 2, text = "on my way"))
+
+        val msg = waiter.await() as MeshEvent.DirectMessageReceived
+        assertEquals("on my way", msg.text)
+        assertEquals("b389c985", msg.arrivalPathHex)
+        assertEquals(2, msg.arrivalHashWidth)
+    }
+
+    @Test
+    fun twoPlausiblePacketsLeaveTheRouteUnknownRatherThanGuessed() = runTest {
+        val radio = FakeRadio()
+        radio.responder = standardResponder(radio)
+        val engine = MeshCoreEngine(backgroundScope, crypto, { now })
+        engine.attach(radio)
+        radio.connect()
+        engine.awaitReady()
+
+        val waiter = async {
+            withTimeout(5_000) { engine.meshEvents.first { it is MeshEvent.DirectMessageReceived } }
+        }
+        yield()
+        val src = peerKey[0].toInt() and 0xFF
+        // Same sender byte, same hop count, different routes. We cannot
+        // say which one carried the message — so we say nothing rather
+        // than draw a route that looks exactly as confident as a right one.
+        radio.push(rxLogPush(encryptedDmPacket(src, twoHopPath)))
+        radio.push(
+            rxLogPush(
+                encryptedDmPacket(
+                    src,
+                    byteArrayOf(0xd0.toByte(), 0xce.toByte(), 0x90.toByte(), 0xa8.toByte()),
+                ),
+            ),
+        )
+        yield(); yield()
+        radio.push(contactMsgFrame(hops = 2, width = 2, text = "ambiguous"))
+
+        val msg = waiter.await() as MeshEvent.DirectMessageReceived
+        assertEquals("ambiguous", msg.text)
+        assertNull(msg.arrivalPathHex)
+        // The hop COUNT is still known — the frame states it directly.
+        assertEquals(2, msg.hops)
+    }
+
+    @Test
+    fun aPacketFromSomeoneElseIsNotCreditedToThisSender() = runTest {
+        val radio = FakeRadio()
+        radio.responder = standardResponder(radio)
+        val engine = MeshCoreEngine(backgroundScope, crypto, { now })
+        engine.attach(radio)
+        radio.connect()
+        engine.awaitReady()
+
+        val waiter = async {
+            withTimeout(5_000) { engine.meshEvents.first { it is MeshEvent.DirectMessageReceived } }
+        }
+        yield()
+        radio.push(rxLogPush(encryptedDmPacket(srcHash = 0x99)))
+        yield(); yield()
+        radio.push(contactMsgFrame(hops = 2, width = 2, text = "not theirs"))
+
+        val msg = waiter.await() as MeshEvent.DirectMessageReceived
+        assertNull(msg.arrivalPathHex)
+    }
+
+    @Test
+    fun aPacketIsConsumedSoASecondMessageCannotClaimItToo() = runTest {
+        val radio = FakeRadio()
+        radio.responder = standardResponder(radio)
+        val engine = MeshCoreEngine(backgroundScope, crypto, { now })
+        engine.attach(radio)
+        radio.connect()
+        engine.awaitReady()
+
+        val seen = ArrayList<MeshEvent.DirectMessageReceived>()
+        val collector = launch {
+            engine.meshEvents.collect { if (it is MeshEvent.DirectMessageReceived) seen.add(it) }
+        }
+        yield()
+        radio.push(rxLogPush(encryptedDmPacket(srcHash = peerKey[0].toInt() and 0xFF)))
+        yield(); yield()
+        radio.push(contactMsgFrame(hops = 2, width = 2, text = "first"))
+        yield(); yield()
+        radio.push(contactMsgFrame(hops = 2, width = 2, text = "second"))
+        yield(); yield()
+
+        assertEquals(2, seen.size)
+        assertEquals("b389c985", seen[0].arrivalPathHex)
+        // One packet carried ONE message. Handing the same route to the
+        // next message would be inventing evidence.
+        assertNull(seen[1].arrivalPathHex)
+        collector.cancel()
+    }
+
+    @Test
+    fun aDisagreeingHopCountIsNotCredited() = runTest {
+        val radio = FakeRadio()
+        radio.responder = standardResponder(radio)
+        val engine = MeshCoreEngine(backgroundScope, crypto, { now })
+        engine.attach(radio)
+        radio.connect()
+        engine.awaitReady()
+
+        val waiter = async {
+            withTimeout(5_000) { engine.meshEvents.first { it is MeshEvent.DirectMessageReceived } }
+        }
+        yield()
+        // A 2-hop packet, but the message frame says it travelled 3.
+        radio.push(rxLogPush(encryptedDmPacket(srcHash = peerKey[0].toInt() and 0xFF)))
+        yield(); yield()
+        radio.push(contactMsgFrame(hops = 3, width = 2, text = "mismatch"))
+
+        val msg = waiter.await() as MeshEvent.DirectMessageReceived
+        assertNull(msg.arrivalPathHex)
     }
 }
