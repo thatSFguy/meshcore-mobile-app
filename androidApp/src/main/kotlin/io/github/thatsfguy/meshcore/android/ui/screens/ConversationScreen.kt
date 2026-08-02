@@ -859,7 +859,11 @@ private fun MessageInfoSheet(
                 m.ackHash?.let { InfoRow("Ack hash", "%08x".format(it), mono = true) }
             }
             m.snr?.let { InfoRow("SNR", "%.1f dB".format(it)) }
-            hopsLabel(m.hops)?.let { InfoRow("Path", it) }
+            // "Hops", not "Path": this is a COUNT. The inbound message
+            // frame carries path_len only (MESHCORE_PROTOCOL §9) — the
+            // radio keeps the route to itself — so calling it "Path"
+            // implied we knew which repeaters carried it. We don't.
+            hopsLabel(m.hops)?.let { InfoRow("Hops travelled", it) }
             if (showSender) {
                 InfoRow(
                     "Sender name",

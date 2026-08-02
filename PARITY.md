@@ -244,8 +244,19 @@ Grouped so each block is shippable:
    that belongs to no particular node.
 5. **Bigger asks** — sensor nodes ✅, neighbours ✅ (as a list), path map rendering ◐.
 6. **Revisit deferrals** — what is genuinely left, and why:
-   - **Heard-via / heard-repeats** (§2). Needs the relay path captured onto the message
-     row — a schema migration plus RX-log plumbing.
+   - **Heard-via / heard-repeats** (§2), and the visual the user actually wants: "how did
+     this message get to me". The inbound message frame carries `path_len` ONLY — a hop
+     count, not a route (§9) — which is why the message sheet can say "4 hops" and no
+     more. But `PUSH_CODE_LOG_RX_DATA` DOES carry full `pathBytes`, and `RawPacket`
+     already parses them; the engine currently takes `hopCount` and drops the rest.
+     Correlating an RX-log packet with the message it carried recovers the real route.
+     ⚠ An arrival path is the REVERSE of a sending path, so it must be reversed hop-by-hop
+     before ever being offered as a route to reply on.
+   - **Hop selection is free-text hex** (§9). Typing `b389` is how the hash-width bug
+     stayed hidden, and it asks the user to know a width they shouldn't have to. Should be
+     pick-from-known-repeaters plus ordering, with the hex derived rather than typed.
+   - **Path history needs cleaning** (§9). Hop counts display BYTES not hops; pre-fix
+     installs may still hold a 64-byte zero-padded junk row; nothing prunes the table.
    - **`AccessControlAddUserScreen`** (§6). Still blocked on a node that supports ACLs.
    - **`LanguageSelectorScreen`** (§10). A translation programme, not a coding task.
      Machine-translating safety-critical warning copy into languages nobody here can
