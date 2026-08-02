@@ -533,6 +533,36 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /**
+     * Contact whose route the Map tab should draw, or null for none.
+     * Set from the routing sheet; the map reads it.
+     */
+    val mapRouteContact = MutableStateFlow<String?>(null)
+
+    /**
+     * A contact's STORED route, resolved hop by hop. Null when the
+     * contact is unknown or reached by flooding — there is no route to
+     * draw in either case.
+     */
+    fun plotStoredPath(keyHex: String?): io.github.thatsfguy.meshcore.protocol.PathGeometry.Plot? {
+        val contact = keyHex?.let { _service.value?.engine?.contacts?.value?.get(it) }
+            ?: return null
+        if (contact.storedPath.isEmpty()) return null
+        return io.github.thatsfguy.meshcore.protocol.PathGeometry.plot(
+            contact.storedPath,
+            deviceInfo.value?.pathHashByteWidth ?: 1,
+            dbContacts.value.map {
+                io.github.thatsfguy.meshcore.protocol.PathGeometry.PositionedContact(
+                    it.keyHex, it.name, it.latitude, it.longitude,
+                )
+            },
+        )
+    }
+
+    /** The route to draw on the map, resolved hop by hop. */
+    fun mapRoute(): io.github.thatsfguy.meshcore.protocol.PathGeometry.Plot? =
+        plotStoredPath(mapRouteContact.value)
+
+    /**
      * Where a path's hops are, as far as can honestly be said
      * (PARITY §9). Ambiguous hops come back as gaps, never as a guess.
      */

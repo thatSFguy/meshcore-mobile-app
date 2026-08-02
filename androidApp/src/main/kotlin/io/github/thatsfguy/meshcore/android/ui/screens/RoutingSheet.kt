@@ -62,6 +62,9 @@ fun RoutingSheet(
     val liveContacts by vm.liveContacts.collectAsState()
 
     var mode by remember(keyHex) { mutableStateOf(vm.routingMode(keyHex)) }
+    val liveContact = liveContacts[keyHex]
+    val hasStoredRoute = (liveContact?.storedPath?.size ?: 0) > 0
+    val mapPlot = remember(keyHex, liveContact) { vm.plotStoredPath(keyHex) }
     var manualHops by remember(keyHex) {
         mutableStateOf(
             liveContacts[keyHex]?.storedPath?.takeIf { it.isNotEmpty() }?.let { bytes ->
@@ -189,6 +192,23 @@ fun RoutingSheet(
                 }
             }
 
+            if (hasStoredRoute) {
+                ButtonFlowRow {
+                    TextButton(onClick = {
+                        vm.mapRouteContact.value = keyHex
+                        vm.transientMessage.value =
+                            "Route sent to the Map tab" +
+                                (mapPlot?.let { " — " + it.summary() } ?: "")
+                    }) { Text("Show route on map") }
+                    if (vm.mapRouteContact.value != null) {
+                        TextButton(onClick = { vm.mapRouteContact.value = null }) {
+                            Text("Clear map route")
+                        }
+                    }
+                }
+                mapPlot?.let { HintText(it.summary()) }
+            }
+
             Spacer(Modifier.height(12.dp))
             Text("Trace", style = MaterialTheme.typography.titleSmall)
             // Confirmed on hardware: the radio answers a trace with no
@@ -224,7 +244,13 @@ fun RoutingSheet(
                                             "by flooding. Pin a path first, or trace a " +
                                             "contact that has one."
                                     } else {
-                                        "Trace timed out — no repeater on the path answered."
+                                        // A trace has to traverse the whole route and come
+                                        // back, so one node being down anywhere along it
+                                        // looks exactly like a broken feature. Say which
+                                        // to check rather than implying a fault.
+                                        "No reply. A trace has to reach every hop on this " +
+                                            "route and return — check the nodes on it have " +
+                                            "been heard recently."
                                     }
                             }
                         }

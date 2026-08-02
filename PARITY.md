@@ -176,7 +176,7 @@ Notes on this block:
 |---|---|---|---|
 | Node map | Map tab (osmdroid) | ✅ | Labels, type filter, GPX export, tile cache control. |
 | `ToolsScreen` (hub) | — | ❌ | Organisational; follows once there are tools to hub. |
-| `TracePathScreen`, `TracePathMapScreen`, `ViewPathScreen`, `SetContactPathScreen` | Routing sheet + trace + per-hop location | ◐ | Each traced hop is now resolved to a position where it honestly can be. ⚠ An **ambiguous** hop is reported as a gap, never pinned to a guess — a map that guesses looks exactly like one that knows. A drawn polyline overlay on the Map tab is still outstanding. |
+| `TracePathScreen`, `TracePathMapScreen`, `ViewPathScreen`, `SetContactPathScreen` | Routing sheet + per-hop location + map route overlay | ✅ | Closed 2026-08-01, verified drawing a real 2-hop route on hardware. ⚠ An **ambiguous** hop is a gap in the line, never pinned to a guess, and a route with gaps is drawn DASHED so a line you can't fully vouch for doesn't look like one you can. Trace itself is still unanswered — see §9 note. |
 | `CoverageMapToolScreen`, `LosMapToolScreen` (+ settings) | — | ❌ | Deferred in SCOPE.md; revisit. |
 | `InternetMapScreen` | — | ⛔ | Uploads/queries node positions via their server. |
 | `PrintScreen` | — | ❌ | Low priority. |
