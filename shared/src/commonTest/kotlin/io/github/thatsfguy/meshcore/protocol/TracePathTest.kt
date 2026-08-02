@@ -155,4 +155,23 @@ class TracePathTest {
             assertEquals(width, 1 shl (flags and 0x03), "width $width did not round trip")
         }
     }
+
+    @Test
+    fun hopTokensParseAtTheMeshsOwnWidth() {
+        // Regression, found on a 2-byte mesh: the routing sheet called
+        // parseHopTokens WITHOUT a width, so it defaulted to 1 and
+        // rejected every real token. "Apply path" then sent nothing and
+        // flashed an error naming the wrong digit count — a pinned route
+        // that silently wasn't.
+        val twoByte = PathCodec.parseHopTokens("b389 c985", 2)
+        assertEquals(
+            listOf<Byte>(0xb3.toByte(), 0x89.toByte(), 0xc9.toByte(), 0x85.toByte()),
+            twoByte?.toList(),
+        )
+        // The same input at the WRONG width is refused, not truncated —
+        // which is correct, and is why the default silently broke it.
+        assertEquals(null, PathCodec.parseHopTokens("b389 c985", 1))
+        // And 1-byte tokens still work at width 1.
+        assertEquals(listOf<Byte>(0x3f, 0xa1.toByte()), PathCodec.parseHopTokens("3f a1", 1)?.toList())
+    }
 }

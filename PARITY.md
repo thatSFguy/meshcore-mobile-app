@@ -176,7 +176,7 @@ Notes on this block:
 |---|---|---|---|
 | Node map | Map tab (osmdroid) | ✅ | Labels, type filter, GPX export, tile cache control. |
 | `ToolsScreen` (hub) | — | ❌ | Organisational; follows once there are tools to hub. |
-| `TracePathScreen`, `TracePathMapScreen`, `ViewPathScreen`, `SetContactPathScreen` | Routing sheet + per-hop location + map route overlay | ✅ | Closed 2026-08-01, verified drawing a real 2-hop route on hardware. ⚠ An **ambiguous** hop is a gap in the line, never pinned to a guess, and a route with gaps is drawn DASHED so a line you can't fully vouch for doesn't look like one you can. Trace itself is still unanswered — see §9 note. |
+| `TracePathScreen`, `TracePathMapScreen`, `ViewPathScreen`, `SetContactPathScreen` | Routing sheet + per-hop location + map route overlay | ✅ | Closed 2026-08-01, verified drawing a real 2-hop route on hardware. ⚠ An **ambiguous** hop is a gap in the line, never pinned to a guess, and a route with gaps is drawn DASHED so a line you can't fully vouch for doesn't look like one you can. Trace verified working on hardware 2026-08-01: a one-hop route through a live node replies in ~1 s with per-hop SNR. |
 | `CoverageMapToolScreen`, `LosMapToolScreen` (+ settings) | — | ⛔ | **Out of scope (2026-08-01, user decision).** RF coverage and line-of-sight modelling is a solved problem with better tools than a phone app can be, and the author maintains their own repo for it. Building a worse one inside a messaging client is not parity, it's duplication. |
 | `InternetMapScreen` | — | ⛔ | Uploads/queries node positions via their server. |
 | `PrintScreen` | — | ❌ | Low priority. |

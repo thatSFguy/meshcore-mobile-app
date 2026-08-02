@@ -63,6 +63,8 @@ fun RoutingSheet(
 
     var mode by remember(keyHex) { mutableStateOf(vm.routingMode(keyHex)) }
     val liveContact = liveContacts[keyHex]
+    // Bytes per hop on THIS mesh; every hop-token parse depends on it.
+    val hopWidth = vm.deviceInfo.collectAsState().value?.pathHashByteWidth ?: 1
     val hasStoredRoute = (liveContact?.storedPath?.size ?: 0) > 0
     val mapPlot = remember(keyHex, liveContact) { vm.plotStoredPath(keyHex) }
     var manualHops by remember(keyHex) {
@@ -155,10 +157,16 @@ fun RoutingSheet(
                     TextButton(
                         enabled = manualHops.isNotBlank(),
                         onClick = {
-                            val bytes = PathCodec.parseHopTokens(manualHops)
+                            // The hop-hash WIDTH is a property of the mesh
+                            // (DEVICE_INFO), not a constant. Parsing with the
+                            // default of 1 rejected every token on a 2-byte
+                            // mesh, so Apply silently did nothing but flash an
+                            // error naming the wrong digit count.
+                            val bytes = PathCodec.parseHopTokens(manualHops, hopWidth)
                             if (bytes == null || bytes.isEmpty()) {
                                 vm.transientMessage.value =
-                                    "Hops must be 2-hex-digit tokens (max ${PathCodec.MAX_HOPS})"
+                                    "Hops must be ${hopWidth * 2}-hex-digit tokens " +
+                                        "(max ${PathCodec.maxHopsFor(hopWidth)})"
                             } else {
                                 vm.setRouting(
                                     keyHex, RoutingMode.Manual,

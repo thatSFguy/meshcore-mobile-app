@@ -277,25 +277,26 @@ for the round trip (u32 ms, `0x0ede` = 3806 above). Wait on that plus
 grace rather than a fixed timeout — a fixed one makes a dead trace and
 a slow one indistinguishable.
 
-**Unresolved, with a leading hypothesis.** A well-formed routed trace is
-accepted and transmitted, and in our testing nothing replied within the
-radio's own estimate, in either path direction. That is confirmed NOT to
-be a malformed request.
+**Resolved 2026-08-01: it works.** The earlier silence was the route,
+not the protocol. Traced along a one-hop route through a node heard
+seconds earlier, the reply came back in about a second:
 
-The most likely explanation is simply that **the traced route was not
-live**. The only multi-hop contact available to test with had last been
-heard 24 hours earlier, while the 0-hop node on the same path was being
-heard continuously. A trace presumably has to traverse the whole route
-and come back, so one dead node anywhere along it produces exactly the
-silence observed — indistinguishable, from the client's side, from a
-protocol fault.
+```
+TX 24 4c0cf7bf 00000000 01 b3 89                    // 1 hop, width 2
+RX 06 00 4c0cf7bf 900a0000                          // SENT, est 2704 ms
+RX 89 00 02 01 4c0cf7bf 00000000 b3 89 2b 25        // TRACE_DATA
+```
 
-To settle it, trace a route whose every hop has been heard in the last
-few minutes. If that answers, there is no bug here and the client
-should say "no reply — is every node on this route currently up?"
-rather than implying something is broken. The remaining alternatives —
-intermediate firmware without trace support, or a field the firmware
-accepts and ignores — are only worth chasing after that test.
+Reply layout (`PUSH_CODE_TRACE_DATA`): `[1] reserved | [1] path_len |
+[1] flags | u32 tag | u32 auth | path | per-hop SNR`, SNR in quarter-dB
+signed (`0x2b` = 10.75 dB, `0x25` = 9.25 dB). The tag echoes the
+request's.
+
+The earlier failures were against a route whose far end had last been
+heard 24 hours before. A trace has to traverse the whole route and
+return, so one dead node anywhere along it yields exactly the silence
+observed — which is why the client should say "check every node on this
+route has been heard recently" rather than implying a fault.
 
 ---
 
