@@ -16,7 +16,7 @@ import java.io.File
         MessageEntity::class, ContactEntity::class, ChannelEntity::class,
         PathHistoryEntity::class, DiscoveredEntity::class,
     ],
-    version = 6,
+    version = 7,
     exportSchema = true,
 )
 abstract class MeshCoreDatabase : RoomDatabase() {
@@ -89,6 +89,21 @@ abstract class MeshCoreDatabase : RoomDatabase() {
         }
 
         /**
+         * v7 adds path_history.hashWidth. ADD COLUMN only, defaulting to
+         * 0 = "unknown": existing rows were written with a hop count
+         * that was really a byte count, and the width they were recorded
+         * at is not recoverable from the stored hex. They are repaired
+         * (or deleted) at runtime once the radio reports its width —
+         * doing it here would mean guessing 1, which is exactly the
+         * assumption that produced the wrong counts.
+         */
+        private val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `path_history` ADD COLUMN `hashWidth` INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
+        /**
          * Open the database, encrypted with [passphrase] when one is
          * available (see [DatabaseKey]). A pre-existing PLAINTEXT
          * database is converted in place first, so turning encryption on
@@ -130,7 +145,10 @@ abstract class MeshCoreDatabase : RoomDatabase() {
             // a wiped database is not.
             fun builderFor(name: String) =
                 Room.databaseBuilder(context, MeshCoreDatabase::class.java, name)
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+                    .addMigrations(
+                        MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4,
+                        MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7,
+                    )
 
             if (key == null) {
                 if (existsEncrypted) {

@@ -242,6 +242,29 @@ interface PathHistoryDao {
 
     @Query("DELETE FROM path_history WHERE selfKey = :selfKey AND contactKey = :contactKey")
     suspend fun clear(selfKey: String, contactKey: String)
+
+    /** Every row for this radio — the repair pass reads them all once. */
+    @Query("SELECT * FROM path_history WHERE selfKey = :selfKey")
+    suspend fun allOnce(selfKey: String): List<PathHistoryEntity>
+
+    /**
+     * Drop everything past the best [keep] paths for one contact.
+     *
+     * Ranked the way the sheet ranks them, with one addition: the FLOOD
+     * route (empty pathHex) is pinned first and so is never pruned. It
+     * is the route that works when every learned one has gone stale —
+     * dropping it because it has no delivery record yet would remove the
+     * only fallback.
+     */
+    @Query(
+        "DELETE FROM path_history WHERE selfKey = :selfKey AND contactKey = :contactKey " +
+            "AND pathHex NOT IN (" +
+            "  SELECT pathHex FROM path_history " +
+            "  WHERE selfKey = :selfKey AND contactKey = :contactKey " +
+            "  ORDER BY (pathHex = '') DESC, lastWorkedAt DESC, successes DESC, lastUsedAt DESC " +
+            "  LIMIT :keep)",
+    )
+    suspend fun prune(selfKey: String, contactKey: String, keep: Int)
 }
 
 @Dao

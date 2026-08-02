@@ -5,6 +5,7 @@ import io.github.thatsfguy.meshcore.engine.MeshEvent
 import io.github.thatsfguy.meshcore.model.Channel
 import io.github.thatsfguy.meshcore.model.Contact
 import io.github.thatsfguy.meshcore.protocol.BlockList
+import io.github.thatsfguy.meshcore.protocol.PathHistoryHygiene
 import io.github.thatsfguy.meshcore.protocol.ReactionCounts
 import io.github.thatsfguy.meshcore.protocol.Reactions
 import io.github.thatsfguy.meshcore.protocol.Retention
@@ -76,7 +77,24 @@ class MessageRepository(
      */
     @Volatile var onNewMessage: ((String, String, String?, String) -> Unit)? = null
 
+    /** The attached engine, for the mesh properties writes depend on. */
+    @Volatile private var engineRef: MeshCoreEngine? = null
+
     fun start(engine: MeshCoreEngine) {
+        engineRef = engine
+        scope.launch {
+            // Repair the history once the radio says how wide a hop is.
+            // Distinct: DEVICE_INFO is re-read on every reconnect and
+            // the sweep touches every row.
+            var repairedAt = PathHistoryHygiene.WIDTH_UNKNOWN
+            engine.deviceInfo.collect { info ->
+                val width = info?.pathHashByteWidth?.takeIf { it in 1..4 } ?: return@collect
+                val self = resolveSelfKey(engine)
+                if (self.isEmpty() || width == repairedAt) return@collect
+                repairedAt = width
+                repairPathHistory(self, width)
+            }
+        }
         scope.launch {
             engine.meshEvents.collect { event -> handle(engine, event) }
         }
@@ -99,7 +117,11 @@ class MessageRepository(
                         // routing sheet as a route you could pin.
                         val stored = c.storedPath
                         if (stored.isNotEmpty()) {
-                            rememberPath(self, c.publicKeyHex, stored)
+                            // The contact's OWN path_len packs the width
+                            // this path was recorded at — more precise
+                            // than the mesh default, and the difference
+                            // is what "2 hops" vs "4 hops" turns on.
+                            rememberPath(self, c.publicKeyHex, stored, c.pathInfo.hashWidth)
                         }
                     }
                     // Anything that became a contact leaves the inbox.
@@ -561,10 +583,7 @@ class MessageRepository(
 
     /** Score a path directly (retry path knows its route without an ack map). */
     private suspend fun scorePathDirect(contactKey: String, pathHex: String, delivered: Boolean) {
-        val row = db.paths().get(selfKey, contactKey, pathHex) ?: PathHistoryEntity(
-            selfKey = selfKey, contactKey = contactKey, pathHex = pathHex,
-            hops = pathHex.length / 2,
-        )
+        val row = db.paths().get(selfKey, contactKey, pathHex) ?: newPathRow(contactKey, pathHex)
         db.paths().upsert(
             if (delivered) {
                 row.copy(successes = row.successes + 1, lastWorkedAt = System.currentTimeMillis())
@@ -579,20 +598,89 @@ class MessageRepository(
     // failure) can be credited to the route that carried it.
     private val ackPaths = java.util.concurrent.ConcurrentHashMap<Long, Pair<String, String>>()
 
+    /**
+     * The mesh's hop-hash width, for rows written without one to hand.
+     * Zero until the radio has told us; a row stamped with zero is
+     * repaired later rather than guessed at now.
+     */
+    private fun meshHashWidth(): Int =
+        engineRef?.deviceInfo?.value?.pathHashByteWidth?.takeIf { it in 1..4 }
+            ?: PathHistoryHygiene.WIDTH_UNKNOWN
+
+    /**
+     * A fresh history row, with the hop count computed at the right
+     * width. Every previous write site did `pathHex.length / 2`, which
+     * is a BYTE count — the reason a 2-hop route read as "4 hop(s)".
+     */
+    private fun newPathRow(
+        contactKey: String,
+        pathHex: String,
+        hashWidth: Int = meshHashWidth(),
+        self: String = selfKey,
+    ): PathHistoryEntity {
+        val bytes = pathHex.length / 2
+        return PathHistoryEntity(
+            selfKey = self,
+            contactKey = contactKey,
+            pathHex = pathHex,
+            hops = if (hashWidth in 1..4) PathHistoryHygiene.hopCount(bytes, hashWidth) else bytes,
+            hashWidth = hashWidth,
+        )
+    }
+
     /** Upsert a path we have seen or used for [contactKey]. */
-    suspend fun rememberPath(self: String, contactKey: String, path: ByteArray) {
+    suspend fun rememberPath(
+        self: String,
+        contactKey: String,
+        path: ByteArray,
+        hashWidth: Int = meshHashWidth(),
+    ) {
         val hex = path.joinToString("") { "%02x".format(it) }
+        // Don't record what we would only have to delete again. The
+        // zero-padded rows an older build wrote came in through exactly
+        // this door.
+        if (hashWidth in 1..4 && !PathHistoryHygiene.isUsable(hex, hashWidth)) return
         val existing = db.paths().get(self, contactKey, hex)
         db.paths().upsert(
             existing?.copy(lastUsedAt = System.currentTimeMillis())
-                ?: PathHistoryEntity(
-                    selfKey = self,
-                    contactKey = contactKey,
-                    pathHex = hex,
-                    hops = path.size,
-                    lastUsedAt = System.currentTimeMillis(),
-                ),
+                ?: newPathRow(contactKey, hex, hashWidth, self)
+                    .copy(lastUsedAt = System.currentTimeMillis()),
         )
+        db.paths().prune(self, contactKey, PathHistoryHygiene.MAX_PER_CONTACT)
+    }
+
+    /**
+     * Repair (or delete) history rows written before the width was
+     * recorded, and drop anything the radio would not accept back.
+     *
+     * Called once the radio reports its hop width. Deleting is the right
+     * outcome for a row we can't make sense of: the routing sheet offers
+     * these as routes to PIN, so a junk row isn't cosmetic — it is a
+     * route the user can select and then wonder why nothing arrives.
+     */
+    suspend fun repairPathHistory(self: String, hashWidth: Int) {
+        if (hashWidth !in 1..4 || self.isEmpty()) return
+        var deleted = 0
+        var restated = 0
+        for (row in db.paths().allOnce(self)) {
+            val defect = PathHistoryHygiene.defect(row.pathHex, hashWidth)
+            if (defect != null) {
+                db.paths().delete(self, row.contactKey, row.pathHex)
+                deleted++
+                continue
+            }
+            val hops = PathHistoryHygiene.hopCount(row.pathHex.length / 2, hashWidth)
+            if (row.hashWidth != hashWidth || row.hops != hops) {
+                db.paths().upsert(row.copy(hops = hops, hashWidth = hashWidth))
+                restated++
+            }
+        }
+        if (deleted > 0 || restated > 0) {
+            android.util.Log.i(
+                "MeshCoreRepo",
+                "Path history repaired at width $hashWidth: $restated restated, $deleted dropped",
+            )
+        }
     }
 
     /** Tie an outbound ack hash to the path it went out on. */
@@ -603,10 +691,7 @@ class MessageRepository(
     /** Credit (or debit) the path an ack was sent over. */
     suspend fun scorePath(ackHash: Long, delivered: Boolean) {
         val (contactKey, pathHex) = ackPaths.remove(ackHash) ?: return
-        val row = db.paths().get(selfKey, contactKey, pathHex) ?: PathHistoryEntity(
-            selfKey = selfKey, contactKey = contactKey, pathHex = pathHex,
-            hops = pathHex.length / 2,
-        )
+        val row = db.paths().get(selfKey, contactKey, pathHex) ?: newPathRow(contactKey, pathHex)
         db.paths().upsert(
             if (delivered) {
                 row.copy(

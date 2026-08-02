@@ -252,11 +252,22 @@ Grouped so each block is shippable:
      Correlating an RX-log packet with the message it carried recovers the real route.
      ⚠ An arrival path is the REVERSE of a sending path, so it must be reversed hop-by-hop
      before ever being offered as a route to reply on.
-   - **Hop selection is free-text hex** (§9). Typing `b389` is how the hash-width bug
-     stayed hidden, and it asks the user to know a width they shouldn't have to. Should be
-     pick-from-known-repeaters plus ordering, with the hex derived rather than typed.
-   - **Path history needs cleaning** (§9). Hop counts display BYTES not hops; pre-fix
-     installs may still hold a 64-byte zero-padded junk row; nothing prunes the table.
+   - ~~**Hop selection is free-text hex** (§9).~~ **Done 2026-08-01**, verified on the
+     radio. Tap a known repeater to append it, reorder with ▲/▼, remove with ×; the hex is
+     derived, never typed. Hops carry the node's **full public key** and compute their
+     hash at the current width on demand (`HopSelection`), so a `DEVICE_INFO` that lands
+     after the sheet opens corrects the display instead of pinning a wrong route — the
+     fourth instance of the width defect was in the old picker itself, which hardcoded a
+     1-byte hop and so inserted half a hop on this 2-byte mesh. Free-text survives behind
+     "Enter hops as hex" for routes copied from elsewhere. An ambiguous hop deliberately
+     stays a bare hash rather than adopting one candidate's key.
+   - ~~**Path history needs cleaning** (§9).~~ **Done 2026-08-01**, verified on the radio
+     (repair pass: 3 rows restated, 4 junk rows dropped). Schema v7 adds
+     `path_history.hashWidth`; every write site now stores a HOP count instead of a byte
+     count. Rows predating the column are repaired against the mesh's width once
+     `DEVICE_INFO` arrives and deleted if they still don't parse — deletion is the right
+     outcome because the routing sheet offers these as routes to PIN. Table is capped at
+     20 paths per contact, with the flood route pinned so it is never pruned.
    - **`AccessControlAddUserScreen`** (§6). Still blocked on a node that supports ACLs.
    - **`LanguageSelectorScreen`** (§10). A translation programme, not a coding task.
      Machine-translating safety-critical warning copy into languages nobody here can

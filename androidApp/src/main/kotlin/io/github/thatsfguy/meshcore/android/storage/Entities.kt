@@ -3,6 +3,7 @@ package io.github.thatsfguy.meshcore.android.storage
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
+import io.github.thatsfguy.meshcore.protocol.PathHistoryHygiene
 
 /**
  * One message row — direct or channel. All rows are scoped by
@@ -126,7 +127,20 @@ data class PathHistoryEntity(
     val contactKey: String,
     /** Hop hashes, hex; empty string = the flood route. */
     val pathHex: String,
+    /**
+     * HOPS, not bytes. A hop hash is 1–4 bytes wide depending on the
+     * mesh, so `pathHex.length / 2` is a byte count — storing that is
+     * how a 2-hop route came to be displayed as "4 hop(s)".
+     */
     val hops: Int,
+    /**
+     * Bytes per hop hash for this path, or
+     * [PathHistoryHygiene.WIDTH_UNKNOWN] for rows written before the
+     * column existed. The width cannot be recovered from the hex alone,
+     * so unknown rows are repaired against the mesh's width once
+     * DEVICE_INFO arrives — and deleted if they still make no sense.
+     */
+    val hashWidth: Int = PathHistoryHygiene.WIDTH_UNKNOWN,
     val successes: Int = 0,
     val failures: Int = 0,
     /** Epoch millis of the last confirmed delivery over this path. */

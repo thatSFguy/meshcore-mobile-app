@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -36,7 +37,9 @@ import io.github.thatsfguy.meshcore.android.storage.ContactEntity
 import io.github.thatsfguy.meshcore.android.storage.PathHistoryEntity
 import io.github.thatsfguy.meshcore.android.ui.MeshCoreViewModel
 import io.github.thatsfguy.meshcore.protocol.Codes
+import io.github.thatsfguy.meshcore.protocol.HopSelection
 import io.github.thatsfguy.meshcore.protocol.PathCodec
+import io.github.thatsfguy.meshcore.protocol.PathHistoryHygiene
 import io.github.thatsfguy.meshcore.protocol.RoutingMode
 import io.github.thatsfguy.meshcore.protocol.TraceResult
 import kotlinx.coroutines.launch
@@ -67,13 +70,25 @@ fun RoutingSheet(
     val hopWidth = vm.deviceInfo.collectAsState().value?.pathHashByteWidth ?: 1
     val hasStoredRoute = (liveContact?.storedPath?.size ?: 0) > 0
     val mapPlot = remember(keyHex, liveContact) { vm.plotStoredPath(keyHex) }
-    var manualHops by remember(keyHex) {
+    // Full-key-hex -> name, so a picked hop can be named and, more
+    // importantly, so a stored path can be resolved back to the nodes
+    // behind it rather than to bare hashes.
+    val contactNames = remember(liveContacts) {
+        liveContacts.values.associate { it.publicKeyHex to it.name }
+    }
+    // The route under construction. Hops carry the node's FULL key where
+    // we know it and derive their hash at the current width on demand —
+    // see HopSelection: the width is a property of the mesh and has
+    // arrived late often enough to be treated as untrustworthy here.
+    var hops by remember(keyHex) {
         mutableStateOf(
             liveContacts[keyHex]?.storedPath?.takeIf { it.isNotEmpty() }?.let { bytes ->
-                PathCodec.formatHops(bytes, liveContacts[keyHex]!!.pathInfo.hashWidth)
-            } ?: "",
+                HopSelection.fromPath(bytes, liveContacts[keyHex]!!.pathInfo.hashWidth, contactNames)
+            } ?: emptyList(),
         )
     }
+    var showAdvanced by remember(keyHex) { mutableStateOf(false) }
+    var manualHops by remember(keyHex) { mutableStateOf("") }
     var trace by remember { mutableStateOf<TraceResult?>(null) }
     var tracing by remember { mutableStateOf(false) }
 
@@ -117,64 +132,158 @@ fun RoutingSheet(
 
             if (mode == RoutingMode.Manual) {
                 Spacer(Modifier.height(8.dp))
-                SettingsTextField("Hops (e.g. \"3f a1\")", manualHops) { manualHops = it }
-                // Offer the repeaters we know as one-tap hop additions.
-                val repeaters = liveContacts.values
-                    .filter { it.type == Codes.ADV_TYPE_REPEATER }
+
+                // --- the route, in order --------------------------------
+                Text("Route", style = MaterialTheme.typography.titleSmall)
+                if (hops.isEmpty()) {
+                    HintText("No hops yet. Tap a node below to add it, in the order a packet should travel.")
+                }
+                val unresolved = HopSelection.unresolvedIndices(hops, hopWidth)
+                hops.forEachIndexed { i, hop ->
+                    HopRow(
+                        position = i + 1,
+                        label = hop.label(hopWidth),
+                        isUnresolved = i in unresolved,
+                        canMoveUp = i > 0,
+                        canMoveDown = i < hops.size - 1,
+                        onUp = { hops = HopSelection.move(hops, i, -1) },
+                        onDown = { hops = HopSelection.move(hops, i, +1) },
+                        onRemove = { hops = HopSelection.removeAt(hops, i) },
+                    )
+                }
+                if (unresolved.isNotEmpty()) {
+                    // Refusing to send is the point: a hop that can't be
+                    // expressed at this mesh's width is a DIFFERENT node
+                    // if we pad or truncate it, not a vaguer version of
+                    // the same one.
+                    HintText(
+                        "Hop(s) ${unresolved.joinToString(", ") { (it + 1).toString() }} can't be " +
+                            "used on this mesh — it addresses hops with ${hopWidth * 2} hex " +
+                            "digits. Remove them or re-add the node from the list below.",
+                    )
+                }
+
+                // --- pick a node ----------------------------------------
+                val full = hops.size >= PathCodec.maxHopsFor(hopWidth)
+                // Repeaters and room servers are what actually carries
+                // traffic; a plain chat node is an endpoint, not a hop.
+                val relays = liveContacts.values
+                    .filter { it.type == Codes.ADV_TYPE_REPEATER || it.type == Codes.ADV_TYPE_ROOM }
                     .sortedBy { it.name.lowercase() }
-                if (repeaters.isNotEmpty()) {
-                    HintText("Add a known repeater:")
-                    LazyColumn(Modifier.heightIn(max = 140.dp)) {
-                        items(repeaters, key = { it.publicKeyHex }) { r ->
+                Spacer(Modifier.height(8.dp))
+                if (relays.isEmpty()) {
+                    HintText(
+                        "No repeaters known yet — they appear here as they advertise. Until then " +
+                            "use the advanced field below.",
+                    )
+                } else {
+                    HintText(
+                        if (full) {
+                            "Route is full (${PathCodec.maxHopsFor(hopWidth)} hops max on this mesh)."
+                        } else {
+                            "Tap to add a hop:"
+                        },
+                    )
+                    LazyColumn(Modifier.heightIn(max = 180.dp)) {
+                        items(relays, key = { it.publicKeyHex }) { r ->
+                            val name = r.name.ifBlank { r.publicKeyHex.take(12) }
                             Row(
                                 Modifier
                                     .fillMaxWidth()
-                                    .clickable {
-                                        // A hop is the leading byte(s) of the
-                                        // repeater's public key.
-                                        val hop = r.publicKeyHex.take(2)
-                                        manualHops = (manualHops.trim() + " " + hop).trim()
+                                    .clickable(enabled = !full) {
+                                        hops = HopSelection.add(
+                                            hops,
+                                            HopSelection.fromContact(r.publicKeyHex, name),
+                                            hopWidth,
+                                        )
                                     }
                                     .padding(vertical = 6.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 Text(
-                                    r.name.ifBlank { r.publicKeyHex.take(12) },
+                                    name,
                                     Modifier.weight(1f),
                                     style = MaterialTheme.typography.bodyMedium,
+                                    color = if (full) {
+                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurface
+                                    },
                                 )
+                                // The hop this node contributes AT THIS
+                                // MESH'S WIDTH. The old picker showed (and
+                                // inserted) one byte regardless, so on a
+                                // 2-byte mesh every tap added half a hop.
                                 Text(
-                                    r.publicKeyHex.take(2),
+                                    r.publicKeyHex.take(hopWidth * 2),
                                     fontFamily = FontFamily.Monospace,
                                     style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
                         }
                     }
                 }
+
                 ButtonFlowRow {
-                    TextButton(onClick = { manualHops = "" }) { Text("Clear hops") }
                     TextButton(
-                        enabled = manualHops.isNotBlank(),
+                        enabled = hops.isNotEmpty(),
+                        onClick = { hops = emptyList() },
+                    ) { Text("Clear route") }
+                    TextButton(
+                        enabled = hops.isNotEmpty(),
                         onClick = {
-                            // The hop-hash WIDTH is a property of the mesh
-                            // (DEVICE_INFO), not a constant. Parsing with the
-                            // default of 1 rejected every token on a 2-byte
-                            // mesh, so Apply silently did nothing but flash an
-                            // error naming the wrong digit count.
-                            val bytes = PathCodec.parseHopTokens(manualHops, hopWidth)
-                            if (bytes == null || bytes.isEmpty()) {
+                            val hex = HopSelection.toHex(hops, hopWidth)
+                            if (hex == null) {
                                 vm.transientMessage.value =
-                                    "Hops must be ${hopWidth * 2}-hex-digit tokens " +
-                                        "(max ${PathCodec.maxHopsFor(hopWidth)})"
+                                    "Some hops can't be used on this mesh — fix them before applying."
                             } else {
-                                vm.setRouting(
-                                    keyHex, RoutingMode.Manual,
-                                    bytes.joinToString("") { "%02x".format(it) },
-                                )
+                                vm.setRouting(keyHex, RoutingMode.Manual, hex)
                             }
                         },
                     ) { Text("Apply path") }
+                }
+
+                // --- advanced: the old free-text field ------------------
+                TextButton(onClick = {
+                    showAdvanced = !showAdvanced
+                    if (showAdvanced) manualHops = HopSelection.toTokens(hops, hopWidth)
+                }) { Text(if (showAdvanced) "Hide hex entry" else "Enter hops as hex") }
+                if (showAdvanced) {
+                    HintText(
+                        "For routes copied from elsewhere. Hops are ${hopWidth * 2}-hex-digit " +
+                            "tokens on this mesh, in travel order.",
+                    )
+                    SettingsTextField("Hops", manualHops) { manualHops = it }
+                    ButtonFlowRow {
+                        TextButton(
+                            enabled = manualHops.isNotBlank(),
+                            onClick = {
+                                // The hop-hash WIDTH is a property of the
+                                // mesh (DEVICE_INFO), not a constant. Parsing
+                                // with the default of 1 rejected every token
+                                // on a 2-byte mesh, so Apply silently did
+                                // nothing but flash an error naming the wrong
+                                // digit count.
+                                val parsed = HopSelection.fromTokens(manualHops, hopWidth)
+                                if (parsed.isNullOrEmpty()) {
+                                    vm.transientMessage.value =
+                                        "Hops must be ${hopWidth * 2}-hex-digit tokens " +
+                                            "(max ${PathCodec.maxHopsFor(hopWidth)})"
+                                } else {
+                                    // Into the same ordered list, so the hex
+                                    // path and the tap path can't disagree
+                                    // about what will be sent.
+                                    hops = HopSelection.fromPath(
+                                        HopSelection.toBytes(parsed, hopWidth) ?: ByteArray(0),
+                                        hopWidth,
+                                        contactNames,
+                                    )
+                                    showAdvanced = false
+                                }
+                            },
+                        ) { Text("Use these hops") }
+                    }
                 }
             }
 
@@ -187,10 +296,14 @@ fun RoutingSheet(
                 PathRow(
                     path = p,
                     onUse = {
-                        manualHops = PathCodec.formatHops(hexToBytes(p.pathHex))
+                        // Split at the MESH's width, not at 1 byte. A
+                        // remembered path was recorded on this mesh, so
+                        // this is the width it was recorded at.
+                        hops = HopSelection.fromPath(hexToBytes(p.pathHex), hopWidth, contactNames)
                         mode = RoutingMode.Manual
                         vm.setRouting(keyHex, RoutingMode.Manual, p.pathHex)
                     },
+                    hashWidth = hopWidth,
                     onDelete = { vm.deletePath(keyHex, p.pathHex) },
                 )
             }
@@ -307,7 +420,14 @@ fun RoutingSheet(
                         )
                     }
                     TextButton(onClick = {
-                        manualHops = t.hops.joinToString(" ")
+                        // The trace reports its OWN hash width in the
+                        // frame; split at that, not at whatever the
+                        // editor happens to assume.
+                        hops = HopSelection.fromPath(
+                            hexToBytes(t.hops.joinToString("")),
+                            t.hashWidth,
+                            contactNames,
+                        )
                         mode = RoutingMode.Manual
                     }) { Text("Use traced path") }
                 }
@@ -316,13 +436,62 @@ fun RoutingSheet(
     }
 }
 
+/**
+ * One hop of the route being built: its position, what it is, and the
+ * controls to move or drop it.
+ *
+ * Reorder buttons rather than drag-and-drop, deliberately: these lists
+ * are two or three hops long, and a drag target that small is fiddlier
+ * than a pair of arrows. Revisit if the lists get longer.
+ */
+@Composable
+private fun HopRow(
+    position: Int,
+    label: String,
+    isUnresolved: Boolean,
+    canMoveUp: Boolean,
+    canMoveDown: Boolean,
+    onUp: () -> Unit,
+    onDown: () -> Unit,
+    onRemove: () -> Unit,
+) {
+    Row(
+        Modifier.fillMaxWidth().padding(vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            "$position.",
+            Modifier.width(24.dp),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            label,
+            Modifier.weight(1f),
+            style = MaterialTheme.typography.bodyMedium,
+            color = if (isUnresolved) {
+                MaterialTheme.colorScheme.error
+            } else {
+                MaterialTheme.colorScheme.onSurface
+            },
+        )
+        TextButton(onClick = onUp, enabled = canMoveUp) { Text("▲") }
+        TextButton(onClick = onDown, enabled = canMoveDown) { Text("▼") }
+        TextButton(onClick = onRemove) { Text("×", color = MaterialTheme.colorScheme.error) }
+    }
+}
+
 @Composable
 private fun PathRow(
     path: PathHistoryEntity,
     onUse: () -> Unit,
     onDelete: () -> Unit,
+    hashWidth: Int,
 ) {
     val isFlood = path.pathHex.isEmpty()
+    // The row records the width it was written at; fall back to the
+    // mesh's only for rows that predate the column.
+    val width = path.hashWidth.takeIf { it in 1..4 } ?: hashWidth
     Row(
         Modifier.fillMaxWidth().padding(vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -330,14 +499,20 @@ private fun PathRow(
     ) {
         Column(Modifier.weight(1f)) {
             Text(
-                if (isFlood) "flood" else PathCodec.formatHops(hexToBytes(path.pathHex)),
+                if (isFlood) "flood" else PathCodec.formatHops(hexToBytes(path.pathHex), width),
                 fontFamily = FontFamily.Monospace,
                 style = MaterialTheme.typography.bodyMedium,
             )
             Text(
                 buildString {
                     append(PathCodec.qualityLabel(path.successes, path.failures, isFlood))
-                    if (!isFlood) append(" · ${path.hops} hop(s)")
+                    if (!isFlood) {
+                        // Recomputed, not read: rows written before the
+                        // width column held a BYTE count here, and this
+                        // list is exactly where "2 hops" read as "4".
+                        val hops = PathHistoryHygiene.hopCount(path.pathHex.length / 2, width)
+                        append(" · $hops hop(s)")
+                    }
                     append(" · ${path.successes}✓/${path.failures}✗")
                     if (path.lastWorkedAt > 0) {
                         append(
