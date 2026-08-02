@@ -40,7 +40,8 @@ below are locked for v1; "Deferred" items are post-v1, "Cut" items are not plann
 **Map**
 - **In-app map** of node positions (advertised GPS). ⚠️ This is the only feature that makes
   **outbound HTTP** (map tiles). Mitigate: offline-first / privacy-conscious tile source,
-  lazy load, basic tile cache. No line-of-sight or hop-path overlays in v1 (deferred).
+  lazy load, basic tile cache. Hop-path overlays landed 2026-08-01 (PARITY §9).
+  Line-of-sight is CUT, not deferred — see below.
 
 **Repeater / room administration**
 - **Login** (password → keystore, never plaintext prefs), **raw CLI** to a repeater, and the
@@ -59,7 +60,9 @@ below are locked for v1; "Deferred" items are post-v1, "Cut" items are not plann
 - Telemetry (contact battery/sensor, Cayenne LPP)
 - Companion-radio RF stats
 - Neighbors (one-hop view) and a separate Discovery browser (fold discovery into contacts)
-- Line-of-sight terrain map, path-trace / channel-path map overlays
+- Line-of-sight terrain map — **cut for good (2026-08-01)**: dedicated tools do RF
+  coverage properly and the author maintains one. (Path-trace overlays, listed here
+  originally, shipped 2026-08-01.)
 - Dedicated map-tile-cache management screen (basic caching still ships with the map)
 
 ## Cut (not planned)

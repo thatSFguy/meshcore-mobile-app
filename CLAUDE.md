@@ -20,9 +20,9 @@ and the places we deliberately keep our own (stricter) handling. **Read PARITY.m
 picking up feature work**; it carries per-row status, dates, and the reasons behind
 each deliberate difference. As of 2026-08-01 the tally is **42 ✅ · 11 ◐ · 9 ❌ · 2 ⛔ ·
 1 ⚠**; blocks 1–4 are done. What remains is listed with its reason in PARITY §13 — the
-short version is map-polyline rendering, coverage/LOS overlays, heard-via, and a handful
-of rows that are blocked on hardware, on seeing the mainstream app run, or on a
-translation programme.
+short version is heard-via and a handful of rows blocked on hardware, on seeing the
+mainstream app run, or on a translation programme. LOS/coverage modelling is **out of
+scope by decision** — dedicated tools do it properly and the author maintains one.
 
 Layout:
 - **`shared/`** — KMP. `protocol/` (Codes, guarded Buffers, Frames, ResponseParser,
@@ -98,8 +98,11 @@ Kotlin Multiplatform, mirroring reticulum-mobile-app:
   the login password, redact `set prv.key` from logs).
 - **Settings:** device (radio params/identity/name/GPS) + app; one redaction-aware,
   off-by-default diagnostics log.
-- **Deferred:** telemetry, RF stats, neighbors, discovery-as-separate, LOS/path-trace map
-  overlays. **Cut:** web gate, on-device LLM translation, GIF picker, voice.
+- **Deferred:** telemetry, RF stats, neighbors, discovery-as-separate (all since done —
+  see PARITY). **Cut:** web gate, on-device LLM translation, GIF picker, voice, and
+  LOS/coverage modelling (2026-08-01: better tools exist and the author has a repo for
+  it; a phone-sized terrain approximation would be confidently wrong exactly when it
+  mattered).
 
 ## Security carry-over (do NOT repeat MeshCore Open's findings — MESHCORE_PROTOCOL §12)
 

@@ -125,7 +125,7 @@ both:
 | `ChangePositionScreen`, `PositionSettingsScreen`, `PositionSelectorScreen` | Settings → advert lat/lon + **Pick on map** | ✅ | Closed 2026-08-01. Crosshair picker; warns that the position is broadcast mesh-wide. |
 | `ChangeIdentityKeyScreen`, `ManageIdentityKeyScreen` | Repeater admin → Identity tab | ✅ | Closed 2026-08-01, carefully. ⚠ Three refusals shape it: the key is never shown unasked (reading it puts it back on the air, with its own confirmation), it is never stored by this app, and replacing it needs a typed confirmation after the consequences are listed. Degenerate keys (all one byte) are refused despite being structurally valid. |
 | `ClockDriftScreen` | Settings → Clock | ✅ | Closed 2026-08-01. Drift shown with direction, flagged past the 30 s auto-correct threshold. |
-| `RepeaterNeighboursMapScreen` | Admin → Status → Neighbours | ◐ | Closed 2026-08-01 as a LIST, not a map. ⚠ Entries carry a 4-byte key prefix, so a name is offered only on a unique match and "(N matches)" otherwise. The table is hearsay — what the repeater says it hears, relayed by it. Map rendering awaits the same polyline work as §9. |
+| `RepeaterNeighboursMapScreen` | Admin → Status → Neighbours | ◐ | Closed 2026-08-01 as a LIST, not a map. ⚠ Entries carry a 4-byte key prefix, so a name is offered only on a unique match and "(N matches)" otherwise. The table is hearsay — what the repeater says it hears, relayed by it. A neighbours MAP is still a list-only row: the §9 polyline work it was waiting on now exists, but a neighbour table is a star around one repeater rather than a route, so it needs its own overlay rather than reusing the route one. |
 | `NoiseFloorScreen` | Admin → Status → Noise floor | ✅ | Closed 2026-08-01. 5 s polling with min/max/history while the screen is open; stops on leave, since each sample costs airtime on someone else's node. |
 | `RxLogScreen` | Diagnostics log | ⚠ | **Not a gap — a deliberate difference.** Theirs is an always-available packet log; ours is off by default and redacts `set prv.key`, passwords and long hex before a line is stored. Reclassified 2026-08-01: this row was never going to become ✅ by copying them. |
 
@@ -177,7 +177,7 @@ Notes on this block:
 | Node map | Map tab (osmdroid) | ✅ | Labels, type filter, GPX export, tile cache control. |
 | `ToolsScreen` (hub) | — | ❌ | Organisational; follows once there are tools to hub. |
 | `TracePathScreen`, `TracePathMapScreen`, `ViewPathScreen`, `SetContactPathScreen` | Routing sheet + per-hop location + map route overlay | ✅ | Closed 2026-08-01, verified drawing a real 2-hop route on hardware. ⚠ An **ambiguous** hop is a gap in the line, never pinned to a guess, and a route with gaps is drawn DASHED so a line you can't fully vouch for doesn't look like one you can. Trace itself is still unanswered — see §9 note. |
-| `CoverageMapToolScreen`, `LosMapToolScreen` (+ settings) | — | ❌ | Deferred in SCOPE.md; revisit. |
+| `CoverageMapToolScreen`, `LosMapToolScreen` (+ settings) | — | ⛔ | **Out of scope (2026-08-01, user decision).** RF coverage and line-of-sight modelling is a solved problem with better tools than a phone app can be, and the author maintains their own repo for it. Building a worse one inside a messaging client is not parity, it's duplication. |
 | `InternetMapScreen` | — | ⛔ | Uploads/queries node positions via their server. |
 | `PrintScreen` | — | ❌ | Low priority. |
 | `AddMapMarker`, `Add me to the Map` | — | ❌ | The second one is ⛔ if it publishes to their map. |
@@ -202,6 +202,7 @@ Notes on this block:
 | `InternetMapScreen`, "Add Contact from Internet", "Add me to the Map" | Server-mediated. No servers, no accounts. |
 | `AppInfoService`, `DeviceIdService` | Device identifiers for analytics. |
 | `OnlineMapManager` beyond tile fetch | Same reason. |
+| `CoverageMapToolScreen`, `LosMapToolScreen` | RF coverage / line-of-sight modelling. Dedicated tools do this properly, the author already maintains one, and a phone-sized approximation of terrain propagation would be confidently wrong in exactly the situations you'd rely on it. Out by decision (2026-08-01), not by effort. |
 
 ## 12. Where we deliberately differ (⚠ rows)
 
@@ -243,11 +244,6 @@ Grouped so each block is shippable:
    that belongs to no particular node.
 5. **Bigger asks** — sensor nodes ✅, neighbours ✅ (as a list), path map rendering ◐.
 6. **Revisit deferrals** — what is genuinely left, and why:
-   - **Map polyline rendering** (§9, and the map half of the neighbours row). The
-     per-hop geometry and its ambiguity rules are done and tested; drawing the overlay on
-     the osmdroid map is the remaining piece.
-   - **Coverage / LOS overlays** (§9). Substantial: needs terrain data and a propagation
-     model, neither of which this app has any business guessing at.
    - **Heard-via / heard-repeats** (§2). Needs the relay path captured onto the message
      row — a schema migration plus RX-log plumbing.
    - **`AccessControlAddUserScreen`** (§6). Still blocked on a node that supports ACLs.
