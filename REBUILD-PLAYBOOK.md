@@ -47,6 +47,101 @@ lose the argument with users, and eventually with yourself.
 
 ---
 
+## 0.5 When trust *is* the product
+
+The usual reason to do this at all: the incumbent is pleasant but you don't trust it —
+bloated dependency tree, sloppy data handling, telemetry, an attack surface nobody has
+looked at. The bet is that people who care about privacy will prefer yours.
+
+It's a good bet. It is also the one most often lost, and always the same way.
+
+### You are not selling the properties. You are selling a believable promise.
+
+No user audits your crypto. No user diffs your dependency tree. They decide whether to
+**believe** you, on evidence they can actually check. That makes trust three jobs, and
+engineering is only the first:
+
+1. **Be trustworthy** — the actual work. Necessary, and by itself worth nothing to a user.
+2. **Be verifiable** — artefacts a sceptic can check without reading your code.
+3. **Be believed** — claims that are legible, specific, and never larger than the truth.
+
+Most rebuilds do (1) exhaustively, skip (2) and (3), and then find that nobody switches.
+Doing (1) well is what makes you *deserve* the users. It is not what gets them.
+
+### Usability is the entry ticket, not the competition
+
+Your differentiator is trust. Your **floor** is still ease of use, because the market you
+actually want is not "people who will suffer for privacy" — that market is tiny and
+already served. It's *"people who will take privacy if it costs them nothing,"* which is
+orders of magnitude larger and is won or lost entirely on the interface.
+
+Every privacy tool that lost, lost here. PGP was more trustworthy than every messenger of
+its era and reached almost no one. Signal won by being as easy as the thing it replaced,
+and privacy came along for free.
+
+**A tool nobody uses protects nobody.** The security work only converts into real-world
+protection through adoption — which means UX is not in tension with your mission, it is
+the delivery mechanism for it.
+
+The project behind this playbook is the proof, in miniature. Verified advert signatures,
+secrets in the keystore, an encrypted database, channels honestly labelled as obfuscated
+rather than secure, no analytics, no servers. Genuinely better on every axis its author
+cared about. Its author stopped using it. **Users protected: zero.**
+
+### Overclaiming is a security bug
+
+Trust is earned slowly and destroyed instantly, so for a trust-differentiated product the
+accuracy of your claims is a **security property**, not marketing hygiene.
+
+This repo got the hard half right: the name note recording that *"Hardened describes this
+build's posture, NOT a protocol guarantee,"* and channels labelled obfuscated-not-secure
+in the UI. It then got the easy half wrong — a README saying "v1 shipped" over an app with
+a dozen visible defects, and a changelog crediting a release with four features that
+landed after its tag.
+
+Same failure, opposite direction. Someone who catches you overstating a shipping date has
+no reason to believe your threat model.
+
+> **Rule:** publish what you do **not** protect against, prominently, before anyone asks.
+> A threat model with honest exclusions is more persuasive than any list of features.
+
+### Fewer dependencies is not automatically safer
+
+The property you want is **small, auditable, maintained** attack surface. Dependency
+*count* is a proxy for it, and like every proxy it breaks when you optimise it directly
+(see §8.1 — whatever you count, you maximise).
+
+Replacing a mature library with your own code trades a reviewed, widely-used
+implementation for an unreviewed one that has fixed none of the bugs the original already
+fixed. That is frequently a net loss in both safety *and* polish, and hand-rolled UI
+components are where the "feels amateur" comes from.
+
+> **Rule:** budget per dependency, not in aggregate. For each one: what does it do, is it
+> maintained, what does it reach (network, disk, reflection), and what would writing it
+> myself actually cost in defects? Remove the ones that fail that test. Keep the rest and
+> say why in the SBOM.
+
+### Trust artefacts — build these, they are product features
+
+Ship these alongside the app; they are how (2) and (3) get done:
+
+```
+[ ] SBOM published, with a one-line justification per dependency
+[ ] Threat model doc — including, explicitly, what you do NOT defend against
+[ ] Reproducible builds, or documented why not
+[ ] Permission list, minimal, each one explained in-app at the point it's requested
+[ ] Network behaviour stated exactly ("no outbound connections except map tiles,
+    which can be disabled") — and demonstrable: the app works in airplane mode
+[ ] Every security claim uses the weakest accurate word (obfuscated, not encrypted)
+[ ] An audit — third-party if affordable, self-conducted and published if not
+[ ] Release notes that are true about the build they are attached to
+```
+
+That checklist is roughly a week of work and does more for adoption than a quarter of
+features.
+
+---
+
 ## 1. Before any code: the charter
 
 Write these five things down. If you cannot, you do not have a project yet.
@@ -132,7 +227,8 @@ whether you still want to.
 Write down one of:
 
 - **"A tool for me."** Then stop comparing yourself to the incumbent's feature list. Build
-  the ten things you use. Ship. Done.
+  the ten things you use. Ship. Done. Note that this choice makes the trust artefacts of
+  §0.5 pointless — nobody needs convincing but you.
 - **"A replacement others should adopt."** Then UX parity is a hard requirement, not a
   phase, and you are signing up for design work you may not want.
 
@@ -398,6 +494,7 @@ Copy into the new repo's `README` and don't write code until every box is ticked
 [ ] Ten task traces with tap counts
 [ ] Incumbent's issue tracker read; do-not-copy list written
 [ ] Kill criteria written down
+[ ] If trust is the differentiator: §0.5 artefact list scheduled, not deferred
 ```
 
 ---
@@ -406,6 +503,8 @@ Copy into the new repo's `README` and don't write code until every box is ticked
 
 1. They already solved the UX. **Copy it. You are not designing.**
 2. Your improvements are invisible, so their UX cost must be **zero**.
+   Trust is what you're selling; ease of use is what gets you the chance to sell it.
+   A tool nobody uses protects nobody.
 3. Copy the **navigation**, not the feature list.
 4. Prefer a source-available reference over a popular one — and pick **one**.
    A feature list without its navigation graph is half an artefact.
