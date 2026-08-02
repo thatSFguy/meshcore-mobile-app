@@ -45,13 +45,13 @@ fun SetupScreen(vm: MeshCoreViewModel, onDone: () -> Unit) {
     var presetSheet by remember { mutableStateOf(false) }
     var name by remember(self?.name) { mutableStateOf(self?.name.orEmpty()) }
 
-    val matches = remember(self?.freqHz, self?.bwHz, self?.sf, self?.cr) {
+    val matches = remember(self?.freqKhz, self?.bwHz, self?.sf, self?.cr) {
         val info = self
         if (info == null) {
             emptyList()
         } else {
             io.github.thatsfguy.meshcore.protocol.RadioPresets.matching(
-                info.freqHz, info.bwHz, info.sf, info.cr,
+                info.freqKhz, info.bwHz, info.sf, info.cr,
             )
         }
     }

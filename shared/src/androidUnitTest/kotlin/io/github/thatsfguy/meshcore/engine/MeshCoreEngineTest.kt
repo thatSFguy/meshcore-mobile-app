@@ -65,7 +65,7 @@ class MeshCoreEngineTest {
         w.writeBytes(pubKey)
         w.writeInt32LE(0); w.writeInt32LE(0)
         w.writeByte(1); w.writeByte(1); w.writeByte(0); w.writeByte(1)
-        w.writeUInt32LE(910_525_000L); w.writeUInt32LE(250_000L)
+        w.writeUInt32LE(910_525L); w.writeUInt32LE(250_000L)
         w.writeByte(10); w.writeByte(5)
         w.writeString(name); w.writeByte(0)
         return w.toBytes()

@@ -23,7 +23,7 @@ class ResponseParserTest {
         w.writeByte(1)                         // advert loc policy
         w.writeByte(0)                         // telemetry modes
         w.writeByte(1)                         // manual add (bit0 set = manual)
-        w.writeUInt32LE(910_525_000L)          // freq
+        w.writeUInt32LE(910_525L)              // freq (kHz — see MESHCORE_PROTOCOL §11)
         w.writeUInt32LE(250_000L)              // bw
         w.writeByte(10)                        // sf
         w.writeByte(5)                         // cr
@@ -40,7 +40,7 @@ class ResponseParserTest {
         assertEquals(30, info.maxTxPowerDbm)
         assertEquals(37.7749, info.latitude, 1e-9)
         assertEquals(-122.4194, info.longitude, 1e-9)
-        assertEquals(910_525_000L, info.freqHz)
+        assertEquals(910_525L, info.freqKhz)
         assertEquals(250_000L, info.bwHz)
         assertEquals(10, info.sf)
         assertEquals(5, info.cr)

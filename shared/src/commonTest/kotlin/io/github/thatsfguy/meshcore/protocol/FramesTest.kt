@@ -99,12 +99,12 @@ class FramesTest {
 
     @Test
     fun setRadioParamsLayout() {
-        val f = Frames.setRadioParams(910_525_000L, 250_000L, 10, 5)
+        val f = Frames.setRadioParams(910_525L, 250_000L, 10, 5)
         assertEquals(Codes.CMD_SET_RADIO_PARAMS, f[0].toInt())
         assertEquals(11, f.size)
         val r = BufferReader(f)
         r.skipBytes(1)
-        assertEquals(910_525_000L, r.readUInt32LE())
+        assertEquals(910_525L, r.readUInt32LE())   // kHz, not Hz
         assertEquals(250_000L, r.readUInt32LE())
         assertEquals(10, r.readByte())
         assertEquals(5, r.readByte())

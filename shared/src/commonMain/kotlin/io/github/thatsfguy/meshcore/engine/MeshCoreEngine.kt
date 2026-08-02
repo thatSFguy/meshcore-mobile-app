@@ -1299,8 +1299,8 @@ class MeshCoreEngine(
     suspend fun setAdvertLatLon(lat: Double, lon: Double): Boolean =
         okAndRefreshSelf(Frames.setAdvertLatLon(lat, lon))
 
-    suspend fun setRadioParams(freqHz: Long, bwHz: Long, sf: Int, cr: Int): Boolean =
-        okAndRefreshSelf(Frames.setRadioParams(freqHz, bwHz, sf, cr))
+    suspend fun setRadioParams(freqKhz: Long, bwHz: Long, sf: Int, cr: Int): Boolean =
+        okAndRefreshSelf(Frames.setRadioParams(freqKhz, bwHz, sf, cr))
 
     suspend fun setTxPower(dbm: Int): Boolean =
         okAndRefreshSelf(Frames.setRadioTxPower(dbm))

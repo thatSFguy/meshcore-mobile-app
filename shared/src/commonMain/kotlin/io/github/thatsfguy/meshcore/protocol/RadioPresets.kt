@@ -35,10 +35,29 @@ object RadioPresets {
         val codingRate: Int,
         val txPowerDbm: Int,
     ) {
-        /** Hz, as CMD_SET_RADIO_PARAMS wants it. */
-        val frequencyHz: Long get() = (frequencyMhz * 1_000_000).toLong()
+        /**
+         * **kHz** — the unit CMD_SET_RADIO_PARAMS actually wants for
+         * frequency, despite every name in the ecosystem saying Hz.
+         *
+         * The reference client calls its variable `freqHz` and then
+         * computes `(freqMHz * 1000)`; it reads the value back with
+         * `currentFreqHz / 1000.0` to get MHz. Both are kHz. The name is
+         * simply wrong, and copying the name is how this app came to
+         * send 910525000 to a radio expecting 910525 — which it
+         * rejected, which is how it was found.
+         *
+         * The giveaway sits three lines below the reference's own send:
+         * `validRepeatFreqsKHz = {433000, 869000, 918000}`, compared
+         * against that same "Hz" variable.
+         */
+        val frequencyKhz: Long get() = (frequencyMhz * 1_000).toLong()
 
-        /** Hz, as CMD_SET_RADIO_PARAMS wants it. */
+        /**
+         * **Hz** — and this one really is Hz. The wire format is
+         * asymmetric: frequency in kHz, bandwidth in Hz. The reference
+         * client's bandwidth enum is explicit about it (62.5 kHz →
+         * 62500), so do not "fix" this to match the line above.
+         */
         val bandwidthHz: Long get() = (bandwidthKhz * 1_000).toLong()
 
         /** The `set radio` CSV form: "freq,bw,sf,cr". */
@@ -132,12 +151,14 @@ object RadioPresets {
      * heavily — so this returns all of them and never picks.
      */
     fun matching(
-        frequencyHz: Long,
+        /** kHz, exactly as SELF_INFO reports it — see [Preset.frequencyKhz]. */
+        frequencyKhz: Long,
+        /** Hz, exactly as SELF_INFO reports it. */
         bandwidthHz: Long,
         spreadingFactor: Int,
         codingRate: Int,
     ): List<Preset> = ALL.filter {
-        it.frequencyHz == frequencyHz && it.bandwidthHz == bandwidthHz &&
+        it.frequencyKhz == frequencyKhz && it.bandwidthHz == bandwidthHz &&
             it.spreadingFactor == spreadingFactor && it.codingRate == codingRate
     }
 

@@ -348,7 +348,7 @@ private fun RadioSection(vm: MeshCoreViewModel) {
         HintText("Connect to a radio to edit radio parameters.")
         return
     }
-    var freq by remember(info.freqHz) { mutableStateOf(info.freqHz.toString()) }
+    var freq by remember(info.freqKhz) { mutableStateOf(info.freqKhz.toString()) }
     var bw by remember(info.bwHz) { mutableStateOf(info.bwHz.toString()) }
     var sf by remember(info.sf) { mutableStateOf(info.sf.toString()) }
     var cr by remember(info.cr) { mutableStateOf(info.cr.toString()) }
@@ -360,9 +360,9 @@ private fun RadioSection(vm: MeshCoreViewModel) {
     // one can match — several Russian city presets share parameters — so
     // all matches are named rather than one being picked.
     var presetSheet by remember { mutableStateOf(false) }
-    val matches = remember(info.freqHz, info.bwHz, info.sf, info.cr) {
+    val matches = remember(info.freqKhz, info.bwHz, info.sf, info.cr) {
         io.github.thatsfguy.meshcore.protocol.RadioPresets.matching(
-            info.freqHz, info.bwHz, info.sf, info.cr,
+            info.freqKhz, info.bwHz, info.sf, info.cr,
         )
     }
     HintText(
@@ -383,7 +383,11 @@ private fun RadioSection(vm: MeshCoreViewModel) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         OutlinedTextField(
             value = freq, onValueChange = { freq = it },
-            label = { Text("Freq (Hz)") }, singleLine = true, modifier = Modifier.weight(1.2f),
+            // kHz, NOT Hz — see RadioPresets.Preset.frequencyKhz. The
+            // label used to say Hz, and the range below accepted both
+            // readings, so a value 1000x wrong passed validation and was
+            // rejected by the radio with no explanation.
+            label = { Text("Freq (kHz)") }, singleLine = true, modifier = Modifier.weight(1.2f),
         )
         Spacer(Modifier.width(4.dp))
         OutlinedTextField(
@@ -406,10 +410,17 @@ private fun RadioSection(vm: MeshCoreViewModel) {
         val b = bw.toLongOrNull()
         val s = sf.toIntOrNull()
         val c = cr.toIntOrNull()
-        if (f != null && f in 300_000..2_500_000_000 && b != null && b in 7_000..500_000 &&
+        // 300_000..2_500_000 kHz = 300..2500 MHz. The old upper bound of
+        // 2_500_000_000 was the same range read as Hz, which meant BOTH
+        // interpretations passed and the check caught nothing.
+        if (f != null && f in 300_000..2_500_000 && b != null && b in 7_000..500_000 &&
             s != null && s in 5..12 && c != null && c in 5..8
         ) {
             vm.setRadioParams(f, b, s, c)
+        } else {
+            vm.transientMessage.value =
+                "Freq is kHz (300000–2500000, e.g. 910525 for 910.525 MHz), BW is Hz " +
+                    "(7000–500000), SF 5–12, CR 5–8"
         }
     }) { Text("Apply radio params") }
 

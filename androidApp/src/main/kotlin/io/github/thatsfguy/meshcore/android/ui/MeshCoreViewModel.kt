@@ -999,8 +999,8 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
     fun setAdvertLocation(lat: Double, lon: Double) =
         deviceAction("Location updated") { it.setAdvertLatLon(lat, lon) }
 
-    fun setRadioParams(freqHz: Long, bwHz: Long, sf: Int, cr: Int) =
-        deviceAction("Radio params updated") { it.setRadioParams(freqHz, bwHz, sf, cr) }
+    fun setRadioParams(freqKhz: Long, bwHz: Long, sf: Int, cr: Int) =
+        deviceAction("Radio params updated") { it.setRadioParams(freqKhz, bwHz, sf, cr) }
 
     fun setTxPower(dbm: Int) = deviceAction("TX power updated") { it.setTxPower(dbm) }
 
@@ -1018,7 +1018,7 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             val paramsOk = runCatching {
                 svc.engine.setRadioParams(
-                    preset.frequencyHz, preset.bandwidthHz,
+                    preset.frequencyKhz, preset.bandwidthHz,
                     preset.spreadingFactor, preset.codingRate,
                 )
             }.getOrDefault(false)

@@ -231,7 +231,7 @@ object ResponseParser {
                 advertLocPolicy = advertLocPolicy,
                 telemetryModes = telemetryModes,
                 manualAddContacts = manualAdd,
-                freqHz = freq,
+                freqKhz = freq,
                 bwHz = bw,
                 sf = sf,
                 cr = cr,

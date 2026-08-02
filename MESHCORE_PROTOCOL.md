@@ -202,7 +202,8 @@ CMD_ADD_UPDATE_CONTACT (9)      // e.g. set a custom path
   cstr(32) name | u32 timestamp | [ i32 lat*1e6 | i32 lon*1e6 | (u32 lastmod) ]?
 
 CMD_SET_RADIO_PARAMS (11)
-  u32 freq_hz | u32 bw_hz | [1] sf(5..12) | [1] cr(5..8) | [1] client_repeat?(v9+)
+  u32 freq_KHZ | u32 bw_hz | [1] sf(5..12) | [1] cr(5..8) | [1] client_repeat?(v9+)
+  // freq is kHz, bw is Hz — see §11. SELF_INFO reports them back the same way.
 CMD_SET_RADIO_TX_POWER (12)     [1] power_dbm
 CMD_SET_ADVERT_LATLON (14)      i32 lat*1e6 | i32 lon*1e6
 CMD_SET_ADVERT_NAME (8)         name (≤31 bytes)
@@ -452,8 +453,30 @@ hashtag channels are **obfuscation only** (anyone can derive the key from the na
 
 ## 11. Misc encodings
 
-**Radio params.** freq_hz 300 000–2 500 000 (×1000 for MHz? — firmware uses Hz here),
-bw_hz 7 000–500 000, sf 5–12, cr 5–8.
+**Radio params — the units are ASYMMETRIC, and every name in the ecosystem lies about it.**
+Frequency is **kHz**; bandwidth is **Hz**.
+
+```
+freq_khz  300 000 – 2 500 000     // 300–2500 MHz.  910.525 MHz → 910525
+bw_hz       7 000 –   500 000     // 7–500 kHz.     62.5 kHz    → 62500
+sf 5–12, cr 5–8
+```
+
+Resolved 2026-08-02 against the reference client's **sender**, after a radio rejected a
+US/Canada preset sent as 910 525 000:
+- send: `final freqHz = (freqMHz * 1000).round()` — MHz×1000 is kHz, whatever it is called;
+- read back: `_frequencyController.text = (currentFreqHz / 1000.0).toStringAsFixed(3)` to
+  display MHz;
+- and three lines under the send, `validRepeatFreqsKHz = {433000, 869000, 918000}` is
+  compared against that same `freqHz` variable.
+
+Bandwidth really is Hz — the reference's `LoRaBandwidth` enum is explicit (62.5 kHz →
+62500). Do not "correct" one to match the other.
+
+The range above was recorded here correctly from the start and is by itself decisive
+(300 000 *Hz* is not a LoRa band); it was annotated "firmware uses Hz here" anyway, and
+that guess propagated into the code. When a range and a field name disagree, believe the
+range.
 
 **Binary request types** (`CMD_SEND_BINARY_REQ` payload `[0]`):
 `0x01` get_status, `0x02` keep_alive, `0x03` get_telemetry, `0x05` get_access_list,

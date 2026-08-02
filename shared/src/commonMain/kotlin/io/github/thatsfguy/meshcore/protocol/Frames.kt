@@ -152,7 +152,7 @@ object Frames {
 
     /** CMD_SET_RADIO_PARAMS: [cmd][freq_hz x4][bw_hz x4][sf][cr][client_repeat?] */
     fun setRadioParams(
-        freqHz: Long,
+        freqKhz: Long,
         bwHz: Long,
         sf: Int,
         cr: Int,
@@ -160,7 +160,7 @@ object Frames {
     ): ByteArray {
         val w = BufferWriter()
         w.writeByte(Codes.CMD_SET_RADIO_PARAMS)
-        w.writeUInt32LE(freqHz)
+        w.writeUInt32LE(freqKhz)
         w.writeUInt32LE(bwHz)
         w.writeByte(sf)
         w.writeByte(cr)

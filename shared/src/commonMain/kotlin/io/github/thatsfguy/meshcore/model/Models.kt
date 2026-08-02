@@ -84,7 +84,7 @@ data class SelfInfo(
     val advertLocPolicy: Int,
     val telemetryModes: Int,
     val manualAddContacts: Boolean,
-    val freqHz: Long,
+    val freqKhz: Long,
     val bwHz: Long,
     val sf: Int,
     val cr: Int,
@@ -99,7 +99,7 @@ data class SelfInfo(
             multiAcks == other.multiAcks && advertLocPolicy == other.advertLocPolicy &&
             telemetryModes == other.telemetryModes &&
             manualAddContacts == other.manualAddContacts &&
-            freqHz == other.freqHz && bwHz == other.bwHz && sf == other.sf && cr == other.cr &&
+            freqKhz == other.freqKhz && bwHz == other.bwHz && sf == other.sf && cr == other.cr &&
             name == other.name
 
     override fun hashCode(): Int = publicKey.contentHashCode()

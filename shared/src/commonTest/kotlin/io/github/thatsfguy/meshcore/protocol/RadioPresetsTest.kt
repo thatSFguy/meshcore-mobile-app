@@ -70,12 +70,28 @@ class RadioPresetsTest {
     @Test
     fun unitConversionsAreExact() {
         val usa = RadioPresets.byName("USA/Canada")!!
-        assertEquals(910_525_000L, usa.frequencyHz)
+        // kHz for frequency, Hz for bandwidth. This test used to assert
+        // 910_525_000 — a number this codebase invented and then agreed
+        // with itself about, in the builder, the parser, AND the fake
+        // radio in the engine tests. The suite was green and the radio
+        // rejected every preset. See MESHCORE_PROTOCOL §11.
+        assertEquals(910_525L, usa.frequencyKhz)
         assertEquals(62_500L, usa.bandwidthHz)
+        // 910.525 MHz, spelled out, so a future "fix" to either unit has
+        // to argue with an actual frequency.
+        assertEquals(910.525, usa.frequencyKhz / 1000.0)
+        assertEquals(62.5, usa.bandwidthHz / 1000.0)
 
         // The awkward one: 62.5 kHz must not truncate to 62 kHz.
         for (p in RadioPresets.ALL) {
-            assertTrue(p.frequencyHz > 0, "${p.name} lost its frequency")
+            assertTrue(p.frequencyKhz > 0, "${p.name} lost its frequency")
+            // Every preset must land in the band the firmware accepts.
+            // The old Hz values were all ~1000x over this ceiling, which
+            // is the whole bug in one assertion.
+            assertTrue(
+                p.frequencyKhz in 300_000..2_500_000,
+                "${p.name}: ${p.frequencyKhz} kHz is outside the firmware's 300-2500 MHz range",
+            )
             assertTrue(p.bandwidthHz > 0, "${p.name} lost its bandwidth")
             assertEquals(
                 (p.bandwidthKhz * 1000).toLong(),
@@ -112,13 +128,13 @@ class RadioPresetsTest {
     fun matchingFindsEveryPresetForALiveConfigAndNeverPicksOne() {
         val usa = RadioPresets.byName("USA/Canada")!!
         val hits = RadioPresets.matching(
-            usa.frequencyHz, usa.bandwidthHz, usa.spreadingFactor, usa.codingRate,
+            usa.frequencyKhz, usa.bandwidthHz, usa.spreadingFactor, usa.codingRate,
         )
         assertTrue(usa in hits)
 
         // The Russian city presets overlap: several share 868.731 MHz /
         // 62.5 kHz. Whatever matches, all of it comes back.
-        val overlapping = RadioPresets.matching(868_731_000L, 62_500L, 8, 6)
+        val overlapping = RadioPresets.matching(868_731L, 62_500L, 8, 6)
         assertTrue(overlapping.size > 1, "expected overlapping presets, got ${overlapping.size}")
 
         assertEquals(emptyList(), RadioPresets.matching(1L, 1L, 7, 5))
