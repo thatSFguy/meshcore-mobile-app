@@ -46,7 +46,7 @@ fun RegionsSection(vm: MeshCoreViewModel) {
     var newRegion by remember { mutableStateOf("") }
     var confirmDelete by remember { mutableStateOf<String?>(null) }
     var discovering by remember { mutableStateOf(false) }
-    var discovered by remember { mutableStateOf<List<String>?>(null) }
+    var discovered by remember { mutableStateOf<MeshCoreViewModel.RegionDiscovery?>(null) }
     val scope = rememberCoroutineScope()
 
     HintText(
@@ -153,7 +153,7 @@ fun RegionsSection(vm: MeshCoreViewModel) {
 
     discovered?.let { found ->
         DiscoveredRegionsDialog(
-            found = found,
+            result = found,
             known = regions,
             onAdd = { vm.addRegion(it) },
             onDismiss = { discovered = null },
@@ -168,7 +168,7 @@ fun RegionsSection(vm: MeshCoreViewModel) {
  */
 @Composable
 private fun DiscoveredRegionsDialog(
-    found: List<String>,
+    result: MeshCoreViewModel.RegionDiscovery,
     known: List<String>,
     onAdd: (String) -> Unit,
     onDismiss: () -> Unit,
@@ -178,11 +178,21 @@ private fun DiscoveredRegionsDialog(
         title = { Text("Regions heard") },
         text = {
             Column {
+                val found = result.names
                 if (found.isEmpty()) {
                     Text(
-                        "No repeater answered with a region list. That can mean nothing was " +
-                            "in range, or that the repeaters that answered run firmware " +
-                            "without region support.",
+                        when {
+                            result.asked == 0 ->
+                                "No repeater answered the discovery broadcast, so there was " +
+                                    "nobody to ask. Nothing may be in range."
+                            result.answered > 0 ->
+                                "${result.answered} of ${result.asked} repeater(s) answered, " +
+                                    "and none of them uses named regions — they carry the " +
+                                    "global scope only. There is nothing to add."
+                            else ->
+                                "Asked ${result.asked} repeater(s); none replied. They may be " +
+                                    "out of range, or running firmware without region support."
+                        },
                     )
                 } else {
                     Text(

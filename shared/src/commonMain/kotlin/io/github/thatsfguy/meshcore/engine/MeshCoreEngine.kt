@@ -1405,7 +1405,12 @@ class MeshCoreEngine(
         when {
             sent == null -> null
             body == null -> null
-            else -> Regions.parseDiscoveryResponse(body)
+            else -> {
+                if (Regions.isGlobalScopeOnly(body)) {
+                    log("Node answered with the global scope only (no named regions)")
+                }
+                Regions.parseDiscoveryResponse(body)
+            }
         }
     }
 
@@ -1499,6 +1504,10 @@ class MeshCoreEngine(
         private val FRAME_LOG_FULL_CODES = setOf(
             Codes.CMD_SEND_TRACE_PATH,
             Codes.PUSH_CODE_TRACE_DATA,
+            Codes.CMD_SEND_ANON_REQ,
+            Codes.PUSH_CODE_BINARY_RESPONSE,
+            Codes.CMD_SEND_CONTROL_DATA,
+            Codes.PUSH_CODE_CONTROL_DATA,
             Codes.RESP_CODE_ERR,
             Codes.RESP_CODE_OK,
             Codes.RESP_CODE_SENT,

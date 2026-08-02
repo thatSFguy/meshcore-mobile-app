@@ -86,6 +86,24 @@ object Regions {
     private const val NUL = '\u0000'
 
     /**
+     * A node with no named regions answers with the global-scope
+     * wildcard alone. Confirmed on hardware (2026-08-01): a repeater
+     * replied with a body of `2a 00 00 …` — a single '*'.
+     *
+     * That is an ANSWER, not silence, and the two must not be reported
+     * the same way: "nothing was in range" and "the node uses the
+     * global scope" lead somewhere different.
+     */
+    fun isGlobalScopeOnly(body: ByteArray): Boolean {
+        if (body.size <= DISCOVERY_BODY_HEADER) return false
+        val text = body.copyOfRange(DISCOVERY_BODY_HEADER, body.size)
+            .decodeUtf8Lenient()
+            .replace(NUL.toString(), "")
+            .trim()
+        return text == GLOBAL_SELECTOR
+    }
+
+    /**
      * Parse the body of a regions reply (everything after the binary
      * response's `[reserved][tag u32]` header): a header, then a
      * comma-separated, NUL-padded UTF-8 name list.

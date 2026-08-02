@@ -220,6 +220,15 @@ CMD_SEND_BINARY_REQ (50)        [32] pubkey | payload      // payload[0]=req_typ
 CMD_SEND_ANON_REQ (57)
   [32] pubkey | [1] req_type | [1] enc_path_len | reply_path
       enc_path_len = ((hash_width-1) << 6) | (hop_count & 0x3F)
+      reply_path   = the route the ANSWER takes, reversed hop-by-hop
+      req_type 0x01 = regions. Reply arrives as PUSH_CODE_BINARY_RESPONSE
+        [1] reserved | u32 tag (= the RESP_CODE_SENT ack hash) | body
+        body = [4] header | comma-separated NUL-padded UTF-8 names
+        A node with NO named regions answers with a single '*' (0x2a) —
+        that is an answer, not silence. Verified 2026-08-01:
+          TX 39 <pubkey> 01 40                    // width 2, 0 hops
+          RX 06 00 08896e6a 24090000              // SENT, est 2340 ms
+          RX 8c 00 08896e6a 008c6e6a 2a 00 00 …   // body '*'
 CMD_SEND_CONTROL_DATA (55)      payload   // discovery: [ (0x8<<4)|prefixOnly ][ type_mask ][ u32 tag ][ u32 since ]
 ```
 

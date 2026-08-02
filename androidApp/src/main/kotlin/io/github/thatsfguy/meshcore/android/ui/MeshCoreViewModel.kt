@@ -1356,9 +1356,17 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
      * from other people's nodes, so nothing is stored automatically —
      * the caller shows them and the user decides.
      */
-    suspend fun discoverRegions(): List<String> {
-        val svc = _service.value ?: return emptyList()
-        if (engineState.value != EngineState.Ready) return emptyList()
+    data class RegionDiscovery(
+        val names: List<String> = emptyList(),
+        /** Repeaters that answered at all — including with no regions. */
+        val answered: Int = 0,
+        /** Repeaters we asked. */
+        val asked: Int = 0,
+    )
+
+    suspend fun discoverRegions(): RegionDiscovery {
+        val svc = _service.value ?: return RegionDiscovery()
+        if (engineState.value != EngineState.Ready) return RegionDiscovery()
         return runCatching {
             val prefixes = svc.engine.discoverNodePrefixes()
             val contacts = svc.engine.contacts.value.values.filter { it.isRepeater }
@@ -1366,20 +1374,26 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
                 .flatMap { p -> NodeDiscovery.matching(p, contacts) { it.publicKeyHex } }
                 .distinctBy { it.publicKeyHex }
             val found = LinkedHashSet<String>()
+            var answered = 0
             for (repeater in targets) {
                 // The reply travels the route the request took. We never
                 // rewrite the contact's stored path to force a direct
                 // answer the way the reference client does — clobbering a
                 // pinned route is worse than an unanswered query.
                 val hops = repeater.pathInfo.hops.coerceAtLeast(0)
+                // null = never answered; empty = answered knowing no
+                // named regions (the global scope only). Confirmed on
+                // hardware: a repeater replies '*' for that. Reporting
+                // both as "nothing found" told the user the mesh was
+                // silent when it had in fact replied.
                 svc.engine.requestRegions(
                     repeater.publicKey,
                     replyPath = repeater.storedPath,
                     replyHopCount = hops,
-                )?.let { found += it }
+                )?.let { answered++; found += it }
             }
-            found.toList().sorted()
-        }.getOrDefault(emptyList())
+            RegionDiscovery(found.toList().sorted(), answered, targets.size)
+        }.getOrDefault(RegionDiscovery())
     }
 
     fun setPathHashMode(mode: Int) =

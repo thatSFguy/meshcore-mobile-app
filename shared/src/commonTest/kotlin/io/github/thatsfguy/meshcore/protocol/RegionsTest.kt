@@ -308,4 +308,38 @@ class RegionsTest {
             assertEquals("region remove $name", Regions.remove(name))
         }
     }
+
+    // ------------------------------------------------------------------
+    // Captured from hardware (2026-08-01)
+    // ------------------------------------------------------------------
+
+    @Test
+    fun theRealGlobalScopeOnlyReplyIsRecognised() {
+        // Verbatim body from a live repeater's answer to an anonymous
+        // regions request: a 4-byte header, then '*' NUL-padded. The
+        // node HAS answered — it just uses the global scope — and that
+        // must not be reported as silence.
+        val body = byteArrayOf(
+            0x00, 0x8c.toByte(), 0x6e, 0x6a,      // header
+            0x2a,                                  // '*'
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        )
+        assertTrue(Regions.isGlobalScopeOnly(body))
+        // And it yields no NAMES, because '*' is not a region name.
+        assertEquals(emptyList(), Regions.parseDiscoveryResponse(body))
+    }
+
+    @Test
+    fun aRealNamedListIsNotMistakenForGlobalScope() {
+        val body = ByteArray(4) + "bayarea,socal".encodeToByteArray()
+        assertTrue(!Regions.isGlobalScopeOnly(body))
+        assertEquals(listOf("bayarea", "socal"), Regions.parseDiscoveryResponse(body))
+    }
+
+    @Test
+    fun anEmptyOrShortBodyIsNotGlobalScope() {
+        // "Didn't answer" must not masquerade as "answered with global".
+        assertTrue(!Regions.isGlobalScopeOnly(ByteArray(0)))
+        assertTrue(!Regions.isGlobalScopeOnly(ByteArray(4)))
+    }
 }

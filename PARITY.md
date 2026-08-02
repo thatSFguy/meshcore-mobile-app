@@ -141,7 +141,7 @@ both:
 
 | Their surface | Us | Status | Notes |
 |---|---|---|---|
-| `AddRegionScreen`, `RegionSelectorScreen`, `DiscoverRegionsScreen` | Settings → Mesh policies → Regions; per-channel picker in the channel editor | ✅ | Closed 2026-08-01. Named region list, per-channel scope, and discovery over `CMD_SEND_CONTROL_DATA` + `CMD_SEND_ANON_REQ` (type 0x01). ⚠ Discovery never rewrites a contact's stored path — see below. |
+| `AddRegionScreen`, `RegionSelectorScreen`, `DiscoverRegionsScreen` | Settings → Mesh policies → Regions; per-channel picker in the channel editor | ✅ | Closed 2026-08-01, and **verified against hardware the same day** — discovery broadcast, anon request, tag correlation and body parse all confirmed end-to-end (see MESHCORE_PROTOCOL §7). ⚠ Discovery never rewrites a contact's stored path — see below. |
 | `RepeaterAddRegionScreen`, `RepeaterManageRegionsScreen`, `RepeaterDefaultRegionScopeScreen` | Repeater admin → Regions tab | ✅ | Closed 2026-08-01. `region get/put/remove/allowf/denyf/default/home/save` behind validation and confirmations; role-gated. `region load` deliberately not offered. |
 
 Notes on this block:
