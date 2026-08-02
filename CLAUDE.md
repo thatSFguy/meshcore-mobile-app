@@ -130,9 +130,16 @@ channels as obfuscated (AES-ECB + 2-byte MAC), not secure.
   reliable. The `-d` matters too: local builds get `versionCode 1` unless HEAD sits
   exactly on an `android-v*` tag, so installing over a tag-built APK looks like a
   downgrade. Never uninstall to get around it — that takes the message database with it.
-- **iOS has no local compiler.** The app is developed on Linux; `.github/workflows/ios-ci.yml`
-  on a macOS runner is the only thing that compiles it. Treat a red run there as a build
-  error, and expect a ~7 minute round-trip per attempt.
+- **iOS is currently uncompilable, by choice.** The app is developed on Linux and has no
+  local Kotlin/Native toolchain, so `.github/workflows/ios-ci.yml` on a macOS runner was
+  the only thing that compiled it. **Removed 2026-08-02** — the repo went private and
+  macOS runner minutes bill at 10x. Restore it from git history (`git log --
+  .github/workflows/ios-ci.yml`) before resuming iOS work.
+  ⚠ It was RED when removed, and the failure is NOT iOS-specific: `ConfigBackup.kt:156`
+  uses `toSortedMap()`, a JVM-only API, in **commonMain**. It compiles for Android and
+  cannot compile for Native. Nothing now catches that class of mistake — commonMain is
+  only ever built for the JVM, so any JVM-only API that creeps in will look fine until
+  the day someone tries to build iOS again.
 - **The mainstream app's surface** was inventoried by pulling its APK and extracting Dart
   class names from `libapp.so` (it's Flutter). PARITY.md lists the results; re-derive with
   `adb pull` + a strings pass if more detail is needed.

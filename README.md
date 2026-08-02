@@ -216,10 +216,11 @@ CI ships the IPA **unsigned** and you re-sign it locally with your own free Appl
 same posture the sibling [reticulum-mobile-app](https://github.com/thatSFguy/reticulum-mobile-app)
 uses.
 
-**Where to get it:** the `meshcore-hardened-ios-unsigned` artifact on any green
-[iOS CI run](https://github.com/thatSFguy/meshcore-mobile-app/actions/workflows/ios-ci.yml).
-(Artifacts require being signed in to GitHub and expire after 7 days. Once iOS is worth releasing,
-the IPA will move onto the release pages next to the APK.)
+**Where to get it:** nowhere, for now. The iOS CI workflow was removed on 2026-08-02 —
+it was the only thing that compiled the iOS target, and macOS runner minutes are billed.
+It was also failing at the time (a JVM-only API had reached `commonMain`), so there is no
+usable IPA to point at. iOS is on hold rather than broken-and-pretending-otherwise; the
+workflow is recoverable from git history when the work resumes.
 
 **One-time setup — pick one:**
 
