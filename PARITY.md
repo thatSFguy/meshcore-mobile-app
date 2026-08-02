@@ -54,7 +54,8 @@ Status key: ✅ have · ◐ partial · ❌ missing · ⛔ out of scope
 | `DiscoverMapScreen` | Map | ◐ | |
 | `KnownRepeatersBottomSheet` | Nodes → Repeaters | ✅ | |
 | `ContactSelectorBottomSheet` | — | ◐ | We navigate instead of picking. |
-| `HeardViaScreen`, `HeardRepeatsScreen` | — | ❌ | **Work item.** Which repeater a node was heard through. |
+| `HeardViaScreen` | Message info → "Arrived via" | ✅ | Done 2026-08-01. The route a message came in on, in travel order, from the RX-log packet (`HeardVia`). Exact for channel messages; correlated (and refused when ambiguous) for direct ones. |
+| `HeardRepeatsScreen` | — | ❌ | **Work item.** Which repeaters re-broadcast OUR traffic — a different question from heard-via, and not answerable from the RX log alone. |
 
 ## 3. Messaging
 

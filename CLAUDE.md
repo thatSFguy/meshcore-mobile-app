@@ -18,11 +18,21 @@ Feature work is now driven by **[`PARITY.md`](PARITY.md)** — the mainstream Me
 Android app is the agreed floor for the feature set, with an explicit out-of-scope list
 and the places we deliberately keep our own (stricter) handling. **Read PARITY.md before
 picking up feature work**; it carries per-row status, dates, and the reasons behind
-each deliberate difference. As of 2026-08-01 the tally is **42 ✅ · 11 ◐ · 9 ❌ · 2 ⛔ ·
-1 ⚠**; blocks 1–4 are done. What remains is listed with its reason in PARITY §13 — the
-short version is heard-via and a handful of rows blocked on hardware, on seeing the
-mainstream app run, or on a translation programme. LOS/coverage modelling is **out of
-scope by decision** — dedicated tools do it properly and the author maintains one.
+each deliberate difference. As of 2026-08-01 the tally is **44 ✅ · 10 ◐ · 8 ❌ · 3 ⛔ ·
+1 ⚠**; blocks 1–4 are done, and so are the three §13 follow-ups (hop selection by
+tapping, path-history cleanup, heard-via). What remains is listed with its reason in
+PARITY §13 — a handful of rows blocked on hardware, on seeing the mainstream app run, or
+on a translation programme. LOS/coverage modelling is **out of scope by decision** —
+dedicated tools do it properly and the author maintains one.
+
+**The recurring defect in this codebase is the hop-hash width.** It is a property of the
+MESH (`DEVICE_INFO.pathHashByteWidth` — 2 on the author's), not a constant, and four
+separate bugs have been one shape: a width-dependent value computed once as if the width
+were 1, then carried around as truth (trace flags, path-history hop counts, Apply-path
+token parsing, the repeater picker's `take(2)`). The fix that stuck was to stop carrying
+derived values — `HopSelection` stores a node's full public key and derives the hash at
+the current width on demand. Suspect this first when a route "looks right but does
+nothing".
 
 Layout:
 - **`shared/`** — KMP. `protocol/` (Codes, guarded Buffers, Frames, ResponseParser,
@@ -128,16 +138,24 @@ channels as obfuscated (AES-ECB + 2-byte MAC), not secure.
   `adb pull` + a strings pass if more detail is needed.
 ## Suggested next steps
 
-1. **Validate against the radio.** Everything added since `android-v0.2.4` is tests +
-   build only. Regions, backup/restore, retention, blocking, presets, sensors,
-   neighbours and identity-key management have never run against hardware.
-2. **`PARITY.md` §13 leftovers** — map polyline rendering is the most valuable and the
-   groundwork (`PathGeometry`, `Neighbours`) is already done and tested.
-3. Notifications for inbound messages (service already has the channel; wire
+1. **Confirm heard-via against live traffic.** The code is done and tested (including a
+   positive control asserting a real path reaches the event), and the "route unknown"
+   fallback is verified on the phone — but no message carrying an actual route has been
+   observed yet. The channel case is the one to watch: it is exact, so one inbound Public
+   post should show named hops immediately. The direct-message case additionally depends
+   on the firmware pushing `PUSH_CODE_LOG_RX_DATA` for TXT_MSG packets addressed to us,
+   which has NOT been confirmed on this radio — if DM routes never appear, check that
+   before suspecting the correlator.
+2. **Validate the rest against the radio.** Backup/restore, retention, blocking, presets,
+   sensors and identity-key management have still never run against hardware. (Regions
+   and neighbours have, 2026-08-01.)
+3. **`PARITY.md` §13 leftovers** — `HeardRepeatsScreen`, ACL write (blocked on a node that
+   supports ACLs), and the rows that need the mainstream app running to specify.
+4. Notifications for inbound messages (service already has the channel; wire
    MessageRepository events → NotificationCompat).
-3. iOS Phase 2 — `IosBleTransport` (CoreBluetooth port of the sibling's), CryptoKit
+5. iOS Phase 2 — `IosBleTransport` (CoreBluetooth port of the sibling's), CryptoKit
    Ed25519 bridge (copy `iosCryptoBridge` pattern), SQLDelight persistence.
-4. Release plumbing (signing env vars are already read by `androidApp/build.gradle.kts`;
+6. Release plumbing (signing env vars are already read by `androidApp/build.gradle.kts`;
    tag scheme `android-vX.Y.Z` matches the sibling).
 
 ## Testing — the standing expectation
@@ -163,6 +181,11 @@ nice-to-have, and it has repeatedly paid for itself:
 - **Negative and hostile cases carry the weight.** Anything parsed off the mesh or out of
   a QR is attacker-controlled: test truncation, wrong lengths, non-hex, duplicate
   parameters, all-zero keys, oversized input. Several of these found real defects.
+- **A suite of "asserts null" needs a positive control.** Most of the heard-via tests
+  assert that a route is NOT claimed — ambiguous packets, wrong sender, stale timing.
+  Every one of them would pass if the feature did nothing at all. The test that carries
+  the suite is the one asserting the real path `b389c985` reaches the event. Whenever
+  correctness means *declining* to answer, pin the case where it must answer.
 - **Exhaustive sweeps find what examples miss.** Round-tripping the whole `path_len`
   space surfaced that 63 hops at 4-byte hashes encodes to `0xFF` — the flood sentinel —
   so a pinned route would have silently become "no route".
