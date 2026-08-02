@@ -89,13 +89,30 @@ fun AboutSection(vm: MeshCoreViewModel) {
  * is a changelog you can't read in the field.
  */
 private val CHANGELOG: List<Pair<String, List<String>>> = listOf(
-    "0.3.0" to listOf(
-        "Regions: named flood scopes, per-channel scoping, discovery from nearby repeaters.",
-        "Repeater region administration.",
+    "0.4.0" to listOf(
+        "\"Arrived via\": the route a received message actually travelled, hop by hop. " +
+            "Shown only when it is known — a flooded message says so instead of guessing.",
+        "Manual routing is now pick-and-order: tap a repeater to add it, arrows to reorder. " +
+            "No more typing hex.",
         "Config backup and restore, with secrets encrypted under a passphrase or left out.",
         "Message retention and a single purge-local-data action.",
         "Blocked contacts (by public key) and hidden channel names (by name — a filter, not a block).",
-        "Regional radio presets.",
+        "Regional radio presets, and a first-run setup flow.",
+        "Contact permissions, active node discovery, and per-conversation notification levels.",
+        "Repeater neighbour tables and identity-key management.",
+        "Sensor nodes as a first-class type; routes drawn on the map, with gaps where a hop " +
+            "can't be placed rather than a guessed line.",
+        "Fixes: unconfigured channels appearing in Chats; path trace sending a request no node " +
+            "would answer; \"Apply path\" silently doing nothing; hop counts that were really " +
+            "byte counts.",
+    ),
+    // 0.3.0 shipped regions and nothing else. The rest of this list was
+    // written into the changelog in the same run but landed AFTER the
+    // tag, so the released 0.3.0 build never contained it — moved to
+    // 0.4.0, where it actually ships.
+    "0.3.0" to listOf(
+        "Regions: named flood scopes, per-channel scoping, discovery from nearby repeaters.",
+        "Repeater region administration.",
     ),
     "0.2.x" to listOf(
         "Repeater admin: access list, command help, noise floor, clock drift, position picker.",
