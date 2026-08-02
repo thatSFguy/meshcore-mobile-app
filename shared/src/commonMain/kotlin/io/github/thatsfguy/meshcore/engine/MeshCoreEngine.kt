@@ -491,7 +491,14 @@ class MeshCoreEngine(
                 // Which raw packet carried this? Only answered when
                 // exactly one fits — see HeardVia. The packet is then
                 // consumed so a second message can't claim it too.
-                val arrival = HeardVia.match(pendingArrivals, prefixHex, hops, nowMillis())
+                // A FLOODED message reports path_len 0xFF — decoded to
+                // -1, meaning "no route recorded", NOT "zero hops". Pass
+                // it as unknown rather than as a hop count no packet can
+                // ever equal: a flood is exactly the case where the route
+                // is most worth recovering, and matching on -1 made it
+                // the one case we could never recover.
+                val arrival =
+                    HeardVia.match(pendingArrivals, prefixHex, hops.takeIf { it >= 0 }, nowMillis())
                 if (arrival != null) pendingArrivals = pendingArrivals - arrival
                 emitMeshEvent(
                     MeshEvent.DirectMessageReceived(

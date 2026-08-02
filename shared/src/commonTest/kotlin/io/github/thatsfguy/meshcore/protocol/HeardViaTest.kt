@@ -2,6 +2,8 @@ package io.github.thatsfguy.meshcore.protocol
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -176,6 +178,31 @@ class HeardViaTest {
         assertTrue(HeardVia.summary(4, null, 2).contains("isn't known"))
         assertTrue(HeardVia.summary(null, null, 2).contains("isn't known"))
         assertTrue(HeardVia.summary(2, "b389c985", 2).contains("2 repeater(s)"))
+    }
+
+    @Test
+    fun floodIsNotDirect() {
+        // Caught on a real message: the sheet showed "Hops travelled:
+        // flood" and, one line below, "Arrived directly — no repeater in
+        // between". path_len 0xFF decodes to -1, and folding -1 in with 0
+        // asserted the opposite of what was known.
+        val flood = HeardVia.summary(PathCodec.decodePathLen(0xFF).hops, null, 2)
+        assertFalse(flood.contains("directly"))
+        assertTrue(flood.contains("flooding"))
+        assertTrue(flood.contains("isn't known"))
+        // And the two really are different answers, not two spellings.
+        assertNotEquals(HeardVia.summary(0, null, 2), flood)
+    }
+
+    @Test
+    fun aFloodedMessageCanStillRecoverItsRouteFromAUniquePacket() {
+        // A flood states no hop count, so there is nothing to cross-check
+        // against — but sender + time + uniqueness still stands, and a
+        // flood is exactly the case where "what carried this" is worth
+        // knowing. Passing -1 as a hop count matched nothing, ever.
+        val m = HeardVia.match(listOf(arrival(hops = 2)), "b389548d314a", null, now + 500)
+        assertNotNull(m)
+        assertEquals("b389c985", m.pathHex)
     }
 
     @Test

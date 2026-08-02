@@ -153,7 +153,16 @@ object HeardVia {
         return when {
             routed != null -> "Arrived via ${routed.length / (width * 2)} repeater(s), " +
                 "listed in the order it travelled."
-            hops != null && hops <= 0 -> "Arrived directly — no repeater in between."
+            // FLOOD IS NOT DIRECT. path_len 0xFF decodes to -1, and
+            // folding that in with 0 put "Arrived directly — no repeater
+            // in between" directly under "Hops travelled: flood" on a
+            // real message. A flooded packet is re-broadcast by whoever
+            // hears it and the frame records no route at all, so the one
+            // thing we can be sure of is that we do NOT know.
+            hops != null && hops < 0 ->
+                "Sent by flooding, so no route was recorded — a flooded packet is passed " +
+                    "on by whoever hears it. Which repeaters relayed this isn't known."
+            hops == 0 -> "Arrived directly — no repeater in between."
             hops != null && hops > 0 ->
                 "Travelled $hops hop(s), but which repeaters carried it isn't known — " +
                     "the message frame states a hop count only."
