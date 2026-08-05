@@ -47,6 +47,15 @@ Layout:
   conversation, nodes+detail, osmdroid map, repeater admin, settings incl. stern TCP
   dialog + diagnostics). `./gradlew :androidApp:assembleDebug` (JDK at
   `/home/robw/android-tools/jdk`, SDK via `local.properties`).
+  - **Settings is hub-and-spoke** (2026-08-05, REBUILD-PLAYBOOK §6.2). `settings` is
+    a grouped tile list (`SettingsScreen.kt`); each tile opens `settings/<route>`
+    (`SettingsSpokeScreens.kt`), and the section bodies moved verbatim to
+    `SettingsSections.kt`. It was eleven `ExpandableSection`s on one scroll, with
+    `AppSection` holding another eight surfaces inside it. Tiles carry live
+    subtitles — pure functions in `SettingsHubModel.kt`, tested, including that an
+    unencrypted database wins its row and that TCP is always flagged. `ExpandableHint`
+    (SettingsComponents) is the one-line-plus-"More" control for §6.3.
+    ⚠ Unit-tested only; **never driven against a radio.**
   - **Repeater admin is hub-and-spoke** (2026-08-05, REBUILD-PLAYBOOK §1.4a/§6.2).
     `repeater/{key}` is `RepeaterHubScreen` — identity card, the grant the node
     reported as an ADMIN/GUEST/NOT SIGNED IN chip, and tiles into

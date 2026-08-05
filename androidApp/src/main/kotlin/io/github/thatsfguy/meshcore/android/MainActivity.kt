@@ -42,8 +42,25 @@ import io.github.thatsfguy.meshcore.android.ui.screens.RepeaterIdentityScreen
 import io.github.thatsfguy.meshcore.android.ui.screens.RepeaterRegionsScreen
 import io.github.thatsfguy.meshcore.android.ui.screens.RepeaterSettingsScreen
 import io.github.thatsfguy.meshcore.android.ui.screens.RepeaterStatusScreen
-import io.github.thatsfguy.meshcore.android.ui.screens.SetupScreen
+import io.github.thatsfguy.meshcore.android.ui.screens.SettingsAboutScreen
+import io.github.thatsfguy.meshcore.android.ui.screens.SettingsAppearanceScreen
+import io.github.thatsfguy.meshcore.android.ui.screens.SettingsAutoAddScreen
+import io.github.thatsfguy.meshcore.android.ui.screens.SettingsBackupScreen
+import io.github.thatsfguy.meshcore.android.ui.screens.SettingsBlockingScreen
+import io.github.thatsfguy.meshcore.android.ui.screens.SettingsChannelsScreen
+import io.github.thatsfguy.meshcore.android.ui.screens.SettingsClockScreen
+import io.github.thatsfguy.meshcore.android.ui.screens.SettingsConnectionScreen
+import io.github.thatsfguy.meshcore.android.ui.screens.SettingsCustomVarsScreen
+import io.github.thatsfguy.meshcore.android.ui.screens.SettingsDataScreen
+import io.github.thatsfguy.meshcore.android.ui.screens.SettingsDiagnosticsScreen
+import io.github.thatsfguy.meshcore.android.ui.screens.SettingsIdentityScreen
+import io.github.thatsfguy.meshcore.android.ui.screens.SettingsNotificationsScreen
+import io.github.thatsfguy.meshcore.android.ui.screens.SettingsPoliciesScreen
+import io.github.thatsfguy.meshcore.android.ui.screens.SettingsPrivacyScreen
+import io.github.thatsfguy.meshcore.android.ui.screens.SettingsRadioScreen
 import io.github.thatsfguy.meshcore.android.ui.screens.SettingsScreen
+import io.github.thatsfguy.meshcore.android.ui.screens.SettingsTransportsScreen
+import io.github.thatsfguy.meshcore.android.ui.screens.SetupScreen
 import io.github.thatsfguy.meshcore.android.ui.screens.decodePrefill
 import io.github.thatsfguy.meshcore.android.ui.theme.MeshCoreTheme
 
@@ -136,7 +153,27 @@ private fun AppShell(vm: MeshCoreViewModel) {
             composable("chats") { ChatsScreen(vm, nav) }
             composable("nodes") { NodesScreen(vm, nav) }
             composable("map") { MapScreen(vm) }
-            composable("settings") { SettingsScreen(vm) }
+            // Settings is hub-and-spoke for the same reason repeater
+            // admin is: eleven expandable sections on one scroll, one of
+            // which held another eight surfaces (REBUILD-PLAYBOOK §6.2).
+            composable("settings") { SettingsScreen(vm, nav) }
+            composable("settings/connection") { SettingsConnectionScreen(vm, nav) }
+            composable("settings/transports") { SettingsTransportsScreen(vm, nav) }
+            composable("settings/identity") { SettingsIdentityScreen(vm, nav) }
+            composable("settings/radio") { SettingsRadioScreen(vm, nav) }
+            composable("settings/clock") { SettingsClockScreen(vm, nav) }
+            composable("settings/policies") { SettingsPoliciesScreen(vm, nav) }
+            composable("settings/autoadd") { SettingsAutoAddScreen(vm, nav) }
+            composable("settings/customvars") { SettingsCustomVarsScreen(vm, nav) }
+            composable("settings/channels") { SettingsChannelsScreen(vm, nav) }
+            composable("settings/blocking") { SettingsBlockingScreen(vm, nav) }
+            composable("settings/appearance") { SettingsAppearanceScreen(vm, nav) }
+            composable("settings/notifications") { SettingsNotificationsScreen(vm, nav) }
+            composable("settings/privacy") { SettingsPrivacyScreen(vm, nav) }
+            composable("settings/backup") { SettingsBackupScreen(vm, nav) }
+            composable("settings/data") { SettingsDataScreen(vm, nav) }
+            composable("settings/diagnostics") { SettingsDiagnosticsScreen(vm, nav) }
+            composable("settings/about") { SettingsAboutScreen(vm, nav) }
             composable("conversation/{kind}/{peer}") { entry ->
                 ConversationScreen(
                     vm = vm,

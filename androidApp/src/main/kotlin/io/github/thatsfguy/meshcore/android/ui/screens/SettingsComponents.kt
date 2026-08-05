@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -23,6 +24,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -139,6 +141,47 @@ fun HintText(text: String) {
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
+}
+
+/**
+ * One line of hint, with the rest of the truth behind a tap.
+ *
+ * This app's instinct to say the whole honest thing is right and worth
+ * keeping — but it was spent three sentences at a time on every row of
+ * every screen until the whole app read like a disclaimer, which is
+ * its own kind of dishonesty because nobody reads a wall
+ * (LESSONS §14, REBUILD-PLAYBOOK §6.3).
+ *
+ * The budget is one line per control. [summary] must be true on its
+ * own — this is not a teaser for the real warning, it is the short
+ * version of it. Anything that is dangerous to miss belongs in
+ * [summary], not in [detail].
+ */
+@Composable
+fun ExpandableHint(summary: String, detail: @Composable () -> Unit) {
+    var expanded by rememberSaveable { mutableStateOf(false) }
+    Column(Modifier.fillMaxWidth()) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                summary,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.weight(1f, fill = false),
+            )
+            TextButton(
+                onClick = { expanded = !expanded },
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+            ) {
+                Text(
+                    if (expanded) "Less" else "More",
+                    style = MaterialTheme.typography.labelSmall,
+                )
+            }
+        }
+        AnimatedVisibility(visible = expanded) {
+            Column(Modifier.padding(bottom = 8.dp)) { detail() }
+        }
+    }
 }
 
 /** Single-choice chip row; FlowRow so chips wrap as whole units. */

@@ -89,6 +89,21 @@ fun AboutSection(vm: MeshCoreViewModel) {
  * is a changelog you can't read in the field.
  */
 private val CHANGELOG: List<Pair<String, List<String>>> = listOf(
+    "0.5.0" to listOf(
+        "Repeater, room and sensor administration is now a hub: one screen per tool " +
+            "(Status, Settings, Regions, Identity, Console, Command help) instead of six " +
+            "tabs sharing one screen.",
+        "Signing in to a node is a dialog, and the node's answer — ADMIN or GUEST — is " +
+            "shown on the hub. Nothing about the session is guessed from what you typed.",
+        "Settings is a list of pages instead of eleven expandable sections. Each row " +
+            "shows its current value, so which transports are on, what frequency the radio " +
+            "is using and whether map tiles are being fetched are all answered without " +
+            "opening anything.",
+        "Long explanations are one line with a \"More\" tap rather than three sentences " +
+            "on every row.",
+        "This release changes how the app is laid out. It has not yet been run against a " +
+            "radio.",
+    ),
     "0.4.0" to listOf(
         "\"Arrived via\": the route a received message actually travelled, hop by hop. " +
             "Shown only when it is known — a flooded message says so instead of guessing.",
