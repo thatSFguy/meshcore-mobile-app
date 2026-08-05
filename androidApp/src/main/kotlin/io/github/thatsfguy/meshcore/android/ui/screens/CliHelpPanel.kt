@@ -163,7 +163,8 @@ private fun roleWord(role: NodeRole): String = when (role) {
  * real and gets its own words.
  */
 fun cliHelpSummary(total: Int, role: NodeRole, session: AdminSession): String {
-    val head = "$total commands this ${roleWord(role)} accepts"
+    // "1 commands" — found by searching the catalogue on a real node.
+    val head = "$total command${if (total == 1) "" else "s"} this ${roleWord(role)} accepts"
     return when (session) {
         AdminSession.Admin -> "$head."
         AdminSession.Guest -> "$head as a guest."

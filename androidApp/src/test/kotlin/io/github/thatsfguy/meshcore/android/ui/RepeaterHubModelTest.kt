@@ -208,6 +208,24 @@ class RepeaterHubModelTest {
     }
 
     @Test
+    fun `a single command result is not called "1 commands"`() {
+        // Searching Command help on a live repeater narrowed the
+        // catalogue to one entry and the header read "1 commands".
+        assertTrue(
+            cliHelpSummary(1, NodeRole.Repeater, AdminSession.Admin)
+                .startsWith("1 command this"),
+        )
+        assertTrue(
+            cliHelpSummary(0, NodeRole.Repeater, AdminSession.Admin)
+                .startsWith("0 commands this"),
+        )
+        assertTrue(
+            cliHelpSummary(65, NodeRole.Repeater, AdminSession.Admin)
+                .startsWith("65 commands this"),
+        )
+    }
+
+    @Test
     fun `command help names the node type it is describing`() {
         assertTrue(
             cliHelpSummary(1, NodeRole.Room, AdminSession.Admin).contains("room server"),

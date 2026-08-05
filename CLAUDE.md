@@ -236,6 +236,26 @@ nice-to-have, and it has repeatedly paid for itself:
   emulator. UI helpers that carry real logic (hop labels, quote splitting, drift
   formatting) should be pure functions so `androidApp/src/test` can reach them.
 
+## Screenshots and demo assets — redaction is mandatory
+
+`.gitignore` already says it: `docs/screenshots/raw/` holds unredacted originals and is
+**never committed**. Only boxed output goes in `docs/`. This was written down in July, and
+broken on 2026-08-05 by committing raw captures straight into `docs/screenshots/` and into
+`docs/demo.gif` — which published a third party's first name beside their amateur callsign
+(the FCC licence database turns that into a legal name and mailing address), other people's
+repeater positions to five decimal places, and a "Distance away" reading that trilaterates
+the phone that took the shot.
+
+Use `tools/redact-screenshot.py raw.png out.png` — it takes boxes from the live uiautomator
+tree rather than from eyeballing pixels, and covers node public keys, coordinates, amateur
+callsigns and distance-away. Two things it cannot see, so handle them by hand:
+- **Map labels** are canvas-drawn, not in the accessibility tree. Turn off Map → ⋮ → *Show
+  labels* before capturing.
+- **Content behind a modal sheet** is absent from the tree; pass `box=x,y,w,h` for it.
+
+Region-level location is fine (the mesh is around Grand Rapids and that is not a secret).
+Points are not.
+
 ## Conventions
 
 - KMP + Gradle. Build/test: `JAVA_HOME=/home/robw/android-tools/jdk ./gradlew
