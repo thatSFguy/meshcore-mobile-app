@@ -108,7 +108,7 @@ copy / quote / message details (SNR, attempts, ack hash), mark-unread, per-chann
 **community QR join** (the community secret is stored in the Keystore and its channels derived from
 it). Channels are presented as *obfuscated, not secure* — see the security note below.
 
-**Nodes** — Contacts / Repeaters / Rooms tabs plus a **discovery inbox** of signature-verified
+**Nodes** — Contacts / Repeaters / Rooms / Sensors tabs plus a **discovery inbox** of signature-verified
 adverts you haven't added yet. Favourites, search, hash-colored avatars, rename, and **QR
 share/import that interoperates with the mainstream MeshCore app** — codes are emitted in its
 `meshcore://contact/add?…` form (and the older signed-advert form is still accepted on scan).
@@ -123,17 +123,23 @@ each hop with its SNR.
 Filter by node type, export nodes as GPX, clear the tile cache. Tiles are the only HTTP the app
 makes; they cache in app-private storage.
 
-**Repeater / room administration** — admin **or guest (read-only)** login with the password sealed
-in the Keystore, a decoded **Status** panel (battery, uptime, queue, RSSI/SNR, airtime, packet and
-duplicate counts, channel utilisation) plus Cayenne-LPP telemetry, a form-based **Settings** editor
-that fetches live values over the CLI and saves only what you changed, and a raw **Console**.
-Commands are filtered by node role and by session role — a guest is never offered a command the
+**Repeater / room administration** — a **hub** with one screen per tool. You sign in with a
+password (sealed in the Keystore if you ask); the node decides what that unlocks and reports it,
+and the hub shows what you got — `ADMIN` or `GUEST`. There is no access-level control to set,
+because there is no such choice to make. Behind the hub: a decoded **Status** panel (battery,
+uptime, queue, RSSI/SNR, airtime, packet and duplicate counts, channel utilisation) plus
+Cayenne-LPP telemetry, **Regions**, **Identity**, a form-based **Settings** editor that fetches
+live values over the CLI and saves only what you changed, a raw **Console**, and a **Command
+help** catalogue filtered by node role and session role — a guest is never offered a command the
 node would refuse.
 
-**Device settings** — collapsible sections covering the full companion-command surface: identity,
-radio parameters, clock, mesh policies (advert location, multi-acks, telemetry permissions,
-path-hash width, flood scope), auto-add policy, custom variables, channels, theme, and a
-redaction-aware diagnostics log that is **off by default**.
+**Device settings** — a hub of grouped pages covering the full companion-command surface:
+connection, transports, identity, radio parameters, clock, mesh policies (advert location,
+multi-acks, telemetry permissions, path-hash width, flood scope), auto-add policy, custom
+variables, channels, blocked senders, appearance, notifications, privacy, backup, retention, and a
+redaction-aware diagnostics log that is **off by default**. Each row reports its current value, so
+which transports are on, what frequency the radio is using and whether map tiles are being fetched
+are answered without opening anything.
 
 ## Security posture
 
