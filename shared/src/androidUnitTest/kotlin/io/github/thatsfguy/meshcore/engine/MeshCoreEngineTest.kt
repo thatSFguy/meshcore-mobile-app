@@ -22,6 +22,7 @@ import kotlinx.coroutines.yield
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -96,14 +97,18 @@ class MeshCoreEngineTest {
         return w.toBytes()
     }
 
-    private fun contactFrame(pubKey: ByteArray, name: String): ByteArray {
+    private fun contactFrame(
+        pubKey: ByteArray,
+        name: String,
+        outPath: ByteArray = ByteArray(0),
+    ): ByteArray {
         val w = BufferWriter()
         w.writeByte(Codes.RESP_CODE_CONTACT)
         w.writeBytes(pubKey)
         w.writeByte(Codes.ADV_TYPE_CHAT)
         w.writeByte(0)
-        w.writeByte(0)
-        w.writeBytesPadded(ByteArray(0), 64)
+        w.writeByte(outPath.size)
+        w.writeBytesPadded(outPath, 64)
         w.writeFixedCString(name, 32)
         w.writeUInt32LE(1L)
         w.writeInt32LE(0); w.writeInt32LE(0)
@@ -149,17 +154,68 @@ class MeshCoreEngineTest {
                 w.writeUInt32LE(3000L)
                 listOf(w.toBytes())
             }
-            Codes.CMD_SEND_LOGIN -> {
-                val w = BufferWriter()
-                w.writeByte(Codes.PUSH_CODE_LOGIN_SUCCESS)
-                w.writeByte(1)
-                w.writeBytes(peerKey.copyOfRange(0, 6))
-                w.writeUInt32LE(now)
-                listOf(w.toBytes())
-            }
+            Codes.CMD_SEND_LOGIN -> listOf(loginSentFrame(), loginSuccessPush())
             else -> listOf(byteArrayOf(Codes.RESP_CODE_OK.toByte()))
         }
     }
+
+
+    /**
+     * The 10-byte frame the firmware actually answers CMD_SEND_LOGIN
+     * with: `RESP_CODE_SENT`, is_flood, the first 4 bytes of the peer
+     * key as a correlation tag, then its own airtime estimate
+     * (`companion_radio/MyMesh.cpp`, CMD_SEND_LOGIN branch).
+     *
+     * The fake used to reply with the success push alone, which is not
+     * a thing the firmware ever does. Nothing noticed until the client
+     * started reading the estimate — a fake that disagrees with the
+     * hardware is the failure LESSONS §8 is about, and this one was
+     * written by the same hand as the code it was testing.
+     */
+    private fun loginSentFrame(estTimeoutMs: Long = 3_000L, flood: Boolean = false): ByteArray {
+        val w = BufferWriter()
+        w.writeByte(Codes.RESP_CODE_SENT)
+        w.writeByte(if (flood) 1 else 0)
+        w.writeBytes(peerKey.copyOfRange(0, 4))
+        w.writeUInt32LE(estTimeoutMs)
+        return w.toBytes()
+    }
+
+    private fun loginSuccessPush(isAdmin: Boolean = true): ByteArray {
+        val w = BufferWriter()
+        w.writeByte(Codes.PUSH_CODE_LOGIN_SUCCESS)
+        w.writeByte(if (isAdmin) 1 else 0)
+        w.writeBytes(peerKey.copyOfRange(0, 6))
+        w.writeUInt32LE(now)
+        return w.toBytes()
+    }
+
+    private fun loginFailPush(): ByteArray =
+        byteArrayOf(Codes.PUSH_CODE_LOGIN_FAIL.toByte())
+
+    /** Standard firmware, except login answers per attempt index. */
+    private fun loginResponder(
+        radio: FakeRadio,
+        outPath: ByteArray = ByteArray(0),
+        replies: (Int) -> List<ByteArray>,
+    ): (ByteArray) -> List<ByteArray> {
+        val base = standardResponder(radio)
+        var attempts = 0
+        return { frame ->
+            when (frame[0].toInt() and 0xFF) {
+                Codes.CMD_SEND_LOGIN -> replies(attempts++)
+                Codes.CMD_GET_CONTACTS -> listOf(
+                    byteArrayOf(Codes.RESP_CODE_CONTACTS_START.toByte(), 1, 0, 0, 0),
+                    contactFrame(peerKey, "peer", outPath),
+                    byteArrayOf(Codes.RESP_CODE_END_OF_CONTACTS.toByte()),
+                )
+                else -> base(frame)
+            }
+        }
+    }
+
+    private fun FakeRadio.countOf(cmd: Int): Int =
+        sentFrames.count { (it[0].toInt() and 0xFF) == cmd }
 
     private suspend fun MeshCoreEngine.awaitReady() {
         withTimeout(10_000) { state.first { it == EngineState.Ready } }
@@ -298,7 +354,132 @@ class MeshCoreEngineTest {
         radio.connect()
         engine.awaitReady()
 
-        assertTrue(engine.sendLogin(peerKey, "secret").accepted)
+        val outcome = engine.sendLogin(peerKey, "secret")
+        assertTrue(outcome.accepted)
+        assertTrue(outcome.answered)
+    }
+
+    /**
+     * A rejected password must be sent exactly once.
+     *
+     * Retrying cannot change the answer, and CMD_SEND_LOGIN carries the
+     * password in CLEARTEXT (§12) — two more transmissions to be told
+     * "no" again is airtime spent putting a secret on the air.
+     */
+    @Test
+    fun aRejectedLoginIsNotRetried() = runTest {
+        val radio = FakeRadio()
+        radio.responder = loginResponder(radio) { listOf(loginSentFrame(), loginFailPush()) }
+        val engine = MeshCoreEngine(backgroundScope, crypto, { now })
+        engine.attach(radio)
+        radio.connect()
+        engine.awaitReady()
+
+        val outcome = engine.sendLoginWithRetry(peerKey, "wrong")
+        assertFalse(outcome.accepted)
+        // The node spoke. That is the difference between "wrong
+        // password" and "out of range", and the UI says different
+        // things for each.
+        assertTrue(outcome.answered)
+        assertEquals(1, radio.countOf(Codes.CMD_SEND_LOGIN))
+    }
+
+    /** Silence is the failure retrying exists for. */
+    @Test
+    fun aLoginThatIsNeverAnsweredIsRetried() = runTest {
+        val radio = FakeRadio()
+        radio.responder = loginResponder(radio) { listOf(loginSentFrame()) }
+        val engine = MeshCoreEngine(backgroundScope, crypto, { now })
+        engine.attach(radio)
+        radio.connect()
+        engine.awaitReady()
+
+        val outcome = engine.sendLoginWithRetry(peerKey, "secret")
+        assertFalse(outcome.accepted)
+        assertFalse(outcome.answered)
+        assertEquals(3, radio.countOf(Codes.CMD_SEND_LOGIN))
+    }
+
+    @Test
+    fun aLoginThatSucceedsOnRetryStopsThere() = runTest {
+        val radio = FakeRadio()
+        radio.responder = loginResponder(radio) { attempt ->
+            if (attempt == 0) listOf(loginSentFrame())
+            else listOf(loginSentFrame(), loginSuccessPush())
+        }
+        val engine = MeshCoreEngine(backgroundScope, crypto, { now })
+        engine.attach(radio)
+        radio.connect()
+        engine.awaitReady()
+
+        assertTrue(engine.sendLoginWithRetry(peerKey, "secret").accepted)
+        assertEquals(2, radio.countOf(Codes.CMD_SEND_LOGIN))
+    }
+
+    /**
+     * The last attempt clears the stored path, which is what makes a
+     * login survive a repeater going away — the firmware routes a login
+     * over `out_path` exactly like a text message
+     * (`BaseChatMesh::sendLogin`), so it inherits the same stale-path
+     * failure and the same remedy.
+     */
+    @Test
+    fun theLastLoginAttemptResetsAStalePath() = runTest {
+        val radio = FakeRadio()
+        radio.responder = loginResponder(radio, outPath = byteArrayOf(0x11, 0x22)) {
+            listOf(loginSentFrame())
+        }
+        val engine = MeshCoreEngine(backgroundScope, crypto, { now })
+        engine.attach(radio)
+        radio.connect()
+        engine.awaitReady()
+
+        engine.sendLoginWithRetry(peerKey, "secret")
+        assertEquals(1, radio.countOf(Codes.CMD_RESET_PATH))
+
+        // …and only before the FINAL attempt, not the first two.
+        val order = radio.sentFrames.map { it[0].toInt() and 0xFF }
+            .filter { it == Codes.CMD_SEND_LOGIN || it == Codes.CMD_RESET_PATH }
+        assertEquals(
+            listOf(
+                Codes.CMD_SEND_LOGIN,
+                Codes.CMD_SEND_LOGIN,
+                Codes.CMD_RESET_PATH,
+                Codes.CMD_SEND_LOGIN,
+            ),
+            order,
+        )
+    }
+
+    @Test
+    fun aContactWithNoPathIsNeverReset() = runTest {
+        // Already flooding — there is nothing to clear, and spending a
+        // round trip to reach the state we are in is not a fallback.
+        val radio = FakeRadio()
+        radio.responder = loginResponder(radio) { listOf(loginSentFrame()) }
+        val engine = MeshCoreEngine(backgroundScope, crypto, { now })
+        engine.attach(radio)
+        radio.connect()
+        engine.awaitReady()
+
+        engine.sendLoginWithRetry(peerKey, "secret")
+        assertEquals(0, radio.countOf(Codes.CMD_RESET_PATH))
+    }
+
+    @Test
+    fun theFloodFallbackCanBeTurnedOff() = runTest {
+        val radio = FakeRadio()
+        radio.responder = loginResponder(radio, outPath = byteArrayOf(0x11, 0x22)) {
+            listOf(loginSentFrame())
+        }
+        val engine = MeshCoreEngine(backgroundScope, crypto, { now })
+        engine.attach(radio)
+        radio.connect()
+        engine.awaitReady()
+
+        engine.sendLoginWithRetry(peerKey, "secret", floodFallbackEnabled = false)
+        assertEquals(3, radio.countOf(Codes.CMD_SEND_LOGIN))
+        assertEquals(0, radio.countOf(Codes.CMD_RESET_PATH))
     }
 
     @Test

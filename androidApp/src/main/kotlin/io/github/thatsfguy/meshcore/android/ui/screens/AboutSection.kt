@@ -89,6 +89,15 @@ fun AboutSection(vm: MeshCoreViewModel) {
  * is a changelog you can't read in the field.
  */
 private val CHANGELOG: List<Pair<String, List<String>>> = listOf(
+    "0.5.4" to listOf(
+        "Signing in to a repeater now retries if nothing comes back, and waits as long as " +
+            "the radio says to instead of a flat 20 seconds. The last attempt clears a dead " +
+            "path and floods, the same as a message.",
+        "A rejected password is never retried. It won't start working, and the password is " +
+            "on the air in cleartext each time.",
+        "\"The node rejected that password\" and \"No answer from the node\" are now " +
+            "different messages, because they need different fixes.",
+    ),
     "0.5.3" to listOf(
         "A direct message that fails twice is now retried as a flood, once — and the dead " +
             "path is cleared first, so your radio can learn a live one from the reply. " +

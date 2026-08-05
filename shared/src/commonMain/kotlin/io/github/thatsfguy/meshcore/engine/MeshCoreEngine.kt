@@ -13,6 +13,7 @@ import io.github.thatsfguy.meshcore.protocol.ChannelCrypto
 import io.github.thatsfguy.meshcore.protocol.Codes
 import io.github.thatsfguy.meshcore.protocol.DeviceEvent
 import io.github.thatsfguy.meshcore.protocol.Frames
+import io.github.thatsfguy.meshcore.protocol.SendRetry
 import io.github.thatsfguy.meshcore.protocol.HeardVia
 import io.github.thatsfguy.meshcore.protocol.Neighbours
 import io.github.thatsfguy.meshcore.protocol.NodeDiscovery
@@ -68,9 +69,27 @@ enum class EngineState { Detached, Connecting, Handshaking, Ready }
  * UI locks controls the node would have allowed; leave it clear with a
  * guest password and the UI offers controls the node will refuse).
  */
-data class LoginOutcome(val accepted: Boolean, val isAdmin: Boolean) {
+data class LoginOutcome(
+    val accepted: Boolean,
+    val isAdmin: Boolean,
+    /**
+     * The node answered at all.
+     *
+     * A rejected password and a login that vanished are different
+     * events with opposite responses: one must not be retried (the
+     * answer will not change and the password is on the air each time),
+     * the other is exactly what retrying is for. Collapsing them into a
+     * single `accepted = false` meant the app could not tell, and so
+     * did neither.
+     */
+    val answered: Boolean,
+) {
     companion object {
-        val Failed = LoginOutcome(accepted = false, isAdmin = false)
+        /** The node said no. Do not retry. */
+        val Rejected = LoginOutcome(accepted = false, isAdmin = false, answered = true)
+
+        /** Nothing came back. Worth another attempt. */
+        val NoAnswer = LoginOutcome(accepted = false, isAdmin = false, answered = false)
     }
 }
 
@@ -892,13 +911,102 @@ class MeshCoreEngine(
      * radio link (and the network, on TCP) — never log it; store only in
      * the platform keystore.
      */
-    suspend fun sendLogin(repeaterPubKey: ByteArray, password: String): LoginOutcome {
-        val ev = sendAndAwait(
+    /**
+     * One login attempt, waiting as long as the RADIO says to.
+     *
+     * `CMD_SEND_LOGIN` is answered with `RESP_CODE_SENT` carrying
+     * `is_flood` and an airtime-derived `est_timeout`, exactly like a
+     * text message — verified in the firmware
+     * (`companion_radio/MyMesh.cpp`, the `CMD_SEND_LOGIN` branch, which
+     * writes a 10-byte frame ending in `est_timeout`). The previous
+     * hardcoded 20 s ignored that: far too long to fail a 0-hop login,
+     * and not necessarily long enough for a deep flood.
+     */
+    suspend fun sendLogin(
+        repeaterPubKey: ByteArray,
+        password: String,
+    ): LoginOutcome = coroutineScope {
+        // Subscribe to the OUTCOME before the frame is sent, not after
+        // the RESP_CODE_SENT comes back. On a 0-hop link the node's
+        // answer can arrive in the same breath as the radio's
+        // acknowledgement, and _events has no replay — subscribing
+        // afterwards drops it and reports a timeout on a login that
+        // actually succeeded. Same reasoning as sendAndAwait's own
+        // UNDISPATCHED waiter.
+        val outcome = async(start = CoroutineStart.UNDISPATCHED) {
+            _events.first { it is DeviceEvent.LoginSuccess || it is DeviceEvent.LoginFail }
+        }
+
+        val sent = sendAndAwait(
             Frames.sendLogin(repeaterPubKey, password),
-            timeoutMs = 20_000,
-        ) { it is DeviceEvent.LoginSuccess || it is DeviceEvent.LoginFail }
-        val success = ev as? DeviceEvent.LoginSuccess ?: return LoginOutcome.Failed
-        return LoginOutcome(accepted = true, isAdmin = success.permissions == PERMISSION_ADMIN)
+            timeoutMs = 10_000,
+        ) { it is DeviceEvent.Sent } as? DeviceEvent.Sent
+
+        if (sent == null) {
+            outcome.cancel()
+            return@coroutineScope LoginOutcome.NoAnswer
+        }
+
+        val budget = sent.timeoutMs.coerceIn(MIN_LOGIN_WAIT_MS, MAX_LOGIN_WAIT_MS)
+        val ev = withTimeoutOrNull(budget) { outcome.await() }
+        outcome.cancel()
+        when (ev) {
+            is DeviceEvent.LoginSuccess ->
+                LoginOutcome(
+                    accepted = true,
+                    isAdmin = ev.permissions == PERMISSION_ADMIN,
+                    answered = true,
+                )
+            is DeviceEvent.LoginFail -> LoginOutcome.Rejected
+            else -> LoginOutcome.NoAnswer
+        }
+    }
+
+    /**
+     * Log in, retrying only the failure that retrying can fix.
+     *
+     * The firmware sends a login over the contact's stored path and
+     * falls back to flood only when there is no path at all — the same
+     * branch a text message takes (`BaseChatMesh::sendLogin`: 
+     * `out_path_len == OUT_PATH_UNKNOWN ? sendFloodScoped : sendDirect`).
+     * So a login inherits the stale-path failure mode exactly, and gets
+     * the same remedy as [SendRetry] applies to messages: the last
+     * attempt clears the dead path and floods.
+     *
+     * The firmware itself never retries — `sendLogin()` transmits once
+     * and returns — so this is the client's job. Each attempt is a fresh
+     * packet: the payload begins with `getCurrentTimeUnique()`, which
+     * the firmware comments as "mostly an extra blob to help make
+     * packet_hash unique", so retries are not dropped as duplicates.
+     *
+     * A **rejection stops the loop immediately**. The answer will not
+     * change, and `CMD_SEND_LOGIN` carries the password in cleartext —
+     * putting it on the air two more times to be told "no" again is a
+     * cost with no upside.
+     */
+    suspend fun sendLoginWithRetry(
+        repeaterPubKey: ByteArray,
+        password: String,
+        maxAttempts: Int = SendRetry.DEFAULT_MAX_ATTEMPTS,
+        floodFallbackEnabled: Boolean = true,
+    ): LoginOutcome {
+        val keyHex = repeaterPubKey.toHex()
+        var last = LoginOutcome.NoAnswer
+        for (attempt in 0 until maxAttempts) {
+            val hasStoredPath = contacts.value[keyHex]?.storedPath?.isNotEmpty() == true
+            val route = SendRetry.routeFor(
+                attempt = attempt,
+                maxAttempts = maxAttempts,
+                hasStoredPath = hasStoredPath,
+                floodFallbackEnabled = floodFallbackEnabled,
+            )
+            if (route == SendRetry.Route.ResetAndFlood) {
+                runCatching { resetPath(repeaterPubKey) }
+            }
+            last = sendLogin(repeaterPubKey, password)
+            if (last.accepted || last.answered) return last
+        }
+        return last
     }
 
     /** Send a raw CLI command to a repeater. Replies arrive as
@@ -1593,6 +1701,12 @@ class MeshCoreEngine(
         const val PERMISSION_ADMIN = 1
 
         private const val DEFAULT_TIMEOUT_MS = 6_000L
+
+        // Floor and ceiling on the radio's own login estimate. The floor
+        // covers a suspiciously small estimate on a 0-hop link; the
+        // ceiling stops one bad number hanging the sign-in dialog.
+        private const val MIN_LOGIN_WAIT_MS = 5_000L
+        private const val MAX_LOGIN_WAIT_MS = 45_000L
 
         /** Minimum gap between contact-record refreshes per node. */
         private const val REFRESH_DEBOUNCE_MS = 30_000L

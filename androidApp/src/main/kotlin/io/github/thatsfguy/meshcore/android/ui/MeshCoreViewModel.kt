@@ -30,6 +30,7 @@ import io.github.thatsfguy.meshcore.protocol.ConfigBackup
 import io.github.thatsfguy.meshcore.protocol.NodeDiscovery
 import io.github.thatsfguy.meshcore.protocol.Reactions
 import io.github.thatsfguy.meshcore.protocol.Regions
+import io.github.thatsfguy.meshcore.protocol.SendRetry
 import io.github.thatsfguy.meshcore.protocol.ShareUri
 import io.github.thatsfguy.meshcore.transport.ConnectionMemory
 import io.github.thatsfguy.meshcore.transport.SavedNode
@@ -977,8 +978,13 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
             _loginInFlight.value = _loginInFlight.value + keyHex
             _loginError.value = _loginError.value - keyHex
             val outcome = try {
-                runCatching { svc.engine.sendLogin(key, password) }
-                    .getOrDefault(io.github.thatsfguy.meshcore.engine.LoginOutcome.Failed)
+                runCatching {
+                    svc.engine.sendLoginWithRetry(
+                        key,
+                        password,
+                        floodFallbackEnabled = prefs.floodFallbackOnLastRetry,
+                    )
+                }.getOrDefault(io.github.thatsfguy.meshcore.engine.LoginOutcome.NoAnswer)
             } finally {
                 _loginInFlight.value = _loginInFlight.value - keyHex
             }
@@ -994,15 +1000,23 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
             }
             _adminSessions.value = _adminSessions.value + (keyHex to granted)
             if (granted == AdminSession.None) {
-                _loginError.value = _loginError.value +
-                    (keyHex to "The node rejected that password.")
+                // A refusal and a silence are different problems with
+                // different fixes — check the password, or get closer.
+                _loginError.value = _loginError.value + (
+                    keyHex to if (outcome.answered) {
+                        "The node rejected that password."
+                    } else {
+                        "No answer from the node after ${SendRetry.DEFAULT_MAX_ATTEMPTS} tries."
+                    }
+                    )
             }
-            transientMessage.value = when (granted) {
-                AdminSession.None -> "Login failed"
-                AdminSession.Admin -> "Logged in as admin"
+            transientMessage.value = when {
+                granted == AdminSession.Admin -> "Logged in as admin"
                 // Say what was GRANTED, not what was asked for. A guest
                 // grant is a successful login, not a failure.
-                AdminSession.Guest -> "Logged in as guest — read-only"
+                granted == AdminSession.Guest -> "Logged in as guest — read-only"
+                outcome.answered -> "Password rejected"
+                else -> "No answer from the node"
             }
         }
     }
