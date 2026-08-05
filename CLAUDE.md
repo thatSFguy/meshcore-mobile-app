@@ -47,6 +47,15 @@ Layout:
   conversation, nodes+detail, osmdroid map, repeater admin, settings incl. stern TCP
   dialog + diagnostics). `./gradlew :androidApp:assembleDebug` (JDK at
   `/home/robw/android-tools/jdk`, SDK via `local.properties`).
+  - **Repeater admin is hub-and-spoke** (2026-08-05, REBUILD-PLAYBOOK §1.4a/§6.2).
+    `repeater/{key}` is `RepeaterHubScreen` — identity card, the grant the node
+    reported as an ADMIN/GUEST/NOT SIGNED IN chip, and tiles into
+    `repeater/{key}/{status,settings,regions,identity,console,help}`. Sign-in is
+    `RepeaterLoginDialog` in front of the hub, not a row welded to the screen.
+    This replaced `RepeaterAdminScreen`'s six scrollable tabs — the shape LESSONS
+    §13 named. Which tiles appear is `repeaterHubTiles()`, a pure function in
+    `RepeaterHubModel.kt`, so the gating is tested without a device.
+    ⚠ Built and unit-tested; **never driven against a radio.**
 - **`iosApp/`** — XcodeGen `project.yml` + SwiftUI skeleton; see `iosApp/README.md`.
 - **NOT yet validated against a real radio** — that's the next milestone.
 

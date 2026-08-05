@@ -41,9 +41,10 @@ import io.github.thatsfguy.meshcore.protocol.NodeRole
 @Composable
 fun CliHelpPanel(
     role: NodeRole,
-    isAdmin: Boolean,
+    session: AdminSession,
     onUse: (String) -> Unit,
 ) {
+    val isAdmin = session.isAdmin
     var query by remember { mutableStateOf("") }
     val byCategory = remember(role, isAdmin) { CliCatalog.forRoleByCategory(role, isAdmin) }
     val filtered = remember(query, byCategory) {
@@ -69,10 +70,7 @@ fun CliHelpPanel(
             singleLine = true,
             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
         )
-        HintText(
-            "$total commands this ${roleWord(role)} accepts" +
-                if (!isAdmin) " as a guest." else ".",
-        )
+        HintText(cliHelpSummary(total, role, session))
         LazyColumn(Modifier.fillMaxWidth()) {
             for ((category, commands) in filtered) {
                 item(key = "h-$category") {
@@ -153,4 +151,22 @@ private fun roleWord(role: NodeRole): String = when (role) {
     NodeRole.Room -> "room server"
     NodeRole.Sensor -> "sensor"
     NodeRole.Companion -> "node"
+}
+
+/**
+ * The one line above the catalogue, qualified by what the node granted.
+ *
+ * The old wording had two cases and read the second one off `isAdmin`,
+ * so a session that had never logged in was described as a guest — a
+ * claim about the node's answer made before the node had answered.
+ * Command help is reachable without signing in, so that third case is
+ * real and gets its own words.
+ */
+fun cliHelpSummary(total: Int, role: NodeRole, session: AdminSession): String {
+    val head = "$total commands this ${roleWord(role)} accepts"
+    return when (session) {
+        AdminSession.Admin -> "$head."
+        AdminSession.Guest -> "$head as a guest."
+        AdminSession.None -> "$head without an admin sign-in."
+    }
 }

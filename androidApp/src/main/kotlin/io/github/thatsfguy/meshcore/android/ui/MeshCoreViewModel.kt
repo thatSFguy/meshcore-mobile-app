@@ -16,6 +16,7 @@ import io.github.thatsfguy.meshcore.android.storage.MeshCoreDatabase
 import io.github.thatsfguy.meshcore.android.storage.MessageEntity
 import io.github.thatsfguy.meshcore.android.storage.MessageRepository
 import io.github.thatsfguy.meshcore.android.storage.Preferences
+import io.github.thatsfguy.meshcore.android.ui.screens.AdminSession
 import io.github.thatsfguy.meshcore.engine.EngineState
 import io.github.thatsfguy.meshcore.engine.MeshEvent
 import io.github.thatsfguy.meshcore.model.BatteryAndStorage
@@ -914,11 +915,31 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
     // Repeater admin
     // ------------------------------------------------------------------
 
-    /** Session role per node — drives which commands the admin UI offers. */
-    private val _adminSessions = MutableStateFlow<Map<String, Boolean>>(emptyMap())
-    val adminSessions: StateFlow<Map<String, Boolean>> = _adminSessions
+    /**
+     * Session role per node — drives which tools the hub offers.
+     *
+     * Absent from the map means [AdminSession.None]: no login has been
+     * attempted, which is NOT the same as a guest grant. The old
+     * `Map<String, Boolean>` collapsed those two, so a node we had
+     * never talked to looked exactly like one that had answered
+     * "read-only", and the hub had no way to tell whether its
+     * read-only surfaces would work.
+     */
+    private val _adminSessions = MutableStateFlow<Map<String, AdminSession>>(emptyMap())
+    val adminSessions: StateFlow<Map<String, AdminSession>> = _adminSessions
 
-    fun isAdminSession(keyHex: String): Boolean = _adminSessions.value[keyHex] ?: false
+    fun session(keyHex: String): AdminSession =
+        _adminSessions.value[keyHex] ?: AdminSession.None
+
+    fun isAdminSession(keyHex: String): Boolean = session(keyHex).isAdmin
+
+    /** True while a login round-trip is in flight, per node. */
+    private val _loginInFlight = MutableStateFlow<Set<String>>(emptySet())
+    val loginInFlight: StateFlow<Set<String>> = _loginInFlight
+
+    /** Last login failure per node, cleared on the next attempt. */
+    private val _loginError = MutableStateFlow<Map<String, String>>(emptyMap())
+    val loginError: StateFlow<Map<String, String>> = _loginError
 
     /**
      * Log in to a repeater/room with [password].
@@ -931,23 +952,52 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
      * [LoginOutcome].
      */
     fun repeaterLogin(keyHex: String, password: String, savePassword: Boolean) {
-        val svc = _service.value ?: return
-        val key = hexToBytesOrNull(keyHex) ?: return
+        // Say why nothing happened. These two returns used to be silent,
+        // which was survivable when the password row sat on the admin
+        // screen and the radio state was visible beside it; from a modal
+        // sign-in dialog a dead button is all the user sees.
+        val svc = _service.value
+        if (svc == null) {
+            _loginError.value = _loginError.value +
+                (keyHex to "Not connected to a radio.")
+            return
+        }
+        val key = hexToBytesOrNull(keyHex)
+        if (key == null) {
+            _loginError.value = _loginError.value +
+                (keyHex to "That contact's public key is unreadable.")
+            return
+        }
         viewModelScope.launch {
-            val outcome = runCatching { svc.engine.sendLogin(key, password) }
-                .getOrDefault(io.github.thatsfguy.meshcore.engine.LoginOutcome.Failed)
+            _loginInFlight.value = _loginInFlight.value + keyHex
+            _loginError.value = _loginError.value - keyHex
+            val outcome = try {
+                runCatching { svc.engine.sendLogin(key, password) }
+                    .getOrDefault(io.github.thatsfguy.meshcore.engine.LoginOutcome.Failed)
+            } finally {
+                _loginInFlight.value = _loginInFlight.value - keyHex
+            }
             // Only seal a credential the node actually accepted.
             if (outcome.accepted && savePassword) {
                 svc.secrets.storeLoginPassword(keyHex, password)
             }
-            _adminSessions.value =
-                _adminSessions.value + (keyHex to (outcome.accepted && outcome.isAdmin))
-            transientMessage.value = when {
-                !outcome.accepted -> "Login failed"
-                outcome.isAdmin -> "Logged in as admin"
+            // What the NODE granted, straight from its reply byte.
+            val granted = when {
+                !outcome.accepted -> AdminSession.None
+                outcome.isAdmin -> AdminSession.Admin
+                else -> AdminSession.Guest
+            }
+            _adminSessions.value = _adminSessions.value + (keyHex to granted)
+            if (granted == AdminSession.None) {
+                _loginError.value = _loginError.value +
+                    (keyHex to "The node rejected that password.")
+            }
+            transientMessage.value = when (granted) {
+                AdminSession.None -> "Login failed"
+                AdminSession.Admin -> "Logged in as admin"
                 // Say what was GRANTED, not what was asked for. A guest
                 // grant is a successful login, not a failure.
-                else -> "Logged in as guest — read-only"
+                AdminSession.Guest -> "Logged in as guest — read-only"
             }
         }
     }
@@ -1572,7 +1622,22 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
         _service.value?.secrets?.forgetLoginPassword(keyHex, guest = false)
         _service.value?.secrets?.forgetLoginPassword(keyHex, guest = true)
         _adminSessions.value = _adminSessions.value - keyHex
+        _loginError.value = _loginError.value - keyHex
         transientMessage.value = "Saved passwords removed"
+    }
+
+    /**
+     * Drop the session without touching the sealed password — the hub's
+     * "Sign out". Signing out and forgetting the credential are
+     * different intentions and the destructive one stays in the menu.
+     */
+    fun signOutOfNode(keyHex: String) {
+        _adminSessions.value = _adminSessions.value - keyHex
+        _loginError.value = _loginError.value - keyHex
+    }
+
+    fun clearLoginError(keyHex: String) {
+        _loginError.value = _loginError.value - keyHex
     }
 
     fun sendSelfAdvert(flood: Boolean) =
