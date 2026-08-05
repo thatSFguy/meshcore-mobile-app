@@ -238,21 +238,60 @@ nice-to-have, and it has repeatedly paid for itself:
 
 ## Where the protocol authority actually lives
 
-`../meshcore-open` is **a** client, not **the** spec, and it deviates from documented
-defaults. Checked on 2026-08-05: MeshCore's own FAQ
+> **Rule: check the original source, never a third-party app.** A client tells you what
+> *that client's author decided*. It is evidence about one implementation, never a spec —
+> and when it disagrees with the firmware, the firmware is what your radio is running.
+
+**Order of authority**, highest first:
+
+1. **Firmware source and docs — `github.com/meshcore-dev/MeshCore`** (`src/`, `docs/faq.md`,
+   merged PRs). This is what the hardware actually does.
+2. **`MESHCORE_PROTOCOL.md`** here, which cites its evidence — but is reverse-engineered,
+   so it loses to (1).
+3. **A client**, of which `../meshcore-open` is one. Useful for *how* something is
+   presented; not authoritative on *what* the protocol or the defaults are.
+
+`liamcottle/meshcore.js` is a good cross-check and worth consulting, but it is a protocol
+layer only (advert/packet/buffers/constants) with no retry or routing policy — which is
+itself an answer: policy belongs to the app, not the wire.
+
+Always separate **merged** from **proposed**. PR #2594 (6-byte ACKs) is merged and shipped;
+issues #1342 / #1397 / #1489 are open proposals and must not be built against.
+
+**This rule was earned on 2026-08-05.** A retry recommendation derived from
+`../meshcore-open` alone got the attempt count wrong (it uses 5; documented default is 3),
+got the default wrong (it ships the flood fallback *disabled*; documented default is on) and
+missed the path reset entirely — the one part that makes the feature work. MeshCore's own FAQ
 ([`meshcore-dev/MeshCore/docs/faq.md`](https://github.com/meshcore-dev/MeshCore/blob/main/docs/faq.md),
 mirrored at docs.meshcore.io/faq) documents DM retry as **3 attempts, flood on the last,
 resetting the path, on by default, toggleable**. MCO uses 5 and ships the fallback
-*disabled*. A recommendation derived from MCO alone had both numbers wrong and missed the
-path reset entirely.
+*disabled*.
 
-Order of authority for behaviour questions: **firmware source / FAQ in `meshcore-dev/MeshCore`
-→ the companion protocol in MESHCORE_PROTOCOL.md → a client**. `liamcottle/meshcore.js` is a
-useful third opinion but is a protocol layer only (advert/packet/buffers) — it carries no
-retry or routing policy, which is itself the answer that policy belongs to the app.
+## Settled decisions — do not re-litigate without new evidence
 
-Distinguish **merged** from **proposed**: PR #2594 (6-byte ACKs) is merged and shipped;
-issues #1342/#1397/#1489 are open proposals and must not be built against.
+**There is no reason to sign in as a guest when you hold the admin password.** Verified
+2026-08-05 against the firmware: `set guest.password` is a *repeater setting* under "allow
+read-only guest access", `CMD_SEND_LOGIN` carries a password and no requested-level field,
+and the ACL (0 Guest / 1 Read-only / 2 Read-write / 3 Admin) is keyed by pubkey. A guest
+credential is something an operator hands to **other people**. `GUEST` in our UI is what
+someone else sees on your repeater, or what you see on theirs. So: never add a role picker,
+and never build a "switch to guest" affordance. The real scenario behind that screen is a
+wrong password — error recovery, which the dialog already does.
+
+**Don't invent the user.** The guest→admin "re-authentication flow" was proposed here on the
+strength of it sounding plausible, for a person who does not exist. Before building an
+affordance, name who needs it and what they were doing — if that story needs inventing, the
+affordance does too.
+
+**Splitting a screen can go too far.** Four Settings spokes each held one control;
+"Privacy and network" was a single toggle against 70% empty screen. §6.2 says screens are
+cheap, not free: a spoke holding less than the tile that leads to it is worse than the
+section it replaced.
+
+**Measure tap counts, don't assume them.** REBUILD-PLAYBOOK §4 gate 2 asks for ±1 of the
+reference. The first hub-and-spoke cut matched the reference's *structure* and was +2 taps
+and a scroll on the commonest admin task, which went unnoticed because nobody counted.
+Counting is: drive it, and count.
 
 ## Screenshots and demo assets — redaction is mandatory
 
@@ -274,7 +313,21 @@ callsigns and distance-away. Two things it cannot see, so handle them by hand:
 Region-level location is fine (the mesh is around Grand Rapids and that is not a secret).
 Points are not.
 
+**Capture verified stills, not a blind screen recording.** Two `adb shell screenrecord` runs
+driven by scripted taps both went wrong invisibly — one hit the wrong screen because a
+session was still live, the other sat on Settings for 50 seconds — and neither was detectable
+until the frames were sampled afterwards. Capturing step by step and dumping the UI tree
+after each tap means every frame is confirmed before it ships. `docs/demo.gif` is built that
+way; scrolls do not animate, and that is the right trade.
+
 ## Conventions
+
+- **Release notes come from `CHANGELOG.md`.** The release workflow extracts the `## <version>`
+  section for the tag and fails the build if there isn't one, so a tag without notes cannot
+  ship. The app carries the same text in `AboutSection.kt` (offline-readable), and
+  `ChangelogTest` holds the two to the same version list — they had already drifted once,
+  with 0.5.2 shipping a fix the in-app list never mentioned. Write the section **before**
+  tagging.
 
 - KMP + Gradle. Build/test: `JAVA_HOME=/home/robw/android-tools/jdk ./gradlew
   :shared:testDebugUnitTest :androidApp:testDebugUnitTest :androidApp:assembleDebug`.

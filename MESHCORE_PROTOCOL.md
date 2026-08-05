@@ -152,6 +152,16 @@ outstanding commands and matches `RESP_CODE_OK`/`RESP_CODE_ERR` to the oldest.
 | 0x80 | `PUSH_CODE_ADVERT` | Known contact re-heard (pubkey only) |
 | 0x81 | `PUSH_CODE_PATH_UPDATED` | `[1..32]` pubkey — path changed |
 | 0x82 | `PUSH_CODE_SEND_CONFIRMED` | `[1..4]`=ack_hash u32, `[5..8]`=trip_ms u32 |
+
+> **The ACK hash stayed 4 bytes at the companion boundary.** Firmware PR #2594 (merged
+> 2026-05-21) widened the **over-the-air** ACK payload to 6 bytes — `sha256(...)[0..3]`
+> unchanged, then a copy of the extended attempt byte, then one random byte. Verified from
+> the diff: `composeMsgPacket()` still returns `uint32_t& expected_ack`, so `RESP_CODE_SENT`
+> and `PUSH_CODE_SEND_CONFIRMED` are untouched and a client matching on the u32 needs no
+> change. The reason for the widening is **retries**: `SimpleMeshTables` dropped its separate
+> ACK-CRC table, so without the attempt byte a retry's ACK is byte-identical to the first
+> attempt's and gets swallowed as a duplicate by the mesh's seen-table. Send a distinct
+> `attempt` per try or your retries cannot be acknowledged.
 | 0x83 | `PUSH_CODE_MSG_WAITING` | Inbound message queued → `CMD_SYNC_NEXT_MESSAGE` |
 | 0x85 | `PUSH_CODE_LOGIN_SUCCESS` | `[1]`=perm (fw sends 1/0), `[2..7]`=pubkey prefix |
 | 0x86 | `PUSH_CODE_LOGIN_FAIL` | |

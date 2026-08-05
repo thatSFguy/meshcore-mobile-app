@@ -100,10 +100,38 @@ jobs:
           echo "APK_NAME=$NEW_APK" >> "$GITHUB_ENV"
           echo "AAB_NAME=$NEW_AAB" >> "$GITHUB_ENV"
 
+      - name: Extract release notes from CHANGELOG.md
+        # The release page used to carry nothing but a compare link,
+        # which tells a person deciding whether to install exactly
+        # nothing. CHANGELOG.md is the source; the app ships the same
+        # text so it is readable with no network.
+        run: |
+          set -e
+          NOTES=$(awk -v v="## $VERSION_NAME" '
+            $0 == v { found=1; next }
+            found && /^## / { exit }
+            found { print }
+          ' CHANGELOG.md)
+          if [ -z "$(echo "$NOTES" | tr -d '[:space:]')" ]; then
+            echo "::error::CHANGELOG.md has no '## $VERSION_NAME' section. Add one before tagging."
+            exit 1
+          fi
+          {
+            echo 'NOTES<<CHANGELOG_EOF'
+            echo "$NOTES"
+            echo ''
+            echo '---'
+            echo ''
+            echo 'Built and signed by CI from the tag. `versionName`/`versionCode` derive from it,'
+            echo 'so what you install matches what this page advertises.'
+            echo 'CHANGELOG_EOF'
+          } >> "$GITHUB_ENV"
+
       - name: Create GitHub release
         uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
         with:
           name: MeshCore Hardened ${{ env.VERSION_NAME }}
+          body: ${{ env.NOTES }}
           generate_release_notes: true
           files: |
             androidApp/build/outputs/apk/release/${{ env.APK_NAME }}
