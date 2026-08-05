@@ -236,6 +236,24 @@ nice-to-have, and it has repeatedly paid for itself:
   emulator. UI helpers that carry real logic (hop labels, quote splitting, drift
   formatting) should be pure functions so `androidApp/src/test` can reach them.
 
+## Where the protocol authority actually lives
+
+`../meshcore-open` is **a** client, not **the** spec, and it deviates from documented
+defaults. Checked on 2026-08-05: MeshCore's own FAQ
+([`meshcore-dev/MeshCore/docs/faq.md`](https://github.com/meshcore-dev/MeshCore/blob/main/docs/faq.md),
+mirrored at docs.meshcore.io/faq) documents DM retry as **3 attempts, flood on the last,
+resetting the path, on by default, toggleable**. MCO uses 5 and ships the fallback
+*disabled*. A recommendation derived from MCO alone had both numbers wrong and missed the
+path reset entirely.
+
+Order of authority for behaviour questions: **firmware source / FAQ in `meshcore-dev/MeshCore`
+→ the companion protocol in MESHCORE_PROTOCOL.md → a client**. `liamcottle/meshcore.js` is a
+useful third opinion but is a protocol layer only (advert/packet/buffers) — it carries no
+retry or routing policy, which is itself the answer that policy belongs to the app.
+
+Distinguish **merged** from **proposed**: PR #2594 (6-byte ACKs) is merged and shipped;
+issues #1342/#1397/#1489 are open proposals and must not be built against.
+
 ## Screenshots and demo assets — redaction is mandatory
 
 `.gitignore` already says it: `docs/screenshots/raw/` holds unredacted originals and is

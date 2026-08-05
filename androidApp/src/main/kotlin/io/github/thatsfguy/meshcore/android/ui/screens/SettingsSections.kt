@@ -375,6 +375,25 @@ internal fun PoliciesSection(vm: MeshCoreViewModel) {
         apply(multiAcks = if (it) 1 else 0)
     }
 
+    // A local send policy rather than a radio setting, but this is the
+    // screen about how traffic moves, and it is the one MeshCore's FAQ
+    // means when it says the fallback "can be turned off in settings".
+    var floodFallback by remember { mutableStateOf(vm.prefs.floodFallbackOnLastRetry) }
+    SettingRow("Flood on the last message retry", floodFallback) {
+        floodFallback = it
+        vm.prefs.floodFallbackOnLastRetry = it
+    }
+    ExpandableHint("A message that fails twice is retried as a flood, once.") {
+        DetailText(
+            "MeshCore's documented default. If a repeater you had a path through goes " +
+                "away, retrying that same path cannot work — so the third attempt clears " +
+                "the stored path and floods, which also lets the reply teach your radio a " +
+                "live route. Turning this off means a stale path keeps failing until " +
+                "something else refreshes it. Clients never repeat otherwise, so this is " +
+                "capped at one flood per message.",
+        )
+    }
+
     Spacer(Modifier.height(4.dp))
     Text("Telemetry access", style = MaterialTheme.typography.labelLarge)
     HintText("Who may read this node's telemetry: Deny / per-contact flags / everyone.")

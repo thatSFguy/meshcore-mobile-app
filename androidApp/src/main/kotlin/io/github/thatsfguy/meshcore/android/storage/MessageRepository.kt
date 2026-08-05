@@ -9,6 +9,7 @@ import io.github.thatsfguy.meshcore.protocol.PathHistoryHygiene
 import io.github.thatsfguy.meshcore.protocol.ReactionCounts
 import io.github.thatsfguy.meshcore.protocol.Reactions
 import io.github.thatsfguy.meshcore.protocol.Retention
+import io.github.thatsfguy.meshcore.protocol.SendRetry
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
@@ -545,12 +546,24 @@ class MessageRepository(
      * ACK timeout, and backs off before retrying. Path success/failure
      * is scored per attempt so the routing sheet learns which routes
      * actually work.
+     *
+     * The **last** attempt resets the contact's path and floods, which
+     * is MeshCore's documented default — see [SendRetry] for the FAQ
+     * text and the reasoning. Until this existed all three attempts went
+     * down the same stored path, so a repeater that had gone away cost
+     * three transmissions and taught the radio nothing.
+     *
+     * That the attempt byte differs per attempt matters more than it
+     * looks: the firmware's ACK carries a copy of it (PR #2594, merged
+     * 2026-05-21) specifically so a retry's ACK is a distinct packet and
+     * is not dropped as a duplicate by the mesh's seen-table.
      */
     suspend fun sendDirectWithRetry(
         engine: MeshCoreEngine,
         peerKeyHex: String,
         text: String,
-        maxAttempts: Int = 3,
+        maxAttempts: Int = SendRetry.DEFAULT_MAX_ATTEMPTS,
+        floodFallbackEnabled: Boolean = true,
     ) {
         val self = selfKey
         val key = peerKeyHex.chunked(2).mapNotNull { it.toIntOrNull(16)?.toByte() }.toByteArray()
@@ -568,6 +581,19 @@ class MessageRepository(
 
         var attempt = 0
         while (attempt < maxAttempts) {
+            val route = SendRetry.routeFor(
+                attempt = attempt,
+                maxAttempts = maxAttempts,
+                hasStoredPath = pathHex.isNotEmpty(),
+                floodFallbackEnabled = floodFallbackEnabled,
+            )
+            if (route == SendRetry.Route.ResetAndFlood) {
+                // Clearing the path is what makes this stick: the radio
+                // floods this send AND has no dead route left to reuse,
+                // so the reply teaches it a live one.
+                runCatching { engine.resetPath(key) }
+            }
+
             val sent = runCatching {
                 engine.sendDirectMessage(key, text, attempt = attempt, timestampSeconds = timestamp)
             }.getOrNull()
@@ -581,12 +607,17 @@ class MessageRepository(
 
             // Trust the radio's own airtime-derived timeout, with a floor.
             val timeout = sent.timeoutMs.coerceIn(3_000L, 60_000L)
+            val scores = SendRetry.scoresStoredPath(route)
             if (engine.awaitDelivery(sent.ackHash, timeout)) {
                 db.messages().updateResult(rowId, MessageStatus.Delivered.ordinal, sent.ackHash)
-                if (pathHex.isNotEmpty() || attempt == 0) scorePathDirect(peerKeyHex, pathHex, true)
+                // A flood delivering says nothing good about the path we
+                // just threw away, so only a stored-path attempt scores.
+                if (scores && (pathHex.isNotEmpty() || attempt == 0)) {
+                    scorePathDirect(peerKeyHex, pathHex, true)
+                }
                 return
             }
-            scorePathDirect(peerKeyHex, pathHex, false)
+            if (scores) scorePathDirect(peerKeyHex, pathHex, false)
             attempt++
             if (attempt < maxAttempts) kotlinx.coroutines.delay(1_000L * attempt)
         }

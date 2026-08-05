@@ -89,6 +89,16 @@ fun AboutSection(vm: MeshCoreViewModel) {
  * is a changelog you can't read in the field.
  */
 private val CHANGELOG: List<Pair<String, List<String>>> = listOf(
+    "0.5.3" to listOf(
+        "A direct message that fails twice is now retried as a flood, once — and the dead " +
+            "path is cleared first, so your radio can learn a live one from the reply. " +
+            "Before this, all three attempts went down the same broken route.",
+        "This is MeshCore's documented default, and like the stock app it can be turned " +
+            "off: Settings → Mesh policies → Flood on the last message retry.",
+    ),
+    "0.5.2" to listOf(
+        "Command help said \"1 commands\" when a search matched exactly one.",
+    ),
     // The first release in this project's history where the layout was
     // driven on a phone against a live repeater BEFORE it shipped,
     // rather than after.

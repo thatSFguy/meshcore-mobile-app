@@ -375,7 +375,12 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
         // Retry lives in the service-scoped repository so it survives
         // leaving the conversation screen.
         svc.scope.launch {
-            svc.repository.sendDirectWithRetry(svc.engine, peerKeyHex, text)
+            svc.repository.sendDirectWithRetry(
+                svc.engine,
+                peerKeyHex,
+                text,
+                floodFallbackEnabled = prefs.floodFallbackOnLastRetry,
+            )
         }
     }
 

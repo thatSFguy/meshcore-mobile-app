@@ -47,6 +47,16 @@ class Preferences(context: Context) {
         get() = prefs.getBoolean("auto_reconnect", true)
         set(v) { prefs.edit().putBoolean("auto_reconnect", v).apply() }
 
+    /**
+     * Flood on the final retry of a direct message, resetting the dead
+     * path first. MeshCore's documented default is ON, and its own FAQ
+     * says it "can be turned off in settings" — so it is a real setting
+     * with a real default, not a preference invented here.
+     */
+    var floodFallbackOnLastRetry: Boolean
+        get() = prefs.getBoolean("flood_fallback_last_retry", true)
+        set(v) { prefs.edit().putBoolean("flood_fallback_last_retry", v).apply() }
+
     var lastKind: String?
         get() = prefs.getString("last_kind", null)
         set(v) { prefs.edit().putString("last_kind", v).apply() }
