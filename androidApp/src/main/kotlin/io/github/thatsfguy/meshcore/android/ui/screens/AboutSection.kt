@@ -89,6 +89,23 @@ fun AboutSection(vm: MeshCoreViewModel) {
  * is a changelog you can't read in the field.
  */
 private val CHANGELOG: List<Pair<String, List<String>>> = listOf(
+    // The first release in this project's history where the layout was
+    // driven on a phone against a live repeater BEFORE it shipped,
+    // rather than after.
+    "0.5.1" to listOf(
+        "Tapping a repeater, room or sensor now goes straight to signing in, and " +
+            "signing in leads straight to its tools. Checking a repeater's status went " +
+            "from five taps and a scroll to three.",
+        "The Status screen asks the node for status when you open it, instead of showing " +
+            "five \"Fetch\" buttons and waiting to be told.",
+        "There is no longer a signed-out version of the admin screen to get stuck on: " +
+            "you sign in, or you go back.",
+        "Appearance, notifications, privacy and the diagnostics log are one screen again. " +
+            "Splitting them gave four pages holding one switch each.",
+        "Settings rows that need a radio are no longer greyed out — six of the first ten " +
+            "rows looked broken before you had done anything.",
+        "Long-press a node for its details (key, position, routing, rename, QR).",
+    ),
     "0.5.0" to listOf(
         "Repeater, room and sensor administration is now a hub: one screen per tool " +
             "(Status, Settings, Regions, Identity, Console, Command help) instead of six " +

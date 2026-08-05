@@ -7,7 +7,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -207,19 +209,47 @@ fun SettingsBlockingScreen(vm: MeshCoreViewModel, nav: NavController) {
 
 // --- App ---------------------------------------------------------------
 
+/**
+ * Appearance, notifications, privacy and the diagnostics log, as
+ * titled sections on one screen.
+ *
+ * These were four screens. Each held one control, and "Privacy and
+ * network" measured one toggle against 70% empty space on a 384dp
+ * phone — a spoke with less in it than its own tile. Plain section
+ * headers, deliberately NOT [ExpandableSection]: the accordion is what
+ * made the original Settings unreadable, and there is little enough
+ * here that everything fits without hiding any of it.
+ */
 @Composable
-fun SettingsAppearanceScreen(vm: MeshCoreViewModel, nav: NavController) {
-    SettingsSpoke("Appearance", vm, nav) { AppearanceSection(vm) }
+fun SettingsAppScreen(vm: MeshCoreViewModel, nav: NavController) {
+    SettingsSpoke("Appearance and alerts", vm, nav, scroll = false) {
+        Column(
+            Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState()),
+        ) {
+            SettingsGroupHeader("Appearance")
+            AppearanceSection(vm)
+            SettingsGroupHeader("Notifications")
+            NotificationsSection(vm)
+            SettingsGroupHeader("Privacy and network")
+            PrivacySection(vm)
+            SettingsGroupHeader("Diagnostics")
+            DiagnosticsSection(vm)
+            Spacer(Modifier.height(24.dp))
+        }
+    }
 }
 
 @Composable
-fun SettingsNotificationsScreen(vm: MeshCoreViewModel, nav: NavController) {
-    SettingsSpoke("Notifications", vm, nav) { NotificationsSection(vm) }
-}
-
-@Composable
-fun SettingsPrivacyScreen(vm: MeshCoreViewModel, nav: NavController) {
-    SettingsSpoke("Privacy and network", vm, nav) { PrivacySection(vm) }
+private fun SettingsGroupHeader(text: String) {
+    Spacer(Modifier.height(20.dp))
+    Text(
+        text.uppercase(),
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.primary,
+    )
+    Spacer(Modifier.height(4.dp))
 }
 
 @Composable
@@ -230,14 +260,6 @@ fun SettingsBackupScreen(vm: MeshCoreViewModel, nav: NavController) {
 @Composable
 fun SettingsDataScreen(vm: MeshCoreViewModel, nav: NavController) {
     SettingsSpoke("Data and storage", vm, nav) { DataSection(vm) }
-}
-
-@Composable
-fun SettingsDiagnosticsScreen(vm: MeshCoreViewModel, nav: NavController) {
-    // The log viewer is a LazyColumn with its own height cap, so this
-    // screen must not also be verticalScroll — nested scrollables in the
-    // same direction throw at measure time.
-    SettingsSpoke("Diagnostics", vm, nav, scroll = false) { DiagnosticsSection(vm) }
 }
 
 @Composable

@@ -1,5 +1,6 @@
 package io.github.thatsfguy.meshcore.android.ui
 
+import io.github.thatsfguy.meshcore.android.ui.screens.appSubtitle
 import io.github.thatsfguy.meshcore.android.ui.screens.appearanceSubtitle
 import io.github.thatsfguy.meshcore.android.ui.screens.blockingSubtitle
 import io.github.thatsfguy.meshcore.android.ui.screens.channelsSubtitle
@@ -90,9 +91,8 @@ class SettingsHubModelTest {
             listOf("identity", "radio", "clock", "policies", "autoadd", "customvars"),
             needs,
         )
-        // App and messaging settings are local and must work offline —
-        // marking them would dim half the screen for no reason.
-        val local = listOf("appearance", "channels", "blocking", "backup", "data", "about")
+        // App and messaging settings are local and must work offline.
+        val local = listOf("app", "channels", "blocking", "backup", "data", "about")
         for (route in local) {
             assertFalse(route in needs)
         }
@@ -218,6 +218,40 @@ class SettingsHubModelTest {
             "On, but no message type selected",
             notificationsSubtitle(true, direct = false, channels = false),
         )
+    }
+
+    @Test
+    fun `an unencrypted database still wins the merged App row`() {
+        // Privacy lost its own tile when four thin screens became one.
+        // The warning must not have been folded away with it.
+        assertTrue(
+            appSubtitle("dark", notificationsEnabled = true, storageEncrypted = false)
+                .startsWith("⚠"),
+        )
+        assertEquals(
+            "Dark · notifications on",
+            appSubtitle("dark", notificationsEnabled = true, storageEncrypted = true),
+        )
+        assertEquals(
+            "Follow the system · notifications off",
+            appSubtitle("system", notificationsEnabled = false, storageEncrypted = true),
+        )
+    }
+
+    @Test
+    fun `no spoke holds less than the tile that leads to it`() {
+        // The rule learned by driving it: "Privacy and network" was a
+        // whole screen for one toggle. Every remaining tile must lead to
+        // a screen with more than a single control on it — encoded here
+        // as: no route is a bare single-section wrapper.
+        val singleSectionRoutes = setOf("appearance", "notifications", "privacy", "diagnostics")
+        for (route in settingsRoutes()) {
+            assertFalse(
+                "$route was merged into the App screen and must not return as a tile",
+                route in singleSectionRoutes,
+            )
+        }
+        assertTrue("app" in settingsRoutes())
     }
 
     @Test

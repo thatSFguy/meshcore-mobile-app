@@ -74,12 +74,18 @@ fun settingsGroups(): List<SettingsGroup> = listOf(
     SettingsGroup(
         "App",
         listOf(
-            SettingsTile("appearance", "Appearance", "Light, dark or system"),
-            SettingsTile("notifications", "Notifications", "What interrupts you"),
-            SettingsTile("privacy", "Privacy and network", "Map tiles, storage encryption"),
+            // Appearance, notifications, privacy and the diagnostics
+            // switch are one screen, not four.
+            //
+            // The first cut gave each its own. On a 384dp phone that
+            // produced pages like "Privacy and network": one toggle, two
+            // lines of text, and 70% empty screen — a spoke holding less
+            // than the tile that led to it. Splitting a mega-screen is
+            // right; splitting past the content is just a different way
+            // to make someone tap more.
+            SettingsTile("app", "Appearance and alerts", "Theme, notifications, privacy, logs"),
             SettingsTile("backup", "Backup", "Export or restore configuration"),
             SettingsTile("data", "Data and storage", "How long messages are kept"),
-            SettingsTile("diagnostics", "Diagnostics", "Redaction-aware protocol log"),
             SettingsTile("about", "About", "Version, licences, what this app is"),
         ),
     ),
@@ -180,3 +186,22 @@ fun privacySubtitle(mapTilesEnabled: Boolean, storageEncrypted: Boolean): String
 
 fun diagnosticsSubtitle(enabled: Boolean): String =
     if (enabled) "On — secrets redacted before logging" else "Off"
+
+/**
+ * The one App row, summarising four sections.
+ *
+ * An unencrypted database still wins outright: it is the single fact
+ * on this screen nobody should have to open a page to discover, and
+ * folding privacy into a shared row must not bury it. Otherwise the
+ * row reports the two things that change most — theme and whether
+ * anything will interrupt you.
+ */
+fun appSubtitle(
+    theme: String,
+    notificationsEnabled: Boolean,
+    storageEncrypted: Boolean,
+): String {
+    if (!storageEncrypted) return "⚠ Message storage is NOT encrypted"
+    val alerts = if (notificationsEnabled) "notifications on" else "notifications off"
+    return "${appearanceSubtitle(theme)} · $alerts"
+}

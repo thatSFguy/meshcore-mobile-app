@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -208,7 +209,24 @@ fun NodesScreen(vm: MeshCoreViewModel, nav: NavController) {
             } else {
                 LazyColumn(Modifier.fillMaxSize()) {
                     items(tabContacts, key = { it.keyHex }) { c ->
-                        ContactRow(c) { detail = c }
+                        // Infrastructure rows go straight to administration —
+                        // the reference client does this
+                        // (`contacts_screen._showRepeaterLogin`), and driving
+                        // both on hardware put us two taps and a scroll behind
+                        // it on the commonest admin task: the detail sheet sat
+                        // in the way and "Administer" was below the fold.
+                        // Long-press still opens the sheet for the things that
+                        // live there (routing, rename, favourite, QR).
+                        val adminable = c.type == Codes.ADV_TYPE_REPEATER ||
+                            c.type == Codes.ADV_TYPE_ROOM ||
+                            c.type == Codes.ADV_TYPE_SENSOR
+                        ContactRow(
+                            c = c,
+                            onClick = {
+                                if (adminable) nav.navigate("repeater/${c.keyHex}") else detail = c
+                            },
+                            onLongClick = { detail = c },
+                        )
                     }
                 }
             }
@@ -321,12 +339,17 @@ private fun typeLabel(type: Int): String = when (type) {
     else -> "Other"
 }
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-private fun ContactRow(c: ContactEntity, onClick: () -> Unit) {
+private fun ContactRow(
+    c: ContactEntity,
+    onClick: () -> Unit,
+    onLongClick: (() -> Unit)? = null,
+) {
     Row(
         Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
             .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -505,7 +528,7 @@ fun ContactDetailSheet(
                 TextButton(onClick = onOpenChat) { Text("Open conversation") }
             }
             if (isAdminable) {
-                TextButton(onClick = onOpenAdmin) { Text("Administer (login / CLI / settings)") }
+                TextButton(onClick = onOpenAdmin) { Text("Administer this node") }
             }
             val isFav = contact.flags and Codes.CONTACT_FLAG_FAVORITE != 0
             TextButton(onClick = {

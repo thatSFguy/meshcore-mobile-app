@@ -76,17 +76,11 @@ fun SettingsScreen(vm: MeshCoreViewModel, nav: NavController) {
         "radio" to radioSubtitle(self?.freqKhz, self?.sf, self?.txPowerDbm),
         "channels" to channelsSubtitle(channels.size),
         "blocking" to blockingSubtitle(blocked.size),
-        "appearance" to appearanceSubtitle(vm.prefs.theme),
-        "notifications" to notificationsSubtitle(
-            enabled = vm.prefs.notificationsEnabled,
-            direct = vm.prefs.notifyDirect,
-            channels = vm.prefs.notifyChannels,
-        ),
-        "privacy" to privacySubtitle(
-            mapTilesEnabled = vm.prefs.mapTilesEnabled,
+        "app" to appSubtitle(
+            theme = vm.prefs.theme,
+            notificationsEnabled = vm.prefs.notificationsEnabled,
             storageEncrypted = DatabaseKey.encryptionUnavailableReason == null,
         ),
-        "diagnostics" to diagnosticsSubtitle(vm.prefs.diagnosticsEnabled),
     )
 
     Scaffold(
@@ -113,11 +107,14 @@ fun SettingsScreen(vm: MeshCoreViewModel, nav: NavController) {
                     SettingsTileRow(
                         title = tile.title,
                         subtitle = subtitles[tile.route] ?: tile.subtitle,
-                        // Dimmed, not hidden and not disabled: the screen
-                        // behind explains what it needs, and a settings
-                        // page you cannot find is worse than one that
-                        // tells you to connect first.
-                        dimmed = tile.needsRadio && !isReady,
+                        // NOT dimmed. Driving this disconnected, six of the
+                        // ten rows on the first screen were greyed — the
+                        // majority of the app's Settings reading as broken
+                        // before you have done anything wrong. The subtitle
+                        // already says "Connect to a radio"; that is the
+                        // whole message, and it does not need the row to
+                        // look disabled to carry it.
+                        dimmed = false,
                         onClick = { nav.navigate("settings/${tile.route}") },
                     )
                 }

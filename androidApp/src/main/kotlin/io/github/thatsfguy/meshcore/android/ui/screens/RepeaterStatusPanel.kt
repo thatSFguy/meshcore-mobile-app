@@ -43,6 +43,23 @@ fun RepeaterStatusPanel(vm: MeshCoreViewModel, keyHex: String) {
     var loading by remember { mutableStateOf(false) }
     var note by remember { mutableStateOf<String?>(null) }
 
+    suspend fun fetchStatus() {
+        loading = true
+        note = null
+        status = vm.repeaterStatus(keyHex)
+        if (status == null) note = "No status reply — logged in and in range?"
+        loading = false
+    }
+
+    // Opening the Status screen IS the request for status. Asking the
+    // user to then press "Fetch status" is §6.1 — a control for
+    // something the system already knows you want — and it is the one
+    // place the rule was applied everywhere else and missed here. The
+    // reference client does the same on entry
+    // (`repeater_status_screen.initState` → `_loadStatus()`).
+    // Refresh stays available for a second look.
+    LaunchedEffect(keyHex) { fetchStatus() }
+
     Column(
         Modifier
             .fillMaxSize()
@@ -52,15 +69,8 @@ fun RepeaterStatusPanel(vm: MeshCoreViewModel, keyHex: String) {
         ButtonFlowRow {
             TextButton(
                 enabled = !loading,
-                onClick = {
-                    scope.launch {
-                        loading = true; note = null
-                        status = vm.repeaterStatus(keyHex)
-                        if (status == null) note = "No status reply — logged in and in range?"
-                        loading = false
-                    }
-                },
-            ) { Text("Fetch status") }
+                onClick = { scope.launch { fetchStatus() } },
+            ) { Text("Refresh status") }
             TextButton(
                 enabled = !loading,
                 onClick = {
@@ -116,7 +126,7 @@ fun RepeaterStatusPanel(vm: MeshCoreViewModel, keyHex: String) {
         }
 
         if (status == null && telemetry.isEmpty() && !loading) {
-            HintText("Fetch status or telemetry to see live values from this node.")
+            HintText("The node has not answered yet.")
         }
         Spacer(Modifier.height(24.dp))
     }

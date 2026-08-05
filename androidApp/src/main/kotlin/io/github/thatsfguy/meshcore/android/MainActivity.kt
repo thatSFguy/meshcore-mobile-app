@@ -43,7 +43,7 @@ import io.github.thatsfguy.meshcore.android.ui.screens.RepeaterRegionsScreen
 import io.github.thatsfguy.meshcore.android.ui.screens.RepeaterSettingsScreen
 import io.github.thatsfguy.meshcore.android.ui.screens.RepeaterStatusScreen
 import io.github.thatsfguy.meshcore.android.ui.screens.SettingsAboutScreen
-import io.github.thatsfguy.meshcore.android.ui.screens.SettingsAppearanceScreen
+import io.github.thatsfguy.meshcore.android.ui.screens.SettingsAppScreen
 import io.github.thatsfguy.meshcore.android.ui.screens.SettingsAutoAddScreen
 import io.github.thatsfguy.meshcore.android.ui.screens.SettingsBackupScreen
 import io.github.thatsfguy.meshcore.android.ui.screens.SettingsBlockingScreen
@@ -52,11 +52,8 @@ import io.github.thatsfguy.meshcore.android.ui.screens.SettingsClockScreen
 import io.github.thatsfguy.meshcore.android.ui.screens.SettingsConnectionScreen
 import io.github.thatsfguy.meshcore.android.ui.screens.SettingsCustomVarsScreen
 import io.github.thatsfguy.meshcore.android.ui.screens.SettingsDataScreen
-import io.github.thatsfguy.meshcore.android.ui.screens.SettingsDiagnosticsScreen
 import io.github.thatsfguy.meshcore.android.ui.screens.SettingsIdentityScreen
-import io.github.thatsfguy.meshcore.android.ui.screens.SettingsNotificationsScreen
 import io.github.thatsfguy.meshcore.android.ui.screens.SettingsPoliciesScreen
-import io.github.thatsfguy.meshcore.android.ui.screens.SettingsPrivacyScreen
 import io.github.thatsfguy.meshcore.android.ui.screens.SettingsRadioScreen
 import io.github.thatsfguy.meshcore.android.ui.screens.SettingsScreen
 import io.github.thatsfguy.meshcore.android.ui.screens.SettingsTransportsScreen
@@ -167,12 +164,9 @@ private fun AppShell(vm: MeshCoreViewModel) {
             composable("settings/customvars") { SettingsCustomVarsScreen(vm, nav) }
             composable("settings/channels") { SettingsChannelsScreen(vm, nav) }
             composable("settings/blocking") { SettingsBlockingScreen(vm, nav) }
-            composable("settings/appearance") { SettingsAppearanceScreen(vm, nav) }
-            composable("settings/notifications") { SettingsNotificationsScreen(vm, nav) }
-            composable("settings/privacy") { SettingsPrivacyScreen(vm, nav) }
+            composable("settings/app") { SettingsAppScreen(vm, nav) }
             composable("settings/backup") { SettingsBackupScreen(vm, nav) }
             composable("settings/data") { SettingsDataScreen(vm, nav) }
-            composable("settings/diagnostics") { SettingsDiagnosticsScreen(vm, nav) }
             composable("settings/about") { SettingsAboutScreen(vm, nav) }
             composable("conversation/{kind}/{peer}") { entry ->
                 ConversationScreen(

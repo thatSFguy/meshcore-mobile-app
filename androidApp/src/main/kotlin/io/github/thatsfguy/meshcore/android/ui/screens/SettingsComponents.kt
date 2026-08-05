@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -144,20 +145,6 @@ fun HintText(text: String) {
 }
 
 /**
- * One line of hint, with the rest of the truth behind a tap.
- *
- * This app's instinct to say the whole honest thing is right and worth
- * keeping — but it was spent three sentences at a time on every row of
- * every screen until the whole app read like a disclaimer, which is
- * its own kind of dishonesty because nobody reads a wall
- * (LESSONS §14, REBUILD-PLAYBOOK §6.3).
- *
- * The budget is one line per control. [summary] must be true on its
- * own — this is not a teaser for the real warning, it is the short
- * version of it. Anything that is dangerous to miss belongs in
- * [summary], not in [detail].
- */
-/**
  * Body text inside an [ExpandableHint]. Distinct from [HintText]
  * because it is the only place in the app that may run to a paragraph
  * — the user asked for it by tapping "More".
@@ -171,6 +158,20 @@ fun DetailText(text: String) {
     )
 }
 
+/**
+ * One line of hint, with the rest of the truth behind a tap.
+ *
+ * This app's instinct to say the whole honest thing is right and worth
+ * keeping — but it was spent three sentences at a time on every row of
+ * every screen until the whole app read like a disclaimer, which is
+ * its own kind of dishonesty because nobody reads a wall
+ * (LESSONS §14, REBUILD-PLAYBOOK §6.3).
+ *
+ * The budget is one line per control. [summary] must be true on its
+ * own — this is not a teaser for the real warning, it is the short
+ * version of it. Anything that is dangerous to miss belongs in
+ * [summary], not in [detail].
+ */
 @Composable
 fun ExpandableHint(summary: String, detail: @Composable () -> Unit) {
     var expanded by rememberSaveable { mutableStateOf(false) }
@@ -182,9 +183,14 @@ fun ExpandableHint(summary: String, detail: @Composable () -> Unit) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.weight(1f, fill = false),
             )
+            // 48dp minimum. The first cut zeroed the vertical content
+            // padding to make the row compact, which produced a ~27x16dp
+            // target sitting inline inside a scrollable — small enough to
+            // miss, and easy to fire by accident while scrolling.
             TextButton(
                 onClick = { expanded = !expanded },
-                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                modifier = Modifier.defaultMinSize(minWidth = 64.dp, minHeight = 48.dp),
             ) {
                 Text(
                     if (expanded) "Less" else "More",

@@ -47,6 +47,13 @@ Layout:
   conversation, nodes+detail, osmdroid map, repeater admin, settings incl. stern TCP
   dialog + diagnostics). `./gradlew :androidApp:assembleDebug` (JDK at
   `/home/robw/android-tools/jdk`, SDK via `local.properties`).
+  - **DRIVEN ON HARDWARE 2026-08-05** (Galaxy A42, 384dp, BLE to `MeshCore-Blue`,
+    admin session on a live repeater). This is the first time the UI met a radio
+    before shipping rather than after, and it found six defects in one session —
+    all of them navigation or affordance, none of them caught by 540 tests. What it
+    confirmed: `freqKhz` renders correctly as `910.525 MHz` against real hardware,
+    and the live tile subtitles are the best thing in the rebuild. Screenshots +
+    the `ui.sh` uiautomator helper make this repeatable; drive it weekly (§8.2).
   - **Settings is hub-and-spoke** (2026-08-05, REBUILD-PLAYBOOK §6.2). `settings` is
     a grouped tile list (`SettingsScreen.kt`); each tile opens `settings/<route>`
     (`SettingsSpokeScreens.kt`), and the section bodies moved verbatim to
@@ -54,19 +61,27 @@ Layout:
     `AppSection` holding another eight surfaces inside it. Tiles carry live
     subtitles — pure functions in `SettingsHubModel.kt`, tested, including that an
     unencrypted database wins its row and that TCP is always flagged. `ExpandableHint`
-    (SettingsComponents) is the one-line-plus-"More" control for §6.3.
-    ⚠ Unit-tested only; **never driven against a radio.**
+    (SettingsComponents) is the one-line-plus-"More" control for §6.3. Splitting
+    can go too far: Appearance/Notifications/Privacy/Diagnostics were four screens
+    holding one control each and are one `settings/app` screen again.
   - **Repeater admin is hub-and-spoke** (2026-08-05, REBUILD-PLAYBOOK §1.4a/§6.2).
     `repeater/{key}` is `RepeaterHubScreen` — identity card, the grant the node
-    reported as an ADMIN/GUEST/NOT SIGNED IN chip, and tiles into
+    reported as an ADMIN/GUEST chip, and tiles into
     `repeater/{key}/{status,settings,regions,identity,console,help}`. Sign-in is
-    `RepeaterLoginDialog` in front of the hub, not a row welded to the screen.
+    `RepeaterLoginDialog`, which is the GATE — with no session there is no hub, only
+    the dialog, and cancelling pops back. Tapping an infrastructure node in the Nodes
+    list opens it directly; long-press opens the contact detail sheet. That path is
+    3 taps to a repeater's status, matching the reference; the first cut was 5 and a
+    scroll.
     This replaced `RepeaterAdminScreen`'s six scrollable tabs — the shape LESSONS
     §13 named. Which tiles appear is `repeaterHubTiles()`, a pure function in
     `RepeaterHubModel.kt`, so the gating is tested without a device.
-    ⚠ Built and unit-tested; **never driven against a radio.**
+    Driven against a live repeater 2026-08-05.
 - **`iosApp/`** — XcodeGen `project.yml` + SwiftUI skeleton; see `iosApp/README.md`.
-- **NOT yet validated against a real radio** — that's the next milestone.
+- **Partly validated against a real radio.** Navigation, connection, Settings, the
+  repeater hub, login and Status were driven on hardware 2026-08-05 (see above).
+  Still never run against a radio: backup/restore, retention, blocking, regional
+  presets, sensors and identity-key management.
 
 Reference docs:
 - **`MESHCORE_PROTOCOL.md`** — the MeshCore companion + over-the-air wire spec (transports,

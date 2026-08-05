@@ -23,20 +23,15 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -79,19 +74,24 @@ fun RepeaterHubScreen(vm: MeshCoreViewModel, nav: NavController, keyHex: String)
     val sessions by vm.adminSessions.collectAsState()
     val session = sessions[keyHex] ?: AdminSession.None
 
-    // Arriving with no session opens sign-in straight away — the tools
-    // are useless without one, so making the user find a button first
-    // would only add a tap. Cancelling leaves the hub visible with a
-    // Sign in button rather than bouncing back to the node list.
-    var showLogin by remember(keyHex) { mutableStateOf(false) }
-    // Saveable, so walking into Command help and back does not re-open
-    // a dialog the user has already dismissed once.
-    var autoPrompted by rememberSaveable(keyHex) { mutableStateOf(false) }
-    LaunchedEffect(keyHex, session) {
-        if (session == AdminSession.None && !autoPrompted) {
-            autoPrompted = true
-            showLogin = true
-        }
+    // Sign-in is the GATE, not an overlay: with no session there is no
+    // hub, just the dialog, and cancelling returns to the node list.
+    //
+    // The first cut rendered the hub underneath in a not-signed-in
+    // state — an identity card, an explanatory line, a Sign in button
+    // and a single tile. Driving it on hardware, that screen is 80%
+    // empty and offers nothing you came for. The reference client had
+    // this right from the start: `contacts_screen` shows the login
+    // dialog and only pushes the hub `onLogin` success, so an
+    // unusable hub cannot exist.
+    if (!session.signedIn) {
+        RepeaterLoginDialog(
+            vm = vm,
+            keyHex = keyHex,
+            nodeName = name,
+            onDismiss = { nav.popBackStack() },
+        )
+        return
     }
 
     val tiles = remember(role, session) { repeaterHubTiles(role, session) }
@@ -142,29 +142,10 @@ fun RepeaterHubScreen(vm: MeshCoreViewModel, nav: NavController, keyHex: String)
                 session = session,
             )
 
-            if (!session.signedIn) {
-                // One line, not the three-line explainer the old screen
-                // carried on every visit (§6.3). What read-only means is
-                // in the dialog, where it is about to matter.
-                Text(
-                    "Sign in to read this node's status and settings.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 16.dp),
-                )
-                Spacer(Modifier.height(12.dp))
-                FilledTonalButton(
-                    onClick = { showLogin = true },
-                    modifier = Modifier.padding(horizontal = 16.dp),
-                ) { Text("Sign in") }
-                Spacer(Modifier.height(8.dp))
-            }
-
             SectionLabel(
                 when (session) {
                     AdminSession.Admin -> "Management tools"
-                    AdminSession.Guest -> "Read-only tools"
-                    AdminSession.None -> "Available without signing in"
+                    else -> "Read-only tools"
                 },
             )
 
@@ -174,15 +155,6 @@ fun RepeaterHubScreen(vm: MeshCoreViewModel, nav: NavController, keyHex: String)
 
             Spacer(Modifier.height(32.dp))
         }
-    }
-
-    if (showLogin) {
-        RepeaterLoginDialog(
-            vm = vm,
-            keyHex = keyHex,
-            nodeName = name,
-            onDismiss = { showLogin = false },
-        )
     }
 }
 
