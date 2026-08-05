@@ -49,11 +49,12 @@ fun BlockingSection(vm: MeshCoreViewModel) {
     var newName by remember { mutableStateOf("") }
 
     Text("Blocked contacts", style = MaterialTheme.typography.labelLarge)
-    HintText(
-        "Matched on the public key, so renaming doesn't get around it. Their direct " +
-            "messages are dropped as they arrive — not stored and hidden, but never " +
-            "written down at all.",
-    )
+    ExpandableHint("Matched on the public key, so renaming doesn't get around it.") {
+        DetailText(
+            "Their direct messages are dropped as they arrive — not stored and hidden, " +
+                "but never written down at all.",
+        )
+    }
     if (blocked.isEmpty()) {
         HintText("Nobody is blocked. Block someone from their contact sheet.")
     } else {

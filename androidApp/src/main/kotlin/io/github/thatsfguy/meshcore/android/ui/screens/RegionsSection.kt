@@ -49,11 +49,14 @@ fun RegionsSection(vm: MeshCoreViewModel) {
     var discovered by remember { mutableStateOf<MeshCoreViewModel.RegionDiscovery?>(null) }
     val scope = rememberCoroutineScope()
 
-    HintText(
-        "A region restricts which repeaters will flood a message onward. It is a routing " +
-            "label, not privacy: anyone who can hear the traffic can still read it exactly " +
-            "as before. Names are lowercase letters, digits and hyphens.",
-    )
+    // "Not privacy" stays in the summary: a user who reads only the
+    // first line must not come away thinking a region hides anything.
+    ExpandableHint("Restricts which repeaters flood a message onward — routing, not privacy.") {
+        DetailText(
+            "Anyone who can hear the traffic can still read it exactly as before. " +
+                "Names are lowercase letters, digits and hyphens.",
+        )
+    }
 
     stuck?.let {
         Spacer(Modifier.height(4.dp))

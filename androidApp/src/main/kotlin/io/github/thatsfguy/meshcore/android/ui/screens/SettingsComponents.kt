@@ -157,6 +157,20 @@ fun HintText(text: String) {
  * version of it. Anything that is dangerous to miss belongs in
  * [summary], not in [detail].
  */
+/**
+ * Body text inside an [ExpandableHint]. Distinct from [HintText]
+ * because it is the only place in the app that may run to a paragraph
+ * — the user asked for it by tapping "More".
+ */
+@Composable
+fun DetailText(text: String) {
+    Text(
+        text,
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+}
+
 @Composable
 fun ExpandableHint(summary: String, detail: @Composable () -> Unit) {
     var expanded by rememberSaveable { mutableStateOf(false) }

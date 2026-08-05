@@ -158,8 +158,8 @@ fun RoutingSheet(
                     // the same one.
                     HintText(
                         "Hop(s) ${unresolved.joinToString(", ") { (it + 1).toString() }} can't be " +
-                            "used on this mesh — it addresses hops with ${hopWidth * 2} hex " +
-                            "digits. Remove them or re-add the node from the list below.",
+                            "addressed at this mesh's ${hopWidth * 2}-hex-digit width — " +
+                            "remove them, or re-add from the list below.",
                     )
                 }
 

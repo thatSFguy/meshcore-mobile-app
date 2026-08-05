@@ -54,14 +54,24 @@ fun ChannelSendersSheet(vm: MeshCoreViewModel, channelIndex: Int, onDismiss: () 
         Column(Modifier.padding(horizontal = 24.dp).padding(bottom = 32.dp)) {
             Text("Names seen", style = MaterialTheme.typography.headlineSmall)
             Spacer(Modifier.height(4.dp))
+            // The impersonation point is the whole reason this sheet is
+            // called "Names seen" and not "Members", so it stays in the
+            // one line rather than behind the tap.
             Text(
-                "Names that have posted on this channel, from the messages this phone " +
-                    "kept. A channel message carries a name, not a key — anyone with the " +
-                    "channel key can use any name, including one you recognise. This is " +
-                    "not a list of members, and it cannot tell you who anyone is.",
+                "Anyone with the channel key can post under any name, including one you " +
+                    "recognise.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.error,
             )
+            ExpandableHint("These are names, not identities.") {
+                Text(
+                    "A channel message carries a name, not a key, so nothing here can be " +
+                        "verified. The list is built from the messages this phone kept — " +
+                        "it is not a membership list, and it cannot tell you who anyone is.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             Spacer(Modifier.height(12.dp))
 
             val list = senders

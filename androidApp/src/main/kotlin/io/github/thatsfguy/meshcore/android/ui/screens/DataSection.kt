@@ -37,12 +37,13 @@ fun DataSection(vm: MeshCoreViewModel) {
     var note by remember { mutableStateOf<String?>(null) }
 
     Text("Message retention", style = MaterialTheme.typography.labelLarge)
-    HintText(
-        "Applies to every conversation, direct and channel. Older messages are deleted " +
-            "from this phone; nothing is deleted from anyone else's. Trimming counts by " +
-            "when a message ARRIVED here, not by the time it claims — a sender's clock " +
-            "shouldn't decide which of your messages survive.",
-    )
+    ExpandableHint("Deletes old messages from this phone only, in every conversation.") {
+        DetailText(
+            "Nothing is deleted from anyone else's device. Trimming counts by when a " +
+                "message ARRIVED here, not by the time it claims — a sender's clock " +
+                "shouldn't decide which of your messages survive.",
+        )
+    }
     ChoiceChips(
         options = Retention.PRESETS.map { it.shortLabel() },
         selected = Retention.PRESETS.indexOfFirst { it == policy }.coerceAtLeast(0),

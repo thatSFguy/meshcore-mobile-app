@@ -98,11 +98,14 @@ fun RepeaterRegionsPanel(vm: MeshCoreViewModel, keyHex: String, isAdmin: Boolean
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 16.dp),
     ) {
-        HintText(
-            "Regions decide which traffic this repeater will flood onward. They are a " +
-                "routing policy, not an access control: a region the repeater refuses to " +
-                "flood can still be heard by anyone in radio range.",
-        )
+        ExpandableHint(
+            "Decides what this repeater floods onward — routing, not access control.",
+        ) {
+            DetailText(
+                "A region the repeater refuses to flood can still be heard by anyone in " +
+                    "radio range.",
+            )
+        }
 
         ButtonFlowRow {
             TextButton(enabled = !loading, onClick = { refresh() }) { Text("Fetch regions") }
