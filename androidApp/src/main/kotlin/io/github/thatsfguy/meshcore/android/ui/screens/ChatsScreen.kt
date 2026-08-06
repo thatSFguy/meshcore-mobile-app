@@ -69,6 +69,15 @@ fun ChatsScreen(vm: MeshCoreViewModel, nav: NavController) {
                 title = "Chats",
                 vm = vm,
                 menuActions = listOf(
+                    // Adverts live here as well as on Settings -> Identity.
+                    // Announcing yourself is a frequent, situational thing
+                    // ("nobody can see me, say hello again"), and the tidy
+                    // answer to "which screen does this belong on" had put
+                    // it three taps deep behind a settings page. Being
+                    // reachable from the screen you are already on beats
+                    // being filed correctly.
+                    MenuAction("Send advert (0-hop)") { vm.sendSelfAdvert(flood = false) },
+                    MenuAction("Send advert (flood)") { vm.sendSelfAdvert(flood = true) },
                     MenuAction("Add channel…") { showChannelSheet = true },
                     MenuAction("Join community QR…") {
                         communityScanLauncher.launch(

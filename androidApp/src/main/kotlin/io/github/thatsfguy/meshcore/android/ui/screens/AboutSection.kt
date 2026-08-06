@@ -89,6 +89,17 @@ fun AboutSection(vm: MeshCoreViewModel) {
  * is a changelog you can't read in the field.
  */
 private val CHANGELOG: List<Pair<String, List<String>>> = listOf(
+    "0.5.5" to listOf(
+        "The conversation list showed the message being replied TO instead of the reply. A " +
+            "reply is sent as the quoted text followed by what you actually said, and the " +
+            "preview was taking the first 80 characters.",
+        "Reactions now notify — a thumbs-up is often the whole reply, and it used to arrive " +
+            "in silence. Only for reactions to your own messages.",
+        "Opening a conversation clears its notification. It previously only cleared if you " +
+            "tapped the notification itself.",
+        "Send advert (0-hop) and Send advert (flood) are on the Chats menu — announcing " +
+            "yourself is situational, and it had ended up three taps deep in settings.",
+    ),
     "0.5.4" to listOf(
         "Signing in to a repeater now retries if nothing comes back, and waits as long as " +
             "the radio says to instead of a flat 20 seconds. The last attempt clears a dead " +

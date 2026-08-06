@@ -28,6 +28,7 @@ import io.github.thatsfguy.meshcore.protocol.ChannelCrypto
 import io.github.thatsfguy.meshcore.protocol.Codes
 import io.github.thatsfguy.meshcore.protocol.ConfigBackup
 import io.github.thatsfguy.meshcore.protocol.NodeDiscovery
+import io.github.thatsfguy.meshcore.protocol.Quoting
 import io.github.thatsfguy.meshcore.protocol.Reactions
 import io.github.thatsfguy.meshcore.protocol.Regions
 import io.github.thatsfguy.meshcore.protocol.SendRetry
@@ -319,6 +320,8 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
     fun markThreadOpen(kind: String, peerKey: String) {
         val svc = _service.value ?: return
         svc.repository.activeThread = "$kind|$peerKey"
+        // Reading it IS dismissing it.
+        svc.clearMessageNotification(kind, peerKey)
         viewModelScope.launch {
             val key = selfKey.value
             if (key.isEmpty()) return@launch
@@ -413,7 +416,11 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
      */
     private fun previewOf(m: io.github.thatsfguy.meshcore.android.storage.MessageEntity): String {
         Reactions.parse(m.text)?.let { return it.emoji + " reacted" }
-        return m.text.take(80)
+        // A quote-reply's text BEGINS with the quoted message, so
+        // take(80) showed what was being replied to and cut off the
+        // reply itself — the list read as though everyone were
+        // repeating each other.
+        return Quoting.previewBody(m.text).take(80)
     }
 
     /** Local-only display name for a contact; see [Preferences.nicknameFor]. */

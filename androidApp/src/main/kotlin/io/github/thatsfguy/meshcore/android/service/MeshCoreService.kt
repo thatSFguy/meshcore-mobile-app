@@ -421,10 +421,23 @@ class MeshCoreService : Service() {
             )
             .build()
 
-        // Stable id per thread: repeated messages update one entry
-        // instead of stacking dozens.
-        val id = MSG_NOTIF_BASE + "$kind|$peerKey".hashCode().and(0xFFFF)
-        (getSystemService(NOTIFICATION_SERVICE) as NotificationManager).notify(id, notification)
+        (getSystemService(NOTIFICATION_SERVICE) as NotificationManager)
+            .notify(messageNotificationId(kind, peerKey), notification)
+    }
+
+    /**
+     * Drop a thread's notification because the user is now reading it.
+     *
+     * `setAutoCancel(true)` only fires when the notification is TAPPED.
+     * Opening the conversation from inside the app left it sitting in
+     * the shade, so the phone kept insisting there was something to read
+     * on a screen the user was already looking at — and the next message
+     * silently replaced it, making the stale one indistinguishable from
+     * a fresh one.
+     */
+    fun clearMessageNotification(kind: String, peerKey: String) {
+        (getSystemService(NOTIFICATION_SERVICE) as NotificationManager)
+            .cancel(messageNotificationId(kind, peerKey))
     }
 
     companion object {
@@ -432,6 +445,15 @@ class MeshCoreService : Service() {
         private const val MSG_CHANNEL = "meshcore_messages"
         private const val NOTIF_ID = 1
         private const val MSG_NOTIF_BASE = 1000
+
+        /**
+         * Stable id per thread: repeated messages update one entry
+         * instead of stacking dozens — and the same id is what lets the
+         * app cancel it again when the thread is opened. Post and cancel
+         * MUST agree, so neither computes it independently.
+         */
+        fun messageNotificationId(kind: String, peerKey: String): Int =
+            MSG_NOTIF_BASE + "$kind|$peerKey".hashCode().and(0xFFFF)
 
         fun start(context: Context) {
             context.startForegroundService(Intent(context, MeshCoreService::class.java))

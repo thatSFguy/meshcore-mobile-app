@@ -7,6 +7,7 @@ import io.github.thatsfguy.meshcore.model.Contact
 import io.github.thatsfguy.meshcore.protocol.BlockList
 import io.github.thatsfguy.meshcore.protocol.PathHistoryHygiene
 import io.github.thatsfguy.meshcore.protocol.ReactionCounts
+import io.github.thatsfguy.meshcore.protocol.ReactionNotice
 import io.github.thatsfguy.meshcore.protocol.Reactions
 import io.github.thatsfguy.meshcore.protocol.Retention
 import io.github.thatsfguy.meshcore.protocol.SendRetry
@@ -202,8 +203,18 @@ class MessageRepository(
                 // A reaction is an ordinary text message by the time it
                 // reaches us; attach it to its target instead of letting
                 // "r:1a2b:00" land in the thread as a line of text.
-                if (event.txtType != 1 && applyReaction(self, KIND_DM, peer, storedText, null)) {
-                    return
+                if (event.txtType != 1) {
+                    when (val r = applyReaction(self, KIND_DM, peer, storedText, null)) {
+                        is ReactionOutcome.Applied -> {
+                            if (activeThread != "$KIND_DM|$peer") {
+                                db.contacts().bumpUnread(self, peer, System.currentTimeMillis())
+                                notifyReaction(KIND_DM, peer, event.roomAuthorLabel, r)
+                            }
+                            return
+                        }
+                        ReactionOutcome.Consumed -> return
+                        ReactionOutcome.NotAReaction -> Unit
+                    }
                 }
                 db.messages().insert(
                     MessageEntity(
@@ -242,16 +253,30 @@ class MessageRepository(
                 // carries no sender key), so this stops a spammer who
                 // keeps their name and nothing more.
                 if (BlockList.isFilteredChannelName(event.senderName, filteredChannelNames)) return
-                if (applyReaction(
+                val channelKey = event.channelIndex.toString()
+                when (
+                    val r = applyReaction(
                         self,
                         KIND_CHANNEL,
-                        event.channelIndex.toString(),
+                        channelKey,
                         event.text,
                         event.senderName,
                         event.contentKey,
                     )
                 ) {
-                    return
+                    is ReactionOutcome.Applied -> {
+                        if (activeThread != "$KIND_CHANNEL|$channelKey") {
+                            db.channels().bumpUnread(
+                                self,
+                                event.channelIndex,
+                                System.currentTimeMillis(),
+                            )
+                            notifyReaction(KIND_CHANNEL, channelKey, event.senderName, r)
+                        }
+                        return
+                    }
+                    ReactionOutcome.Consumed -> return
+                    ReactionOutcome.NotAReaction -> Unit
                 }
                 val inserted = db.messages().insert(
                     MessageEntity(
@@ -345,12 +370,12 @@ class MessageRepository(
         text: String,
         senderName: String?,
         contentKey: String? = null,
-    ): Boolean {
-        val reaction = Reactions.parse(text) ?: return false
+    ): ReactionOutcome {
+        val reaction = Reactions.parse(text) ?: return ReactionOutcome.NotAReaction
         // Consume repeats (our own echo, or double delivery) without
         // counting them again — but still consume, so the wire text
         // never lands in the thread as a message.
-        if (!firstSightOfReaction(contentKey)) return true
+        if (!firstSightOfReaction(contentKey)) return ReactionOutcome.Consumed
         val recent = db.messages().recentOnce(self, kind, peerKey, REACTION_SEARCH_WINDOW)
         val target = recent.firstOrNull { candidate ->
             // Their reaction targets OUR view of the message: for a
@@ -359,9 +384,56 @@ class MessageRepository(
             val hashSender = if (kind == KIND_CHANNEL) candidate.senderName.orEmpty() else null
             Reactions.targetHash(candidate.timestamp, hashSender, candidate.text) ==
                 reaction.targetHash
-        } ?: return false
+        } ?: return ReactionOutcome.Consumed
         addReaction(target, reaction.emoji)
-        return true
+        return ReactionOutcome.Applied(reaction.emoji, target)
+    }
+
+    /**
+     * Notify for a reaction, but only when it lands on something WE
+     * said.
+     *
+     * A thumbs-up on your own message is often the whole reply and is
+     * worth an interruption. A reaction to a third party's message in a
+     * busy channel is somebody else's conversation, and notifying on it
+     * would make channels unusable.
+     *
+     * It goes through [onNewMessage] deliberately: that path already
+     * carries the notifications-enabled check, the per-kind switches and
+     * the per-thread mute, and a reaction should obey every one of them.
+     * A mute that silences replies but not thumbs-ups is not a mute.
+     */
+    private fun notifyReaction(
+        kind: String,
+        peerKey: String,
+        senderName: String?,
+        applied: ReactionOutcome.Applied,
+    ) {
+        if (!applied.target.outgoing) return
+        onNewMessage?.invoke(
+            kind,
+            peerKey,
+            senderName,
+            ReactionNotice.text(applied.emoji, applied.target.text),
+        )
+    }
+
+    /**
+     * What [applyReaction] did with a message.
+     *
+     * It used to return a Boolean meaning "consumed", which could not
+     * distinguish a reaction that was newly applied from one that was a
+     * duplicate or had no target — so nothing downstream could react to
+     * a reaction, and they arrived in silence.
+     */
+    private sealed interface ReactionOutcome {
+        /** Ordinary message text; carry on and insert it. */
+        object NotAReaction : ReactionOutcome
+
+        /** Swallowed: our own echo, a double delivery, or no target found. */
+        object Consumed : ReactionOutcome
+
+        data class Applied(val emoji: String, val target: MessageEntity) : ReactionOutcome
     }
 
     /** Merge one emoji into a message's reaction counts. */

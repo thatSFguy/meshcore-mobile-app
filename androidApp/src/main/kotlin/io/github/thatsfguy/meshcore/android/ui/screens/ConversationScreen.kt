@@ -68,6 +68,7 @@ import androidx.compose.foundation.lazy.grid.items
 import io.github.thatsfguy.meshcore.protocol.HeardVia
 import io.github.thatsfguy.meshcore.protocol.PathCodec
 import io.github.thatsfguy.meshcore.protocol.ReactionCounts
+import io.github.thatsfguy.meshcore.protocol.Quoting
 import io.github.thatsfguy.meshcore.protocol.Reactions
 import io.github.thatsfguy.meshcore.protocol.Frames
 import java.text.DateFormat
@@ -461,17 +462,16 @@ internal fun quotePrefixFor(target: MessageEntity): String {
     return "> $who$snippet\n"
 }
 
-private const val QUOTE_MAX_CHARS = 40
+private const val QUOTE_MAX_CHARS = Quoting.QUOTE_MAX_CHARS
 
-/** Split a message into its leading quote lines and the reply body. */
-internal fun splitQuote(text: String): Pair<String?, String> {
-    if (!text.startsWith(">")) return null to text
-    val lines = text.lines()
-    val quoted = lines.takeWhile { it.startsWith(">") }
-    if (quoted.isEmpty()) return null to text
-    val body = lines.drop(quoted.size).joinToString("\n").trimStart('\n')
-    return quoted.joinToString("\n") { it.removePrefix(">").trim() } to body
-}
+/**
+ * Split a message into its leading quote lines and the reply body.
+ *
+ * Moved to [Quoting] in `shared` — the conversation list and the
+ * reaction notification need the same split, and a copy per caller is
+ * how the list came to preview the quoted message instead of the reply.
+ */
+internal fun splitQuote(text: String): Pair<String?, String> = Quoting.split(text)
 
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable

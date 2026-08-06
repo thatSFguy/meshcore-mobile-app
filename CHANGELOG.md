@@ -11,6 +11,21 @@ Every entry describes what is in **that tagged build**. A feature that landed af
 belongs in the next section, not this one — 0.3.0 was once credited with four features that
 shipped after it, which misled nobody so much as the author, three months later.
 
+## 0.5.5
+
+- The conversation list showed the message being *replied to* instead of the reply. A reply
+  is sent as the quoted text followed by what you actually said, and the preview was taking
+  the first 80 characters — so the list read as though everyone were repeating each other.
+- Reactions now notify. A thumbs-up is often the whole reply, and it used to arrive in
+  complete silence. Only for reactions to **your own** messages — a reaction to someone
+  else's message in a busy channel is somebody else's conversation.
+- Opening a conversation clears its notification. Previously the notification only
+  disappeared if you tapped it, so reading in the app left the phone still insisting there
+  was something to read.
+- **Send advert (0-hop)** and **Send advert (flood)** are on the Chats menu. Announcing
+  yourself is situational — "nobody can see me, say hello again" — and it had ended up three
+  taps deep behind a settings page.
+
 ## 0.5.4
 
 - Signing in to a repeater now retries if nothing comes back, and waits as long as *the
