@@ -9,14 +9,14 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.AssistChip
-import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -26,6 +26,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import io.github.thatsfguy.meshcore.android.ui.MeshCoreViewModel
+import io.github.thatsfguy.meshcore.engine.EngineState
 import io.github.thatsfguy.meshcore.protocol.HeardRepeats
 
 /**
@@ -51,6 +52,8 @@ import io.github.thatsfguy.meshcore.protocol.HeardRepeats
 fun HeardRepeatsScreen(vm: MeshCoreViewModel, nav: NavController) {
     val echoes by vm.heardRepeats.collectAsState()
     val contacts by vm.dbContacts.collectAsState()
+    val engineState by vm.engineState.collectAsState()
+    val connected = engineState == EngineState.Ready
 
     val names = contacts.associate { it.keyHex.lowercase() to it.name }
     val rows = repeatRows(echoes, names, vm.engineNowMillis())
@@ -80,12 +83,20 @@ fun HeardRepeatsScreen(vm: MeshCoreViewModel, nav: NavController) {
             // takes it is on the screen and not only in the menu.
             Button(
                 onClick = { vm.sendSelfAdvert(flood = true) },
+                enabled = connected,
                 modifier = Modifier.fillMaxWidth(),
             ) { Text("Send a flood advert") }
             Spacer(Modifier.height(4.dp))
             Text(
-                "Repeaters that relay it will appear below as their copies reach this radio. " +
-                    "Give it a minute — an advert has to travel out and come back.",
+                if (connected) {
+                    "Repeaters that relay it will appear below as their copies reach this " +
+                        "radio. Give it a minute — an advert has to travel out and come back."
+                } else {
+                    // An enabled button that cannot work reads as a broken
+                    // feature rather than a missing radio.
+                    "Connect a radio first — this measures what the mesh does with your " +
+                        "transmissions, so there has to be one."
+                },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -93,16 +104,22 @@ fun HeardRepeatsScreen(vm: MeshCoreViewModel, nav: NavController) {
 
             LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(rows, key = { it.hashHex }) { row -> RepeatCard(row) }
-                item {
-                    Spacer(Modifier.height(12.dp))
-                    HorizontalDivider()
-                    Spacer(Modifier.height(8.dp))
-                    Text(
-                        HeardRepeats.CAVEAT,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Spacer(Modifier.height(24.dp))
+                // The caveat qualifies the LIST, so it appears once
+                // there is a list. Shown against an empty screen it was
+                // a second paragraph of hedging before the reader had
+                // seen a single row — LESSONS §14, caveat creep.
+                if (rows.isNotEmpty()) {
+                    item {
+                        Spacer(Modifier.height(12.dp))
+                        HorizontalDivider()
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            HeardRepeats.CAVEAT,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(Modifier.height(24.dp))
+                    }
                 }
             }
         }
@@ -123,11 +140,20 @@ private fun RepeatCard(row: RepeatRow) {
                     fontFamily = if (row.isAmbiguous) FontFamily.Monospace else null,
                 )
                 if (row.isTwoWay) {
-                    AssistChip(
-                        onClick = {},
-                        label = { Text("Two-way") },
-                        colors = AssistChipDefaults.assistChipColors(),
-                    )
+                    // A label, not a chip. An AssistChip here looked
+                    // tappable and did nothing — the affordance defect
+                    // the first hardware session found six of.
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = MaterialTheme.colorScheme.secondaryContainer,
+                    ) {
+                        Text(
+                            "Two-way",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                        )
+                    }
                 }
             }
             Spacer(Modifier.height(2.dp))
