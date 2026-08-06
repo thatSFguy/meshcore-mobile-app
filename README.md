@@ -336,11 +336,12 @@ CI ships the IPA **unsigned** and you re-sign it locally with your own free Appl
 same posture the sibling [reticulum-mobile-app](https://github.com/thatSFguy/reticulum-mobile-app)
 uses.
 
-**Where to get it:** nowhere, for now. The iOS CI workflow was removed on 2026-08-02 —
-it was the only thing that compiled the iOS target, and macOS runner minutes are billed.
-It was also failing at the time (a JVM-only API had reached `commonMain`), so there is no
-usable IPA to point at. iOS is on hold rather than broken-and-pretending-otherwise; the
-workflow is recoverable from git history when the work resumes.
+**Where to get it:** from the [iOS CI workflow's artifacts](https://github.com/thatSFguy/meshcore-mobile-app/actions/workflows/ios-ci.yml),
+once a run has gone green. That workflow was removed in August 2026 while the repo was
+private (macOS runner minutes bill at 10×) and restored when it went public, where they
+are free. The build that had been failing is fixed — a JVM-only API had reached
+`commonMain` — but the app itself is still the pre-alpha skeleton described above, so an
+IPA gets you the shell and not a working client.
 
 **One-time setup — pick one:**
 
