@@ -33,6 +33,17 @@ class SharedIsPlatformNeutralTest {
         ".format(" to "String.format is JVM-only — use util/Format.kt's fixed()/hexPadded()",
         "SimpleDateFormat" to "SimpleDateFormat is JVM-only",
         "System.currentTimeMillis" to "use the injected clock, not the JVM one",
+        // java.lang is imported implicitly on the JVM, so these appear
+        // with NO `java.` prefix and read as ordinary Kotlin. That is
+        // how Character.digit reached commonMain and broke the first
+        // iOS CI run after the presentation models moved here.
+        "Character." to "java.lang.Character — use Char.digitToIntOrNull / Char methods",
+        "Integer." to "java.lang.Integer — use Int / toIntOrNull",
+        "Math." to "java.lang.Math — use kotlin.math",
+        "Thread." to "java.lang.Thread — use coroutines",
+        "StringBuffer" to "java.lang.StringBuffer — use StringBuilder",
+        "Arrays." to "java.util.Arrays — use Kotlin collection APIs",
+        "Collections." to "java.util.Collections — use Kotlin collection APIs",
     )
 
     private fun sourcesUnder(dir: String): List<File> {

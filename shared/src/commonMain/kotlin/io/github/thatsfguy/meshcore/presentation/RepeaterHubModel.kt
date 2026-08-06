@@ -168,8 +168,12 @@ fun decodePrefill(encoded: String): String {
     if (encoded.isEmpty() || encoded.length % 2 != 0) return ""
     val bytes = ByteArray(encoded.length / 2)
     for (i in bytes.indices) {
-        val hi = Character.digit(encoded[i * 2], 16)
-        val lo = Character.digit(encoded[i * 2 + 1], 16)
+        // digitToIntOrNull, not Character.digit: the latter is
+        // java.lang, imported implicitly on the JVM so it carries no
+        // `java.` prefix in source and reads as ordinary Kotlin. It
+        // compiled for Android and broke the first iOS build.
+        val hi = encoded[i * 2].digitToIntOrNull(16) ?: -1
+        val lo = encoded[i * 2 + 1].digitToIntOrNull(16) ?: -1
         if (hi < 0 || lo < 0) return ""
         bytes[i] = ((hi shl 4) or lo).toByte()
     }
