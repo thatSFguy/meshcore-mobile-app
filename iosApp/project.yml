@@ -57,6 +57,16 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: io.github.thatsfguy.meshcore.ios
         FRAMEWORK_SEARCH_PATHS:
           - $(SRCROOT)/../shared/build/XCFrameworks/release
+        # Shared.xcframework requests autolink for `MeshCoreCrypto` — the
+        # Swift CryptoKit wrapper that Gradle's buildIosCryptoBridge task
+        # produces (shared/iosCryptoBridge/). The xcframework does NOT
+        # bundle that .a, so the app's own linker has to be pointed at
+        # the per-slice output or the build fails with
+        # "library 'MeshCoreCrypto' not found".
+        LIBRARY_SEARCH_PATHS:
+          - $(SRCROOT)/../shared/build/iosCryptoBridge/iosArm64
+          - $(SRCROOT)/../shared/build/iosCryptoBridge/iosSimulatorArm64
+          - $(SRCROOT)/../shared/build/iosCryptoBridge/iosX64
     dependencies:
       - framework: ../shared/build/XCFrameworks/release/Shared.xcframework
         embed: false
