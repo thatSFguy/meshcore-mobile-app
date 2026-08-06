@@ -19,7 +19,7 @@ shipped after it, which misled nobody so much as the author, three months later.
 - **Any MeshCore QR can be scanned from either scanner.** Scanning a repeater's contact code
   from the Chats + button used to answer "Invalid community code", because that button was
   wired only to the community parser. Contact, channel, advert and community codes are now
-  recognised wherever you scan them.
+  recognised wherever you scan them — from Chats, from Nodes, and from the Add channel sheet.
 
 ## 0.6.2
 

@@ -44,7 +44,7 @@ fun ChannelAddSheet(vm: MeshCoreViewModel, onDismiss: () -> Unit) {
     var pskHex by remember { mutableStateOf("") }
 
     val communityScanLauncher = rememberLauncherForActivityResult(ScanContract()) { result ->
-        result.contents?.let { vm.joinCommunity(it) }
+        result.contents?.let { vm.importScannedCode(it) }
         onDismiss()
     }
 
@@ -94,7 +94,7 @@ fun ChannelAddSheet(vm: MeshCoreViewModel, onDismiss: () -> Unit) {
                 communityScanLauncher.launch(
                     ScanOptions()
                         .setDesiredBarcodeFormats(ScanOptions.QR_CODE)
-                        .setPrompt("Scan a MeshCore community QR")
+                        .setPrompt("Scan a MeshCore QR — community, channel or contact")
                         .setBeepEnabled(false)
                         .setCaptureActivity(PortraitCaptureActivity::class.java),
                 )

@@ -106,6 +106,39 @@ class SettingsHubModelTest {
         assertEquals("conversation/dm/abc", conversationRoute("dm", "abc"))
     }
 
+    /**
+     * Every QR scanner in the app dispatches through the one entry
+     * point that classifies the code first.
+     *
+     * A scanner wired straight to a single decoder is what made a
+     * repeater's contact card answer "Invalid community code" from the
+     * Chats button — and nothing about that is visible in a unit test
+     * of the classifier itself, because the classifier was never
+     * reached.
+     */
+    @Test
+    fun `both QR scanners route through the shared entry point`() {
+        val screens = File("src/main/kotlin/io/github/thatsfguy/meshcore/android/ui/screens")
+        val scanners = screens.listFiles { f: File -> f.name.endsWith(".kt") }
+            .orEmpty()
+            .filter { it.readText().contains("rememberLauncherForActivityResult(ScanContract())") ||
+                it.readText().contains("ScanContract()") }
+        assertTrue("no QR scanners found — has the scanner API changed?", scanners.isNotEmpty())
+        for (file in scanners) {
+            val source = file.readText()
+            assertTrue(
+                "${file.name} scans a QR but does not call importScannedCode",
+                source.contains("importScannedCode"),
+            )
+            for (narrow in listOf("vm.joinCommunity(it)", "vm.importContactUri(it)")) {
+                assertFalse(
+                    "${file.name} still hands a scan straight to one decoder: $narrow",
+                    source.contains(narrow),
+                )
+            }
+        }
+    }
+
     @Test
     fun `no group is large enough to need a screen inside it`() {
         // The rule that was broken: App held eight surfaces under one
