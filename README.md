@@ -313,54 +313,56 @@ Requires JDK 17+ and the Android SDK (compileSdk 34).
 
 **Android is the shipping platform. iOS is a pre-alpha skeleton — read this before sideloading it.**
 
-There is currently **no iOS build to install** — the CI workflow that produced one was removed on
-2026-08-02 (see below). Even when it is restored, what the app cannot yet do matters more than
-that it installs:
+Every push builds it: `shared` compiles and its tests run on Kotlin/Native, and CI publishes an
+**unsigned IPA**. What the app cannot yet do matters more than that it installs:
 
 | | iOS today | Notes |
 |---|---|---|
-| BLE (Nordic UART) to a radio | ❌ | Needs a CoreBluetooth transport. **This is how you attach a radio** — without it the app cannot reach one over Bluetooth. |
+| Advert Ed25519 verification | ✅ | CryptoKit bridge (`shared/iosCryptoBridge`), verified on CI against RFC 8032 vectors — keys derive, signatures verify, tampered and malformed input is rejected. |
+| BLE (Nordic UART) to a radio | ◐ | `IosBleTransport` (CoreBluetooth) exists and compiles; **never run against a radio.** iOS supports BLE fully — it is *classic* Bluetooth that needs MFi, and MeshCore does not use it. Not yet wired to a scanner or the UI. |
 | USB serial | ❌ | Not practical on iOS for these radios. |
 | TCP transport | ✅ | Only useful with a networked base-station radio, and still plaintext + off by default. |
-| Advert Ed25519 verification | ❌ | `IosCryptoProvider` throws pending a CryptoKit bridge, so **contact import stays disabled** rather than importing unverified. |
 | Message persistence | ❌ | In-memory only — history is lost when the app exits. |
 | Channels, map, repeater admin | ❌ | Screens exist as a shell; the logic is shared but unwired. |
 
 So: installable, and useful for looking at the shell or building on it — **not** a working off-grid
 client. If you want to actually message someone over LoRa today, use the Android build.
 
-### Sideloading the unsigned IPA
+### Installing the unsigned IPA
 
-Apple requires every app to be signed by someone. Since this project has no Apple Developer account,
-CI ships the IPA **unsigned** and you re-sign it locally with your own free Apple ID. That is the
-same posture the sibling [reticulum-mobile-app](https://github.com/thatSFguy/reticulum-mobile-app)
-uses.
+Apple requires every app to be signed by someone. This project has no Apple Developer account, so
+CI ships the IPA **unsigned** and you re-sign it locally with your own free Apple ID — the same
+posture as the sibling [reticulum-mobile-app](https://github.com/thatSFguy/reticulum-mobile-app).
 
-**Where to get it:** from the [iOS CI workflow's artifacts](https://github.com/thatSFguy/meshcore-mobile-app/actions/workflows/ios-ci.yml),
-once a run has gone green. That workflow was removed in August 2026 while the repo was
-private (macOS runner minutes bill at 10×) and restored when it went public, where they
-are free. The build that had been failing is fixed — a JVM-only API had reached
-`commonMain` — but the app itself is still the pre-alpha skeleton described above, so an
-IPA gets you the shell and not a working client.
+**Where to get it:** the newest green run of the
+[iOS CI workflow](https://github.com/thatSFguy/meshcore-mobile-app/actions/workflows/ios-ci.yml) —
+open it and download the `meshcore-hardened-ios-unsigned` artifact. (GitHub requires you to be
+signed in to download workflow artifacts.) There is no AltStore source and no IPA on the release
+pages yet; the Android releases carry APK/AAB only.
 
-**One-time setup — pick one:**
+#### One-time setup — pick one
 
-1. **Sideloadly** (simplest, one-shot) — install [Sideloadly](https://sideloadly.io/) on a Mac or
-   Windows PC, plug in the iPhone, drag the `.ipa` in, sign in with a free Apple ID, click Start.
+1. **Sideloadly** (simplest, no auto-renewal) — install [Sideloadly](https://sideloadly.io/) on a
+   Mac or Windows PC, plug the iPhone in, drag the `.ipa` in, sign in with a free Apple ID, click
+   Start. You re-run it weekly; see renewal below.
 2. **AltStore** (auto-renewing, needs a Mac) — install [AltServer](https://altstore.io/) on a Mac
-   that the phone can reach over Wi-Fi after one USB pairing, then AltStore on the phone. It
-   re-signs every 7 days on its own while AltServer is running.
-3. **SideStore** (auto-renewing, no Mac) — [SideStore](https://sidestore.io/) renews on-device using
-   a paired developer disk image; the sign-in is the same free Apple ID flow.
+   the phone can reach over Wi-Fi after one USB pairing, then AltStore on the phone. It re-signs
+   every 7 days on its own while AltServer is running.
+3. **SideStore** (auto-renewing, no Mac) — [SideStore](https://sidestore.io/) renews on-device
+   using a paired developer disk image; the sign-in is the same free Apple ID flow.
 
-**Then, first run only:** on the phone open **Settings → General → VPN & Device Management →
-Developer App**, find your Apple ID, and tap **Trust**. iOS will not launch a re-signed app until
-you do.
+#### First run only — trust the profile
 
-**Signature renewal:** a free Apple ID signature lasts **7 days**. AltStore and SideStore renew
-automatically while their helper is alive; Sideloadly does not, so you re-run it weekly. Past 7 days
-the app stops launching with "Untrusted Developer" until it is re-signed. A paid Developer Program
-account ($99/yr) extends this to a year — this project doesn't have one.
+On the phone open **Settings → General → VPN & Device Management → Developer App**, find your
+Apple ID, and tap **Trust**. iOS will not launch a re-signed app until you do.
+
+#### Signature renewal
+
+A free Apple ID signature lasts **7 days**. AltStore and SideStore renew automatically while their
+helper is alive; Sideloadly does not, so you re-run it weekly. Past 7 days the app stops launching
+with "Untrusted Developer" until it is re-signed. A paid Developer Program account ($99/yr) extends
+this to a year — this project doesn't have one, and given the app's whole premise is working with
+no internet and no app-store infrastructure, that is unlikely to change soon.
 
 **Building it yourself** (macOS only — the app is developed on Linux, where nothing Apple compiles):
 
