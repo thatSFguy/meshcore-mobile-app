@@ -133,13 +133,23 @@ it, rather than trusting the name in the code.
 
 **Routing** — per-contact **Auto / Flood / Manual** routing, a hop-by-hop manual path editor, a
 record of every path seen or used with success/failure quality labels, and a **path trace** showing
-each hop with its SNR.
+each hop with its SNR. A received message's details sheet shows **Arrived via** — the route it
+actually travelled, in travel order, drawn on a map. A hop that can't be identified stays a gap
+rather than being credited to a guess.
 
-**Who repeats me** — which repeaters are actually carrying your traffic. Send a flood advert and
-watch which ones send a copy back; every row is a copy of your own **signed** advert, so nobody
-else can add a repeater to your list. It distinguishes a repeater that *heard you* from one that
-*you heard* — only the second has a measured SNR — and says plainly that it is a floor rather than
-a coverage map, since a repeater that relayed you onward without a copy returning cannot appear.
+**Repeats — who is actually carrying your traffic.** Two views of the same evidence, because
+there are two questions. On a **sent message**, a `↻ 2` badge says how many nodes were heard
+re-broadcasting *that message*, and its details sheet names them. This pairs with the delivery
+tick to say something neither can alone: `✗ (try 3) · ↻ 2` means the mesh moved your message and
+nobody answered, which is a different problem from one that never left your radio.
+
+**Who repeats me** (Nodes → ⋮) answers the standing version — what the mesh around you looks
+like. Send a flood advert and watch which nodes send a copy back; every row is a copy of your own
+**Ed25519-signed** advert, so nobody else can add a node to your list without your private key.
+It distinguishes a node that *heard you* from one that *you heard* — only the second has a
+measured SNR — and says plainly that it is a floor rather than a coverage map, since a node that
+relayed you onward without a copy returning cannot appear at all. "Node", not "repeater": room
+servers relay, and so do companions with client-repeat enabled.
 
 **Map** — every node advertising GPS, with type-specific markers and always-visible name labels.
 Filter by node type, export nodes as GPX, clear the tile cache. Tiles are the only HTTP the app
@@ -199,9 +209,6 @@ Chrome-required web gate.
   machine-translating safety-critical warning copy — *this link is unencrypted*, *this code is
   the key*, *channels are obfuscated, not secure* — into a language nobody here reads would be
   worse than shipping English.
-- **Heard repeats** — which repeaters rebroadcast *your* traffic. The mirror question, *how did
-  this message reach me*, does ship (message details → **Arrived via**), but the RX log doesn't
-  answer this one and it needs its own mechanism.
 - **Writing repeater ACL entries.** Reading the access list ships; adding a user does not. The
   `set` syntax couldn't be confirmed from their binary and no repeater on this mesh supports
   ACLs to verify against — and the command grants control of someone else's node, which is the
@@ -306,8 +313,9 @@ Requires JDK 17+ and the Android SDK (compileSdk 34).
 
 **Android is the shipping platform. iOS is a pre-alpha skeleton — read this before sideloading it.**
 
-CI builds the iOS app on every push and publishes an **unsigned IPA**, so it can be installed today.
-What it cannot yet do matters more than that it installs:
+There is currently **no iOS build to install** — the CI workflow that produced one was removed on
+2026-08-02 (see below). Even when it is restored, what the app cannot yet do matters more than
+that it installs:
 
 | | iOS today | Notes |
 |---|---|---|
