@@ -61,6 +61,8 @@ fun MessagePathMap(vm: MeshCoreViewModel, m: MessageEntity, senderLabel: String)
     val context = LocalContext.current
     val tilesEnabled = vm.prefs.mapTilesEnabled
     val mapView = remember {
+        // Without this the tiles never arrive — see OsmdroidSetup.
+        OsmdroidSetup.apply(context)
         MapView(context).apply {
             setTileSource(TileSourceFactory.MAPNIK)
             setMultiTouchControls(true)
@@ -144,7 +146,17 @@ fun MessagePathMap(vm: MeshCoreViewModel, m: MessageEntity, senderLabel: String)
                     map.controller.setCenter(points.first())
                 } else if (points.size > 1) {
                     val box = org.osmdroid.util.BoundingBox.fromGeoPointsSafe(points)
-                    map.post { runCatching { map.zoomToBoundingBox(box, false, 96) } }
+                    map.post {
+                        runCatching { map.zoomToBoundingBox(box, false, 96) }
+                        // Two nodes a few hundred metres apart fit at a
+                        // zoom past MAPNIK's last level, where there are
+                        // no tiles to draw and osmdroid shows its empty
+                        // placeholder grid — which looks exactly like
+                        // "tiles are off".
+                        if (map.zoomLevelDouble > MAX_ROUTE_ZOOM) {
+                            map.controller.setZoom(MAX_ROUTE_ZOOM)
+                        }
+                    }
                 }
                 map.invalidate()
             },
@@ -160,3 +172,6 @@ fun MessagePathMap(vm: MeshCoreViewModel, m: MessageEntity, senderLabel: String)
         )
     }
 }
+
+/** MAPNIK's deepest usable level; past it the map is a blank grid. */
+private const val MAX_ROUTE_ZOOM = 17.0

@@ -11,6 +11,15 @@ Every entry describes what is in **that tagged build**. A feature that landed af
 belongs in the next section, not this one — 0.3.0 was once credited with four features that
 shipped after it, which misled nobody so much as the author, three months later.
 
+## 0.6.1
+
+- The route map drew no tiles unless you had opened the Map tab earlier in the same session.
+  osmdroid's configuration is process-wide and only the Map tab was setting it; without it
+  OpenStreetMap rejects the request and the map shows an empty grid that looks exactly like
+  "map tiles are switched off". Both maps now configure it.
+- A short route also zoomed past the deepest zoom level that has tiles, producing the same
+  empty grid from a different cause. Clamped.
+
 ## 0.6.0
 
 - **Message info now draws the route on a map.** Long-press a received message → Info, and the

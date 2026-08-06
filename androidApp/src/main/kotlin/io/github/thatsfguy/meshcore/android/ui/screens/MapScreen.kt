@@ -111,11 +111,7 @@ fun MapScreen(vm: MeshCoreViewModel) {
         // lands where the user left off instead of re-fitting the world.
         val savedCamera = remember { vm.prefs.mapCamera }
         val mapView = remember {
-            Configuration.getInstance().apply {
-                userAgentValue = context.packageName
-                osmdroidBasePath = java.io.File(context.filesDir, "osmdroid")
-                osmdroidTileCache = java.io.File(context.cacheDir, "osmdroid-tiles")
-            }
+            OsmdroidSetup.apply(context)
             MapView(context).apply {
                 setTileSource(TileSourceFactory.MAPNIK)
                 // Tile fetching is the app's only outbound HTTP; when the
