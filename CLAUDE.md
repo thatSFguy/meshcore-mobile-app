@@ -5,7 +5,12 @@ mold of the sibling `../reticulum-mobile-app`: no servers, no accounts, no Googl
 Services, no analytics, smallest attack surface possible. This file orients a fresh agent;
 the detailed specs are the three docs below.
 
-**Naming (2026-07-31):** display name **MeshCore Hardened**, launcher label **MC Hardened**
+**Naming (2026-07-31, short form added 2026-08-06):** display name **MeshCore Hardened**,
+short form **MCH** — introduced in the README header and usable in prose and conversation, but
+NOT a replacement. The full name ships everywhere it is encountered cold: launcher, release
+titles, artifact filenames, in-app About. Two reasons. *Hardened* is the word carrying a claim
+the docs deliberately qualify, and an acronym hides it; and MCH on its own is a crowded acronym
+(predominantly a haematology value), so it is useless for search. Launcher label **MC Hardened**
 (`app_name` / `app_name_full` in strings.xml), APP_START identifies as `MeshCoreHardened`, release
 artifacts are `MeshCoreHardened-Android-<ver>-release.{apk,aab}`. Renamed to avoid collision with
 the official MeshCore app; "Hardened" describes this build's posture, NOT a protocol guarantee —

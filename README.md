@@ -1,4 +1,4 @@
-# MeshCore Hardened
+# MeshCore Hardened (MCH)
 
 *A hardened, minimal [MeshCore](https://meshcore.co.uk/) client for Android — off-grid
 encrypted messaging over LoRa, with no servers, no accounts, and no app-store lock-in.*
@@ -7,7 +7,14 @@ encrypted messaging over LoRa, with no servers, no accounts, and no app-store lo
 "Hardened" refers to this build's posture (small attack surface, keystore-sealed secrets,
 encrypted local storage) — not to any change in the MeshCore protocol's own guarantees.
 
-Native Kotlin Multiplatform client for the MeshCore mesh, built in the mold of its sibling
+**On the name.** The app is **MeshCore Hardened**; **MCH** is shorthand, used below and in
+conversation. The full name is what ships — the launcher, the releases and the app itself all
+say MeshCore Hardened, and the word doing the work there is *Hardened*, which is a claim about
+this build that the [security posture](#security-posture) section qualifies. Worth knowing if
+you go looking: **MCH** on its own is a crowded acronym (it is mostly a blood-test value), so
+searching for it will not find this. Search for MeshCore Hardened.
+
+MCH is a native Kotlin Multiplatform client for the MeshCore mesh, built in the mold of its sibling
 [reticulum-mobile-app](https://github.com/thatSFguy/reticulum-mobile-app): a real native app —
 foreground service for a persistent radio link, system notifications on incoming messages — with
 the smallest attack surface I can keep secure and reason about.
@@ -31,8 +38,8 @@ boxed out — they belong to other people's stations.*
 
 ## Project scope — personal app, shared in the open
 
-This is a **personal app, released in the open**. It does what I need an off-grid MeshCore client to
-do, and it is deliberately **closed to new feature requests**. The goal is the opposite of feature
+MCH is a **personal app, released in the open**. It does what I need an off-grid MeshCore client
+to do, and it is deliberately **closed to new feature requests**. The goal is the opposite of feature
 growth: the smallest, most static attack surface I can keep secure and reason about. You are very
 welcome to:
 
@@ -80,7 +87,7 @@ Requires **Android 8.0 (API 26)** or newer.
 
 ## Quick start
 
-1. **Grant permissions** on first launch — Bluetooth (to reach the radio) and notifications.
+1. **Grant permissions** on MCH's first launch — Bluetooth (to reach the radio) and notifications.
 2. **Connect your radio**: *Settings → Connection → Add / connect node* → pick your MeshCore radio
    from the BLE scan (or plug it in over USB-OTG). The app remembers it and reconnects
    automatically from then on.
@@ -106,10 +113,19 @@ bytes to a parser. **TCP is off by default** behind a one-time stern warning —
 is unencrypted and unauthenticated, and the UI keeps flagging it while connected. Saved-node list,
 automatic reconnect with backoff, foreground service so the link survives backgrounding.
 
-**Messaging** — direct messages and channels, with **automatic retry**: each attempt waits the
-radio's own airtime-derived ACK timeout, backs off, and only reports failure after the budget is
-spent. Delivery ticks come exclusively from real end-to-end ACKs. Paged scrollback, long-press for
-copy / quote / message details (SNR, attempts, ack hash), mark-unread, per-channel mute.
+**Messaging** — direct messages and channels, with **automatic retry** on MeshCore's documented
+terms: three attempts, each waiting the radio's own airtime-derived ACK timeout, and the last one
+clears a dead path and floods so your radio can learn a live route from the reply. That fallback
+is on by default and can be turned off. Delivery ticks come exclusively from real end-to-end ACKs.
+Paged scrollback, long-press for copy / quote / message details (SNR, attempts, ack hash),
+mark-unread, per-channel mute.
+
+**Notifications** — inbound direct and channel messages, with per-kind switches and per-thread
+mute. A **reply** shows the reply first and the quoted message behind the expander, rather than
+running the two together. A **reaction to your own message** notifies too — a thumbs-up is often
+the whole reply — while reactions to other people's messages stay quiet. Opening a conversation
+clears its notification; you should not have to tap a notification to dismiss something you have
+already read.
 
 **Channels** — 16-byte PSKs, `#hashtag` key derivation, private channels with generated keys, and
 **community QR join** (the community secret is stored in the Keystore and its channels derived from
@@ -186,8 +202,16 @@ Requires JDK 17+ and the Android SDK (compileSdk 34).
 
 ## Project docs
 
+- **[`CHANGELOG.md`](CHANGELOG.md)** — what shipped in each release. The GitHub release notes are
+  built from it, and the app carries the same text so it is readable with no network.
 - **[`MESHCORE_PROTOCOL.md`](MESHCORE_PROTOCOL.md)** — the companion + over-the-air wire spec
   (frames, command/response/push codes, advert signatures, channel crypto, PSK derivation).
+  Reverse-engineered, and it says so: where behaviour matters, the
+  [MeshCore firmware](https://github.com/meshcore-dev/MeshCore) is the authority and this file
+  loses to it.
+- **[`LESSONS.md`](LESSONS.md)** — a post-mortem of shipping something complete and unusable, and
+  **[`REBUILD-PLAYBOOK.md`](REBUILD-PLAYBOOK.md)** — the rules that came out of it. Both are about
+  rebuilding an app people already like without wrecking the part they like.
 - **[`SCOPE.md`](SCOPE.md)** — the locked v1 feature set, and what's deliberately deferred or cut.
 - **[`PARITY.md`](PARITY.md)** — surface-by-surface comparison against the mainstream MeshCore
   Android app, which is treated as the minimum feature bar: what's done, what's outstanding,
