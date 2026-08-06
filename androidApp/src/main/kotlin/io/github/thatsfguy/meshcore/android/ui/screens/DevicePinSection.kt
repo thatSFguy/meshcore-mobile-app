@@ -15,6 +15,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.text.KeyboardOptions
@@ -40,7 +41,9 @@ fun DevicePinSection(vm: MeshCoreViewModel) {
     val deviceInfo by vm.deviceInfo.collectAsState()
     var pin by remember { mutableStateOf("") }
     var confirm by remember { mutableStateOf(false) }
+    var bluetoothPrompt by remember { mutableStateOf(false) }
     var rebootPrompt by remember { mutableStateOf(false) }
+    val context = LocalContext.current
 
     if (engineState != EngineState.Ready) {
         HintText("Connect to a radio to change its pairing PIN.")
@@ -108,9 +111,11 @@ fun DevicePinSection(vm: MeshCoreViewModel) {
                         "restarted — the firmware picks the active PIN at startup " +
                         "and setting a new one does not change it. You will be " +
                         "offered a reboot.\n" +
-                        "• This phone is already paired with the OLD pin, and Android " +
-                        "remembers that pairing. You will have to forget the device in " +
-                        "Bluetooth settings and pair again before you can reconnect.\n" +
+                        "• This phone is already paired with the OLD pin, and only " +
+                        "Android can drop that pairing — \"Forget device\" in the system " +
+                        "Bluetooth settings, which is not the same as Remove under Saved " +
+                        "nodes in this app. Until you do it, the phone reconnects on the " +
+                        "old pairing and the change looks like it did nothing.\n" +
                         "• Every other phone paired with this radio has to do the same.\n" +
                         "• Nothing can read the PIN back off the radio. If you forget it, " +
                         "Bluetooth access is gone until you reach the node another way — " +
@@ -139,19 +144,54 @@ fun DevicePinSection(vm: MeshCoreViewModel) {
             text = {
                 Text(
                     "The new PIN is stored, but the radio goes on pairing with the old " +
-                        "one until it restarts.\n\nRebooting drops the connection. You " +
-                        "will then need to forget this radio in Bluetooth settings and " +
-                        "pair again with the new PIN.",
+                        "one until it restarts.\n\nAfter the reboot, your phone will " +
+                        "still reconnect without asking for the new PIN — Android " +
+                        "remembers the old pairing, and only Android can drop it. To " +
+                        "test the PIN you have to remove the pairing in the system " +
+                        "Bluetooth settings (\"Forget device\" there), which is NOT the " +
+                        "same as Remove under Saved nodes here.",
                 )
             },
             confirmButton = {
                 TextButton(onClick = {
                     vm.rebootRadio()
                     rebootPrompt = false
+                    bluetoothPrompt = true
                 }) { Text("Reboot now") }
             },
             dismissButton = {
                 TextButton(onClick = { rebootPrompt = false }) { Text("Later") }
+            },
+        )
+    }
+
+    if (bluetoothPrompt) {
+        AlertDialog(
+            onDismissRequest = { bluetoothPrompt = false },
+            title = { Text("Remove the old pairing?") },
+            text = {
+                Text(
+                    "Android is holding a pairing made with the OLD pin, and an app " +
+                        "cannot delete it. Until you do, this phone reconnects without " +
+                        "being asked for the new PIN — so the change looks like it did " +
+                        "nothing.\n\nIn Bluetooth settings, find this radio and choose " +
+                        "\"Forget device\". The next connection will ask for the new PIN.",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    bluetoothPrompt = false
+                    runCatching {
+                        context.startActivity(
+                            android.content.Intent(
+                                android.provider.Settings.ACTION_BLUETOOTH_SETTINGS,
+                            ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
+                        )
+                    }
+                }) { Text("Open Bluetooth settings") }
+            },
+            dismissButton = {
+                TextButton(onClick = { bluetoothPrompt = false }) { Text("Not now") }
             },
         )
     }

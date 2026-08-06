@@ -11,6 +11,15 @@ Every entry describes what is in **that tagged build**. A feature that landed af
 belongs in the next section, not this one — 0.3.0 was once credited with four features that
 shipped after it, which misled nobody so much as the author, three months later.
 
+## 0.6.7
+
+- **The app's "Forget" is now "Remove", because it was being confused with Android's.**
+  Removing a saved node drops this app's list entry; it does *not* touch the Bluetooth
+  pairing. Only Android's own "Forget device" does that, and until you use it the phone
+  reconnects on the old pairing — so a changed PIN looks like it did nothing.
+- After changing the PIN and rebooting, the app now says this plainly and offers to open
+  Bluetooth settings, which is where the pairing actually lives.
+
 ## 0.6.6
 
 - **Forget now actually forgets.** It removed a radio from Saved nodes but left it in the

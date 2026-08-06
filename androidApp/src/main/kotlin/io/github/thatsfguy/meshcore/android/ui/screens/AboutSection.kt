@@ -89,6 +89,14 @@ fun AboutSection(vm: MeshCoreViewModel) {
  * is a changelog you can't read in the field.
  */
 private val CHANGELOG: List<Pair<String, List<String>>> = listOf(
+    "0.6.7" to listOf(
+        "The app's \"Forget\" on a saved node is now \"Remove\" — it was being read as " +
+            "Android's \"Forget device\", which is the one that drops the Bluetooth " +
+            "pairing. Only Android can do that.",
+        "After a PIN change and reboot, the app says so and offers to open Bluetooth " +
+            "settings — otherwise the phone reconnects on the old pairing and the new PIN " +
+            "looks like it did nothing.",
+    ),
     "0.6.6" to listOf(
         "Forget now actually forgets — it left the radio in the auto-reconnect memory, so " +
             "it came back on the next connect and was then missing from Saved nodes.",

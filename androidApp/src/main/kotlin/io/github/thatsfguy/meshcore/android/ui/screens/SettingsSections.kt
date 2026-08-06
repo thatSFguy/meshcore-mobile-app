@@ -684,10 +684,15 @@ internal fun SavedNodesList(vm: MeshCoreViewModel) {
                     )
                 }
                 TextButton(onClick = { vm.connectSaved(node) }) { Text("Connect") }
+                // "Remove", not "Forget". Android's Bluetooth settings has
+                // a "Forget device" that drops the PAIRING; this only drops
+                // the app's list entry. Sharing the word sent someone
+                // looking for the first one to this button, and their new
+                // BLE PIN went untested because the bond was still in place.
                 TextButton(onClick = {
                     vm.forgetNode(node)
                     refresh++
-                }) { Text("Forget") }
+                }) { Text("Remove") }
             }
         }
     }
