@@ -61,6 +61,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
+import io.github.thatsfguy.meshcore.presentation.Inbox
 import io.github.thatsfguy.meshcore.android.storage.MessageEntity
 import io.github.thatsfguy.meshcore.android.ui.MeshCoreViewModel
 import io.github.thatsfguy.meshcore.android.storage.MessageRepository
@@ -125,7 +126,7 @@ fun ConversationScreen(
         onDispose { vm.markThreadClosed() }
     }
 
-    val threadKey = "$kind|$peerKey"
+    val threadKey = Inbox.threadKey(kind, peerKey)
     var draft by remember(threadKey) { mutableStateOf(vm.draftFor(threadKey)) }
     var clearConfirm by remember { mutableStateOf(false) }
     var showContact by remember { mutableStateOf(false) }

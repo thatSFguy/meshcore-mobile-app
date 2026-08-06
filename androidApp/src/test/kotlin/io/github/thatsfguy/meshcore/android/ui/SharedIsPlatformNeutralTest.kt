@@ -90,3 +90,31 @@ class SharedIsPlatformNeutralTest {
         }
     }
 }
+
+/**
+ * The thread key is built in exactly one place.
+ *
+ * The reader (`MessageRepository`, deciding whether to badge or buzz)
+ * and the writer (`MeshCoreViewModel`, reporting which conversation is
+ * on screen) have to agree on the string. They were five hand-written
+ * `"$kind|$peerKey"` literals across two files — a value built in
+ * several places and updated in one, which is the shape behind six
+ * separate defects in this codebase.
+ */
+class ThreadKeyIsBuiltOnceTest {
+
+    @Test
+    fun `nothing hand-builds a thread key`() {
+        val offenders = java.io.File("src/main")
+            .walkTopDown()
+            .filter { it.isFile && it.extension == "kt" }
+            .filter { it.readText().contains("\"\$kind|\$peerKey\"") ||
+                Regex("""activeThread\s*[!=]=\s*"\$""").containsMatchIn(it.readText()) }
+            .map { it.name }
+            .toList()
+        assertTrue(
+            offenders.isEmpty(),
+            "hand-built thread key in: $offenders — use Inbox.threadKey()",
+        )
+    }
+}

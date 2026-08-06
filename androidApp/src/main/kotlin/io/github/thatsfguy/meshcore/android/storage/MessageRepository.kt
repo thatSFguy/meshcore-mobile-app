@@ -1,6 +1,7 @@
 package io.github.thatsfguy.meshcore.android.storage
 
 import io.github.thatsfguy.meshcore.android.BuildConfig
+import io.github.thatsfguy.meshcore.presentation.Inbox
 import io.github.thatsfguy.meshcore.protocol.ReactionRouting
 import io.github.thatsfguy.meshcore.engine.MeshCoreEngine
 import io.github.thatsfguy.meshcore.engine.MeshEvent
@@ -203,7 +204,7 @@ class MessageRepository(
                 if (event.txtType != 1) {
                     when (val r = applyReaction(self, KIND_DM, peer, storedText, null)) {
                         is ReactionOutcome.Applied -> {
-                            if (activeThread != "$KIND_DM|$peer") {
+                            if (Inbox.shouldBumpUnread(activeThread, KIND_DM, peer)) {
                                 db.contacts().bumpUnread(self, peer, System.currentTimeMillis())
                                 notifyReaction(KIND_DM, peer, event.roomAuthorLabel, r)
                             }
@@ -235,7 +236,7 @@ class MessageRepository(
                         arrivalHashWidth = event.arrivalHashWidth,
                     ),
                 )
-                if (activeThread != "$KIND_DM|$peer") {
+                if (Inbox.shouldBumpUnread(activeThread, KIND_DM, peer)) {
                     db.contacts().bumpUnread(self, peer, System.currentTimeMillis())
                     // CLI replies are console output, not messages.
                     if (event.txtType != 1) {
@@ -265,7 +266,7 @@ class MessageRepository(
                     )
                 ) {
                     is ReactionOutcome.Applied -> {
-                        if (activeThread != "$KIND_CHANNEL|$channelKey") {
+                        if (Inbox.shouldBumpUnread(activeThread, KIND_CHANNEL, channelKey)) {
                             db.channels().bumpUnread(
                                 self,
                                 event.channelIndex,
@@ -318,7 +319,11 @@ class MessageRepository(
                 }
                 // insert == -1 → duplicate (sync + RX-log double delivery,
                 // or the echo of our own outgoing message)
-                if (inserted != -1L && activeThread != "$KIND_CHANNEL|${event.channelIndex}") {
+                if (Inbox.shouldNotify(
+                        activeThread, KIND_CHANNEL, event.channelIndex.toString(),
+                        isDuplicate = inserted == -1L,
+                    )
+                ) {
                     db.channels().bumpUnread(self, event.channelIndex, System.currentTimeMillis())
                     onNewMessage?.invoke(
                         KIND_CHANNEL, event.channelIndex.toString(),

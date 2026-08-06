@@ -17,6 +17,7 @@ import android.os.Binder
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
+import io.github.thatsfguy.meshcore.presentation.Inbox
 import io.github.thatsfguy.meshcore.protocol.MessageNotice
 import io.github.thatsfguy.meshcore.android.BuildConfig
 import io.github.thatsfguy.meshcore.android.MainActivity
@@ -486,7 +487,7 @@ class MeshCoreService : Service() {
          * MUST agree, so neither computes it independently.
          */
         fun messageNotificationId(kind: String, peerKey: String): Int =
-            MSG_NOTIF_BASE + "$kind|$peerKey".hashCode().and(0xFFFF)
+            MSG_NOTIF_BASE + Inbox.threadKey(kind, peerKey).hashCode().and(0xFFFF)
 
         fun start(context: Context) {
             context.startForegroundService(Intent(context, MeshCoreService::class.java))

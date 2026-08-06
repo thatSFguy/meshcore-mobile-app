@@ -1,5 +1,6 @@
 package io.github.thatsfguy.meshcore.android.ui
 
+import io.github.thatsfguy.meshcore.presentation.Inbox
 import io.github.thatsfguy.meshcore.presentation.AdminSession
 import android.app.Application
 import android.content.ComponentName
@@ -341,7 +342,7 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
 
     fun markThreadOpen(kind: String, peerKey: String) {
         val svc = _service.value ?: return
-        svc.repository.activeThread = "$kind|$peerKey"
+        svc.repository.activeThread = Inbox.threadKey(kind, peerKey)
         // Reading it IS dismissing it.
         svc.clearMessageNotification(kind, peerKey)
         viewModelScope.launch {
