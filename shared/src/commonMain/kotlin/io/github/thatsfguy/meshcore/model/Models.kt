@@ -112,6 +112,21 @@ data class DeviceInfo(
     val maxChannels: Int,
     val clientRepeat: Boolean?,
     val pathHashByteWidth: Int,
+    /**
+     * The configured BLE pairing PIN, or null on firmware too old to
+     * report it.
+     *
+     * **Zero is not "no PIN".** It means the node has no stored PIN and
+     * falls back to its compiled-in default — 123456 on a board without
+     * a screen, and a fresh random PIN each session on a board that has
+     * one to show it on (`MyMesh.cpp`, the `_active_ble_pin` block).
+     *
+     * This is the CONFIGURED value, not necessarily the one in force:
+     * the firmware picks `_active_ble_pin` at startup and setting a new
+     * PIN does not update it, so what is running here is whatever was
+     * stored at the last boot.
+     */
+    val blePin: Long?,
 )
 
 /** RESP_CODE_BATT_AND_STORAGE. */

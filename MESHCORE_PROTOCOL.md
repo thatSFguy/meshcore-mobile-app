@@ -223,11 +223,25 @@ CMD_SET_DEVICE_PIN (37)         u32 LE pin
   // Evidence: companion_radio/MyMesh.cpp requires `len >= 5` and reads
   //   uint32_t pin; memcpy(&pin, &cmd_frame[1], 4);
   // so this is a NUMBER, not the six ASCII digits the user typed.
-  // "000123" is a valid PIN whose value is 123 — anything round-tripping
-  // through an int has to re-pad, or it shows a PIN the radio does not have.
-  // Write-only: there is no CMD_GET_DEVICE_PIN, so a client can never
-  // display the PIN in force. Nodes without a screen default to 123456,
-  // which is public and identical across every such node.
+  //
+  // ACCEPTED VALUES — the handler is explicit, and a client that offers
+  // anything else just earns ERR_CODE_ILLEGAL_ARG:
+  //   if (pin == 0 || (pin >= 100000 && pin <= 999999))
+  // So: six digits NOT starting with zero, or 0. "012345" is refused.
+  //
+  // 0 does NOT mean "no PIN". It clears the stored value and the node
+  // falls back to its compiled BLE_PIN_CODE — 123456 on a board with no
+  // screen, and a fresh random PIN per session on a board with a display
+  // to show it on (see the _active_ble_pin block in MyMesh::begin).
+  //
+  // A CHANGE NEEDS A REBOOT. The handler writes _prefs.ble_pin and calls
+  // savePrefs(), but the PIN in force is _active_ble_pin, computed once
+  // during startup and never updated afterwards.
+  //
+  // READABLE: RESP_CODE_DEVICE_INFO carries it at bytes [4..7]
+  //   memcpy(&out_frame[i], &_prefs.ble_pin, 4)
+  // — that is the CONFIGURED value, which after a set and before a
+  // reboot is not the one the radio is actually pairing with.
 CMD_SET_PATH_HASH_MODE (61)     [1] 0 | [1] mode(0..3)   // hop-hash width = mode+1 bytes
 CMD_SET_FLOOD_SCOPE (54)        [1] 0 [| [16] scope]     // scope = SHA256("#region")[:16]; omit=reset
 

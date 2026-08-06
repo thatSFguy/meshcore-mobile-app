@@ -37,8 +37,10 @@ import io.github.thatsfguy.meshcore.protocol.DevicePin
 @Composable
 fun DevicePinSection(vm: MeshCoreViewModel) {
     val engineState by vm.engineState.collectAsState()
+    val deviceInfo by vm.deviceInfo.collectAsState()
     var pin by remember { mutableStateOf("") }
     var confirm by remember { mutableStateOf(false) }
+    var rebootPrompt by remember { mutableStateOf(false) }
 
     if (engineState != EngineState.Ready) {
         HintText("Connect to a radio to change its pairing PIN.")
@@ -46,6 +48,10 @@ fun DevicePinSection(vm: MeshCoreViewModel) {
     }
 
     Text("Bluetooth pairing PIN", style = MaterialTheme.typography.titleSmall)
+    // The node reports its configured PIN in DEVICE_INFO. 0.6.4 claimed
+    // this could not be read and showed nothing — the four bytes were
+    // simply being skipped by the parser.
+    HintText("Configured: " + DevicePin.describe(deviceInfo?.blePin))
     ExpandableHint(
         "Nodes without a screen ship with ${DevicePin.FACTORY_DEFAULT}, which is public.",
     ) {
@@ -65,19 +71,22 @@ fun DevicePinSection(vm: MeshCoreViewModel) {
         singleLine = true,
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
         supportingText = {
-            if (pin.isNotEmpty() && !DevicePin.isValid(pin)) {
-                Text("A PIN is exactly ${DevicePin.LENGTH} digits")
-            } else if (DevicePin.isFactoryDefault(pin)) {
-                Text("That is the factory default — it protects nothing")
+            val why = DevicePin.rejection(pin)
+            when {
+                why != null -> Text(why)
+                DevicePin.isUseDefault(pin) ->
+                    Text("Clears the PIN — the node reverts to its built-in default")
+                DevicePin.isFactoryDefault(pin) ->
+                    Text("That is the factory default — it protects nothing")
             }
         },
-        isError = pin.isNotEmpty() && !DevicePin.isValid(pin),
+        isError = DevicePin.rejection(pin) != null,
         modifier = Modifier.fillMaxWidth(),
     )
     ButtonFlowRow {
         TextButton(
             onClick = { confirm = true },
-            enabled = DevicePin.isValid(pin),
+            enabled = DevicePin.isAcceptable(pin),
         ) { Text("Change PIN") }
     }
 
@@ -87,7 +96,18 @@ fun DevicePinSection(vm: MeshCoreViewModel) {
             title = { Text("Change the pairing PIN?") },
             text = {
                 Text(
-                    "The radio will use $pin from now on.\n\n" +
+                    (
+                        if (DevicePin.isUseDefault(pin)) {
+                            "The radio will drop its stored PIN and go back to its " +
+                                "built-in default.\n\n"
+                        } else {
+                            "The radio will use $pin from now on.\n\n"
+                        }
+                        ) +
+                        "• It keeps pairing with the OLD pin until the node is " +
+                        "restarted — the firmware picks the active PIN at startup " +
+                        "and setting a new one does not change it. You will be " +
+                        "offered a reboot.\n" +
                         "• This phone is already paired with the OLD pin, and Android " +
                         "remembers that pairing. You will have to forget the device in " +
                         "Bluetooth settings and pair again before you can reconnect.\n" +
@@ -103,10 +123,35 @@ fun DevicePinSection(vm: MeshCoreViewModel) {
                     vm.setDevicePin(pin)
                     confirm = false
                     pin = ""
+                    rebootPrompt = true
                 }) { Text("Change it") }
             },
             dismissButton = {
                 TextButton(onClick = { confirm = false }) { Text("Cancel") }
+            },
+        )
+    }
+
+    if (rebootPrompt) {
+        AlertDialog(
+            onDismissRequest = { rebootPrompt = false },
+            title = { Text("Reboot to apply it?") },
+            text = {
+                Text(
+                    "The new PIN is stored, but the radio goes on pairing with the old " +
+                        "one until it restarts.\n\nRebooting drops the connection. You " +
+                        "will then need to forget this radio in Bluetooth settings and " +
+                        "pair again with the new PIN.",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    vm.rebootRadio()
+                    rebootPrompt = false
+                }) { Text("Reboot now") }
+            },
+            dismissButton = {
+                TextButton(onClick = { rebootPrompt = false }) { Text("Later") }
             },
         )
     }

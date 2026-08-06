@@ -4,6 +4,7 @@ import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
@@ -55,21 +56,64 @@ class DevicePinTest {
         )
     }
 
-    // --- what the UI is allowed to accept ---------------------------------
+    // --- what the FIRMWARE accepts ----------------------------------------
+    //
+    // These were wrong in 0.6.4. The tests asserted my assumption —
+    // "any six digits" — and passed, which is exactly the failure
+    // LESSONS §8 describes: both halves written by the same hand,
+    // agreeing with each other and with nothing else. The rule below is
+    // copied from the handler:
+    //     if (pin == 0 || (pin >= 100000 && pin <= 999999))
 
     @Test
-    fun `six digits is the accepted range`() {
-        // BLE passkeys are six decimal digits; anything else is not a
-        // PIN the pairing dialog can ever ask for.
+    fun `a PIN starting with zero is refused, because the radio refuses it`() {
+        // The 0.6.4 bug: "012345" was offered, sent as 12345, and
+        // rejected with ERR_CODE_ILLEGAL_ARG.
+        assertFalse(DevicePin.isValid("012345"))
+        assertFalse(DevicePin.isValid("000123"))
+        assertNotNull(DevicePin.rejection("012345"))
+    }
+
+    @Test
+    fun `six digits from 100000 to 999999 are accepted`() {
+        assertTrue(DevicePin.isValid("100000"))
         assertTrue(DevicePin.isValid("123456"))
-        assertTrue(DevicePin.isValid("000000"))
         assertTrue(DevicePin.isValid("999999"))
-        assertFalse(DevicePin.isValid("12345"))
-        assertFalse(DevicePin.isValid("1234567"))
-        assertFalse(DevicePin.isValid(""))
-        assertFalse(DevicePin.isValid("12345a"))
-        assertFalse(DevicePin.isValid("12 456"))
-        assertFalse(DevicePin.isValid("-12345"))
+        assertEquals(100000, DevicePin.parse("100000"))
+        assertEquals(999999, DevicePin.parse("999999"))
+    }
+
+    @Test
+    fun `wrong lengths and non-digits are refused`() {
+        for (bad in listOf("", "12345", "1234567", "12345a", "12 456", "-12345")) {
+            assertFalse(DevicePin.isValid(bad), "accepted \"$bad\"")
+            assertEquals(null, DevicePin.parse(bad))
+        }
+    }
+
+    @Test
+    fun `all zeros clears the PIN rather than setting one`() {
+        // Zero is a real, accepted value with a DIFFERENT meaning: the
+        // node drops its stored PIN and uses its compiled default.
+        assertTrue(DevicePin.isUseDefault("000000"))
+        assertFalse(DevicePin.isValid("000000"))
+        assertTrue(DevicePin.isAcceptable("000000"))
+        assertEquals(DevicePin.USE_DEFAULT, DevicePin.parse("000000"))
+        assertEquals(byteArrayOf(37, 0, 0, 0, 0).toList(), Frames.setDevicePin(0).toList())
+    }
+
+    @Test
+    fun `everything acceptable encodes inside the firmware's range`() {
+        // A constraint, not examples: whatever the UI lets through must
+        // satisfy the handler's own condition.
+        for (text in listOf("100000", "123456", "654321", "999999", "000000")) {
+            val pin = DevicePin.parse(text)
+            assertNotNull(pin, "rejected \"$text\"")
+            assertTrue(
+                pin == 0 || pin in DevicePin.MIN..DevicePin.MAX,
+                "\"$text\" encodes to $pin, which the firmware rejects",
+            )
+        }
     }
 
     @Test
@@ -78,10 +122,14 @@ class DevicePinTest {
         assertFalse(DevicePin.isFactoryDefault("654321"))
     }
 
+    // --- reporting what the node has ---------------------------------------
+
     @Test
-    fun `parsing keeps leading zeros meaningful`() {
-        assertEquals(123, DevicePin.parse("000123"))
-        assertEquals(0, DevicePin.parse("000000"))
-        assertEquals(null, DevicePin.parse("nope"))
+    fun `a reported zero is described, never shown as a typeable PIN`() {
+        // "000000" on screen would read as a PIN somebody could enter.
+        assertTrue(DevicePin.describe(0L).contains("built-in default"))
+        assertFalse(DevicePin.describe(0L).contains("000000"))
+        assertEquals("654321", DevicePin.describe(654321L))
+        assertTrue(DevicePin.describe(null).contains("Unknown"))
     }
 }

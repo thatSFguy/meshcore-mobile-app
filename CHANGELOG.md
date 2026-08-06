@@ -11,6 +11,15 @@ Every entry describes what is in **that tagged build**. A feature that landed af
 belongs in the next section, not this one — 0.3.0 was once credited with four features that
 shipped after it, which misled nobody so much as the author, three months later.
 
+## 0.6.5
+
+- **Fixes the PIN screen shipped in 0.6.4**, which got three things wrong. It accepted PINs
+  the radio refuses (anything starting with 0 — the firmware takes 100000–999999, or 0), it
+  claimed the current PIN could not be read when the node reports it in every DEVICE_INFO
+  frame, and it never mentioned that **the change only takes effect after a reboot**.
+- The screen now shows the configured PIN, refuses what the radio would refuse, explains that
+  `000000` clears the PIN rather than setting one, and offers to reboot straight after.
+
 ## 0.6.4
 
 - **Change the radio's Bluetooth pairing PIN** — Settings → Radio link → Bluetooth PIN. Nodes

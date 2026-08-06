@@ -246,6 +246,17 @@ object ResponseParser {
         // Firmware reports MAX_CONTACTS / 2 in byte 2 for v3+.
         val reportedContacts = frame[2].toInt() and 0xFF
         val reportedChannels = frame[3].toInt() and 0xFF
+        // Bytes 4..7 are the configured BLE pin — the firmware writes it
+        // with memcpy(&out_frame[i], &_prefs.ble_pin, 4). It was being
+        // skipped, which is why this app claimed the PIN could not be
+        // read back.
+        val blePin = if (frame.size >= 8) {
+            val r = BufferReader(frame)
+            r.skipBytes(4)
+            r.readUInt32LE()
+        } else {
+            null
+        }
         val clientRepeat = if (frame.size >= 81) frame[80].toInt() != 0 else null
         val pathHashWidth = if (frame.size >= 82) {
             ((frame[81].toInt() and 0xFF).coerceIn(0, 3)) + 1
@@ -259,6 +270,7 @@ object ResponseParser {
                 maxChannels = reportedChannels,
                 clientRepeat = clientRepeat,
                 pathHashByteWidth = pathHashWidth,
+                blePin = blePin,
             ),
         )
     }
