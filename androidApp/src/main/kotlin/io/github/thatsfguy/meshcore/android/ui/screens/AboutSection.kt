@@ -89,6 +89,10 @@ fun AboutSection(vm: MeshCoreViewModel) {
  * is a changelog you can't read in the field.
  */
 private val CHANGELOG: List<Pair<String, List<String>>> = listOf(
+    "0.5.7" to listOf(
+        "Tapping a message notification opens that conversation, instead of just opening " +
+            "the app and leaving you to find it. Back from there lands on Chats.",
+    ),
     "0.5.6" to listOf(
         "Reply notifications showed the quote and the answer run together — a reply of " +
             "\"good\" to \"yeah\" arrived as \">yeah good\". The line shown before you " +

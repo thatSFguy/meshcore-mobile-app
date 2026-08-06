@@ -11,6 +11,11 @@ Every entry describes what is in **that tagged build**. A feature that landed af
 belongs in the next section, not this one — 0.3.0 was once credited with four features that
 shipped after it, which misled nobody so much as the author, three months later.
 
+## 0.5.7
+
+- Tapping a message notification now opens **that conversation**, instead of just opening the
+  app and leaving you to find it. Back from there lands on Chats, wherever you were before.
+
 ## 0.5.6
 
 - Reply notifications showed the quote and the answer run together — a reply of "good" to

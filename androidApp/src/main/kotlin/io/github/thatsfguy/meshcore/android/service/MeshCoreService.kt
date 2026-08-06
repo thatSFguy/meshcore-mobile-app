@@ -395,9 +395,22 @@ class MeshCoreService : Service() {
             contact?.name?.ifBlank { null } ?: peerKey.take(12)
         }
 
+        // Carry WHICH thread, and give each thread its own request code.
+        //
+        // Both halves matter. Without the extras a tap only opened the
+        // app, leaving the user to find the conversation the phone had
+        // just told them about. And PendingIntent equality ignores
+        // extras — with request code 0 for every thread, all the
+        // notifications shared one PendingIntent and FLAG_UPDATE_CURRENT
+        // meant the last message to arrive silently rewrote where the
+        // others pointed.
         val intent = PendingIntent.getActivity(
-            this, 0,
-            Intent(this, MainActivity::class.java),
+            this,
+            messageNotificationId(kind, peerKey),
+            Intent(this, MainActivity::class.java)
+                .putExtra(MainActivity.EXTRA_THREAD_KIND, kind)
+                .putExtra(MainActivity.EXTRA_THREAD_PEER, peerKey)
+                .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
         // A quote-reply is one string on the wire, so printing it raw

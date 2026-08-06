@@ -50,6 +50,7 @@ import com.journeyapps.barcodescanner.ScanOptions
 import io.github.thatsfguy.meshcore.android.platform.PortraitCaptureActivity
 import io.github.thatsfguy.meshcore.android.platform.Qr
 import io.github.thatsfguy.meshcore.android.storage.ContactEntity
+import io.github.thatsfguy.meshcore.android.storage.MessageRepository
 import io.github.thatsfguy.meshcore.android.ui.MeshCoreViewModel
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -286,7 +287,7 @@ fun NodesScreen(vm: MeshCoreViewModel, nav: NavController) {
             onDismiss = { detail = null },
             onOpenChat = {
                 detail = null
-                nav.navigate("conversation/dm/${contact.keyHex}")
+                nav.navigate(conversationRoute(MessageRepository.KIND_DM, contact.keyHex))
             },
             onOpenAdmin = {
                 detail = null

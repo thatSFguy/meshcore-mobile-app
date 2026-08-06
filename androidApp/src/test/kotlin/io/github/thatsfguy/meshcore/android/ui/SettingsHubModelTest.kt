@@ -1,6 +1,8 @@
 package io.github.thatsfguy.meshcore.android.ui
 
+import io.github.thatsfguy.meshcore.android.ui.screens.CONVERSATION_ROUTE
 import io.github.thatsfguy.meshcore.android.ui.screens.appSubtitle
+import io.github.thatsfguy.meshcore.android.ui.screens.conversationRoute
 import io.github.thatsfguy.meshcore.android.ui.screens.appearanceSubtitle
 import io.github.thatsfguy.meshcore.android.ui.screens.blockingSubtitle
 import io.github.thatsfguy.meshcore.android.ui.screens.channelsSubtitle
@@ -68,6 +70,40 @@ class SettingsHubModelTest {
             )
         }
         assertTrue(source.contains("\"repeater/{key}/console?prefill={prefill}\""))
+    }
+
+    /**
+     * A notification tap deep-links to a conversation, so the route it
+     * builds and the route the NavHost declares have to agree. They are
+     * spelled in four places; this checks the generated one actually
+     * fits the declared pattern, and that the NavHost still declares it.
+     */
+    @Test
+    fun `the conversation route matches the pattern the NavHost declares`() {
+        val nav = File("src/main/kotlin/io/github/thatsfguy/meshcore/android/MainActivity.kt")
+        val source = nav.readText()
+        assertTrue(
+            "NavHost no longer declares CONVERSATION_ROUTE",
+            source.contains("composable(CONVERSATION_ROUTE)"),
+        )
+        assertEquals("conversation/{kind}/{peer}", CONVERSATION_ROUTE)
+
+        // A built route must fill exactly the declared placeholders.
+        val built = conversationRoute("dm", "b389548d314a")
+        assertEquals("conversation/dm/b389548d314a", built)
+        val pattern = Regex(
+            "^" + CONVERSATION_ROUTE.replace("{kind}", "[^/]+").replace("{peer}", "[^/]+") + "$",
+        )
+        assertTrue("built route does not match the pattern: $built", pattern.matches(built))
+        assertTrue(pattern.matches(conversationRoute("ch", "0")))
+    }
+
+    @Test
+    fun `a notification tap carries both halves of the thread key`() {
+        // kind and peerKey come straight from MessageRepository's
+        // constants; a channel's peer is its index, not a key.
+        assertEquals("conversation/ch/3", conversationRoute("ch", "3"))
+        assertEquals("conversation/dm/abc", conversationRoute("dm", "abc"))
     }
 
     @Test

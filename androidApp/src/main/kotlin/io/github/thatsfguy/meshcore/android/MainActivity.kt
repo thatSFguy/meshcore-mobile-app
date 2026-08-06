@@ -1,6 +1,8 @@
 package io.github.thatsfguy.meshcore.android
 
 import android.os.Bundle
+import kotlinx.coroutines.flow.MutableStateFlow
+import android.content.Intent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -31,7 +33,9 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import io.github.thatsfguy.meshcore.android.platform.BlePermissions
 import io.github.thatsfguy.meshcore.android.ui.MeshCoreViewModel
+import io.github.thatsfguy.meshcore.android.ui.screens.CONVERSATION_ROUTE
 import io.github.thatsfguy.meshcore.android.ui.screens.ChatsScreen
+import io.github.thatsfguy.meshcore.android.ui.screens.conversationRoute
 import io.github.thatsfguy.meshcore.android.ui.screens.ConversationScreen
 import io.github.thatsfguy.meshcore.android.ui.screens.MapScreen
 import io.github.thatsfguy.meshcore.android.ui.screens.NodesScreen
@@ -66,11 +70,22 @@ class MainActivity : ComponentActivity() {
     private val permissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { }
 
+    /**
+     * A conversation the user asked for by tapping its notification.
+     *
+     * Held as state rather than read directly in the composable because
+     * it arrives twice over: once in the Intent that starts the activity
+     * cold, and again through [onNewIntent] when the app is already
+     * running — which, with `launchMode=singleTask`, is the common case.
+     */
+    private val openThread = MutableStateFlow<Pair<String, String>?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         if (!BlePermissions.allGranted(this)) {
             permissionLauncher.launch(BlePermissions.required())
         }
+        openThread.value = threadFrom(intent)
         setContent {
             val vm: MeshCoreViewModel = viewModel()
             val theme by vm.prefs.themeFlow.collectAsState()
@@ -81,18 +96,54 @@ class MainActivity : ComponentActivity() {
                     else -> androidx.compose.foundation.isSystemInDarkTheme()
                 },
             ) {
-                AppShell(vm)
+                AppShell(vm, openThread)
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        // Keep getIntent() current, or a later configuration change
+        // replays whichever notification started the activity.
+        setIntent(intent)
+        openThread.value = threadFrom(intent)
+    }
+
+    private fun threadFrom(intent: Intent?): Pair<String, String>? {
+        val kind = intent?.getStringExtra(EXTRA_THREAD_KIND)?.takeIf { it.isNotBlank() }
+        val peer = intent?.getStringExtra(EXTRA_THREAD_PEER)?.takeIf { it.isNotBlank() }
+        return if (kind != null && peer != null) kind to peer else null
+    }
+
+    companion object {
+        const val EXTRA_THREAD_KIND = "thread_kind"
+        const val EXTRA_THREAD_PEER = "thread_peer"
     }
 }
 
 private data class Tab(val route: String, val label: String, val icon: @Composable () -> Unit)
 
 @Composable
-private fun AppShell(vm: MeshCoreViewModel) {
+private fun AppShell(
+    vm: MeshCoreViewModel,
+    openThread: MutableStateFlow<Pair<String, String>?>,
+) {
     val nav = rememberNavController()
     val snackbar = remember { SnackbarHostState() }
+
+    // Tapping a notification lands on the conversation it was about.
+    // popUpTo("chats") so Back leaves you in the app on the message
+    // list, rather than dropping you out of it or onto whatever screen
+    // happened to be open when the message arrived.
+    val pendingThread by openThread.collectAsState()
+    LaunchedEffect(pendingThread) {
+        val (kind, peer) = pendingThread ?: return@LaunchedEffect
+        nav.navigate(conversationRoute(kind, peer)) {
+            popUpTo("chats")
+            launchSingleTop = true
+        }
+        openThread.value = null
+    }
 
     val transient by vm.transientMessage.collectAsState()
     LaunchedEffect(transient) {
@@ -168,7 +219,7 @@ private fun AppShell(vm: MeshCoreViewModel) {
             composable("settings/backup") { SettingsBackupScreen(vm, nav) }
             composable("settings/data") { SettingsDataScreen(vm, nav) }
             composable("settings/about") { SettingsAboutScreen(vm, nav) }
-            composable("conversation/{kind}/{peer}") { entry ->
+            composable(CONVERSATION_ROUTE) { entry ->
                 ConversationScreen(
                     vm = vm,
                     nav = nav,

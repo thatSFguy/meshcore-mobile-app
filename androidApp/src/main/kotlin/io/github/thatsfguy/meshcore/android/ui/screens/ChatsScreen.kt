@@ -132,7 +132,7 @@ fun ChatsScreen(vm: MeshCoreViewModel, nav: NavController) {
                             ConversationRowItem(
                                 row,
                                 pinned = true,
-                                onClick = { nav.navigate("conversation/${row.kind}/${row.key}") },
+                                onClick = { nav.navigate(conversationRoute(row.kind, row.key)) },
                                 onTogglePin = {
                                     vm.prefs.setThreadPinned("${row.kind}|${row.key}", false)
                                     pinned = vm.prefs.pinnedThreads
@@ -146,7 +146,7 @@ fun ChatsScreen(vm: MeshCoreViewModel, nav: NavController) {
                         ConversationRowItem(
                             row,
                             pinned = false,
-                            onClick = { nav.navigate("conversation/${row.kind}/${row.key}") },
+                            onClick = { nav.navigate(conversationRoute(row.kind, row.key)) },
                             onTogglePin = {
                                 vm.prefs.setThreadPinned("${row.kind}|${row.key}", true)
                                 pinned = vm.prefs.pinnedThreads
