@@ -11,6 +11,20 @@ Every entry describes what is in **that tagged build**. A feature that landed af
 belongs in the next section, not this one — 0.3.0 was once credited with four features that
 shipped after it, which misled nobody so much as the author, three months later.
 
+## 0.6.0
+
+- **Message info now draws the route on a map.** Long-press a received message → Info, and the
+  path it took is drawn above the hop list.
+- Nodes that have never advertised a position are placed *approximately* so the shape of the
+  route is visible — a hollow pin with a `?` on a dotted line, never a solid pin. A companion
+  node with no GPS is offset away from the first repeater rather than stacked on it; an
+  unplaceable repeater mid-route sits between its two neighbours.
+- A hop that could not be **identified** — no contact matches its hash, or several do — is
+  never placed at any confidence. The line across it is dashed, which is what dashed already
+  means on the main map: no route is being claimed here.
+- The hop list underneath still names every node, so nothing is lost when the map cannot draw
+  one.
+
 ## 0.5.7
 
 - Tapping a message notification now opens **that conversation**, instead of just opening the

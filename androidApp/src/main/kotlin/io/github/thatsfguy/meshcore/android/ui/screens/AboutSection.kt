@@ -89,6 +89,13 @@ fun AboutSection(vm: MeshCoreViewModel) {
  * is a changelog you can't read in the field.
  */
 private val CHANGELOG: List<Pair<String, List<String>>> = listOf(
+    "0.6.0" to listOf(
+        "Message info now draws the route on a map — long-press a received message, then Info.",
+        "Nodes that never advertised a position are placed approximately so the shape of the " +
+            "route is visible: a hollow \"?\" pin on a dotted line, never a solid pin.",
+        "A hop that could not be identified at all is never placed. The line across it is " +
+            "dashed — no route is being claimed there.",
+    ),
     "0.5.7" to listOf(
         "Tapping a message notification opens that conversation, instead of just opening " +
             "the app and leaving you to find it. Back from there lands on Chats.",

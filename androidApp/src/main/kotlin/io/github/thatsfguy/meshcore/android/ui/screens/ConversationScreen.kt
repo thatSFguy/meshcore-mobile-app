@@ -60,6 +60,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import io.github.thatsfguy.meshcore.android.storage.MessageEntity
+import io.github.thatsfguy.meshcore.android.ui.MeshCoreViewModel
 import io.github.thatsfguy.meshcore.android.storage.MessageRepository
 import io.github.thatsfguy.meshcore.android.storage.MessageStatus
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -299,6 +300,11 @@ fun ConversationScreen(
     details?.let { m ->
         MessageInfoSheet(
             m,
+            vm = vm,
+            // Who it came from, for the first pin on the route map. A
+            // channel message names its sender in the text; a DM's
+            // sender IS the thread.
+            senderLabel = m.senderName?.ifBlank { null } ?: title,
             isChannel = isChannel,
             showSender = showSenders,
             // Full key hex -> name, so the arrival route can name its
@@ -837,6 +843,8 @@ private fun ReactionPicker(onPick: (String) -> Unit, onDismiss: () -> Unit) {
 @Composable
 private fun MessageInfoSheet(
     m: MessageEntity,
+    vm: MeshCoreViewModel,
+    senderLabel: String,
     isChannel: Boolean,
     showSender: Boolean,
     contactNames: Map<String, String>,
@@ -871,7 +879,10 @@ private fun MessageInfoSheet(
             // radio keeps the route to itself — so calling it "Path"
             // implied we knew which repeaters carried it. We don't.
             hopsLabel(m.hops)?.let { InfoRow("Hops travelled", it) }
-            if (!m.outgoing) ArrivalRoute(m, contactNames)
+            if (!m.outgoing) {
+                MessagePathMap(vm, m, senderLabel)
+                ArrivalRoute(m, contactNames)
+            }
             if (showSender) {
                 InfoRow(
                     "Sender name",

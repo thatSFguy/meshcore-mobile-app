@@ -596,6 +596,74 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
         )
     }
 
+    /**
+     * The route a received message took, laid out for a map.
+     *
+     * Endpoints come first and last: the sender (whose position we know
+     * only if they are a contact who advertises one — a companion node
+     * usually is not) and this radio. Returns null when there is no
+     * recorded route to draw, which is the honest answer for a flooded
+     * message: flood is not "direct", and drawing a straight line from
+     * sender to here would invent one.
+     */
+    fun sketchArrival(
+        m: io.github.thatsfguy.meshcore.android.storage.MessageEntity,
+        senderLabel: String,
+    ): io.github.thatsfguy.meshcore.protocol.PathSketch.Sketch? {
+        val width = m.arrivalHashWidth?.takeIf { it in 1..4 } ?: return null
+        val pathHex = m.arrivalPathHex?.takeIf { it.isNotEmpty() } ?: return null
+        val bytes = io.github.thatsfguy.meshcore.util.hexToBytesOrNull(pathHex) ?: return null
+        val contacts = dbContacts.value
+        val plot = io.github.thatsfguy.meshcore.protocol.PathGeometry.plot(
+            bytes,
+            width,
+            contacts.map {
+                io.github.thatsfguy.meshcore.protocol.PathGeometry.PositionedContact(
+                    it.keyHex, it.name, it.latitude, it.longitude,
+                )
+            },
+        )
+        if (plot.hops.isEmpty()) return null
+
+        val sender = contacts.firstOrNull { it.keyHex == m.peerKey }
+        val chain = buildList {
+            add(
+                io.github.thatsfguy.meshcore.protocol.PathSketch.Waypoint(
+                    label = senderLabel,
+                    latitude = sender?.latitude,
+                    longitude = sender?.longitude,
+                    isEndpoint = true,
+                ),
+            )
+            for (hop in plot.hops) {
+                add(
+                    io.github.thatsfguy.meshcore.protocol.PathSketch.Waypoint(
+                        label = hop.name ?: hop.hashHex,
+                        latitude = hop.latitude,
+                        longitude = hop.longitude,
+                        // An ambiguous or unmatched hop is not merely
+                        // position-less: we do not know WHO it was, so it
+                        // must never be placed, even approximately.
+                        unidentifiedReason = hop.gap?.takeIf {
+                            it != io.github.thatsfguy.meshcore.protocol.PathGeometry.Gap.NoPosition
+                        }?.let {
+                            io.github.thatsfguy.meshcore.protocol.PathGeometry.gapReason(it)
+                        },
+                    ),
+                )
+            }
+            add(
+                io.github.thatsfguy.meshcore.protocol.PathSketch.Waypoint(
+                    label = selfInfo.value?.name?.ifBlank { null } ?: "This radio",
+                    latitude = selfInfo.value?.latitude,
+                    longitude = selfInfo.value?.longitude,
+                    isEndpoint = true,
+                ),
+            )
+        }
+        return io.github.thatsfguy.meshcore.protocol.PathSketch.build(chain)
+    }
+
     // --- Routing / paths ---------------------------------------------
 
     /** Routing mode the radio's contact record currently implies. */
