@@ -89,6 +89,11 @@ fun AboutSection(vm: MeshCoreViewModel) {
  * is a changelog you can't read in the field.
  */
 private val CHANGELOG: List<Pair<String, List<String>>> = listOf(
+    "0.6.2" to listOf(
+        "The route map painted over the rows around it, and pinch-zooming threw the route " +
+            "lines across the whole sheet. It is clipped to its own bounds now.",
+        "Message info scrolls — the map had pushed the hop list out of reach.",
+    ),
     "0.6.1" to listOf(
         "The route map drew no tiles unless you had opened the Map tab earlier in the same " +
             "session — it looked exactly like map tiles being switched off.",

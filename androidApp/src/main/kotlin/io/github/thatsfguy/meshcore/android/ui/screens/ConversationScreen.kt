@@ -20,6 +20,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
@@ -851,7 +853,16 @@ private fun MessageInfoSheet(
     onDismiss: () -> Unit,
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(Modifier.padding(horizontal = 24.dp).padding(bottom = 32.dp)) {
+        // Scrollable since the route map arrived: the sheet gained
+        // ~250dp of map and legend, and a Column that overflows a sheet
+        // simply loses whatever is past the bottom — here the hop list,
+        // which is the part the map cannot replace.
+        Column(
+            Modifier
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 24.dp)
+                .padding(bottom = 32.dp),
+        ) {
             Text("Message info", style = MaterialTheme.typography.titleLarge)
             Spacer(Modifier.height(12.dp))
             InfoRow("Direction", if (m.outgoing) "Sent" else "Received")

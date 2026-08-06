@@ -11,6 +11,16 @@ Every entry describes what is in **that tagged build**. A feature that landed af
 belongs in the next section, not this one — 0.3.0 was once credited with four features that
 shipped after it, which misled nobody so much as the author, three months later.
 
+## 0.6.2
+
+- The route map painted over the rows around it — "Hops travelled" and the Route heading were
+  hidden behind it, and pinch-zooming threw the route lines across the whole sheet. A map view
+  draws across everything it is given and does not clip itself; now it does.
+- Message info scrolls. The map added about 250dp to a sheet that could not scroll, so on a
+  long route the hop list underneath was simply unreachable.
+- osmdroid is now configured when the app starts rather than by whichever map happens to be
+  built first, so no screen can be the one that forgets.
+
 ## 0.6.1
 
 - The route map drew no tiles unless you had opened the Map tab earlier in the same session.

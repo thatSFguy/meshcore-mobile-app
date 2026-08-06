@@ -4,10 +4,12 @@ import android.graphics.Color as AndroidColor
 import android.graphics.DashPathEffect
 import android.graphics.Paint
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -15,6 +17,8 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -81,10 +85,21 @@ fun MessagePathMap(vm: MeshCoreViewModel, m: MessageEntity, senderLabel: String)
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
     Spacer(Modifier.height(6.dp))
-    Column(Modifier.fillMaxWidth().height(220.dp)) {
+    // clipToBounds is load-bearing. A MapView draws its tiles AND its
+    // overlays across the whole canvas it is given and does not clip
+    // itself, so without this the route lines and pins paint straight
+    // over the rows above and below — and a pinch-zoom sends them all
+    // over the sheet.
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .height(200.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .clipToBounds(),
+    ) {
         AndroidView(
             factory = { mapView },
-            modifier = Modifier.fillMaxWidth().height(220.dp),
+            modifier = Modifier.fillMaxWidth().height(200.dp),
             update = { map ->
                 map.setUseDataConnection(tilesEnabled)
                 map.overlays.removeAll { it is Marker || it is Polyline }

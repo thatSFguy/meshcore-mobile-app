@@ -39,6 +39,7 @@ import io.github.thatsfguy.meshcore.android.ui.screens.conversationRoute
 import io.github.thatsfguy.meshcore.android.ui.screens.ConversationScreen
 import io.github.thatsfguy.meshcore.android.ui.screens.MapScreen
 import io.github.thatsfguy.meshcore.android.ui.screens.NodesScreen
+import io.github.thatsfguy.meshcore.android.ui.screens.OsmdroidSetup
 import io.github.thatsfguy.meshcore.android.ui.screens.RepeaterConsoleScreen
 import io.github.thatsfguy.meshcore.android.ui.screens.RepeaterHelpScreen
 import io.github.thatsfguy.meshcore.android.ui.screens.RepeaterHubScreen
@@ -85,6 +86,14 @@ class MainActivity : ComponentActivity() {
         if (!BlePermissions.allGranted(this)) {
             permissionLauncher.launch(BlePermissions.required())
         }
+        // osmdroid's configuration is a process-wide singleton, and a
+        // MapView built before it is set never receives a tile — it
+        // shows an empty grid indistinguishable from "tiles are off".
+        // Doing it here means no screen can be the one that forgot;
+        // relying on each map to configure itself is what left the
+        // message-route map blank unless the Map tab had been opened
+        // first.
+        OsmdroidSetup.apply(this)
         openThread.value = threadFrom(intent)
         setContent {
             val vm: MeshCoreViewModel = viewModel()
