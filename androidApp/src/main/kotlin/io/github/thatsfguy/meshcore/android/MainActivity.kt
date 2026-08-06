@@ -1,5 +1,6 @@
 package io.github.thatsfguy.meshcore.android
 
+import io.github.thatsfguy.meshcore.presentation.decodePrefill
 import android.os.Bundle
 import kotlinx.coroutines.flow.MutableStateFlow
 import android.content.Intent
@@ -66,7 +67,6 @@ import io.github.thatsfguy.meshcore.android.ui.screens.SettingsRadioScreen
 import io.github.thatsfguy.meshcore.android.ui.screens.SettingsScreen
 import io.github.thatsfguy.meshcore.android.ui.screens.SettingsTransportsScreen
 import io.github.thatsfguy.meshcore.android.ui.screens.SetupScreen
-import io.github.thatsfguy.meshcore.android.ui.screens.decodePrefill
 import io.github.thatsfguy.meshcore.android.ui.theme.MeshCoreTheme
 
 class MainActivity : ComponentActivity() {

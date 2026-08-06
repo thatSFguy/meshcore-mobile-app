@@ -1,17 +1,17 @@
 package io.github.thatsfguy.meshcore.android.ui
 
+import io.github.thatsfguy.meshcore.presentation.appSubtitle
+import io.github.thatsfguy.meshcore.presentation.appearanceSubtitle
+import io.github.thatsfguy.meshcore.presentation.blockingSubtitle
+import io.github.thatsfguy.meshcore.presentation.channelsSubtitle
+import io.github.thatsfguy.meshcore.presentation.connectionSubtitle
+import io.github.thatsfguy.meshcore.presentation.identitySubtitle
+import io.github.thatsfguy.meshcore.presentation.radioSubtitle
+import io.github.thatsfguy.meshcore.presentation.settingsGroups
+import io.github.thatsfguy.meshcore.presentation.settingsRoutes
+import io.github.thatsfguy.meshcore.presentation.transportsSubtitle
 import io.github.thatsfguy.meshcore.android.ui.screens.CONVERSATION_ROUTE
-import io.github.thatsfguy.meshcore.android.ui.screens.appSubtitle
 import io.github.thatsfguy.meshcore.android.ui.screens.conversationRoute
-import io.github.thatsfguy.meshcore.android.ui.screens.appearanceSubtitle
-import io.github.thatsfguy.meshcore.android.ui.screens.blockingSubtitle
-import io.github.thatsfguy.meshcore.android.ui.screens.channelsSubtitle
-import io.github.thatsfguy.meshcore.android.ui.screens.connectionSubtitle
-import io.github.thatsfguy.meshcore.android.ui.screens.identitySubtitle
-import io.github.thatsfguy.meshcore.android.ui.screens.radioSubtitle
-import io.github.thatsfguy.meshcore.android.ui.screens.settingsGroups
-import io.github.thatsfguy.meshcore.android.ui.screens.settingsRoutes
-import io.github.thatsfguy.meshcore.android.ui.screens.transportsSubtitle
 import io.github.thatsfguy.meshcore.engine.EngineState
 import io.github.thatsfguy.meshcore.protocol.RadioPresets
 import java.io.File

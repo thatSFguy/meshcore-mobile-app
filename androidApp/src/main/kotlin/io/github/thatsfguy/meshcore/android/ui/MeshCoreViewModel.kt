@@ -1,5 +1,6 @@
 package io.github.thatsfguy.meshcore.android.ui
 
+import io.github.thatsfguy.meshcore.presentation.AdminSession
 import android.app.Application
 import android.content.ComponentName
 import android.content.Context
@@ -16,7 +17,6 @@ import io.github.thatsfguy.meshcore.android.storage.MeshCoreDatabase
 import io.github.thatsfguy.meshcore.android.storage.MessageEntity
 import io.github.thatsfguy.meshcore.android.storage.MessageRepository
 import io.github.thatsfguy.meshcore.android.storage.Preferences
-import io.github.thatsfguy.meshcore.android.ui.screens.AdminSession
 import io.github.thatsfguy.meshcore.engine.EngineState
 import io.github.thatsfguy.meshcore.engine.MeshEvent
 import io.github.thatsfguy.meshcore.model.BatteryAndStorage

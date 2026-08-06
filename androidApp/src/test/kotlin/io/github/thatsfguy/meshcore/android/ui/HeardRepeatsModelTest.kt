@@ -1,7 +1,7 @@
 package io.github.thatsfguy.meshcore.android.ui
 
+import io.github.thatsfguy.meshcore.presentation.repeatRows
 import io.github.thatsfguy.meshcore.android.ui.screens.HEARD_REPEATS_ROUTE
-import io.github.thatsfguy.meshcore.android.ui.screens.repeatRows
 import io.github.thatsfguy.meshcore.protocol.HeardRepeats
 import io.github.thatsfguy.meshcore.util.RelativeTime
 import java.io.File

@@ -1,11 +1,11 @@
 package io.github.thatsfguy.meshcore.android.ui
 
-import io.github.thatsfguy.meshcore.android.ui.screens.AdminSession
+import io.github.thatsfguy.meshcore.presentation.AdminSession
+import io.github.thatsfguy.meshcore.presentation.decodePrefill
+import io.github.thatsfguy.meshcore.presentation.encodePrefill
+import io.github.thatsfguy.meshcore.presentation.repeaterHubTiles
+import io.github.thatsfguy.meshcore.presentation.repeaterRoleLabel
 import io.github.thatsfguy.meshcore.android.ui.screens.cliHelpSummary
-import io.github.thatsfguy.meshcore.android.ui.screens.decodePrefill
-import io.github.thatsfguy.meshcore.android.ui.screens.encodePrefill
-import io.github.thatsfguy.meshcore.android.ui.screens.repeaterHubTiles
-import io.github.thatsfguy.meshcore.android.ui.screens.repeaterRoleLabel
 import io.github.thatsfguy.meshcore.android.ui.screens.usageOf
 import io.github.thatsfguy.meshcore.protocol.CliCatalog
 import io.github.thatsfguy.meshcore.protocol.NodeRole

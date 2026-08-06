@@ -153,7 +153,13 @@ object ConfigBackup {
         sb.appendLine("created ${plain.createdAt}")
         sb.appendLine("app ${escape(plain.appVersion)}")
         sb.appendLine("self ${escape(plain.selfKeyHex)}")
-        for ((k, v) in plain.settings.toSortedMap()) {
+        // sortedBy, not toSortedMap: the latter is java.util and is
+        // JVM-only, so it compiles for Android and cannot compile for
+        // Native. This single call is why the iOS build was red when its
+        // CI was removed. Determinism is the requirement — a backup must
+        // encode identically twice — and sorting the entries gives that
+        // on every target.
+        for ((k, v) in plain.settings.entries.sortedBy { it.key }.map { it.key to it.value }) {
             sb.appendLine("set ${escape(k)} ${escape(v)}")
         }
         for (c in plain.contacts) {
@@ -163,7 +169,8 @@ object ConfigBackup {
             sb.appendLine("channel ${c.index} ${escape(c.name)}")
         }
         for (r in plain.regions) sb.appendLine("region ${escape(r)}")
-        for ((idx, region) in plain.channelRegions.toSortedMap()) {
+        for ((idx, region) in plain.channelRegions.entries.sortedBy { it.key }
+            .map { it.key to it.value }) {
             sb.appendLine("chregion $idx ${escape(region)}")
         }
 

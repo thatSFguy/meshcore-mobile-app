@@ -1,5 +1,6 @@
-package io.github.thatsfguy.meshcore.android.ui.screens
+package io.github.thatsfguy.meshcore.presentation
 
+import io.github.thatsfguy.meshcore.util.fixed
 import io.github.thatsfguy.meshcore.engine.EngineState
 
 /**
@@ -148,7 +149,7 @@ fun radioSubtitle(freqKhz: Long?, sf: Int?, txPowerDbm: Int?): String {
     if (freqKhz == null || freqKhz <= 0) return "Connect to read radio parameters"
     val mhz = freqKhz / 1000.0
     return buildString {
-        append("%.3f MHz".format(mhz))
+        append(fixed(mhz, 3) + " MHz")
         if (sf != null && sf > 0) append(" · SF$sf")
         if (txPowerDbm != null && txPowerDbm > 0) append(" · ${txPowerDbm}dBm")
     }

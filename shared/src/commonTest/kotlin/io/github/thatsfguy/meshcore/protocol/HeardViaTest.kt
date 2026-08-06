@@ -1,5 +1,6 @@
 package io.github.thatsfguy.meshcore.protocol
 
+import io.github.thatsfguy.meshcore.util.hexPadded
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -58,7 +59,7 @@ class HeardViaTest {
     fun reversingTwiceIsIdentity() {
         for (width in 1..4) {
             for (hops in 0..8) {
-                val hex = (0 until hops * width).joinToString("") { "%02x".format(it) }
+                val hex = (0 until hops * width).joinToString("") { hexPadded(it, 2) }
                 assertEquals(hex, HeardVia.reverseHex(HeardVia.reverseHex(hex, width), width))
             }
         }

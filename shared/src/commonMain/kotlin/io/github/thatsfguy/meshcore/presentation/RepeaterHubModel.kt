@@ -1,4 +1,4 @@
-package io.github.thatsfguy.meshcore.android.ui.screens
+package io.github.thatsfguy.meshcore.presentation
 
 import io.github.thatsfguy.meshcore.protocol.NodeRole
 

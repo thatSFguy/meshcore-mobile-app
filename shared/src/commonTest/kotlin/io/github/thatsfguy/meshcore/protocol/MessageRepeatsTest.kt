@@ -1,5 +1,6 @@
 package io.github.thatsfguy.meshcore.protocol
 
+import io.github.thatsfguy.meshcore.util.hexPadded
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
@@ -64,7 +65,7 @@ class MessageRepeatsTest {
     fun `the relay list is capped`() {
         var hex: String? = null
         for (i in 0 until MessageRepeats.MAX_RELAYS + 8) {
-            hex = MessageRepeats.merge(hex, "%04x".format(i), 2)
+            hex = MessageRepeats.merge(hex, hexPadded(i, 4), 2)
         }
         assertEquals(MessageRepeats.MAX_RELAYS, MessageRepeats.count(hex, 2))
     }

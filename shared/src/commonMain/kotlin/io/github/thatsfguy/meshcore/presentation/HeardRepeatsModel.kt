@@ -1,5 +1,6 @@
-package io.github.thatsfguy.meshcore.android.ui.screens
+package io.github.thatsfguy.meshcore.presentation
 
+import io.github.thatsfguy.meshcore.util.fixed
 import io.github.thatsfguy.meshcore.protocol.HeardRepeats
 import io.github.thatsfguy.meshcore.protocol.PathCodec
 import io.github.thatsfguy.meshcore.util.RelativeTime
@@ -60,7 +61,7 @@ fun repeatRows(
         // Stated only for the repeater whose transmission this radio
         // actually demodulated. Showing a number against the far end of
         // a path would be reporting a link nobody measured.
-        snrText = relay.bestSnr?.let { "SNR %.1f dB".format(it) },
+        snrText = relay.bestSnr?.let { "SNR " + fixed(it, 1) + " dB" },
         ageText = RelativeTime.agoMillis(nowMillis - relay.lastAtMillis),
         isTwoWay = relay.isTwoWay,
         isAmbiguous = hop?.isAmbiguous == true,
