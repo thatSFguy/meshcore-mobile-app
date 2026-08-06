@@ -45,7 +45,9 @@ Layout:
   (handshake, serialized command queue, contact/channel sync, queue drain, RX-log decrypt,
   repeater admin), `transport/` (Transport iface, SerialFraming — **`<`/`>` + u16LE length,
   NOT COBS**; BLE = frame-per-write, no framing), androidMain (BLE/USB/TCP + BC crypto),
-  iosMain (TCP + CommonCrypto; Ed25519 stubs pending the CryptoKit bridge).
+  iosMain (TCP + CommonCrypto; Ed25519 bridged to CryptoKit 2026-08-06 via
+  `shared/iosCryptoBridge/` + cinterop — written but NOT yet proven by a green
+  iOS CI run, which is the only thing that compiles it).
   Tests: `./gradlew :shared:testDebugUnitTest` — protocol vectors + fake-radio engine tests.
 - **`androidApp/`** — Room DB (sealed PSKs), KeystoreSecretVault, MeshCoreService
   (foreground + reconnect supervisor), MeshCoreViewModel, Compose screens (chats,

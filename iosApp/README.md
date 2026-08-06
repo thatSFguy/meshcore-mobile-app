@@ -15,11 +15,15 @@ the protocol/engine/transport layer. Not yet wired on real hardware:
 - **BLE (NUS)**: needs an `IosBleTransport` (CoreBluetooth) in
   `shared/src/iosMain` — port of the sibling's `IosBleTransport.kt` with
   MeshCore's frame-per-write semantics (no KISS).
-- **Ed25519**: `IosCryptoProvider` implements SHA-2/HMAC/AES-ECB via
-  CommonCrypto; Ed25519 throws pending the CryptoKit bridge (copy the
-  sibling's `iosCryptoBridge` static-lib pattern). Until then advert
-  verification — and therefore contact import — must stay disabled on
-  iOS.
+- **Ed25519**: bridged to CryptoKit as of 2026-08-06.
+  `shared/iosCryptoBridge/MeshCoreCrypto.swift` exposes sign/verify/
+  pubkey over a C ABI, cinterop'd as `mch_*`; `IosCryptoProvider` calls
+  it and still fails CLOSED on any error, because a throw out of
+  `ed25519Verify` would escape the RX collector and one malformed advert
+  would deafen the app. ⚠ **Not yet verified by a green CI run** — it
+  cannot be compiled off macOS, so until the iOS CI workflow goes green
+  this is written-but-unproven. Advert verification, and therefore
+  contact import, is what it unblocks.
 - **Persistence**: in-memory only; port the sibling's SQLDelight
   scaffolding for durable messages.
 

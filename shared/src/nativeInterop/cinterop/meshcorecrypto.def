@@ -1,0 +1,25 @@
+# cinterop binding for the Swift CryptoKit wrapper at
+# `shared/iosCryptoBridge/`. Compiled output lands at
+# `shared/build/iosCryptoBridge/<kotlin-target>/libMeshCoreCrypto.a`.
+#
+# The -L<built-dir> path is target-specific and is set per binary in
+# shared/build.gradle.kts rather than baked in here. Frameworks listed
+# below apply to the link step universally.
+#
+# Type note: cinterop's C parser does not auto-include <stdint.h>, so
+# these decls use plain `unsigned char` / `int` rather than uint8_t /
+# int32_t. They are ABI-identical on iOS arm64/x64 and match what
+# @_cdecl Swift's UInt8 / Int32 exports.
+
+linkerOpts = -framework CryptoKit -framework Foundation -framework Security -lMeshCoreCrypto
+
+---
+
+void mch_ed25519_keygen(unsigned char* out);
+int mch_ed25519_pubkey(const unsigned char* seed, unsigned char* out);
+int mch_ed25519_sign(const unsigned char* seed, const unsigned char* msg, int msg_len, unsigned char* out);
+int mch_ed25519_verify(const unsigned char* sig, const unsigned char* msg, int msg_len, const unsigned char* pub);
+
+// Secret-vault wrapping key in the iOS Keychain (see MeshCoreCrypto.swift).
+// Fills `out` with the 32-byte AES master key; returns 0 on success.
+int mch_keychain_get_or_create_key(unsigned char* out);

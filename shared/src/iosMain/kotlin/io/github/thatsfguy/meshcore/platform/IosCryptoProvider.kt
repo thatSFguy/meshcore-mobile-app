@@ -1,6 +1,9 @@
 package io.github.thatsfguy.meshcore.platform
 
 import io.github.thatsfguy.meshcore.crypto.CryptoProvider
+import io.github.thatsfguy.meshcore.crypto.cinterop.mch_ed25519_pubkey
+import io.github.thatsfguy.meshcore.crypto.cinterop.mch_ed25519_sign
+import io.github.thatsfguy.meshcore.crypto.cinterop.mch_ed25519_verify
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.addressOf
 import kotlinx.cinterop.convert
@@ -117,17 +120,79 @@ class IosCryptoProvider : CryptoProvider {
 
     override fun generateEd25519Seed(): ByteArray = randomBytes(32)
 
-    // Ed25519 needs the CryptoKit bridge. Until it lands these FAIL
-    // CLOSED rather than throwing: a throw from ed25519Verify would
-    // escape the RX collector (NotImplementedError is an Error, not an
-    // Exception) and one hostile advert would deafen the app. Verify
-    // returning false means adverts are simply never trusted on iOS.
-    override fun ed25519PublicKey(seed: ByteArray): ByteArray = ByteArray(0)
+    // Ed25519 via the CryptoKit bridge (shared/iosCryptoBridge). These
+    // used to fail closed — returning empty keys and `false` — because
+    // CommonCrypto has no Curve25519 at all, which meant iOS could
+    // never verify an advert and so could never import a contact.
+    //
+    // They still fail CLOSED on error rather than throwing. A throw out
+    // of ed25519Verify would escape the RX collector and one malformed
+    // advert would deafen the app; returning false just declines to
+    // trust that advert, which is the correct answer anyway.
+    //
+    // The seed is 32 bytes — the same representation Bouncy Castle takes
+    // on Android. MeshCore's EXPANDED private key is a different thing
+    // and must never be passed here.
 
-    override fun ed25519Sign(message: ByteArray, seed: ByteArray): ByteArray = ByteArray(0)
+    override fun ed25519PublicKey(seed: ByteArray): ByteArray {
+        if (seed.size != 32) return ByteArray(0)
+        val out = ByteArray(32)
+        val rc = seed.usePinned { s ->
+            out.usePinned { o ->
+                mch_ed25519_pubkey(
+                    s.addressOf(0).reinterpretUByte(),
+                    o.addressOf(0).reinterpretUByte(),
+                )
+            }
+        }
+        return if (rc == 0) out else ByteArray(0)
+    }
 
-    override fun ed25519Verify(signature: ByteArray, message: ByteArray, publicKey: ByteArray): Boolean =
-        false
+    override fun ed25519Sign(message: ByteArray, seed: ByteArray): ByteArray {
+        if (seed.size != 32) return ByteArray(0)
+        val out = ByteArray(64)
+        // An empty message still has to sign; pinning a zero-length
+        // array yields no address, so give it a one-byte scratch and
+        // pass length 0.
+        val msg = if (message.isEmpty()) ByteArray(1) else message
+        val rc = seed.usePinned { s ->
+            msg.usePinned { m ->
+                out.usePinned { o ->
+                    mch_ed25519_sign(
+                        s.addressOf(0).reinterpretUByte(),
+                        m.addressOf(0).reinterpretUByte(),
+                        message.size,
+                        o.addressOf(0).reinterpretUByte(),
+                    )
+                }
+            }
+        }
+        return if (rc == 0) out else ByteArray(0)
+    }
+
+    override fun ed25519Verify(
+        signature: ByteArray,
+        message: ByteArray,
+        publicKey: ByteArray,
+    ): Boolean {
+        // Length checks first: the bridge reads fixed-size buffers, so a
+        // short signature or key off the mesh would be an over-read.
+        if (signature.size != 64 || publicKey.size != 32) return false
+        val msg = if (message.isEmpty()) ByteArray(1) else message
+        val rc = signature.usePinned { sig ->
+            msg.usePinned { m ->
+                publicKey.usePinned { pub ->
+                    mch_ed25519_verify(
+                        sig.addressOf(0).reinterpretUByte(),
+                        m.addressOf(0).reinterpretUByte(),
+                        message.size,
+                        pub.addressOf(0).reinterpretUByte(),
+                    )
+                }
+            }
+        }
+        return rc == 1
+    }
 
     override fun randomBytes(length: Int): ByteArray {
         val out = ByteArray(length)
