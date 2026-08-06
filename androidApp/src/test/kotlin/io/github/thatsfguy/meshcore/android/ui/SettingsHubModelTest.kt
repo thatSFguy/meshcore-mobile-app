@@ -7,10 +7,7 @@ import io.github.thatsfguy.meshcore.android.ui.screens.appearanceSubtitle
 import io.github.thatsfguy.meshcore.android.ui.screens.blockingSubtitle
 import io.github.thatsfguy.meshcore.android.ui.screens.channelsSubtitle
 import io.github.thatsfguy.meshcore.android.ui.screens.connectionSubtitle
-import io.github.thatsfguy.meshcore.android.ui.screens.diagnosticsSubtitle
 import io.github.thatsfguy.meshcore.android.ui.screens.identitySubtitle
-import io.github.thatsfguy.meshcore.android.ui.screens.notificationsSubtitle
-import io.github.thatsfguy.meshcore.android.ui.screens.privacySubtitle
 import io.github.thatsfguy.meshcore.android.ui.screens.radioSubtitle
 import io.github.thatsfguy.meshcore.android.ui.screens.settingsGroups
 import io.github.thatsfguy.meshcore.android.ui.screens.settingsRoutes
@@ -246,50 +243,6 @@ class SettingsHubModelTest {
     }
 
     @Test
-    fun `an unencrypted database outranks everything else on its row`() {
-        // This is the one fact on the Settings screen a user must not
-        // have to open a page to discover, so it wins the subtitle
-        // regardless of the map-tile setting.
-        assertTrue(
-            privacySubtitle(mapTilesEnabled = true, storageEncrypted = false).startsWith("⚠"),
-        )
-        assertTrue(
-            privacySubtitle(mapTilesEnabled = false, storageEncrypted = false).startsWith("⚠"),
-        )
-        assertFalse(
-            privacySubtitle(mapTilesEnabled = false, storageEncrypted = true).startsWith("⚠"),
-        )
-    }
-
-    @Test
-    fun `privacy subtitle states the network behaviour exactly`() {
-        // REBUILD-PLAYBOOK §0.5 asks for network behaviour stated
-        // exactly. Map tiles are the only outbound HTTP this app makes.
-        assertEquals(
-            "Map tiles off — no outbound HTTP",
-            privacySubtitle(mapTilesEnabled = false, storageEncrypted = true),
-        )
-        assertEquals(
-            "Map tiles on — the app's only outbound HTTP",
-            privacySubtitle(mapTilesEnabled = true, storageEncrypted = true),
-        )
-    }
-
-    @Test
-    fun `notifications subtitle does not claim to be on when nothing is selected`() {
-        assertEquals("Off", notificationsSubtitle(false, direct = true, channels = true))
-        assertEquals(
-            "On — direct messages and channels",
-            notificationsSubtitle(true, direct = true, channels = true),
-        )
-        assertEquals("On — channels", notificationsSubtitle(true, direct = false, channels = true))
-        assertEquals(
-            "On, but no message type selected",
-            notificationsSubtitle(true, direct = false, channels = false),
-        )
-    }
-
-    @Test
     fun `an unencrypted database still wins the merged App row`() {
         // Privacy lost its own tile when four thin screens became one.
         // The warning must not have been folded away with it.
@@ -324,12 +277,10 @@ class SettingsHubModelTest {
     }
 
     @Test
-    fun `appearance and diagnostics report their current value`() {
+    fun `appearance reports its current value`() {
         assertEquals("Follow the system", appearanceSubtitle("system"))
         assertEquals("Follow the system", appearanceSubtitle("anything unrecognised"))
         assertEquals("Light", appearanceSubtitle("light"))
         assertEquals("Dark", appearanceSubtitle("dark"))
-        assertEquals("Off", diagnosticsSubtitle(false))
-        assertTrue(diagnosticsSubtitle(true).startsWith("On"))
     }
 }

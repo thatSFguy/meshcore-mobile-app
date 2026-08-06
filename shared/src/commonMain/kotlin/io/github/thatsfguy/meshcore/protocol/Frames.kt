@@ -180,10 +180,6 @@ object Frames {
     fun removeContact(pubKey: ByteArray): ByteArray =
         cmdWithPubKey(Codes.CMD_REMOVE_CONTACT, pubKey)
 
-    /** CMD_SHARE_CONTACT (zero-hop share): [cmd][pubkey x32] */
-    fun shareContact(pubKey: ByteArray): ByteArray =
-        cmdWithPubKey(Codes.CMD_SHARE_CONTACT, pubKey)
-
     /** CMD_EXPORT_CONTACT: [cmd][pubkey x32]; empty pubkey exports self. */
     fun exportContact(pubKey: ByteArray = ByteArray(0)): ByteArray {
         val w = BufferWriter()
@@ -263,10 +259,6 @@ object Frames {
         w.writeBytesPadded(psk, Codes.CIPHER_BLOCK_SIZE)
         return w.toBytes()
     }
-
-    /** CMD_GET_STATS: [cmd][stats_type] */
-    fun getStats(statsType: Int): ByteArray =
-        byteArrayOf(Codes.CMD_GET_STATS.toByte(), (statsType and 0xFF).toByte())
 
     /** CMD_SET_PATH_HASH_MODE: [cmd][0][mode 0..3] */
     fun setPathHashMode(mode: Int): ByteArray =
@@ -425,12 +417,6 @@ object Frames {
         w.writeUInt32LE(0)
         return w.toBytes()
     }
-
-    /** Binary payload for a keep-alive to a room server. */
-    fun keepAlivePayload(): ByteArray = byteArrayOf(Codes.REQ_TYPE_KEEP_ALIVE.toByte())
-
-    /** Binary payload requesting repeater status. */
-    fun statusRequestPayload(): ByteArray = byteArrayOf(Codes.REQ_TYPE_GET_STATUS.toByte())
 
     private fun cmdWithPubKey(cmd: Int, pubKey: ByteArray): ByteArray {
         require(pubKey.size == PUB_KEY_SIZE) { "pubkey must be 32 bytes" }

@@ -48,6 +48,9 @@ class SecretsRepository(
     suspend fun communityIds(): List<String> =
         prefs.sealedKeys("community_").map { it.removePrefix("community_") }
 
+    // UNWIRED (audited 2026-08-06): no caller, so a community secret can
+    // be stored but never forgotten short of a full purge. Worth wiring
+    // rather than deleting — it is a privacy affordance.
     fun forgetCommunitySecret(communityIdHex: String) {
         prefs.putSealed("community_$communityIdHex", null)
     }

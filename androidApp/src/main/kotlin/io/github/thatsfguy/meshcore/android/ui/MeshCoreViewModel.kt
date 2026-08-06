@@ -1031,11 +1031,6 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
     private val _adminSessions = MutableStateFlow<Map<String, AdminSession>>(emptyMap())
     val adminSessions: StateFlow<Map<String, AdminSession>> = _adminSessions
 
-    fun session(keyHex: String): AdminSession =
-        _adminSessions.value[keyHex] ?: AdminSession.None
-
-    fun isAdminSession(keyHex: String): Boolean = session(keyHex).isAdmin
-
     /** True while a login round-trip is in flight, per node. */
     private val _loginInFlight = MutableStateFlow<Set<String>>(emptySet())
     val loginInFlight: StateFlow<Set<String>> = _loginInFlight
@@ -1586,8 +1581,6 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
     val channelRegions: StateFlow<Map<Int, String>> = regionRevision
         .map { prefs.channelRegions() }
         .stateIn(viewModelScope, SharingStarted.Eagerly, prefs.channelRegions())
-
-    fun regionFor(channelIndex: Int): String? = prefs.channelRegion(channelIndex)
 
     fun addRegion(name: String) {
         val added = prefs.addRegion(name)

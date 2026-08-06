@@ -216,8 +216,6 @@ class Preferences(context: Context) {
         get() = prefs.getStringSet("pinned_threads", emptySet())!!
         set(v) { prefs.edit().putStringSet("pinned_threads", v).apply() }
 
-    fun isThreadPinned(key: String): Boolean = key in pinnedThreads
-
     fun setThreadPinned(key: String, pinned: Boolean) {
         pinnedThreads = if (pinned) pinnedThreads + key else pinnedThreads - key
     }
@@ -378,6 +376,9 @@ class Preferences(context: Context) {
     fun channelRetention(idx: Int): Retention.Policy? =
         prefs.getString("retention_ch_$idx", null)?.let { Retention.decode(it) }
 
+    // UNWIRED (audited 2026-08-06): the retention sweep reads per-channel
+    // overrides, but nothing ever writes one — so the feature exists in
+    // the data model with no way to reach it from the UI.
     fun setChannelRetention(idx: Int, policy: Retention.Policy?) {
         prefs.edit().apply {
             if (policy == null) remove("retention_ch_$idx") else {

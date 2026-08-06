@@ -1395,9 +1395,6 @@ class MeshCoreEngine(
         return ok
     }
 
-    suspend fun shareContactZeroHop(pubKey: ByteArray): Boolean =
-        sendAndAwait(Frames.shareContact(pubKey)) { it is DeviceEvent.Ok } is DeviceEvent.Ok
-
     // ------------------------------------------------------------------
     // Channel management
     // ------------------------------------------------------------------

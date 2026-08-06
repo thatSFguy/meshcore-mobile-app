@@ -218,9 +218,6 @@ class Cp21xxSerialPort(
  */
 object UsbSerialProber {
 
-    /** VID/PIDs this build can drive, for the Add-node device filter. */
-    fun isSupported(device: UsbDevice): Boolean = driverName(device) != null
-
     fun driverName(device: UsbDevice): String? = when {
         device.vendorId == VID_SILICON_LABS -> "CP210x"
         hasCdcInterface(device) -> "CDC-ACM"

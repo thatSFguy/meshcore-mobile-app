@@ -75,6 +75,10 @@ interface MessageDao {
         "UPDATE messages SET status = :failed WHERE selfKey = :selfKey AND status = :pending " +
             "AND receivedAt < :olderThanMillis",
     )
+    // UNWIRED (audited 2026-08-06): nothing calls this, so an outbound
+    // message whose ACK never arrives stays "pending" for ever rather
+    // than being failed. Kept because deleting it would erase the
+    // evidence that the feature is unfinished, not because it is used.
     suspend fun failStalePending(
         selfKey: String,
         olderThanMillis: Long,
@@ -206,9 +210,6 @@ interface ContactDao {
 
     @Query("SELECT * FROM contacts WHERE selfKey = :selfKey ORDER BY name COLLATE NOCASE")
     fun all(selfKey: String): Flow<List<ContactEntity>>
-
-    @Query("SELECT * FROM contacts WHERE selfKey = :selfKey AND keyHex = :keyHex")
-    suspend fun byKey(selfKey: String, keyHex: String): ContactEntity?
 
     @Query("SELECT * FROM contacts WHERE selfKey = :selfKey")
     suspend fun allOnce(selfKey: String): List<ContactEntity>

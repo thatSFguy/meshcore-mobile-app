@@ -35,8 +35,4 @@ object BlePermissions {
     fun allGranted(context: Context): Boolean = required().all { p ->
         ContextCompat.checkSelfPermission(context, p) == PackageManager.PERMISSION_GRANTED
     }
-
-    fun missing(context: Context): List<String> = required().filter { p ->
-        ContextCompat.checkSelfPermission(context, p) != PackageManager.PERMISSION_GRANTED
-    }
 }

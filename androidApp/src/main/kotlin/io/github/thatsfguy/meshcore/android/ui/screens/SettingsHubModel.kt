@@ -166,27 +166,6 @@ fun appearanceSubtitle(theme: String): String = when (theme) {
     else -> "Follow the system"
 }
 
-fun notificationsSubtitle(enabled: Boolean, direct: Boolean, channels: Boolean): String {
-    if (!enabled) return "Off"
-    val kinds = buildList {
-        if (direct) add("direct messages")
-        if (channels) add("channels")
-    }
-    return if (kinds.isEmpty()) "On, but no message type selected" else "On — " + kinds.joinToString(" and ")
-}
-
-fun privacySubtitle(mapTilesEnabled: Boolean, storageEncrypted: Boolean): String = when {
-    // The storage warning outranks the tile's normal subtitle: an
-    // unencrypted database is the one thing on this screen a user must
-    // not have to open a page to discover.
-    !storageEncrypted -> "⚠ Message storage is NOT encrypted"
-    mapTilesEnabled -> "Map tiles on — the app's only outbound HTTP"
-    else -> "Map tiles off — no outbound HTTP"
-}
-
-fun diagnosticsSubtitle(enabled: Boolean): String =
-    if (enabled) "On — secrets redacted before logging" else "Off"
-
 /**
  * The one App row, summarising four sections.
  *

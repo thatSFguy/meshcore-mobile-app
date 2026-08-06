@@ -176,29 +176,6 @@ fun ChatsScreen(vm: MeshCoreViewModel, nav: NavController) {
     }
 }
 
-@Composable
-fun ConnectionStatusLine(vm: MeshCoreViewModel) {
-    val engineState by vm.engineState.collectAsState()
-    val label by vm.connectionLabel.collectAsState()
-    val plaintext by vm.plaintextLink.collectAsState()
-    val text = when (engineState) {
-        EngineState.Ready -> "Connected · ${label ?: "radio"}" +
-            if (plaintext) " ⚠ unencrypted link" else ""
-        EngineState.Handshaking -> "Handshaking…"
-        EngineState.Connecting -> "Connecting…"
-        EngineState.Detached -> "Not connected"
-    }
-    Text(
-        text,
-        style = MaterialTheme.typography.labelSmall,
-        color = if (plaintext && engineState == EngineState.Ready) {
-            MaterialTheme.colorScheme.error
-        } else {
-            MaterialTheme.colorScheme.onSurfaceVariant
-        },
-    )
-}
-
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 private fun ConversationRowItem(
@@ -325,13 +302,6 @@ private fun NicknameDialog(
             androidx.compose.material3.TextButton(onClick = onDismiss) { Text("Cancel") }
         },
     )
-}
-
-private fun typePrefix(type: Int?): String = when (type) {
-    Codes.ADV_TYPE_REPEATER -> "⛰ "
-    Codes.ADV_TYPE_ROOM -> "🏠 "
-    Codes.ADV_TYPE_SENSOR -> "🌡 "
-    else -> ""
 }
 
 @Composable

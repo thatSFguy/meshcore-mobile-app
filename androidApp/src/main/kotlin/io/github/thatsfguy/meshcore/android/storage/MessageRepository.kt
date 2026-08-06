@@ -494,9 +494,6 @@ class MessageRepository(
         return removed
     }
 
-    suspend fun messageCount(): Int =
-        if (selfKey.isEmpty()) 0 else db.messages().countAll(selfKey)
-
     // ------------------------------------------------------------------
     // Purge (PARITY §1)
     // ------------------------------------------------------------------
@@ -799,6 +796,9 @@ class MessageRepository(
     }
 
     /** Tie an outbound ack hash to the path it went out on. */
+    // UNWIRED (audited 2026-08-06): no caller, so an ack is never tied
+    // to the path it went out on and the routing sheet scores routes
+    // only from the retry loop's own bookkeeping. Kept as evidence.
     fun attributeAck(ackHash: Long, contactKey: String, pathHex: String) {
         ackPaths[ackHash] = contactKey to pathHex
     }

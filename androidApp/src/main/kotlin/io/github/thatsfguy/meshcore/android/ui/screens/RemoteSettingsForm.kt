@@ -27,6 +27,8 @@ import io.github.thatsfguy.meshcore.android.storage.ContactEntity
 import io.github.thatsfguy.meshcore.android.ui.MeshCoreViewModel
 import io.github.thatsfguy.meshcore.engine.EngineState
 import io.github.thatsfguy.meshcore.protocol.CliReplies
+import io.github.thatsfguy.meshcore.protocol.CliFormFields
+import io.github.thatsfguy.meshcore.protocol.CliIds
 import io.github.thatsfguy.meshcore.protocol.CliValues
 import io.github.thatsfguy.meshcore.protocol.NodeRole
 import kotlinx.coroutines.launch
@@ -61,9 +63,9 @@ fun RemoteSettingsForm(
     // Seed from the cached contact record so the form is never empty.
     remember(contact?.keyHex) {
         if (contact != null) {
-            values.putIfAbsent("name", contact.name)
-            contact.latitude?.let { values.putIfAbsent("lat", it.toString()) }
-            contact.longitude?.let { values.putIfAbsent("lon", it.toString()) }
+            values.putIfAbsent(CliIds.NAME, contact.name)
+            contact.latitude?.let { values.putIfAbsent(CliIds.LAT, it.toString()) }
+            contact.longitude?.let { values.putIfAbsent(CliIds.LON, it.toString()) }
         }
         true
     }
@@ -79,20 +81,20 @@ fun RemoteSettingsForm(
         for (id in ids) {
             val value = vm.cliQuery(keyHex, "get $id")?.let { CliReplies.extractGetValue(it) }
                 ?: continue
-            if (id == "radio") {
+            if (id == CliIds.RADIO) {
                 CliReplies.parseRadioCsv(value)?.let { r ->
-                    values["radio.freq"] = r.freqMhz.toString()
-                    values["radio.bw"] = r.bwKhz.toString()
-                    values["radio.sf"] = r.sf.toString()
-                    values["radio.cr"] = r.cr.toString()
-                    listOf("radio.freq", "radio.bw", "radio.sf", "radio.cr")
+                    values[CliFormFields.RADIO_FREQ] = r.freqMhz.toString()
+                    values[CliFormFields.RADIO_BW] = r.bwKhz.toString()
+                    values[CliFormFields.RADIO_SF] = r.sf.toString()
+                    values[CliFormFields.RADIO_CR] = r.cr.toString()
+                    CliFormFields.RADIO_FIELDS
                         .forEach { dirty[it] = false }
                     ok++
                 }
             } else {
                 // Firmware encodes newlines in owner.info as '|'.
                 values[id] =
-                    if (id == "owner.info") CliValues.decodeOwnerInfo(value).replace('\n', ' ')
+                    if (id == CliIds.OWNER_INFO) CliValues.decodeOwnerInfo(value).replace('\n', ' ')
                     else value
                 dirty[id] = false
                 ok++
@@ -131,75 +133,87 @@ fun RemoteSettingsForm(
         RemoteSection(
             title = "Basic",
             isReady = isReady,
-            fetchIds = listOf("name", "owner.info"),
+            fetchIds = listOf(CliIds.NAME, CliIds.OWNER_INFO),
             fetch = ::fetch,
-            saveEnabled = isAdmin && (dirty["name"] == true || dirty["owner.info"] == true),
+            saveEnabled = isAdmin && (dirty[CliIds.NAME] == true || dirty[CliIds.OWNER_INFO] == true),
             buildSaves = {
                 buildList {
-                    values["name"]?.trim()?.takeIf { it.isNotEmpty() && dirty["name"] == true }
+                    values[CliIds.NAME]?.trim()?.takeIf { it.isNotEmpty() && dirty[CliIds.NAME] == true }
                         ?.let { add("set name $it") }
-                    if (dirty["owner.info"] == true) {
-                        add("set owner.info ${values["owner.info"].orEmpty().trim()}")
+                    if (dirty[CliIds.OWNER_INFO] == true) {
+                        add("set owner.info ${values[CliIds.OWNER_INFO].orEmpty().trim()}")
                     }
                 }
             },
             send = ::send,
-            clearDirty = { listOf("name", "owner.info").forEach { dirty[it] = false } },
+            clearDirty = { listOf(CliIds.NAME, CliIds.OWNER_INFO).forEach { dirty[it] = false } },
         ) {
-            SettingsTextField("Name", values["name"].orEmpty()) { edit("name", it) }
-            SettingsTextField("Owner info", values["owner.info"].orEmpty()) { edit("owner.info", it) }
+            SettingsTextField("Name", values[CliIds.NAME].orEmpty()) { edit(CliIds.NAME, it) }
+            SettingsTextField("Owner info", values[CliIds.OWNER_INFO].orEmpty()) { edit(CliIds.OWNER_INFO, it) }
         }
 
         RemoteSection(
             title = "Radio",
             isReady = isReady,
-            fetchIds = listOf("radio", "tx"),
+            fetchIds = listOf(CliIds.RADIO, CliIds.TX),
             fetch = ::fetch,
-            saveEnabled = isAdmin && listOf("radio.freq", "radio.bw", "radio.sf", "radio.cr", "tx")
+            saveEnabled = isAdmin && listOf(
+                CliFormFields.RADIO_FREQ,
+                CliFormFields.RADIO_BW,
+                CliFormFields.RADIO_SF,
+                CliFormFields.RADIO_CR,
+                CliIds.TX,
+            )
                 .any { dirty[it] == true },
             buildSaves = {
                 buildList {
-                    val f = values["radio.freq"]?.trim()?.toDoubleOrNull()
-                    val bw = values["radio.bw"]?.trim()?.toDoubleOrNull()
-                    val sf = values["radio.sf"]?.trim()?.toIntOrNull()
-                    val cr = values["radio.cr"]?.trim()?.toIntOrNull()
-                    val radioEdited = listOf("radio.freq", "radio.bw", "radio.sf", "radio.cr")
+                    val f = values[CliFormFields.RADIO_FREQ]?.trim()?.toDoubleOrNull()
+                    val bw = values[CliFormFields.RADIO_BW]?.trim()?.toDoubleOrNull()
+                    val sf = values[CliFormFields.RADIO_SF]?.trim()?.toIntOrNull()
+                    val cr = values[CliFormFields.RADIO_CR]?.trim()?.toIntOrNull()
+                    val radioEdited = CliFormFields.RADIO_FIELDS
                         .any { dirty[it] == true }
                     if (radioEdited && f != null && bw != null && sf in 5..12 && cr in 5..8) {
                         add("set radio ${CliReplies.RadioCsv(f, bw, sf!!, cr!!).toCsv()}")
                     }
-                    values["tx"]?.trim()?.toIntOrNull()?.let {
-                        if (dirty["tx"] == true) add("set tx $it")
+                    values[CliIds.TX]?.trim()?.toIntOrNull()?.let {
+                        if (dirty[CliIds.TX] == true) add("set tx $it")
                     }
                 }
             },
             send = ::send,
             clearDirty = {
-                listOf("radio.freq", "radio.bw", "radio.sf", "radio.cr", "tx")
+                listOf(
+                    CliFormFields.RADIO_FREQ,
+                    CliFormFields.RADIO_BW,
+                    CliFormFields.RADIO_SF,
+                    CliFormFields.RADIO_CR,
+                    CliIds.TX,
+                )
                     .forEach { dirty[it] = false }
             },
         ) {
             HintText("Parameters must match your mesh or the node goes deaf.")
             Row {
                 SettingsTextField(
-                    "Freq (MHz)", values["radio.freq"].orEmpty(), Modifier.weight(1.2f),
-                ) { edit("radio.freq", it) }
+                    "Freq (MHz)", values[CliFormFields.RADIO_FREQ].orEmpty(), Modifier.weight(1.2f),
+                ) { edit(CliFormFields.RADIO_FREQ, it) }
                 Spacer(Modifier.width(6.dp))
-                SettingsTextField("BW (kHz)", values["radio.bw"].orEmpty(), Modifier.weight(1f)) {
-                    edit("radio.bw", it)
+                SettingsTextField("BW (kHz)", values[CliFormFields.RADIO_BW].orEmpty(), Modifier.weight(1f)) {
+                    edit(CliFormFields.RADIO_BW, it)
                 }
             }
             Row {
-                SettingsTextField("SF", values["radio.sf"].orEmpty(), Modifier.weight(1f)) {
-                    edit("radio.sf", it)
+                SettingsTextField("SF", values[CliFormFields.RADIO_SF].orEmpty(), Modifier.weight(1f)) {
+                    edit(CliFormFields.RADIO_SF, it)
                 }
                 Spacer(Modifier.width(6.dp))
-                SettingsTextField("CR", values["radio.cr"].orEmpty(), Modifier.weight(1f)) {
-                    edit("radio.cr", it)
+                SettingsTextField("CR", values[CliFormFields.RADIO_CR].orEmpty(), Modifier.weight(1f)) {
+                    edit(CliFormFields.RADIO_CR, it)
                 }
                 Spacer(Modifier.width(6.dp))
-                SettingsTextField("TX (dBm)", values["tx"].orEmpty(), Modifier.weight(1f)) {
-                    edit("tx", it)
+                SettingsTextField("TX (dBm)", values[CliIds.TX].orEmpty(), Modifier.weight(1f)) {
+                    edit(CliIds.TX, it)
                 }
             }
         }
@@ -207,29 +221,29 @@ fun RemoteSettingsForm(
         RemoteSection(
             title = "Position",
             isReady = isReady,
-            fetchIds = listOf("lat", "lon"),
+            fetchIds = listOf(CliIds.LAT, CliIds.LON),
             fetch = ::fetch,
-            saveEnabled = isAdmin && (dirty["lat"] == true || dirty["lon"] == true),
+            saveEnabled = isAdmin && (dirty[CliIds.LAT] == true || dirty[CliIds.LON] == true),
             buildSaves = {
                 buildList {
-                    values["lat"]?.trim()?.toDoubleOrNull()?.takeIf {
-                        dirty["lat"] == true && it in -90.0..90.0
+                    values[CliIds.LAT]?.trim()?.toDoubleOrNull()?.takeIf {
+                        dirty[CliIds.LAT] == true && it in -90.0..90.0
                     }?.let { add("set lat $it") }
-                    values["lon"]?.trim()?.toDoubleOrNull()?.takeIf {
-                        dirty["lon"] == true && it in -180.0..180.0
+                    values[CliIds.LON]?.trim()?.toDoubleOrNull()?.takeIf {
+                        dirty[CliIds.LON] == true && it in -180.0..180.0
                     }?.let { add("set lon $it") }
                 }
             },
             send = ::send,
-            clearDirty = { listOf("lat", "lon").forEach { dirty[it] = false } },
+            clearDirty = { listOf(CliIds.LAT, CliIds.LON).forEach { dirty[it] = false } },
         ) {
             Row {
-                SettingsTextField("Latitude", values["lat"].orEmpty(), Modifier.weight(1f)) {
-                    edit("lat", it)
+                SettingsTextField("Latitude", values[CliIds.LAT].orEmpty(), Modifier.weight(1f)) {
+                    edit(CliIds.LAT, it)
                 }
                 Spacer(Modifier.width(6.dp))
-                SettingsTextField("Longitude", values["lon"].orEmpty(), Modifier.weight(1f)) {
-                    edit("lon", it)
+                SettingsTextField("Longitude", values[CliIds.LON].orEmpty(), Modifier.weight(1f)) {
+                    edit(CliIds.LON, it)
                 }
             }
         }
@@ -237,14 +251,14 @@ fun RemoteSettingsForm(
         RemoteSection(
             title = "Adverts",
             isReady = isReady,
-            fetchIds = listOf("advert.interval", "flood.advert.interval"),
+            fetchIds = listOf(CliIds.ADVERT_INTERVAL, CliIds.FLOOD_ADVERT_INTERVAL),
             fetch = ::fetch,
             saveEnabled = isAdmin && (
-                dirty["advert.interval"] == true || dirty["flood.advert.interval"] == true
+                dirty[CliIds.ADVERT_INTERVAL] == true || dirty[CliIds.FLOOD_ADVERT_INTERVAL] == true
                 ),
             buildSaves = {
                 buildList {
-                    for (id in listOf("advert.interval", "flood.advert.interval")) {
+                    for (id in listOf(CliIds.ADVERT_INTERVAL, CliIds.FLOOD_ADVERT_INTERVAL)) {
                         values[id]?.trim()?.toIntOrNull()?.let {
                             if (dirty[id] == true) add("set $id $it")
                         }
@@ -253,12 +267,15 @@ fun RemoteSettingsForm(
             },
             send = ::send,
             clearDirty = {
-                listOf("advert.interval", "flood.advert.interval").forEach { dirty[it] = false }
+                listOf(
+                    CliIds.ADVERT_INTERVAL,
+                    CliIds.FLOOD_ADVERT_INTERVAL,
+                ).forEach { dirty[it] = false }
             },
             extraActions = { setStatus ->
                 TextButton(onClick = {
                     scope.launch {
-                        vm.cliQuery(keyHex, "advert")
+                        vm.cliQuery(keyHex, CliIds.ADVERT)
                         setStatus("Advert sent")
                     }
                 }) { Text("Send advert now") }
@@ -266,12 +283,12 @@ fun RemoteSettingsForm(
         ) {
             Row {
                 SettingsTextField(
-                    "Zero-hop (mins)", values["advert.interval"].orEmpty(), Modifier.weight(1f),
-                ) { edit("advert.interval", it) }
+                    "Zero-hop (mins)", values[CliIds.ADVERT_INTERVAL].orEmpty(), Modifier.weight(1f),
+                ) { edit(CliIds.ADVERT_INTERVAL, it) }
                 Spacer(Modifier.width(6.dp))
                 SettingsTextField(
-                    "Flood (hours)", values["flood.advert.interval"].orEmpty(), Modifier.weight(1f),
-                ) { edit("flood.advert.interval", it) }
+                    "Flood (hours)", values[CliIds.FLOOD_ADVERT_INTERVAL].orEmpty(), Modifier.weight(1f),
+                ) { edit(CliIds.FLOOD_ADVERT_INTERVAL, it) }
             }
         }
 
@@ -279,13 +296,29 @@ fun RemoteSettingsForm(
             RemoteSection(
                 title = "Packet forwarding",
                 isReady = isReady,
-                fetchIds = listOf("repeat", "flood.max", "rxdelay", "txdelay", "direct.txdelay"),
+                fetchIds = listOf(
+                    CliIds.REPEAT,
+                    CliIds.FLOOD_MAX,
+                    CliIds.RXDELAY,
+                    CliIds.TXDELAY,
+                    CliIds.DIRECT_TXDELAY,
+                ),
                 fetch = ::fetch,
-                saveEnabled = isAdmin && listOf("flood.max", "rxdelay", "txdelay", "direct.txdelay")
+                saveEnabled = isAdmin && listOf(
+                    CliIds.FLOOD_MAX,
+                    CliIds.RXDELAY,
+                    CliIds.TXDELAY,
+                    CliIds.DIRECT_TXDELAY,
+                )
                     .any { dirty[it] == true },
                 buildSaves = {
                     buildList {
-                        for (id in listOf("flood.max", "rxdelay", "txdelay", "direct.txdelay")) {
+                        for (id in listOf(
+                            CliIds.FLOOD_MAX,
+                            CliIds.RXDELAY,
+                            CliIds.TXDELAY,
+                            CliIds.DIRECT_TXDELAY,
+                        )) {
                             values[id]?.trim()?.takeIf { it.isNotEmpty() && dirty[id] == true }
                                 ?.let { add("set $id $it") }
                         }
@@ -293,31 +326,31 @@ fun RemoteSettingsForm(
                 },
                 send = ::send,
                 clearDirty = {
-                    listOf("flood.max", "rxdelay", "txdelay", "direct.txdelay")
+                    listOf(CliIds.FLOOD_MAX, CliIds.RXDELAY, CliIds.TXDELAY, CliIds.DIRECT_TXDELAY)
                         .forEach { dirty[it] = false }
                 },
             ) {
                 SettingRow(
                     "Repeat (forward packets)",
-                    CliReplies.isTruthy(values["repeat"].orEmpty()),
-                ) { applySwitch("repeat", it) }
+                    CliReplies.isTruthy(values[CliIds.REPEAT].orEmpty()),
+                ) { applySwitch(CliIds.REPEAT, it) }
                 Row {
                     SettingsTextField(
-                        "Flood max hops", values["flood.max"].orEmpty(), Modifier.weight(1f),
-                    ) { edit("flood.max", it) }
+                        "Flood max hops", values[CliIds.FLOOD_MAX].orEmpty(), Modifier.weight(1f),
+                    ) { edit(CliIds.FLOOD_MAX, it) }
                     Spacer(Modifier.width(6.dp))
-                    SettingsTextField("RX delay", values["rxdelay"].orEmpty(), Modifier.weight(1f)) {
-                        edit("rxdelay", it)
+                    SettingsTextField("RX delay", values[CliIds.RXDELAY].orEmpty(), Modifier.weight(1f)) {
+                        edit(CliIds.RXDELAY, it)
                     }
                 }
                 Row {
-                    SettingsTextField("TX delay", values["txdelay"].orEmpty(), Modifier.weight(1f)) {
-                        edit("txdelay", it)
+                    SettingsTextField("TX delay", values[CliIds.TXDELAY].orEmpty(), Modifier.weight(1f)) {
+                        edit(CliIds.TXDELAY, it)
                     }
                     Spacer(Modifier.width(6.dp))
                     SettingsTextField(
-                        "Direct TX delay", values["direct.txdelay"].orEmpty(), Modifier.weight(1f),
-                    ) { edit("direct.txdelay", it) }
+                        "Direct TX delay", values[CliIds.DIRECT_TXDELAY].orEmpty(), Modifier.weight(1f),
+                    ) { edit(CliIds.DIRECT_TXDELAY, it) }
                 }
             }
         }
@@ -325,75 +358,81 @@ fun RemoteSettingsForm(
         RemoteSection(
             title = "Access & security",
             isReady = isReady,
-            fetchIds = if (role == NodeRole.Room) listOf("allow.read.only") else emptyList(),
+            fetchIds = if (role == NodeRole.Room) listOf(CliIds.ALLOW_READ_ONLY) else emptyList(),
             fetch = ::fetch,
             saveEnabled = isAdmin && (
-                !values["password.new"].isNullOrBlank() ||
-                    !values["guest.password.new"].isNullOrBlank()
+                !values[CliFormFields.PASSWORD_NEW].isNullOrBlank() ||
+                    !values[CliFormFields.GUEST_PASSWORD_NEW].isNullOrBlank()
                 ),
             buildSaves = {
                 buildList {
-                    values["password.new"]?.trim()?.takeIf { it.isNotEmpty() }
+                    values[CliFormFields.PASSWORD_NEW]?.trim()?.takeIf { it.isNotEmpty() }
                         ?.let { add("password $it") }
-                    values["guest.password.new"]?.trim()?.takeIf { it.isNotEmpty() }
+                    values[CliFormFields.GUEST_PASSWORD_NEW]?.trim()?.takeIf { it.isNotEmpty() }
                         ?.let { add("set guest.password $it") }
                 }
             },
             send = ::send,
             clearDirty = {
-                values.remove("password.new")
-                values.remove("guest.password.new")
+                values.remove(CliFormFields.PASSWORD_NEW)
+                values.remove(CliFormFields.GUEST_PASSWORD_NEW)
             },
         ) {
             if (role == NodeRole.Room) {
                 SettingRow(
                     "Allow read-only (guest) logins",
-                    CliReplies.isTruthy(values["allow.read.only"].orEmpty()),
-                ) { applySwitch("allow.read.only", it) }
+                    CliReplies.isTruthy(values[CliIds.ALLOW_READ_ONLY].orEmpty()),
+                ) { applySwitch(CliIds.ALLOW_READ_ONLY, it) }
             }
             // Passwords are write-only — blank fields that only send
             // when filled.
             SettingsTextField(
-                "New admin password", values["password.new"].orEmpty(), sensitive = true,
-            ) { values["password.new"] = it }
+                "New admin password", values[CliFormFields.PASSWORD_NEW].orEmpty(), sensitive = true,
+            ) { values[CliFormFields.PASSWORD_NEW] = it }
             SettingsTextField(
-                "New guest password", values["guest.password.new"].orEmpty(), sensitive = true,
-            ) { values["guest.password.new"] = it }
+                "New guest password", values[CliFormFields.GUEST_PASSWORD_NEW].orEmpty(), sensitive = true,
+            ) { values[CliFormFields.GUEST_PASSWORD_NEW] = it }
             HintText("Passwords are never read back from the node and stay out of the log.")
         }
 
         RemoteSection(
             title = "Advanced",
             isReady = isReady,
-            fetchIds = listOf("radio.rxgain", "dutycycle", "multi.acks", "int.thresh", "loop.detect"),
+            fetchIds = listOf(
+                CliIds.RADIO_RXGAIN,
+                CliIds.DUTYCYCLE,
+                CliIds.MULTI_ACKS,
+                CliIds.INT_THRESH,
+                CliIds.LOOP_DETECT,
+            ),
             fetch = ::fetch,
-            saveEnabled = isAdmin && listOf("dutycycle", "int.thresh").any { dirty[it] == true },
+            saveEnabled = isAdmin && listOf(CliIds.DUTYCYCLE, CliIds.INT_THRESH).any { dirty[it] == true },
             buildSaves = {
                 buildList {
                     // Coercions live in CliValues (unit-tested, positive
                     // and negative) because a bad one sends a malformed
                     // `set` to somebody's repeater.
-                    if (dirty["dutycycle"] == true) {
-                        CliValues.parsePercent(values["dutycycle"].orEmpty())
+                    if (dirty[CliIds.DUTYCYCLE] == true) {
+                        CliValues.parsePercent(values[CliIds.DUTYCYCLE].orEmpty())
                             ?.let { add("set dutycycle $it") }
                     }
-                    if (dirty["int.thresh"] == true) {
-                        CliValues.parseInt(values["int.thresh"].orEmpty())
+                    if (dirty[CliIds.INT_THRESH] == true) {
+                        CliValues.parseInt(values[CliIds.INT_THRESH].orEmpty())
                             ?.let { add("set int.thresh $it") }
                     }
                 }
             },
             send = ::send,
             clearDirty = {
-                listOf("dutycycle", "int.thresh").forEach { dirty[it] = false }
+                listOf(CliIds.DUTYCYCLE, CliIds.INT_THRESH).forEach { dirty[it] = false }
             },
         ) {
             SettingRow(
                 "Multi-acks (redundant ACKs)",
-                CliReplies.isTruthy(values["multi.acks"].orEmpty()),
+                CliReplies.isTruthy(values[CliIds.MULTI_ACKS].orEmpty()),
             ) {
                 applySwitch(
-                    "multi.acks", it,
+                    CliIds.MULTI_ACKS, it,
                     onText = CliValues.oneZero(true), offText = CliValues.oneZero(false),
                 )
             }
@@ -401,33 +440,33 @@ fun RemoteSettingsForm(
             // numeric gain value — a text field here would send garbage.
             SettingRow(
                 "RX gain boost (LNA)",
-                CliReplies.isTruthy(values["radio.rxgain"].orEmpty()),
-            ) { applySwitch("radio.rxgain", it) }
+                CliReplies.isTruthy(values[CliIds.RADIO_RXGAIN].orEmpty()),
+            ) { applySwitch(CliIds.RADIO_RXGAIN, it) }
             Row {
                 SettingsTextField(
-                    "Duty cycle %", values["dutycycle"].orEmpty().trimEnd('%'), Modifier.weight(1f),
-                ) { edit("dutycycle", it) }
+                    "Duty cycle %", values[CliIds.DUTYCYCLE].orEmpty().trimEnd('%'), Modifier.weight(1f),
+                ) { edit(CliIds.DUTYCYCLE, it) }
                 Spacer(Modifier.width(6.dp))
                 SettingsTextField(
-                    "Int. thresh", values["int.thresh"].orEmpty(), Modifier.weight(1f),
-                ) { edit("int.thresh", it) }
+                    "Int. thresh", values[CliIds.INT_THRESH].orEmpty(), Modifier.weight(1f),
+                ) { edit(CliIds.INT_THRESH, it) }
             }
             // loop.detect is an enumerated mode, not free text.
             Text("Loop detection", style = MaterialTheme.typography.labelMedium)
             val loopModes = CliValues.LOOP_DETECT_MODES
             // An unrecognised reply selects nothing rather than falsely
             // showing "off".
-            val loopSelected = CliValues.parseLoopDetect(values["loop.detect"].orEmpty()) ?: -1
+            val loopSelected = CliValues.parseLoopDetect(values[CliIds.LOOP_DETECT].orEmpty()) ?: -1
             ChoiceChips(
                 loopModes.map { it.replaceFirstChar { c -> c.uppercase() } },
                 loopSelected,
                 enabled = isAdmin,
             ) { i ->
-                values["loop.detect"] = loopModes[i]
+                values[CliIds.LOOP_DETECT] = loopModes[i]
                 scope.launch { vm.cliQuery(keyHex, "set loop.detect ${loopModes[i]}") }
             }
-            if (loopSelected < 0 && !values["loop.detect"].isNullOrBlank()) {
-                HintText("Node reported an unrecognised mode: ${values["loop.detect"]}")
+            if (loopSelected < 0 && !values[CliIds.LOOP_DETECT].isNullOrBlank()) {
+                HintText("Node reported an unrecognised mode: ${values[CliIds.LOOP_DETECT]}")
             }
         }
 
@@ -435,11 +474,11 @@ fun RemoteSettingsForm(
             HintText("Replies appear in the Console tab.")
             ButtonFlowRow {
                 for ((label, command) in buildList {
-                    add("Clock" to "clock")
+                    add("Clock" to CliIds.CLOCK)
                     add("Clock sync" to "clock sync")
-                    add("Version" to "ver")
-                    add("Board" to "board")
-                    if (role == NodeRole.Repeater) add("Neighbors" to "neighbors")
+                    add("Version" to CliIds.VER)
+                    add("Board" to CliIds.BOARD)
+                    if (role == NodeRole.Repeater) add("Neighbors" to CliIds.NEIGHBORS)
                     add("ACL" to "get acl")
                     add("Log start" to "log start")
                     add("Log stop" to "log stop")
@@ -451,10 +490,10 @@ fun RemoteSettingsForm(
             }
             if (isAdmin) ButtonFlowRow {
                 for ((label, command) in listOf(
-                    "Reboot" to "reboot",
+                    "Reboot" to CliIds.REBOOT,
                     "Clear stats" to "clear stats",
                     "Log erase" to "log erase",
-                    "Factory erase" to "erase",
+                    "Factory erase" to CliIds.ERASE,
                     "Start OTA" to "start ota",
                 )) {
                     TextButton(onClick = { confirmAction = label to command }) {
