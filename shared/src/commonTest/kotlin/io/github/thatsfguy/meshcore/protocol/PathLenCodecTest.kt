@@ -17,7 +17,7 @@ class PathLenCodecTest {
     // ---- the regression that prompted this ------------------------------
 
     @Test
-    fun `a real 4-hop 2-byte contact decodes as 4 hops, not 34`() {
+    fun `a real 4-hop 2-byte contact decodes as 4 hops not 34`() {
         // 0x44 = 0b01_000100: mode 1 (2-byte hashes), 4 hops.
         // Captured from a live contact the mainstream app showed as
         // "4 hops" with out path b389,c985,6e4d,8eaa (8 bytes).

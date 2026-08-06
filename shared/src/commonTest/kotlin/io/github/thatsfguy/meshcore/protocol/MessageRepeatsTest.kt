@@ -73,7 +73,7 @@ class MessageRepeatsTest {
     // --- refusing bad input ------------------------------------------------
 
     @Test
-    fun `a path that does not divide by the width is refused, not stored`() {
+    fun `a path that does not divide by the width is refused not stored`() {
         // Returning null lets the caller leave the good value alone
         // rather than blanking it with a half-parsed one.
         assertNull(MessageRepeats.merge("b389", "abc", 2))
@@ -95,7 +95,7 @@ class MessageRepeatsTest {
     // --- what the reader is told -------------------------------------------
 
     @Test
-    fun `nothing heard shows no badge at all, never a zero`() {
+    fun `nothing heard shows no badge at all never a zero`() {
         // A "0 repeaters" badge would assert something we did not
         // measure. The badge simply is not there.
         assertNull(MessageRepeats.badge(null, 2))
@@ -113,14 +113,14 @@ class MessageRepeatsTest {
     }
 
     @Test
-    fun `silence is explained as unmeasured, not as nobody`() {
+    fun `silence is explained as unmeasured not as nobody`() {
         val text = MessageRepeats.summary(null, 2)
         assertTrue(text.contains("not the same as"), text)
         assertTrue(text.contains("cannot be heard here"), text)
     }
 
     @Test
-    fun `the wording says node, not repeater`() {
+    fun `the wording says node not repeater`() {
         // A room server produced the first real measurement, and a
         // companion with client-repeat does the same. "Repeater" would
         // be wrong in a way the feature itself disproves.
@@ -187,7 +187,7 @@ class MessageRepeatsTest {
     }
 
     @Test
-    fun `a retried message still gets its echo, since the row is stamped at attempt one`() {
+    fun `a retried message still gets its echo since the row is stamped at attempt one`() {
         // Three attempts spread over half a minute; the echo of the last
         // one still belongs to the row stamped at the first.
         val c = listOf(sent(1, "b389aaaa", 0L))

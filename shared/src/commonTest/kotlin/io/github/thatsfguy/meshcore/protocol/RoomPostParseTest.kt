@@ -108,7 +108,7 @@ class RoomPostParseTest {
     // ---- hops on received messages ---------------------------------------
 
     @Test
-    fun `a message's path byte decodes to hops, not bytes`() {
+    fun `a message's path byte decodes to hops not bytes`() {
         // Same packing as a contact record: 0x44 is 4 hops at 2-byte
         // hashes, not 68 of anything.
         val ev = parse(frame(Codes.TXT_TYPE_PLAIN, "x", pathLen = 0x44))

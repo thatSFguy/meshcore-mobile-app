@@ -39,7 +39,7 @@ class DevicePinTest {
     }
 
     @Test
-    fun `a PIN with leading zeros is a number, not a string`() {
+    fun `a PIN with leading zeros is a number not a string`() {
         // "000123" typed by the user is 123 on the wire. If this ever
         // encoded ASCII instead, the radio would take a different PIN
         // than the one displayed and lock the user out of BLE.
@@ -66,7 +66,7 @@ class DevicePinTest {
     //     if (pin == 0 || (pin >= 100000 && pin <= 999999))
 
     @Test
-    fun `a PIN starting with zero is refused, because the radio refuses it`() {
+    fun `a PIN starting with zero is refused because the radio refuses it`() {
         // The 0.6.4 bug: "012345" was offered, sent as 12345, and
         // rejected with ERR_CODE_ILLEGAL_ARG.
         assertFalse(DevicePin.isValid("012345"))
@@ -125,7 +125,7 @@ class DevicePinTest {
     // --- reporting what the node has ---------------------------------------
 
     @Test
-    fun `a reported zero is described, never shown as a typeable PIN`() {
+    fun `a reported zero is described never shown as a typeable PIN`() {
         // "000000" on screen would read as a PIN somebody could enter.
         assertTrue(DevicePin.describe(0L).contains("built-in default"))
         assertFalse(DevicePin.describe(0L).contains("000000"))

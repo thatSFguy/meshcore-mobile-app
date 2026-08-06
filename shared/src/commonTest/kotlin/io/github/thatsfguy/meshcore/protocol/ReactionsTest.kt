@@ -113,7 +113,7 @@ class ReactionsTest {
     }
 
     @Test
-    fun `target hash keys on timestamp, sender and the first five chars`() {
+    fun `target hash keys on timestamp sender and the first five chars`() {
         val base = Reactions.targetHash(1234567890, "Alice", "Hello")
         assertNotEquals(base, Reactions.targetHash(1234567891, "Alice", "Hello"))
         assertNotEquals(base, Reactions.targetHash(1234567890, "Bob", "Hello"))
@@ -140,7 +140,7 @@ class ReactionsTest {
     }
 
     @Test
-    fun `handles short, empty and emoji-bearing input`() {
+    fun `handles short empty and emoji-bearing input`() {
         for (text in listOf("", "Hi", "🌈🌈🌈🌈🌈🌈", "héllo")) {
             assertTrue(Regex("^[0-9a-f]{4}$").matches(Reactions.targetHash(1, "K 🏳️‍🌈", text)))
         }

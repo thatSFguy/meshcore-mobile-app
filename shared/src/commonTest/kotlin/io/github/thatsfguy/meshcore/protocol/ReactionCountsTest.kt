@@ -49,7 +49,7 @@ class ReactionCountsTest {
     }
 
     @Test
-    fun `drops non-numeric, zero and negative counts`() {
+    fun `drops non-numeric zero and negative counts`() {
         assertEquals(
             mapOf("👍" to 3),
             ReactionCounts.decode("""{"👍":3,"🔥":"lots","😀":-2,"🎉":0}"""),

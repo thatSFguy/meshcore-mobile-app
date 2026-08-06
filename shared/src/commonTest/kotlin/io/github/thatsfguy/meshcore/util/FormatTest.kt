@@ -23,7 +23,7 @@ class FormatTest {
     }
 
     @Test
-    fun `it rounds half-up, the way String_format did`() {
+    fun `it rounds half-up the way String_format did`() {
         // 1.25 is the case that separates the two: HALF_UP gives 1.3,
         // ties-to-even (kotlin.math.round) gives 1.2. The JVM's
         // String.format used HALF_UP, so this must too or the move

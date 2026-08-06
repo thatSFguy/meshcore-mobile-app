@@ -74,7 +74,7 @@ class ReactionRoutingTest {
     // --- 16 bits collide ---------------------------------------------------
 
     @Test
-    fun `two messages sharing a hash resolve to the newest, and say so`() {
+    fun `two messages sharing a hash resolve to the newest and say so`() {
         // Same timestamp and text is the degenerate collision: the wire
         // offers no tiebreak at all. Answering with the newest is a
         // documented choice, and isAmbiguous is how a caller finds out
@@ -148,7 +148,7 @@ class ReactionRoutingTest {
     }
 
     @Test
-    fun `the tuning values live here, not in each platform's store`() {
+    fun `the tuning values live here not in each platform's store`() {
         assertEquals(200, ReactionRouting.SEARCH_WINDOW)
         // 512 is what Android ran with before the move. Pinned so the
         // dedup window is not quietly narrowed by a future tidy-up.

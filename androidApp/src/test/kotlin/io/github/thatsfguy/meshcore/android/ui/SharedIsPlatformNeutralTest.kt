@@ -83,6 +83,31 @@ class SharedIsPlatformNeutralTest {
         assertTrue(offences.isEmpty(), "JVM-only API in shared/commonTest:\n" + offences.joinToString("\n"))
     }
 
+    /**
+     * Kotlin/Native rejects a comma inside a backticked declaration
+     * name; the JVM accepts it.
+     *
+     * 28 test names in commonTest carried one — perfectly legal on
+     * Android, and the second thing to break the iOS build after the
+     * presentation models moved. Nothing about it looks platform-
+     * specific, which is exactly why it wants a test.
+     */
+    @Test
+    fun `no commonTest name contains a comma`() {
+        val offenders = File("../shared/src/commonTest")
+            .walkTopDown()
+            .filter { it.isFile && it.extension == "kt" }
+            .flatMap { f ->
+                Regex("""fun `([^`]*,[^`]*)`""").findAll(f.readText())
+                    .map { "${f.name}: `${it.groupValues[1]}`" }
+            }
+            .toList()
+        assertTrue(
+            offenders.isEmpty(),
+            "Kotlin/Native rejects commas in backticked names:\n" + offenders.joinToString("\n"),
+        )
+    }
+
     @Test
     fun `the presentation models really did move out of androidApp`() {
         // The point of the move is that SwiftUI can reach them. If they

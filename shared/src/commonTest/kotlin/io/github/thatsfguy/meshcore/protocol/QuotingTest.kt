@@ -50,7 +50,7 @@ class QuotingTest {
     // --- the preview, which is what was actually broken ---------------------
 
     @Test
-    fun `the preview of a reply is the reply, not what it answered`() {
+    fun `the preview of a reply is the reply not what it answered`() {
         // The positive control for the whole fix.
         assertEquals(
             "yes, about six",
@@ -103,7 +103,7 @@ class QuotingTest {
     }
 
     @Test
-    fun `reacting to a reply quotes the reply, not its quote`() {
+    fun `reacting to a reply quotes the reply not its quote`() {
         assertEquals(
             "👍 to \"yes, about six\"",
             ReactionNotice.text("👍", "> Kaylee: heading out?\nyes, about six"),
@@ -126,7 +126,7 @@ class QuotingTest {
     }
 
     @Test
-    fun `a long target is clipped, not dumped into the shade`() {
+    fun `a long target is clipped not dumped into the shade`() {
         val notice = ReactionNotice.text("👍", "x".repeat(400))
         assertTrue(notice.length < 100, "notification body too long: ${notice.length}")
         assertTrue(notice.endsWith("…\""))
@@ -146,7 +146,7 @@ class QuotingTest {
     }
 
     @Test
-    fun `the collapsed line is the reply, never the message it answered`() {
+    fun `the collapsed line is the reply never the message it answered`() {
         // Android shows one line before you expand. That line must be
         // what was just said.
         val notice = MessageNotice.forMessage("> Kaylee: are you heading out tomorrow\nyes, about six")
@@ -154,7 +154,7 @@ class QuotingTest {
     }
 
     @Test
-    fun `the expanded form keeps the context, marked`() {
+    fun `the expanded form keeps the context marked`() {
         val notice = MessageNotice.forMessage("> Kaylee: heading out?\nyes")
         assertTrue(notice.expanded.startsWith(MessageNotice.QUOTE_MARK))
         assertTrue(notice.expanded.contains("Kaylee: heading out?"))

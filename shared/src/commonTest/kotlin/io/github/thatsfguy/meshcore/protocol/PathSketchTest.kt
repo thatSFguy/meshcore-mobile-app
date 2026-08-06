@@ -72,7 +72,7 @@ class PathSketchTest {
     }
 
     @Test
-    fun `the receiver with no position is placed by the same rule, mirrored`() {
+    fun `the receiver with no position is placed by the same rule mirrored`() {
         // The commonest case of all: this phone's own node has no GPS.
         val s = PathSketch.build(
             listOf(
@@ -110,7 +110,7 @@ class PathSketchTest {
     }
 
     @Test
-    fun `two unplaceable repeaters in a row are spread, not stacked`() {
+    fun `two unplaceable repeaters in a row are spread not stacked`() {
         val s = PathSketch.build(
             listOf(
                 known("R1", 43.0, -85.0),
@@ -230,7 +230,7 @@ class PathSketchTest {
     }
 
     @Test
-    fun `an all-zero position counts as unset, not as the Gulf of Guinea`() {
+    fun `an all-zero position counts as unset not as the Gulf of Guinea`() {
         val s = PathSketch.build(
             listOf(
                 PathSketch.Waypoint("sender", 0.0, 0.0),

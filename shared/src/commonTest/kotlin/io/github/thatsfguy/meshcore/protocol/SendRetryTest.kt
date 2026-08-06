@@ -50,7 +50,7 @@ class SendRetryTest {
     }
 
     @Test
-    fun `exactly one flood is ever scheduled, at any attempt count`() {
+    fun `exactly one flood is ever scheduled at any attempt count`() {
         // A client flood is the most expensive packet on the mesh and
         // MeshCore clients never repeat, so "one" is the whole budget.
         for (max in 1..10) {

@@ -42,7 +42,7 @@ class HopResolutionTest {
     }
 
     @Test
-    fun `a colliding hop is reported as ambiguous, never guessed`() {
+    fun `a colliding hop is reported as ambiguous never guessed`() {
         val colliding = contacts + mapOf(
             "b389ffffffff0000000000000000000000000000000000000000000000000000" to "Impostor",
         )

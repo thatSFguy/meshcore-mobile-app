@@ -130,7 +130,7 @@ class HeardRepeatsTest {
     }
 
     @Test
-    fun `the best SNR wins, not the most recent`() {
+    fun `the best SNR wins not the most recent`() {
         val relays = HeardRepeats.tally(
             listOf(echo("b389", snr = 2.0, at = 1L), echo("b389", snr = 9.0, at = 2L), echo("b389", snr = 3.0, at = 3L)),
         )
@@ -199,7 +199,7 @@ class HeardRepeatsTest {
     }
 
     @Test
-    fun `the caveat says the list is a floor, not coverage`() {
+    fun `the caveat says the list is a floor not coverage`() {
         // LESSONS §18: the failure mode for a feature like this is a
         // screen that reads as a coverage map. It must say what it
         // cannot see.
