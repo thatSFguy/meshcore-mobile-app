@@ -87,6 +87,25 @@ data class SavedNode(
         listOf(kind, address, port?.toString() ?: "", name ?: "").joinToString(FIELD_SEP)
 
     companion object {
+        /**
+         * The saved-list entry a live connection should appear as.
+         *
+         * The list and the auto-reconnect memory are two different
+         * stores that used to be written from two different layers —
+         * the list from the ViewModel's connect calls, the memory from
+         * the service. Any path that reached the service directly (an
+         * auto-reconnect, a supervisor retry) updated one and not the
+         * other, so a node could be connected and absent from the list
+         * at the same time. Both are written from the service now, and
+         * this is how one derives the other.
+         */
+        fun of(memory: ConnectionMemory): SavedNode = when (memory) {
+            is ConnectionMemory.Ble ->
+                SavedNode(ConnectionMemory.KIND_BLE, memory.address, null, memory.name)
+            is ConnectionMemory.Tcp ->
+                SavedNode(ConnectionMemory.KIND_TCP, memory.host, memory.port, null)
+        }
+
         private const val FIELD_SEP = "\u001F"
 
         /** Inverse of [encode]; null for a malformed line. */

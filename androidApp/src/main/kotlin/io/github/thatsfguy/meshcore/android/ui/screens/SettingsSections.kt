@@ -685,7 +685,7 @@ internal fun SavedNodesList(vm: MeshCoreViewModel) {
                 }
                 TextButton(onClick = { vm.connectSaved(node) }) { Text("Connect") }
                 TextButton(onClick = {
-                    vm.prefs.forgetNode(node.key)
+                    vm.forgetNode(node)
                     refresh++
                 }) { Text("Forget") }
             }

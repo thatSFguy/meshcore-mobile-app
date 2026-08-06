@@ -11,6 +11,15 @@ Every entry describes what is in **that tagged build**. A feature that landed af
 belongs in the next section, not this one — 0.3.0 was once credited with four features that
 shipped after it, which misled nobody so much as the author, three months later.
 
+## 0.6.6
+
+- **Forget now actually forgets.** It removed a radio from Saved nodes but left it in the
+  auto-reconnect memory, so the node came straight back on the next connect — and because
+  that path never re-added it to the list, you ended up connected to a radio the app no
+  longer listed. Forget clears both, and disconnects if it is the one you are attached to.
+- Any successful connection now appears in Saved nodes, including automatic reconnects. The
+  list was only written when you picked a radio by hand.
+
 ## 0.6.5
 
 - **Fixes the PIN screen shipped in 0.6.4**, which got three things wrong. It accepted PINs

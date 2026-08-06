@@ -32,6 +32,7 @@ import io.github.thatsfguy.meshcore.platform.BleTransport
 import io.github.thatsfguy.meshcore.platform.UsbSerialTransport
 import io.github.thatsfguy.meshcore.platform.androidCryptoProvider
 import io.github.thatsfguy.meshcore.transport.ConnectionMemory
+import io.github.thatsfguy.meshcore.transport.SavedNode
 import io.github.thatsfguy.meshcore.transport.TcpInterface
 import io.github.thatsfguy.meshcore.transport.Transport
 import io.github.thatsfguy.meshcore.transport.TransportState
@@ -208,6 +209,12 @@ class MeshCoreService : Service() {
         currentMemory = memory
         usbDeviceName = null
         prefs.rememberConnection(memory)
+        // …and the visible list, from the same place. Doing this in the
+        // ViewModel's connect calls meant an auto-reconnect or a
+        // supervisor retry updated the reconnect memory but not the
+        // list, so a radio could be connected and missing from Saved
+        // nodes at once.
+        prefs.saveNode(SavedNode.of(memory))
         startSupervisor { buildTransport(memory) }
     }
 

@@ -89,6 +89,11 @@ fun AboutSection(vm: MeshCoreViewModel) {
  * is a changelog you can't read in the field.
  */
 private val CHANGELOG: List<Pair<String, List<String>>> = listOf(
+    "0.6.6" to listOf(
+        "Forget now actually forgets — it left the radio in the auto-reconnect memory, so " +
+            "it came back on the next connect and was then missing from Saved nodes.",
+        "Any successful connection appears in Saved nodes, including automatic reconnects.",
+    ),
     "0.6.5" to listOf(
         "Fixes the PIN screen from 0.6.4: it accepted PINs the radio refuses (anything " +
             "starting with 0), claimed the PIN could not be read when the node reports it, " +

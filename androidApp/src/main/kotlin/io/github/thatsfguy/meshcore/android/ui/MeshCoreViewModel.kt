@@ -342,18 +342,36 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
     // Connection actions
     // ------------------------------------------------------------------
 
+    // The service records the saved-list entry; see MeshCoreService.connect.
     fun connectBle(address: String, name: String?) {
-        prefs.saveNode(SavedNode(ConnectionMemory.KIND_BLE, address, null, name))
         _service.value?.connect(ConnectionMemory.Ble(address, name))
     }
 
     fun connectTcp(host: String, port: Int) {
-        prefs.saveNode(SavedNode(ConnectionMemory.KIND_TCP, host, port, null))
         _service.value?.connect(ConnectionMemory.Tcp(host, port))
     }
 
     fun connectUsb(device: UsbDevice) {
         _service.value?.connectUsb(device)
+    }
+
+    /**
+     * Forget a saved node: drop it from the list, stop reconnecting to
+     * it, and disconnect if it is the one currently attached.
+     *
+     * All three, because any two of them leave the app in the state
+     * that was reported — a radio connected, absent from Saved nodes,
+     * and coming back on its own.
+     */
+    fun forgetNode(node: SavedNode) {
+        val wasCurrent = prefs.reconnectKey() == node.key
+        prefs.forgetNode(node.key)
+        if (wasCurrent && engineState.value != EngineState.Detached) {
+            disconnect()
+            transientMessage.value = "Forgotten and disconnected"
+        } else {
+            transientMessage.value = "Forgotten"
+        }
     }
 
     fun connectSaved(node: SavedNode) {

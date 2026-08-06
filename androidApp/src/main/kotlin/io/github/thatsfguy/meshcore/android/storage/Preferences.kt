@@ -114,9 +114,38 @@ class Preferences(context: Context) {
         prefs.edit().putString("saved_nodes", nodes.joinToString("\n") { it.encode() }).apply()
     }
 
+    /**
+     * Remove a node from the saved list AND stop reconnecting to it.
+     *
+     * These are two stores, and clearing only the list left the radio
+     * still named in the auto-reconnect memory — so a "forgotten" node
+     * came straight back on the next connect, and because that path
+     * never re-added it, the app ended up connected to something absent
+     * from its own list.
+     */
     fun forgetNode(key: String) {
         val nodes = savedNodes().filter { it.key != key }
         prefs.edit().putString("saved_nodes", nodes.joinToString("\n") { it.encode() }).apply()
+        if (reconnectKey() == key) clearReconnect()
+    }
+
+    /** The saved-node key the reconnect memory points at, if any. */
+    fun reconnectKey(): String? = when (lastKind) {
+        ConnectionMemory.KIND_BLE ->
+            lastBleAddress?.let { SavedNode(ConnectionMemory.KIND_BLE, it, null, null).key }
+        ConnectionMemory.KIND_TCP ->
+            lastTcpHost?.let {
+                SavedNode(ConnectionMemory.KIND_TCP, it, lastTcpPort.takeIf { p -> p != 0 }).key
+            }
+        else -> null
+    }
+
+    fun clearReconnect() {
+        lastKind = null
+        lastBleAddress = null
+        lastBleName = null
+        lastTcpHost = null
+        lastTcpPort = 0
     }
 
     // --- App settings ---
