@@ -861,14 +861,20 @@ class MessageRepository(
      */
     suspend fun noteDirectRepeat(destHash: Int, pathHex: String, width: Int) {
         val self = selfKey ?: return
-        val since = System.currentTimeMillis() - DM_REPEAT_WINDOW_MS
-        val recent = db.messages().recentOutgoingDms(self, since)
-        val peer = MessageRepeats.creditDirect(recent.map { it.peerKey }, destHash) ?: return
-        // creditDirect guarantees ONE peer; a single peer can still have
-        // two messages in the window, which is equally ambiguous.
-        val only = recent.filter { it.peerKey.equals(peer, ignoreCase = true) }
-            .singleOrNull() ?: return
-        noteRepeat(only, pathHex, width)
+        val now = System.currentTimeMillis()
+        val recent = db.messages().recentOutgoingDms(self, now - DM_REPEAT_WINDOW_MS)
+        val credited = MessageRepeats.creditDirect(
+            recent.map { MessageRepeats.SentRef(it.id, it.peerKey, it.receivedAt) },
+            destHash,
+            now,
+        )
+        android.util.Log.i(
+            "MCH-Repeat",
+            "dm repeat dest=%02x path=$pathHex candidates=${recent.size} ".format(destHash) +
+                "peers=${recent.map { it.peerKey.take(4) }} credited=${credited?.id}",
+        )
+        val row = recent.firstOrNull { it.id == credited?.id } ?: return
+        noteRepeat(row, pathHex, width)
     }
 
     suspend fun markChannelResult(contentKey: String, accepted: Boolean) {
@@ -883,15 +889,14 @@ class MessageRepository(
         const val KIND_CHANNEL = "ch"
 
         /**
-         * How far back a heard repeat may be credited to a sent DM.
+         * How far back to LOOK for a sent DM a repeat might belong to.
          *
-         * A repeat follows its original by airtime, not minutes, so this
-         * is generous rather than long — wide enough for a slow spreading
-         * factor and a couple of hops, narrow enough that two unrelated
-         * messages to the same contact rarely both fall inside it (and
-         * when they do, the correlation refuses rather than picks).
+         * Only the query bound — which candidate actually gets credited
+         * is `MessageRepeats.creditDirect`, on echo timing. This stays
+         * wider than that rule needs so the decision is made there and
+         * not silently by SQL.
          */
-        const val DM_REPEAT_WINDOW_MS = 120_000L
+        const val DM_REPEAT_WINDOW_MS = 180_000L
 
         /**
          * How far back a reaction may reach. The wire format carries no

@@ -2,6 +2,7 @@ package io.github.thatsfguy.meshcore.protocol
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -130,52 +131,106 @@ class MessageRepeatsTest {
 
     // --- crediting a direct-message repeat ---------------------------------
 
+    private fun sent(id: Long, peer: String, at: Long) =
+        MessageRepeats.SentRef(id, peer, at)
+
     @Test
-    fun `exactly one candidate is credited`() {
-        val keys = listOf("b389aaaa", "f0b3bbbb")
-        assertEquals("b389aaaa", MessageRepeats.creditDirect(keys, 0xb3))
+    fun `the only plausible send is credited`() {
+        val c = listOf(sent(1, "b389aaaa", 1_000L))
+        assertEquals(1L, MessageRepeats.creditDirect(c, 0xb3, 3_000L)?.id)
     }
 
     @Test
-    fun `two candidates sharing the dest byte are refused`() {
-        // The positive-control's mirror: a one-byte hash puts these two
-        // recipients in the same bucket, and picking the newer one would
-        // be a guess presented as a measurement.
-        val keys = listOf("b389aaaa", "b3ffcccc")
-        assertNull(MessageRepeats.creditDirect(keys, 0xb3))
+    fun `several sends to one contact minutes apart each get their own repeat`() {
+        // The reported bug, verbatim: three messages to one person, and
+        // the old rule discarded every repeat because more than one row
+        // sat inside its window. Sending a burst is what testing looks
+        // like; refusing when uncertain is right, refusing whenever busy
+        // is broken.
+        val c = listOf(
+            sent(1, "b389aaaa", 0L),
+            sent(2, "b389aaaa", 60_000L),
+            sent(3, "b389aaaa", 420_000L),
+        )
+        assertEquals(1L, MessageRepeats.creditDirect(c, 0xb3, 2_000L)?.id)
+        assertEquals(2L, MessageRepeats.creditDirect(c, 0xb3, 62_000L)?.id)
+        assertEquals(3L, MessageRepeats.creditDirect(c, 0xb3, 421_000L)?.id)
+    }
+
+    @Test
+    fun `two sends seconds apart are genuinely ambiguous and refused`() {
+        val c = listOf(
+            sent(1, "b389aaaa", 10_000L),
+            sent(2, "b389aaaa", 12_000L),
+        )
+        assertNull(MessageRepeats.creditDirect(c, 0xb3, 13_000L))
+    }
+
+    @Test
+    fun `an echo older than its candidate is not credited`() {
+        // A repeat cannot precede the transmission it repeats.
+        val c = listOf(sent(1, "b389aaaa", 10_000L))
+        assertNull(MessageRepeats.creditDirect(c, 0xb3, 9_000L))
+    }
+
+    @Test
+    fun `an echo long after the send is not credited`() {
+        val c = listOf(sent(1, "b389aaaa", 0L))
+        assertNull(
+            MessageRepeats.creditDirect(c, 0xb3, MessageRepeats.MAX_ECHO_LAG_MS + 1),
+        )
+        assertNotNull(MessageRepeats.creditDirect(c, 0xb3, MessageRepeats.MAX_ECHO_LAG_MS))
+    }
+
+    @Test
+    fun `a retried message still gets its echo, since the row is stamped at attempt one`() {
+        // Three attempts spread over half a minute; the echo of the last
+        // one still belongs to the row stamped at the first.
+        val c = listOf(sent(1, "b389aaaa", 0L))
+        assertEquals(1L, MessageRepeats.creditDirect(c, 0xb3, 30_000L)?.id)
+    }
+
+    @Test
+    fun `a different recipient in the same window is not confused for ours`() {
+        val c = listOf(
+            sent(1, "b389aaaa", 1_000L),
+            sent(2, "f0b3bbbb", 2_000L),
+        )
+        assertEquals(1L, MessageRepeats.creditDirect(c, 0xb3, 3_000L)?.id)
+        assertEquals(2L, MessageRepeats.creditDirect(c, 0xf0, 3_000L)?.id)
+    }
+
+    @Test
+    fun `two DIFFERENT recipients sharing a dest byte are refused`() {
+        // One byte is 256 buckets; two contacts land in one routinely.
+        val c = listOf(
+            sent(1, "b389aaaa", 10_000L),
+            sent(2, "b3ffcccc", 12_000L),
+        )
+        assertNull(MessageRepeats.creditDirect(c, 0xb3, 13_000L))
     }
 
     @Test
     fun `no candidate matching the dest byte is refused`() {
-        assertNull(MessageRepeats.creditDirect(listOf("f0b3bbbb"), 0xb3))
-        assertNull(MessageRepeats.creditDirect(emptyList(), 0xb3))
-    }
-
-    @Test
-    fun `the same recipient twice is one candidate, not two`() {
-        // Two messages to one person still identify the PEER
-        // unambiguously; which of the two messages it was is a separate
-        // question the caller settles.
-        assertEquals(
-            "b389aaaa",
-            MessageRepeats.creditDirect(listOf("b389aaaa", "b389aaaa"), 0xb3),
-        )
+        assertNull(MessageRepeats.creditDirect(listOf(sent(1, "f0b3bbbb", 0L)), 0xb3, 1_000L))
+        assertNull(MessageRepeats.creditDirect(emptyList(), 0xb3, 1_000L))
     }
 
     @Test
     fun `dest byte matching is case-insensitive and zero-padded`() {
-        assertEquals("0A45D1", MessageRepeats.creditDirect(listOf("0A45D1"), 0x0a))
-        assertEquals("0a45d1", MessageRepeats.creditDirect(listOf("0a45d1"), 0x0a))
+        assertEquals(1L, MessageRepeats.creditDirect(listOf(sent(1, "0A45D1", 0L)), 0x0a, 5L)?.id)
+        assertEquals(1L, MessageRepeats.creditDirect(listOf(sent(1, "0a45d1", 0L)), 0x0a, 5L)?.id)
     }
 
     @Test
     fun `an out-of-range dest byte is refused rather than wrapped`() {
-        assertNull(MessageRepeats.creditDirect(listOf("b389aaaa"), 256))
-        assertNull(MessageRepeats.creditDirect(listOf("b389aaaa"), -1))
+        val c = listOf(sent(1, "b389aaaa", 0L))
+        assertNull(MessageRepeats.creditDirect(c, 256, 1_000L))
+        assertNull(MessageRepeats.creditDirect(c, -1, 1_000L))
     }
 
     @Test
     fun `a truncated key cannot match`() {
-        assertNull(MessageRepeats.creditDirect(listOf("b"), 0xb3))
+        assertNull(MessageRepeats.creditDirect(listOf(sent(1, "b", 0L)), 0xb3, 1_000L))
     }
 }

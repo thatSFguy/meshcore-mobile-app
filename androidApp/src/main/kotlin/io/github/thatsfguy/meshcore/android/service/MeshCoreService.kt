@@ -18,6 +18,7 @@ import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import io.github.thatsfguy.meshcore.protocol.MessageNotice
+import io.github.thatsfguy.meshcore.android.BuildConfig
 import io.github.thatsfguy.meshcore.android.MainActivity
 import io.github.thatsfguy.meshcore.android.R
 import io.github.thatsfguy.meshcore.android.storage.DiagnosticsLog
@@ -113,7 +114,14 @@ class MeshCoreService : Service() {
             scope = scope,
             crypto = androidCryptoProvider(),
             nowSeconds = { System.currentTimeMillis() / 1000 },
-            log = { diagnostics.log("Engine", it) },
+            log = {
+                diagnostics.log("Engine", it)
+                // Debug builds also tee to Logcat. The in-app log is
+                // off by default and redaction-aware, which is right for
+                // shipping and useless when you are trying to see why a
+                // packet did not turn into a row.
+                if (BuildConfig.DEBUG) android.util.Log.i("MCH-Engine", it)
+            },
         )
         // The DB is opened encrypted with a Keystore-sealed passphrase.
         // Blocking here is deliberate and brief (one Keystore unseal):

@@ -110,27 +110,70 @@ object MessageRepeats {
         else -> "$n nodes were heard re-broadcasting this message."
     }
 
+    /** A sent direct message a heard repeat might belong to. */
+    data class SentRef(
+        val id: Long,
+        val peerKeyHex: String,
+        val sentAtMillis: Long,
+    )
+
+    /**
+     * How long after a send an echo can still plausibly be its repeat.
+     *
+     * A rebroadcast follows its original by airtime, not minutes — but a
+     * direct message may be retried up to three times, and the row is
+     * stamped at the FIRST attempt, so the last attempt's echo can lag
+     * the stamp considerably. Generous, but not open-ended: past this an
+     * echo is more likely to belong to something else entirely.
+     */
+    const val MAX_ECHO_LAG_MS = 45_000L
+
+    /**
+     * Two sends this close together cannot be told apart.
+     *
+     * An echo arrives seconds after its original, so messages a minute
+     * apart are unambiguous while messages a few seconds apart are not.
+     * This is the width of "genuinely cannot say".
+     */
+    const val AMBIGUOUS_GAP_MS = 8_000L
+
     /**
      * Which sent direct message a heard repeat belongs to, or null.
      *
-     * [peerKeysHex] are the recipients of recently sent DMs and
-     * [destHash] is the one byte the rebroadcast exposes. One byte is
-     * 256 buckets, so this narrows and never identifies: a repeat is
-     * credited **only when exactly one candidate matches**.
+     * A rebroadcast DM is encrypted to its recipient and exposes one
+     * byte of it — 256 buckets, so the recipient hash narrows and never
+     * identifies. What actually separates two messages to the SAME
+     * person is time: an echo follows its original by seconds.
      *
-     * Null is a real answer and the caller must drop the sighting. Two
-     * messages to people whose keys share a first byte — or two messages
-     * to the SAME person inside the window — are indistinguishable here,
-     * and a repeat count on the wrong message looks exactly like a right
-     * one.
+     * So: take the sends to that recipient that could plausibly have
+     * produced this echo, and credit the most recent — unless another
+     * send sits within [AMBIGUOUS_GAP_MS] of it, in which case the two
+     * are indistinguishable and the honest answer is none.
+     *
+     * The first cut of this demanded exactly one candidate across a
+     * two-minute window, which meant that sending three messages to one
+     * contact — what testing the feature looks like — discarded every
+     * repeat. Refusing when uncertain is right; refusing whenever busy
+     * is just broken.
      */
-    fun creditDirect(peerKeysHex: List<String>, destHash: Int): String? {
+    fun creditDirect(
+        candidates: List<SentRef>,
+        destHash: Int,
+        echoAtMillis: Long,
+    ): SentRef? {
         if (destHash !in 0..255) return null
         val prefix = destHash.toString(16).padStart(2, '0')
-        return peerKeysHex
-            .filter { it.length >= 2 && it.substring(0, 2).lowercase() == prefix }
-            .distinct()
-            .singleOrNull()
+        val plausible = candidates
+            .filter { it.peerKeyHex.length >= 2 && it.peerKeyHex.take(2).lowercase() == prefix }
+            .filter { echoAtMillis >= it.sentAtMillis }
+            .filter { echoAtMillis - it.sentAtMillis <= MAX_ECHO_LAG_MS }
+            .sortedByDescending { it.sentAtMillis }
+        val newest = plausible.firstOrNull() ?: return null
+        val runnerUp = plausible.getOrNull(1)
+        if (runnerUp != null && newest.sentAtMillis - runnerUp.sentAtMillis <= AMBIGUOUS_GAP_MS) {
+            return null
+        }
+        return newest
     }
 
     private fun split(hex: String, chars: Int): List<String>? {
