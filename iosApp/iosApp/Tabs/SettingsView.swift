@@ -1,10 +1,11 @@
-// Settings: connection (TCP first, behind the same stern plaintext
-// warning as Android; BLE pending IosBleTransport), node info, about.
+// Settings: connection (BLE, plus TCP behind the same stern plaintext
+// warning as Android), node info, about.
 
 import SwiftUI
 
 struct SettingsView: View {
     @EnvironmentObject var store: MeshCoreStore
+    @StateObject private var scanner = BleScanner()
     @State private var showTcpWarning = false
 
     var body: some View {
@@ -33,11 +34,39 @@ struct SettingsView: View {
                             .autocorrectionDisabled()
                         TextField("Port", value: $store.tcpPort, format: .number)
                         Button("Connect (unencrypted)") { store.connectTcp() }
-                        Button("Disconnect", role: .destructive) { store.disconnect() }
                     }
-                    Text("Bluetooth radios: coming with the IosBleTransport port (see iosApp/README.md).")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    // One Disconnect for whichever transport is attached,
+                    // rather than one per transport.
+                    Button("Disconnect", role: .destructive) { store.disconnect() }
+                }
+
+                Section("Bluetooth radios") {
+                    if let problem = scanner.problem {
+                        Text(problem).font(.caption).foregroundStyle(.red)
+                    }
+                    Button(scanner.isScanning ? "Scanning…" : "Scan for radios") {
+                        scanner.startScan()
+                    }
+                    .disabled(scanner.isScanning)
+
+                    ForEach(scanner.radios) { radio in
+                        Button {
+                            store.connectBle(radio, using: scanner)
+                        } label: {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(radio.name)
+                                Text("signal \(radio.rssi) dBm")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+
+                    if scanner.isScanning && scanner.radios.isEmpty {
+                        Text("No MeshCore radios yet. They advertise every few seconds — give it a moment, and check the radio is powered on and not already paired to another phone.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
 
                 Section("This node") {

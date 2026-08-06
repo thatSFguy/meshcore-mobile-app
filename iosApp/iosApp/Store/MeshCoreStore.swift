@@ -51,7 +51,8 @@ final class MeshCoreStore: ObservableObject {
     @AppStorage("tcpPort") var tcpPort: Int = 5000
 
     private var engine: MeshCoreEngine?
-    private var transport: TcpInterface?
+    /// Whichever transport is attached — TCP or BLE.
+    private var transport: Transport?
     private var pollTimer: Timer?
     private let scope: Kotlinx_coroutines_coreCoroutineScope
 
@@ -74,7 +75,34 @@ final class MeshCoreStore: ObservableObject {
         pollTimer?.invalidate()
     }
 
-    // MARK: - Connection (TCP first; BLE pending IosBleTransport)
+    // MARK: - Connection
+
+    /// Attach over BLE to a radio the scanner found.
+    ///
+    /// `IosBleTransport` does not scan — it takes an already-discovered
+    /// peripheral, same as Android's transport takes a MAC. The scanner
+    /// hands over its `CBCentralManager` and stops scanning first,
+    /// because the transport makes itself that central's delegate.
+    func connectBle(_ radio: DiscoveredRadio, using scanner: BleScanner) {
+        guard let engine else { return }
+        let t = IosBleTransport(
+            central: scanner.takeCentralForConnect(),
+            peripheral: radio.peripheral
+        )
+        transport = t
+        engine.attach(t: t)
+        Task {
+            do {
+                try await t.connect()
+            } catch {
+                // Every failure the transport raises is already a
+                // sentence meant for a person — "does not advertise the
+                // MeshCore serial service", "Bluetooth connect failed" —
+                // so surface it rather than replacing it.
+                self.engineStateLabel = error.localizedDescription
+            }
+        }
+    }
 
     func connectTcp() {
         guard tcpEnabled, let engine else { return }

@@ -33,8 +33,9 @@ data class DiscoveredDevice(
 
 object BleScanner {
 
+    /** Delegates to the shared rule so iOS cannot disagree with us. */
     fun matchesMeshCoreName(name: String?): Boolean =
-        name != null && MESHCORE_BLE_NAME_PREFIXES.any { name.startsWith(it) }
+        io.github.thatsfguy.meshcore.protocol.matchesMeshCoreName(name)
 
     /** Cold flow emitting the running set of discovered radios,
      *  deduplicated by MAC, sorted by RSSI. Cancelling stops the scan. */

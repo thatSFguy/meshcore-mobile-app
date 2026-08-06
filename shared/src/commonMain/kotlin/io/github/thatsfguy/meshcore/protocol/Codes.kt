@@ -173,6 +173,20 @@ val MESHCORE_BLE_NAME_PREFIXES = listOf(
     "MeshCore-", "Whisper-", "WisCore-", "Seeed", "Lilygo", "HT-", "LowMesh_MC_",
 )
 
+/**
+ * Whether an advertised BLE name identifies a MeshCore companion radio.
+ *
+ * The rule, not just the list, lives here: **some firmwares omit the
+ * NUS service UUID from the advertisement**, so a scan filtered on the
+ * service alone misses them. Both platforms therefore scan unfiltered
+ * and qualify a device on "advertises NUS **or** matches a known name",
+ * and both must apply the same second half of that test — a radio
+ * visible on Android and invisible on iOS would look like broken
+ * Bluetooth rather than a mismatched predicate.
+ */
+fun matchesMeshCoreName(name: String?): Boolean =
+    name != null && MESHCORE_BLE_NAME_PREFIXES.any { name.startsWith(it) }
+
 /** Nordic UART Service UUIDs (shared by every MeshCore BLE radio). */
 object NusUuids {
     const val SERVICE = "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
