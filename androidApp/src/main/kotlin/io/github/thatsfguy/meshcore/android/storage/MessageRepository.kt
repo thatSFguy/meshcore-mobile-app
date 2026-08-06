@@ -1,6 +1,7 @@
 package io.github.thatsfguy.meshcore.android.storage
 
 import io.github.thatsfguy.meshcore.android.BuildConfig
+import io.github.thatsfguy.meshcore.protocol.ReactionRouting
 import io.github.thatsfguy.meshcore.engine.MeshCoreEngine
 import io.github.thatsfguy.meshcore.engine.MeshEvent
 import io.github.thatsfguy.meshcore.model.Channel
@@ -54,13 +55,7 @@ class MessageRepository(
      * becomes a row, so it needs its own guard — without it one tap
      * counted as three.
      */
-    private val seenReactionKeys = object : LinkedHashSet<String>() {
-        fun remember(key: String): Boolean {
-            val fresh = add(key)
-            while (size > MAX_SEEN_REACTIONS) remove(first())
-            return fresh
-        }
-    }
+    private val seenReactionKeys = ReactionRouting.SeenKeys()
 
     /** Called before sending our own channel reaction, so its echo is a no-op. */
     @Synchronized
@@ -70,7 +65,7 @@ class MessageRepository(
 
     @Synchronized
     private fun firstSightOfReaction(contentKey: String?): Boolean =
-        contentKey == null || seenReactionKeys.remember(contentKey)
+        seenReactionKeys.firstSight(contentKey)
 
     /**
      * Invoked for each genuinely-new inbound message that is NOT in the
@@ -392,15 +387,19 @@ class MessageRepository(
         // counting them again — but still consume, so the wire text
         // never lands in the thread as a message.
         if (!firstSightOfReaction(contentKey)) return ReactionOutcome.Consumed
-        val recent = db.messages().recentOnce(self, kind, peerKey, REACTION_SEARCH_WINDOW)
-        val target = recent.firstOrNull { candidate ->
-            // Their reaction targets OUR view of the message: for a
-            // channel the hash includes the message's own sender name,
-            // for a DM it doesn't.
-            val hashSender = if (kind == KIND_CHANNEL) candidate.senderName.orEmpty() else null
-            Reactions.targetHash(candidate.timestamp, hashSender, candidate.text) ==
-                reaction.targetHash
-        } ?: return ReactionOutcome.Consumed
+        val recent = db.messages()
+            .recentOnce(self, kind, peerKey, ReactionRouting.SEARCH_WINDOW)
+        // Which message this points at is ReactionRouting's rule, not
+        // this class's: it is pure, it is hostile-input facing, and iOS
+        // needs the same answer. Here we only map rows to it and back.
+        val hit = ReactionRouting.target(
+            recent.map {
+                ReactionRouting.Candidate(it.id, it.timestamp, it.senderName, it.text, it.outgoing)
+            },
+            reaction.targetHash,
+            isChannel = kind == KIND_CHANNEL,
+        ) ?: return ReactionOutcome.Consumed
+        val target = recent.first { it.id == hit.id }
         addReaction(target, reaction.emoji)
         return ReactionOutcome.Applied(reaction.emoji, target)
     }
@@ -425,7 +424,15 @@ class MessageRepository(
         senderName: String?,
         applied: ReactionOutcome.Applied,
     ) {
-        if (!applied.target.outgoing) return
+        if (!ReactionRouting.shouldNotify(
+                ReactionRouting.Candidate(
+                    applied.target.id, applied.target.timestamp,
+                    applied.target.senderName, applied.target.text, applied.target.outgoing,
+                ),
+            )
+        ) {
+            return
+        }
         onNewMessage?.invoke(
             kind,
             peerKey,
@@ -905,17 +912,8 @@ class MessageRepository(
          */
         const val DM_REPEAT_WINDOW_MS = 180_000L
 
-        /**
-         * How far back a reaction may reach. The wire format carries no
-         * thread position, only a 16-bit hash, so a wider window means
-         * more chances to collide with an unrelated message; 200 covers
-         * any realistic "react to something in view" while keeping the
-         * collision odds negligible.
-         */
-        private const val REACTION_SEARCH_WINDOW = 200
 
         /** Bound on the echo-suppression set. */
-        private const val MAX_SEEN_REACTIONS = 512
 
         fun Contact.toEntity(selfKey: String): ContactEntity = ContactEntity(
             selfKey = selfKey,
