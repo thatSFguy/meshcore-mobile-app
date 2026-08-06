@@ -16,7 +16,7 @@ import java.io.File
         MessageEntity::class, ContactEntity::class, ChannelEntity::class,
         PathHistoryEntity::class, DiscoveredEntity::class,
     ],
-    version = 8,
+    version = 9,
     exportSchema = true,
 )
 abstract class MeshCoreDatabase : RoomDatabase() {
@@ -116,6 +116,21 @@ abstract class MeshCoreDatabase : RoomDatabase() {
         }
 
         /**
+         * v9 adds messages.repeatHopsHex / repeatHashWidth — which nodes
+         * were heard re-broadcasting a message WE sent. Separate from
+         * arrivalPath* on purpose: that column means "the route this
+         * reached me by" and an outgoing row has no such thing. They were
+         * briefly the same column, and one field meaning two opposite
+         * directions is how a screen ends up confidently wrong.
+         */
+        private val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `messages` ADD COLUMN `repeatHopsHex` TEXT")
+                db.execSQL("ALTER TABLE `messages` ADD COLUMN `repeatHashWidth` INTEGER")
+            }
+        }
+
+        /**
          * Open the database, encrypted with [passphrase] when one is
          * available (see [DatabaseKey]). A pre-existing PLAINTEXT
          * database is converted in place first, so turning encryption on
@@ -160,6 +175,7 @@ abstract class MeshCoreDatabase : RoomDatabase() {
                     .addMigrations(
                         MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4,
                         MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8,
+                        MIGRATION_8_9,
                     )
 
             if (key == null) {

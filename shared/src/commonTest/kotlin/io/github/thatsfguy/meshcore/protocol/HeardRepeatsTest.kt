@@ -194,7 +194,7 @@ class HeardRepeatsTest {
     fun `the summary counts repeaters and returned copies separately`() {
         val echoes = listOf(echo("aabb"), echo("aabbccdd"))
         val text = HeardRepeats.summary(echoes, HeardRepeats.tally(echoes))
-        assertTrue(text.contains("2 repeater(s)"), text)
+        assertTrue(text.contains("2 node(s)"), text)
         assertTrue(text.contains("2 returned copy(s)"), text)
     }
 

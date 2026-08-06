@@ -109,6 +109,41 @@ interface MessageDao {
     ): Int
 
     /**
+     * The outgoing row a channel echo belongs to, if that echo is of
+     * something WE sent.
+     *
+     * `outgoing = 1` is the whole check that makes this safe: an echo
+     * whose contentKey matches an INBOUND row is somebody else's message
+     * arriving twice, and crediting it as a repeat of ours would be an
+     * invented fact.
+     */
+    @Query(
+        "SELECT * FROM messages WHERE selfKey = :selfKey AND contentKey = :contentKey " +
+            "AND outgoing = 1 LIMIT 1",
+    )
+    suspend fun outgoingByContentKey(selfKey: String, contentKey: String): MessageEntity?
+
+    /**
+     * The candidate sent DMs a heard repeat could belong to.
+     *
+     * A rebroadcast direct message is opaque — one byte of recipient
+     * hash is all it offers — so the caller narrows by time and credits
+     * the repeat only when exactly one row fits.
+     */
+    @Query(
+        "SELECT * FROM messages WHERE selfKey = :selfKey AND kind = 'dm' AND outgoing = 1 " +
+            "AND receivedAt >= :sinceMillis ORDER BY receivedAt DESC LIMIT 8",
+    )
+    suspend fun recentOutgoingDms(selfKey: String, sinceMillis: Long): List<MessageEntity>
+
+    /** Store the accumulated repeat set for one message. */
+    @Query(
+        "UPDATE messages SET repeatHopsHex = :hopsHex, repeatHashWidth = :width " +
+            "WHERE id = :id",
+    )
+    suspend fun setRepeats(id: Long, hopsHex: String, width: Int): Int
+
+    /**
      * The most recent inbound message from this peer whose arrival route
      * we know — the basis for "reply the way they reached me".
      */

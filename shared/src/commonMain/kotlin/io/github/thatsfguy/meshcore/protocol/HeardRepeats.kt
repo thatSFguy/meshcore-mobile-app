@@ -183,17 +183,17 @@ object HeardRepeats {
     fun direction(relay: Relay): String = when {
         relay.isTwoWay -> "Heard you directly, and you heard it directly"
         relay.heardUs -> "Heard you directly; its own transmission reached you only via another hop"
-        relay.reachedUs -> "You heard it directly; it picked your traffic up from another repeater"
+        relay.reachedUs -> "You heard it directly; it picked your traffic up from another node"
         else -> "Carried your traffic, but neither end of that link was measured here"
     }
 
     /** One line above the list. */
     fun summary(echoes: List<Echo>, relays: List<Relay>): String = when {
         echoes.isEmpty() ->
-            "Nothing yet. Send a flood advert and leave this open — repeaters that carry " +
+            "Nothing yet. Send a flood advert and leave this open — nodes that carry " +
                 "it will appear here as their copies come back."
         relays.isEmpty() -> "Heard ${echoes.size} copy(s) of your own traffic, none with a route."
-        else -> "${relays.size} repeater(s) seen carrying your traffic, " +
+        else -> "${relays.size} node(s) seen carrying your traffic, " +
             "from ${echoes.size} returned copy(s)."
     }
 
@@ -207,8 +207,9 @@ object HeardRepeats {
      * one direction that matters.
      */
     const val CAVEAT: String =
-        "This lists repeaters whose copy of your traffic came back within range of this " +
-            "radio. A repeater that carried your traffic onward without a copy reaching " +
+        "This lists nodes whose copy of your traffic came back within range of this " +
+            "radio. A node that carried your traffic onward without a copy reaching " +
             "you again cannot appear here — so treat this as a floor, not a map of your " +
-            "coverage."
+            "coverage. Repeaters, room servers and companions with client-repeat all " +
+            "relay, so not every row is a repeater."
 }

@@ -75,6 +75,17 @@ data class MessageEntity(
      */
     val arrivalPathHex: String? = null,
     val arrivalHashWidth: Int? = null,
+    /**
+     * Outgoing messages: nodes heard re-broadcasting THIS message,
+     * accumulated as concatenated hop hashes (see `MessageRepeats`).
+     *
+     * Deliberately not reusing arrivalPath*: that column means "the
+     * route this reached me by", which an outgoing row does not have.
+     * One field carrying two opposite directions is how a screen ends
+     * up confidently wrong.
+     */
+    val repeatHopsHex: String? = null,
+    val repeatHashWidth: Int? = null,
 )
 
 enum class MessageStatus { Pending, Sent, Delivered, Failed }

@@ -68,6 +68,7 @@ import io.github.thatsfguy.meshcore.android.storage.MessageStatus
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import io.github.thatsfguy.meshcore.protocol.MessageRepeats
 import io.github.thatsfguy.meshcore.protocol.HeardVia
 import io.github.thatsfguy.meshcore.protocol.PathCodec
 import io.github.thatsfguy.meshcore.protocol.ReactionCounts
@@ -602,6 +603,12 @@ private fun MessageBubble(
                             )
                             // Surface retries so a struggling route is visible.
                             if (m.attempts > 1) append(" (try ${m.attempts})")
+                            // Who picked this up off the air. Absent when
+                            // nothing was heard — which is NOT "nobody
+                            // carried it", so it renders as nothing at
+                            // all rather than as a zero.
+                            MessageRepeats.badge(m.repeatHopsHex, m.repeatHashWidth)
+                                ?.let { append("  ·  $it") }
                         }
                         // Link quality for received traffic: how far it
                         // came and how strong it landed. Both say more
@@ -893,6 +900,8 @@ private fun MessageInfoSheet(
             if (!m.outgoing) {
                 MessagePathMap(vm, m, senderLabel)
                 ArrivalRoute(m, contactNames)
+            } else {
+                RepeatedBy(m, contactNames)
             }
             if (showSender) {
                 InfoRow(
@@ -953,6 +962,44 @@ private fun ArrivalRoute(m: MessageEntity, contactNames: Map<String, String>) {
         RouteStep("${i + 1}.", hop.label)
     }
     RouteStep("↓", "this radio", dim = true)
+}
+
+/**
+ * "Who picked this up" — nodes heard re-broadcasting a message we sent.
+ *
+ * The outgoing counterpart to [ArrivalRoute], and deliberately NOT
+ * called a route: these are nodes observed carrying the message, in the
+ * order we first heard them, not an ordered path it travelled.
+ *
+ * Silence is stated rather than left blank, because an empty section
+ * here reads as "nobody repeated it" when what it means is "no repeat
+ * reached this radio" — a node that relayed the message away from us
+ * never sends a copy back.
+ */
+@Composable
+private fun RepeatedBy(m: MessageEntity, contactNames: Map<String, String>) {
+    val relays = MessageRepeats.relays(m.repeatHopsHex, m.repeatHashWidth)
+    Spacer(Modifier.height(8.dp))
+    Text("Repeated by", style = MaterialTheme.typography.titleSmall)
+    Text(
+        MessageRepeats.summary(m.repeatHopsHex, m.repeatHashWidth),
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    if (relays.isEmpty()) return
+    Spacer(Modifier.height(4.dp))
+    val width = m.repeatHashWidth ?: return
+    for ((i, hash) in relays.withIndex()) {
+        // Named through the shared resolver, so an ambiguous hash stays
+        // "(N matches)" here exactly as it does everywhere else. A
+        // 2-byte hop is 16 bits; naming a winner would be a guess
+        // wearing a fact's clothes (PARITY §12).
+        val bytes = io.github.thatsfguy.meshcore.util.hexToBytesOrNull(hash)
+        val label = bytes
+            ?.let { PathCodec.resolveHops(it, width, contactNames).singleOrNull()?.label }
+            ?: hash
+        RouteStep("${i + 1}.", label)
+    }
 }
 
 @Composable

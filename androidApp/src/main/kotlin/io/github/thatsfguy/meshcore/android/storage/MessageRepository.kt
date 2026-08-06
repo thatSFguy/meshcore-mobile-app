@@ -4,6 +4,7 @@ import io.github.thatsfguy.meshcore.engine.MeshCoreEngine
 import io.github.thatsfguy.meshcore.engine.MeshEvent
 import io.github.thatsfguy.meshcore.model.Channel
 import io.github.thatsfguy.meshcore.model.Contact
+import io.github.thatsfguy.meshcore.protocol.MessageRepeats
 import io.github.thatsfguy.meshcore.protocol.BlockList
 import io.github.thatsfguy.meshcore.protocol.PathHistoryHygiene
 import io.github.thatsfguy.meshcore.protocol.ReactionCounts
@@ -247,6 +248,9 @@ class MessageRepository(
                 }
             }
 
+            is MeshEvent.OwnDirectRepeatHeard ->
+                noteDirectRepeat(event.destHash, event.pathHex, event.hashWidth)
+
             is MeshEvent.ChannelMessageReceived -> {
                 // A NOISE FILTER, not a block: the name is unauthenticated
                 // display text (MESHCORE_PROTOCOL §9 — a group message
@@ -300,10 +304,21 @@ class MessageRepository(
                 // The RX-log copy is the ONLY one carrying a route, and
                 // it is also the one the unique index bounces when the
                 // sync copy arrives first. Fill it in either way.
-                if (event.arrivalPathHex != null && event.arrivalHashWidth != null) {
-                    db.messages().fillArrivalPath(
-                        self, event.contentKey, event.arrivalPathHex!!, event.arrivalHashWidth!!,
-                    )
+                val path = event.arrivalPathHex
+                val width = event.arrivalHashWidth
+                if (path != null && width != null) {
+                    // An echo of a message WE sent is not an arrival —
+                    // it is a repeat, and the two mean opposite
+                    // directions. Route it to the repeat column instead,
+                    // which is exact here because the engine decrypted
+                    // this very packet and its contentKey matches a row
+                    // in our own outbox.
+                    val own = db.messages().outgoingByContentKey(self, event.contentKey)
+                    if (own != null) {
+                        noteRepeat(own, path, width)
+                    } else {
+                        db.messages().fillArrivalPath(self, event.contentKey, path, width)
+                    }
                 }
                 // insert == -1 → duplicate (sync + RX-log double delivery,
                 // or the echo of our own outgoing message)
@@ -819,6 +834,43 @@ class MessageRepository(
         )
     }
 
+    /**
+     * Record that [message] was heard being re-broadcast over [pathHex].
+     *
+     * Accumulates rather than overwrites: a flood is carried by several
+     * nodes and each copy that reaches us names a different part of the
+     * picture. Merging is [MessageRepeats.merge], which unions on the hop
+     * hash so one node re-transmitting twice stays one node.
+     */
+    private suspend fun noteRepeat(message: MessageEntity, pathHex: String, width: Int) {
+        val merged = MessageRepeats.merge(message.repeatHopsHex, pathHex, width) ?: return
+        if (merged == message.repeatHopsHex) return
+        db.messages().setRepeats(message.id, merged, width)
+    }
+
+    /**
+     * A repeat of one of OUR direct messages, heard off the RX log.
+     *
+     * Unlike the channel case this is correlation, not identification: a
+     * rebroadcast DM is encrypted to its recipient, so all it offers is
+     * one byte of recipient hash. We narrow to sent DMs from the last
+     * [DM_REPEAT_WINDOW_MS] whose peer key starts with that byte, and
+     * credit the repeat **only when exactly one fits**. Two candidates
+     * means we do not know which message was carried — and a repeat
+     * count on the wrong message looks exactly like a right one.
+     */
+    suspend fun noteDirectRepeat(destHash: Int, pathHex: String, width: Int) {
+        val self = selfKey ?: return
+        val since = System.currentTimeMillis() - DM_REPEAT_WINDOW_MS
+        val recent = db.messages().recentOutgoingDms(self, since)
+        val peer = MessageRepeats.creditDirect(recent.map { it.peerKey }, destHash) ?: return
+        // creditDirect guarantees ONE peer; a single peer can still have
+        // two messages in the window, which is equally ambiguous.
+        val only = recent.filter { it.peerKey.equals(peer, ignoreCase = true) }
+            .singleOrNull() ?: return
+        noteRepeat(only, pathHex, width)
+    }
+
     suspend fun markChannelResult(contentKey: String, accepted: Boolean) {
         db.messages().updateStatusByContentKey(
             selfKey, contentKey,
@@ -829,6 +881,17 @@ class MessageRepository(
     companion object {
         const val KIND_DM = "dm"
         const val KIND_CHANNEL = "ch"
+
+        /**
+         * How far back a heard repeat may be credited to a sent DM.
+         *
+         * A repeat follows its original by airtime, not minutes, so this
+         * is generous rather than long — wide enough for a slow spreading
+         * factor and a couple of hops, narrow enough that two unrelated
+         * messages to the same contact rarely both fall inside it (and
+         * when they do, the correlation refuses rather than picks).
+         */
+        const val DM_REPEAT_WINDOW_MS = 120_000L
 
         /**
          * How far back a reaction may reach. The wire format carries no

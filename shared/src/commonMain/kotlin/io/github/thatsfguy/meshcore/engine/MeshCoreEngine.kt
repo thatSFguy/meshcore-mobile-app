@@ -144,6 +144,21 @@ sealed class MeshEvent {
         val arrivalHashWidth: Int? = null,
     ) : MeshEvent()
 
+    /**
+     * A re-broadcast of one of OUR direct messages, heard off the air.
+     *
+     * The payload is encrypted to its recipient, so this carries only
+     * what the packet exposes: the recipient's one-byte [destHash] and
+     * the route the copy travelled. Deciding WHICH sent message it
+     * belongs to is correlation and belongs to the store, which is the
+     * side that knows the outbox — see `MessageRepeats`.
+     */
+    data class OwnDirectRepeatHeard(
+        val destHash: Int,
+        val pathHex: String,
+        val hashWidth: Int,
+    ) : MeshEvent()
+
     /** The radio accepted an outbound message (RESP_CODE_SENT). */
     data class MessageSentToRadio(
         val ackHash: Long,
@@ -757,7 +772,28 @@ class MeshCoreEngine(
         when (packet.payloadType) {
             // We cannot decrypt this — but we CAN keep its route until
             // the radio hands us the message it carried.
-            Codes.PAYLOAD_TYPE_TXT_MSG -> rememberArrival(packet)
+            Codes.PAYLOAD_TYPE_TXT_MSG -> {
+                // A DM packet whose src_hash is OURS is one of our own
+                // messages coming back off a repeater, not an inbound
+                // one. One byte narrows rather than identifies, so this
+                // only reports the sighting; the store decides whether
+                // exactly one sent message fits it.
+                val selfFirst = _selfInfo.value?.publicKey?.firstOrNull()?.toInt()?.and(0xFF)
+                val src = packet.payload.getOrNull(1)?.toInt()?.and(0xFF)
+                val dest = packet.payload.getOrNull(0)?.toInt()?.and(0xFF)
+                if (selfFirst != null && src == selfFirst && dest != null &&
+                    packet.pathBytes.isNotEmpty()
+                ) {
+                    _meshEvents.tryEmit(
+                        MeshEvent.OwnDirectRepeatHeard(
+                            destHash = dest,
+                            pathHex = packet.pathBytes.toHex(),
+                            hashWidth = packet.pathHashWidth,
+                        ),
+                    )
+                }
+                rememberArrival(packet)
+            }
             Codes.PAYLOAD_TYPE_GRP_TXT -> {
                 if (packet.payload.isEmpty()) return
                 val channelHash = packet.payload[0].toInt() and 0xFF

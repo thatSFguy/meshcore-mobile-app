@@ -89,6 +89,16 @@ fun AboutSection(vm: MeshCoreViewModel) {
  * is a changelog you can't read in the field.
  */
 private val CHANGELOG: List<Pair<String, List<String>>> = listOf(
+    "0.7.1" to listOf(
+        "Repeats now show on the sent message itself — a \u21bb 2 repeats badge under the " +
+            "bubble — and the message details sheet names each node under \"Repeated by\".",
+        "Channel posts are exact: the app decrypts the echo and matches it to its own " +
+            "outbox. Direct messages are correlated and refuse when two sent messages fit.",
+        "No repeats heard shows nothing rather than \"0\" — a node that carried your " +
+            "message onward without a copy coming back cannot be heard from here.",
+        "Wording corrected to \"node\": the first live measurement was relayed by a room " +
+            "server, and companions with client-repeat relay too.",
+    ),
     "0.7.0" to listOf(
         "New: \"Who repeats me\" (Nodes → ⋮) — which repeaters are actually carrying your " +
             "traffic. Tap Send a flood advert and watch which ones send a copy back.",

@@ -11,6 +11,23 @@ Every entry describes what is in **that tagged build**. A feature that landed af
 belongs in the next section, not this one — 0.3.0 was once credited with four features that
 shipped after it, which misled nobody so much as the author, three months later.
 
+## 0.7.1
+
+- **Repeats now show on the sent message itself** — a `↻ 2 repeats` badge under the bubble,
+  which is where you're looking when the question occurs to you. The standing
+  "Who repeats me" screen stays; it answers the coverage question this one can't.
+- **The info sheet names them.** Long-press a sent message → *Message details* → **Repeated
+  by** lists each node, resolved to a contact name where exactly one matches and left as a
+  hash where more than one does.
+- Channel posts are **exact** — the app decrypts the echo and matches it to the row in its
+  own outbox. Direct messages are **correlated**: a rebroadcast DM is encrypted to its
+  recipient and exposes one byte of it, so a repeat is credited only when exactly one sent
+  message fits, and refuses when two do.
+- No repeats heard shows **nothing**, never "0". A node that carried your message onward
+  without a copy coming back can't be heard here, so silence is unmeasured, not zero.
+- Wording corrected throughout: **node**, not repeater. The first live measurement was
+  relayed by a room server, and companions with client-repeat relay too.
+
 ## 0.7.0
 
 - **New: "Who repeats me"** (Nodes → ⋮). Which repeaters are actually carrying your
