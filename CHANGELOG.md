@@ -11,9 +11,29 @@ Every entry describes what is in **that tagged build**. A feature that landed af
 belongs in the next section, not this one — 0.3.0 was once credited with four features that
 shipped after it, which misled nobody so much as the author, three months later.
 
+## 0.7.2
+
+- **Direct-message repeats actually work now.** 0.7.1 shipped them looking correct and
+  doing nothing: a repeat was credited only when exactly one message to that contact
+  existed in a two-minute window, so sending two or three messages to one person — what
+  trying the feature looks like — discarded every result. Correlation is now on echo
+  timing, which is what genuinely separates two messages to the same recipient.
+- **Confirmed on a live mesh**, not just in tests: a direct message re-broadcast by two
+  nodes, both copies heard, both credited to the right message. Those exact bytes are
+  pinned in the test suite.
+- A message can now read `✗ (try 3) · ↻ 2` — **failed, but two nodes carried it**. That
+  distinguishes "the mesh moved it and nobody answered" from "it never left the radio",
+  which the delivery tick alone cannot.
+- The bubble badge is the glyph and the count, nothing else. The footer already carries a
+  time, a tick and sometimes an attempt count; the word was using more of that line than
+  the number. The info sheet still names every node in full.
+- Debug builds tee the engine log to Logcat, and the repeat log — which names contact key
+  prefixes — is now confined to them. Contact keys belong in the encrypted database and
+  the Keystore, not in a release build's system log.
+
 ## 0.7.1
 
-- **Repeats now show on the sent message itself** — a `↻ 2` badge under the bubble,
+- **Repeats now show on the sent message itself** — a badge under the bubble,
   which is where you're looking when the question occurs to you. The standing
   "Who repeats me" screen stays; it answers the coverage question this one can't.
 - **The info sheet names them.** Long-press a sent message → *Message details* → **Repeated
@@ -27,10 +47,6 @@ shipped after it, which misled nobody so much as the author, three months later.
   without a copy coming back can't be heard here, so silence is unmeasured, not zero.
 - Wording corrected throughout: **node**, not repeater. The first live measurement was
   relayed by a room server, and companions with client-repeat relay too.
-- Verified against a live mesh: a direct message re-broadcast by two nodes, both copies
-  heard, both credited to the right message. A message can now read `✗ (try 3) · ↻ 2` —
-  the mesh carried it and the recipient never answered, which the tick alone cannot tell
-  you.
 
 ## 0.7.0
 

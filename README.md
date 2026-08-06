@@ -25,13 +25,6 @@ persistence is Room (SQLite). The **only** outbound HTTP the app ever makes is O
 fetches on the Map tab — everything else is MeshCore frames over the transport you attach
 (BLE / USB, or TCP if you deliberately turn it on).
 
-![MeshCore Hardened — walkthrough](docs/demo.gif)
-
-*Driven on a Galaxy A42 against a live radio and two real repeaters. Every screen is a capture
-from that session, not a mockup: the status figures came off the node, and the ADMIN/GUEST
-difference is what those two nodes actually granted. Node public keys and exact positions are
-boxed out — they belong to other people's stations.*
-
 [![Latest release](https://img.shields.io/github/v/release/thatSFguy/meshcore-mobile-app?label=latest&sort=semver&color=blue)](https://github.com/thatSFguy/meshcore-mobile-app/releases/latest)
 [![Android CI](https://github.com/thatSFguy/meshcore-mobile-app/actions/workflows/android-ci.yml/badge.svg)](https://github.com/thatSFguy/meshcore-mobile-app/actions/workflows/android-ci.yml)
 [![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0--only-blue.svg)](LICENSE)

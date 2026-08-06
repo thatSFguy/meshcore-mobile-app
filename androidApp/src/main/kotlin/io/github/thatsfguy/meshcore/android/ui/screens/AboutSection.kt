@@ -89,9 +89,21 @@ fun AboutSection(vm: MeshCoreViewModel) {
  * is a changelog you can't read in the field.
  */
 private val CHANGELOG: List<Pair<String, List<String>>> = listOf(
+    "0.7.2" to listOf(
+        "Direct-message repeats actually work now — 0.7.1 credited one only when exactly " +
+            "one message to that contact sat in a two-minute window, so sending a few in " +
+            "a row discarded every result. Correlation is on echo timing instead.",
+        "Confirmed on a live mesh: a message re-broadcast by two nodes, both copies heard " +
+            "and credited to the right message.",
+        "A message can read \u2717 (try 3) \u00b7 \u21bb 2 — failed, but two nodes " +
+            "carried it. That tells you the mesh moved it and nobody answered, which the " +
+            "delivery tick alone cannot.",
+        "The bubble badge is the glyph and the count only; the details sheet names every " +
+            "node in full.",
+    ),
     "0.7.1" to listOf(
-        "Repeats now show on the sent message itself — a \u21bb 2 badge under the bubble " +
-            "— and the message details sheet names each node under \"Repeated by\".",
+        "Repeats now show on the sent message itself, and the message details sheet " +
+            "names each node under \"Repeated by\".",
         "Channel posts are exact: the app decrypts the echo and matches it to its own " +
             "outbox. Direct messages are correlated and refuse when two sent messages fit.",
         "No repeats heard shows nothing rather than \"0\" — a node that carried your " +
