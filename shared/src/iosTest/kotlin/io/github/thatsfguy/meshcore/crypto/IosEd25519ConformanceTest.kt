@@ -22,7 +22,13 @@ class IosEd25519ConformanceTest {
     private val crypto = IosCryptoProvider()
 
     @Test fun publicKeys() = Ed25519Conformance.publicKeysMatchTheVectors(crypto)
-    @Test fun signatures() = Ed25519Conformance.signaturesMatchTheVectors(crypto)
+    /**
+     * NOT byte-for-byte against the RFC: CryptoKit's Ed25519 is hedged,
+     * so it emits a different valid signature every time. What must
+     * hold — and what the mesh actually relies on — is that what we
+     * produce verifies under the published key.
+     */
+    @Test fun signaturesVerify() = Ed25519Conformance.signaturesVerifyUnderThePublishedKey(crypto)
     @Test fun verifyAccepts() = Ed25519Conformance.verifyAcceptsTheVectors(crypto)
     @Test fun verifyRejects() = Ed25519Conformance.verifyRejectsTampering(crypto)
 }

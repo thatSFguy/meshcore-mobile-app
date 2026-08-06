@@ -84,14 +84,43 @@ object Ed25519Conformance {
     }
 
     /**
+     * A signature we produce verifies under the PUBLISHED public key.
+     *
+     * This is the property that actually matters for interoperability:
+     * every other node on the mesh checks our adverts with standard
+     * Ed25519 verification, and a valid signature is a valid signature
+     * whether or not it matches the RFC's example bytes.
+     *
+     * Kept separate from [signaturesAreRfcDeterministic] because the two
+     * platforms genuinely differ — see that function.
+     */
+    fun signaturesVerifyUnderThePublishedKey(crypto: CryptoProvider) {
+        for (v in VECTORS) {
+            val produced = crypto.ed25519Sign(bytes(v.message), hexToBytes(v.seed))
+            assertEquals(64, produced.size, "${v.name}: signature length")
+            assertTrue(
+                crypto.ed25519Verify(produced, bytes(v.message), hexToBytes(v.publicKey)),
+                "${v.name}: our own signature does not verify under the published key",
+            )
+        }
+    }
+
+    /**
      * Produce the published signature byte for byte.
      *
-     * Ed25519 is deterministic, so this is a legitimate equality check
-     * rather than a round-trip — which matters, because a round-trip
-     * test passes happily when sign and verify are wrong in the same
-     * direction.
+     * RFC 8032 Ed25519 derives its nonce from the message and the key,
+     * so a conforming implementation is deterministic and this equality
+     * is checkable. Bouncy Castle is such an implementation.
+     *
+     * ⚠ CryptoKit is NOT, and this is asserted on Android only. Apple's
+     * Curve25519 signing is hedged — it mixes in randomness — so it
+     * emits a DIFFERENT valid signature each time. That is permitted:
+     * verification is unaffected, and the mesh only ever verifies. It
+     * does mean this particular check cannot be a cross-platform one,
+     * and discovering that is why the test was written against
+     * published vectors instead of against our own output.
      */
-    fun signaturesMatchTheVectors(crypto: CryptoProvider) {
+    fun signaturesAreRfcDeterministic(crypto: CryptoProvider) {
         for (v in VECTORS) {
             assertEquals(
                 v.signature,
@@ -152,10 +181,10 @@ object Ed25519Conformance {
         )
     }
 
-    /** Everything, so a platform test is one line. */
+    /** Everything every platform must satisfy. */
     fun runAll(crypto: CryptoProvider) {
         publicKeysMatchTheVectors(crypto)
-        signaturesMatchTheVectors(crypto)
+        signaturesVerifyUnderThePublishedKey(crypto)
         verifyAcceptsTheVectors(crypto)
         verifyRejectsTampering(crypto)
     }
