@@ -126,9 +126,20 @@ final class MeshCoreStore: ObservableObject {
         Task {
             // K/N doesn't export Kotlin default params — pass the
             // timestamp explicitly (it must match any dedup key).
+            // K/N does not export Kotlin default parameters, so every
+            // one has to be passed explicitly — including `region`,
+            // which the engine gained when region-scoped flooding
+            // landed and which this skeleton predates.
+            //
+            // nil means "unscoped": send on whatever global flood scope
+            // the radio already holds. Region-scoped channel sends are
+            // Android-only for now; picking a scope here would change
+            // which repeaters carry the message, which is not something
+            // to do by default.
             _ = try? await engine.sendChannelMessage(
                 channelIndex: index, text: text,
-                timestampSeconds: Int64(Date().timeIntervalSince1970))
+                timestampSeconds: Int64(Date().timeIntervalSince1970),
+                region: nil)
             self.append(thread: "ch|\(index)", message: UiMessage(
                 senderName: selfName, text: text,
                 timestamp: Int64(Date().timeIntervalSince1970), outgoing: true))
