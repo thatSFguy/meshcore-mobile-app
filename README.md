@@ -142,6 +142,12 @@ it, rather than trusting the name in the code.
 record of every path seen or used with success/failure quality labels, and a **path trace** showing
 each hop with its SNR.
 
+**Who repeats me** — which repeaters are actually carrying your traffic. Send a flood advert and
+watch which ones send a copy back; every row is a copy of your own **signed** advert, so nobody
+else can add a repeater to your list. It distinguishes a repeater that *heard you* from one that
+*you heard* — only the second has a measured SNR — and says plainly that it is a floor rather than
+a coverage map, since a repeater that relayed you onward without a copy returning cannot appear.
+
 **Map** — every node advertising GPS, with type-specific markers and always-visible name labels.
 Filter by node type, export nodes as GPX, clear the tile cache. Tiles are the only HTTP the app
 makes; they cache in app-private storage.

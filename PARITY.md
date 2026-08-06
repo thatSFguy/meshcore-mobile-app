@@ -35,7 +35,7 @@ Status key: ✅ have · ◐ partial · ❌ missing · ⛔ out of scope
 | `ConnectScreen`, `BluetoothSettingsScreen` | Settings → Connection, Transports | ✅ | We also gate each transport with an enable toggle; TCP is off by default behind a warning. |
 | `SetupScreen` (first-run onboarding) | First-run setup checklist | ✅ | Closed 2026-08-01. A checklist, not a wizard — plenty of users arrive with a radio someone else configured and can skip straight past. Names the four params that must match, and that a wrong match looks like an empty app rather than an error. |
 | `SuggestedRadioSettingsSelectorBottomSheet` (radio presets) | Settings → Radio → regional presets | ✅ | Closed 2026-08-01. All 47 presets transcribed from the reference client, grouped and searchable; the live radio's matching preset(s) are named. ⚠ Carries a regulatory caveat: these are what communities run, not legal advice. |
-| `FactoryResetScreen` | Repeater admin → `erase` (confirmed) | ◐ | The CLI `erase` is repeater/room only and already ships behind a confirmation. **No companion-side factory reset is implemented**: the companion protocol has no such command (§4 lists reboot, not erase), and the mainstream app's mechanism couldn't be confirmed from its binary. Not guessing at one that wipes a radio. |
+| `FactoryResetScreen` | Repeater admin → `erase` (confirmed) | ◐ | The CLI `erase` is repeater/room only and already ships behind a confirmation. **No companion-side factory reset is implemented** — but ⚠ **the stated reason was wrong** (corrected 2026-08-06): this row claimed "the companion protocol has no such command", and firmware defines `CMD_FACTORY_RESET = 51`. It is unimplemented by choice, not by absence, and it is the one command where being wrong wipes the radio — so it wants a typed confirmation and a hardware test, not a quick wire-up. |
 | `ExportConfigurationScreen`, `ImportConfigurationScreen` | Settings → App → Backup | ✅ | Closed 2026-08-01. Plain half = settings/regions/contact keys+names/channel names; sealed half = PSKs, passwords, identity seed under AES-256-GCM + PBKDF2(600k). Encoding secrets without a passphrase is refused, not silently dropped. |
 | `PurgeDataScreen` | Settings → App → Purge local data | ✅ | Closed 2026-08-01. Explicit list of what goes and what doesn't; type-the-word confirmation; forgetting keys is a separate opt-in. Does not touch the radio. |
 
@@ -55,7 +55,43 @@ Status key: ✅ have · ◐ partial · ❌ missing · ⛔ out of scope
 | `KnownRepeatersBottomSheet` | Nodes → Repeaters | ✅ | |
 | `ContactSelectorBottomSheet` | — | ◐ | We navigate instead of picking. |
 | `HeardViaScreen` | Message info → "Arrived via" | ✅ | Done 2026-08-01. The route a message came in on, in travel order, from the RX-log packet (`HeardVia`). Exact for channel messages; correlated (and refused when ambiguous) for direct ones. |
-| `HeardRepeatsScreen` | — | ❌ | **Work item.** Which repeaters re-broadcast OUR traffic — a different question from heard-via, and not answerable from the RX log alone. |
+| `HeardRepeatsScreen` | Nodes → ⋮ → Who repeats me | ✅ | Closed 2026-08-06. ⚠ **This row's own reasoning was wrong** — see below. |
+
+**Correction (2026-08-06): "not answerable from the RX log alone" was false.**
+That sentence sat in the table for five days and was the only reason the
+row stayed open. The firmware says otherwise, in one line:
+`Dispatcher::checkRecv()` calls `logRxRaw()` immediately after
+`recvRaw()` — **before** `tryParsePacket`, before the seen-table check,
+before any routing decision. So the client is handed every packet the
+radio demodulates, *including* the ones the mesh layer is about to
+discard as duplicates. A repeater rebroadcasting our own packet is
+exactly such a duplicate: `Mesh.cpp` marks our outbound packets seen
+precisely so the radio will not re-transmit them ("mark this packet as
+already sent in case it is rebroadcast back to us"). Dropped for routing,
+still logged for us.
+
+What ships uses our **own signed advert coming home**, and the choice is
+what makes it honest rather than merely plausible:
+
+- An ADVERT payload carries the sender's **full 32-byte public key**, so
+  recognising our own is an exact comparison — not the one-byte
+  `src_hash` narrowing a direct message would offer.
+- It is Ed25519-signed over that key and only verified adverts are
+  accepted, so **forging a repeat of our advert needs our private key**.
+  Nobody in range can invent a relay or inflate the list.
+- It is triggerable: the screen's button sends a flood advert, making
+  this a measurement you take rather than a report that fills in if
+  someone happens to message you.
+- ⚠ Channel messages are deliberately NOT used, though the engine can
+  decrypt them: a channel message's only claim of authorship is its
+  sender *name*, which is unauthenticated display text (§12).
+- ⚠ **Heard us ≠ we heard it.** Hop 0 pulled our transmission out of the
+  air; the LAST hop is the one whose transmission we demodulated, so it
+  is the only hop with a measured SNR. The screen states each row's
+  direction rather than implying both.
+- ⚠ The list is a **floor, not coverage**. A repeater that carried our
+  traffic onward without a copy returning cannot appear at all, and the
+  screen says so.
 
 ## 3. Messaging
 

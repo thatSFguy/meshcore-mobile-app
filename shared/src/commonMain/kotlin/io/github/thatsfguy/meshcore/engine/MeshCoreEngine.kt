@@ -14,6 +14,7 @@ import io.github.thatsfguy.meshcore.protocol.Codes
 import io.github.thatsfguy.meshcore.protocol.DeviceEvent
 import io.github.thatsfguy.meshcore.protocol.Frames
 import io.github.thatsfguy.meshcore.protocol.SendRetry
+import io.github.thatsfguy.meshcore.protocol.HeardRepeats
 import io.github.thatsfguy.meshcore.protocol.HeardVia
 import io.github.thatsfguy.meshcore.protocol.Neighbours
 import io.github.thatsfguy.meshcore.protocol.NodeDiscovery
@@ -238,6 +239,23 @@ class MeshCoreEngine(
     /** Whether the active link is plaintext (TCP) — surface in the UI. */
     private val _plaintextLink = MutableStateFlow(false)
     val plaintextLink: StateFlow<Boolean> = _plaintextLink.asStateFlow()
+
+    /**
+     * Copies of our OWN signed adverts that came back off the mesh — the
+     * evidence behind "which repeaters carry my traffic" ([HeardRepeats]).
+     *
+     * Held in memory only. These are a live measurement of right here,
+     * right now: the useful gesture is to send a flood advert and watch
+     * what returns, and a list persisted from a different location would
+     * answer a question nobody asked.
+     */
+    private val _heardRepeats = MutableStateFlow<List<HeardRepeats.Echo>>(emptyList())
+    val heardRepeats: StateFlow<List<HeardRepeats.Echo>> = _heardRepeats.asStateFlow()
+
+    /** Start a fresh measurement — e.g. after moving the radio. */
+    fun clearHeardRepeats() {
+        _heardRepeats.value = emptyList()
+    }
 
     /** Every parsed frame — diagnostics feed. */
     private val _events = MutableSharedFlow<DeviceEvent>(extraBufferCapacity = 128)
@@ -688,7 +706,14 @@ class MeshCoreEngine(
      */
     private val startMark = kotlin.time.TimeSource.Monotonic.markNow()
 
-    private fun nowMillis(): Long = startMark.elapsedNow().inWholeMilliseconds
+    /**
+     * Milliseconds since the engine started, monotonic.
+     *
+     * Public because the UI needs the same clock the engine stamped
+     * [heardRepeats] with — comparing a monotonic stamp against a wall
+     * clock would render "3 hours ago" for something heard a moment ago.
+     */
+    fun nowMillis(): Long = startMark.elapsedNow().inWholeMilliseconds
 
     private fun rememberArrival(packet: RawPacket) {
         // dest_hash, src_hash, then the MAC (reference client:
@@ -702,6 +727,26 @@ class MeshCoreEngine(
                 hashWidth = packet.pathHashWidth,
                 hops = packet.hopCount,
                 srcHash = packet.payload[1].toInt() and 0xFF,
+                atMillis = nowMillis(),
+            ),
+        )
+    }
+
+    /**
+     * Record a copy of our own advert that a repeater sent back.
+     *
+     * [DeviceEvent.LogRxData.snr]/`rssi` describe the transmission this
+     * radio demodulated, which is the LAST hop's — [HeardRepeats] is
+     * careful never to credit them to any other hop on the path.
+     */
+    private fun recordOwnEcho(packet: RawPacket, event: DeviceEvent.LogRxData) {
+        _heardRepeats.value = HeardRepeats.record(
+            _heardRepeats.value,
+            HeardRepeats.Echo(
+                pathHex = packet.pathBytes.toHex(),
+                hashWidth = packet.pathHashWidth,
+                snr = event.snr,
+                rssi = event.rssi,
                 atMillis = nowMillis(),
             ),
         )
@@ -745,7 +790,15 @@ class MeshCoreEngine(
                 // dropped silently.
                 val info = Advert.parseVerified(crypto, packet.payload) ?: return
                 val selfKey = _selfInfo.value?.publicKey
-                if (selfKey != null && info.publicKey.contentEquals(selfKey)) return
+                if (selfKey != null && info.publicKey.contentEquals(selfKey)) {
+                    // Our own advert, relayed back to us. Useless as a
+                    // contact — and it used to be dropped here — but it
+                    // is the one packet that says, with a signature only
+                    // we could produce, which repeaters carry our
+                    // traffic. See HeardRepeats.
+                    recordOwnEcho(packet, event)
+                    return
+                }
                 _meshEvents.tryEmit(
                     MeshEvent.VerifiedAdvertHeard(info, event.snr, event.rssi, packet.payload),
                 )

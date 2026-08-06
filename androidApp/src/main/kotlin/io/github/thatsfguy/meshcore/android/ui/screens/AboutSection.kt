@@ -89,6 +89,17 @@ fun AboutSection(vm: MeshCoreViewModel) {
  * is a changelog you can't read in the field.
  */
 private val CHANGELOG: List<Pair<String, List<String>>> = listOf(
+    "0.7.0" to listOf(
+        "New: \"Who repeats me\" (Nodes → ⋮) — which repeaters are actually carrying your " +
+            "traffic. Tap Send a flood advert and watch which ones send a copy back.",
+        "Each row separates \"heard you\" from \"you heard it\": only the repeater whose " +
+            "transmission reached this radio has a measured SNR, so only that one shows a " +
+            "number. A repeater doing both is flagged Two-way.",
+        "Every row comes from a copy of your own signed advert, so nobody else can put a " +
+            "repeater on your list without your private key.",
+        "It is a floor, not a coverage map — a repeater that carried your traffic onward " +
+            "without a copy coming back cannot appear, and the screen says so.",
+    ),
     "0.6.7" to listOf(
         "The app's \"Forget\" on a saved node is now \"Remove\" — it was being read as " +
             "Android's \"Forget device\", which is the one that drops the Bluetooth " +

@@ -4,7 +4,10 @@ import io.github.thatsfguy.meshcore.model.Channel
 import io.github.thatsfguy.meshcore.platform.AndroidCryptoProvider
 import io.github.thatsfguy.meshcore.protocol.BufferWriter
 import io.github.thatsfguy.meshcore.protocol.ChannelCrypto
+import io.github.thatsfguy.meshcore.protocol.Advert
 import io.github.thatsfguy.meshcore.protocol.Codes
+import io.github.thatsfguy.meshcore.protocol.HeardRepeats
+import io.github.thatsfguy.meshcore.protocol.MeshIdentity
 import io.github.thatsfguy.meshcore.transport.IncomingFrame
 import io.github.thatsfguy.meshcore.transport.Transport
 import io.github.thatsfguy.meshcore.transport.TransportState
@@ -1022,5 +1025,143 @@ class MeshCoreEngineTest {
 
         val msg = waiter.await() as MeshEvent.DirectMessageReceived
         assertNull(msg.arrivalPathHex)
+    }
+
+    // ------------------------------------------------------------------
+    // Heard repeats — our own advert coming back off the mesh
+    //
+    // The firmware hands the client EVERY demodulated packet
+    // (`Dispatcher::checkRecv` logs before the seen-table check), so a
+    // repeater's rebroadcast of our own advert reaches us even though
+    // the mesh layer discards it as a duplicate. That returning copy is
+    // the only packet that names, under a signature only we can produce,
+    // which repeaters carry our traffic.
+    // ------------------------------------------------------------------
+
+    /** An ADVERT packet carrying [payload], relayed over [path]. */
+    private fun advertPacket(
+        payload: ByteArray,
+        path: ByteArray = twoHopPath,
+        width: Int = 2,
+    ): ByteArray {
+        val header = (Codes.PAYLOAD_TYPE_ADVERT shl 2) or 0x01
+        val hops = if (width > 0) path.size / width else 0
+        return byteArrayOf(header.toByte(), pathLenEnc(hops, width).toByte()) + path + payload
+    }
+
+    private fun signedAdvert(identity: MeshIdentity, name: String): ByteArray =
+        Advert.build(
+            crypto,
+            identity.seed,
+            timestamp = now,
+            appData = Advert.buildAppData(Codes.ADV_TYPE_CHAT, name, null, null),
+        )
+
+    /** A responder whose SELF_INFO reports [identity]'s real public key. */
+    private fun responderFor(radio: FakeRadio, identity: MeshIdentity): (ByteArray) -> List<ByteArray> {
+        val base = standardResponder(radio)
+        return { frame ->
+            if ((frame[0].toInt() and 0xFF) == Codes.CMD_APP_START) {
+                listOf(selfInfoFrame(identity.publicKey))
+            } else {
+                base(frame)
+            }
+        }
+    }
+
+    @Test
+    fun ourOwnAdvertRelayedBackNamesTheRepeatersThatCarriedIt() = runTest {
+        // The positive control. Every other test in this group asserts
+        // that something is NOT counted, and all of them would pass if
+        // the feature recorded nothing at all.
+        val me = MeshIdentity.fromSeed(crypto, ByteArray(32) { 7 })
+        val radio = FakeRadio()
+        radio.responder = responderFor(radio, me)
+        val engine = MeshCoreEngine(backgroundScope, crypto, { now })
+        engine.attach(radio)
+        radio.connect()
+        engine.awaitReady()
+
+        radio.push(rxLogPush(advertPacket(signedAdvert(me, "MyNode"))))
+        val echoes = withTimeout(5_000) { engine.heardRepeats.first { it.isNotEmpty() } }
+
+        assertEquals(1, echoes.size)
+        assertEquals("b389c985", echoes.single().pathHex)
+        assertEquals(2, echoes.single().hashWidth)
+
+        val relays = HeardRepeats.tally(echoes)
+        assertEquals(listOf("b389", "c985"), relays.map { it.hashHex }.sorted())
+        // b389 is hop 0: it pulled our transmission out of the air.
+        val first = relays.single { it.hashHex == "b389" }
+        assertTrue(first.heardUs)
+        assertFalse(first.reachedUs)
+        // c985 transmitted the copy we demodulated, so the SNR is its
+        // link to us and nobody else's.
+        val last = relays.single { it.hashHex == "c985" }
+        assertTrue(last.reachedUs)
+        assertEquals(10.0, last.bestSnr)   // rxLogPush encodes snr*4 = 40
+        assertNull(first.bestSnr)
+    }
+
+    @Test
+    fun someoneElsesAdvertIsNotOurTraffic() = runTest {
+        val me = MeshIdentity.fromSeed(crypto, ByteArray(32) { 7 })
+        val them = MeshIdentity.fromSeed(crypto, ByteArray(32) { 9 })
+        val radio = FakeRadio()
+        radio.responder = responderFor(radio, me)
+        val engine = MeshCoreEngine(backgroundScope, crypto, { now })
+        engine.attach(radio)
+        radio.connect()
+        engine.awaitReady()
+
+        radio.push(rxLogPush(advertPacket(signedAdvert(them, "Someone"))))
+        // It is a perfectly good advert — it just isn't ours, so it goes
+        // to the discovery inbox and not to the coverage list.
+        withTimeout(5_000) { engine.meshEvents.first { it is MeshEvent.VerifiedAdvertHeard } }
+        assertTrue(engine.heardRepeats.value.isEmpty())
+    }
+
+    @Test
+    fun aForgedAdvertClaimingOurKeyIsNotCounted() = runTest {
+        // The attack this feature would otherwise invite: anyone in
+        // range could inflate — or invent — the list of repeaters
+        // "carrying your traffic" by transmitting an advert with your
+        // public key pasted in. The signature is over the key, so it
+        // does not verify, and a packet that does not verify never
+        // reaches the tally.
+        val me = MeshIdentity.fromSeed(crypto, ByteArray(32) { 7 })
+        val them = MeshIdentity.fromSeed(crypto, ByteArray(32) { 9 })
+        val radio = FakeRadio()
+        radio.responder = responderFor(radio, me)
+        val engine = MeshCoreEngine(backgroundScope, crypto, { now })
+        engine.attach(radio)
+        radio.connect()
+        engine.awaitReady()
+
+        val forged = signedAdvert(them, "Someone").copyOf()
+        me.publicKey.copyInto(forged, 0)   // claim to be us; signature now wrong
+        radio.push(rxLogPush(advertPacket(forged)))
+        yield(); yield(); yield()
+
+        assertTrue(engine.heardRepeats.value.isEmpty(), "a forged advert reached the tally")
+    }
+
+    @Test
+    fun aRelayedAdvertWithNoPathProvesNothing() = runTest {
+        // We cannot hear our own transmission, so a path-less copy of
+        // our advert is not one repeater — it is zero, and recording it
+        // would put a row on the screen for a relay that does not exist.
+        val me = MeshIdentity.fromSeed(crypto, ByteArray(32) { 7 })
+        val radio = FakeRadio()
+        radio.responder = responderFor(radio, me)
+        val engine = MeshCoreEngine(backgroundScope, crypto, { now })
+        engine.attach(radio)
+        radio.connect()
+        engine.awaitReady()
+
+        radio.push(rxLogPush(advertPacket(signedAdvert(me, "MyNode"), path = ByteArray(0))))
+        yield(); yield(); yield()
+
+        assertTrue(engine.heardRepeats.value.isEmpty())
     }
 }

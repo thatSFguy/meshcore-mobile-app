@@ -54,6 +54,7 @@ import io.github.thatsfguy.meshcore.android.storage.MessageRepository
 import io.github.thatsfguy.meshcore.android.ui.MeshCoreViewModel
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import io.github.thatsfguy.meshcore.util.RelativeTime
 import io.github.thatsfguy.meshcore.protocol.PathCodec
 import io.github.thatsfguy.meshcore.protocol.Codes
 import java.text.DateFormat
@@ -98,6 +99,9 @@ fun NodesScreen(vm: MeshCoreViewModel, nav: NavController) {
                     // nearby repeaters to speak up, as opposed to the
                     // passive advert inbox on the New tab.
                     MenuAction("Discover nearby repeaters") { discovering = true },
+                    // The other direction from "Discover": not who is
+                    // out there, but who is carrying MY traffic.
+                    MenuAction("Who repeats me") { nav.navigate(HEARD_REPEATS_ROUTE) },
                 ),
             )
         },
@@ -648,16 +652,9 @@ private fun formatDistance(metres: Double): String = when {
     else -> "%.0f km".format(metres / 1000)
 }
 
-/** "9 hours ago" — the at-a-glance half of a timestamp. */
-private fun relativeAge(epochSeconds: Long): String {
-    val seconds = (System.currentTimeMillis() / 1000 - epochSeconds).coerceAtLeast(0)
-    return when {
-        seconds < 60 -> "just now"
-        seconds < 3600 -> "${seconds / 60} min ago"
-        seconds < 86_400 -> "${seconds / 3600} hours ago"
-        else -> "${seconds / 86_400} days ago"
-    }
-}
+/** "9 hours ago" — wording shared with the heard-repeats list. */
+private fun relativeAge(epochSeconds: Long): String =
+    RelativeTime.ago(System.currentTimeMillis() / 1000 - epochSeconds)
 
 
 /**

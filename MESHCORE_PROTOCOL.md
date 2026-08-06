@@ -73,48 +73,82 @@ outstanding commands and matches `RESP_CODE_OK`/`RESP_CODE_ERR` to the oldest.
 
 ## 4. Command codes (client → radio)
 
-| Code | Name | Purpose |
-|---:|---|---|
-| 1 | `CMD_APP_START` | Handshake / start session |
-| 2 | `CMD_SEND_TXT_MSG` | Send a direct message (or CLI cmd, see txt_type) |
-| 3 | `CMD_SEND_CHANNEL_TXT_MSG` | Send a channel (group) message |
-| 4 | `CMD_GET_CONTACTS` | Request contact list (optional `since`) |
-| 5 | `CMD_GET_DEVICE_TIME` | Read RTC |
-| 6 | `CMD_SET_DEVICE_TIME` | Set RTC |
-| 7 | `CMD_SEND_SELF_ADVERT` | Advertise self (flood flag) |
-| 8 | `CMD_SET_ADVERT_NAME` | Set node display name |
-| 9 | `CMD_ADD_UPDATE_CONTACT` | Add/update a contact (custom path, etc.) |
-| 10 | `CMD_SYNC_NEXT_MESSAGE` | Pull next queued inbound message |
-| 11 | `CMD_SET_RADIO_PARAMS` | Freq/BW/SF/CR (+clientRepeat v9+) |
-| 12 | `CMD_SET_RADIO_TX_POWER` | TX power (dBm) |
-| 13 | `CMD_RESET_PATH` | Reset stored path to a contact |
-| 14 | `CMD_SET_ADVERT_LATLON` | Set advertised location |
-| 15 | `CMD_REMOVE_CONTACT` | Delete a contact |
-| 16 | `CMD_SHARE_CONTACT` | Zero-hop share of a contact |
-| 17 | `CMD_EXPORT_CONTACT` | Export a contact (or self if empty key) |
-| 18 | `CMD_IMPORT_CONTACT` | Import a contact from an advert blob |
-| 19 | `CMD_REBOOT` | Reboot radio (payload `"reboot"`) |
-| 20 | `CMD_GET_BATT_AND_STORAGE` | Battery + storage stats |
-| 22 | `CMD_DEVICE_QUERY` | Query device (app protocol version) |
-| 26 | `CMD_SEND_LOGIN` | Log in to a repeater/room (password) |
-| 27 | `CMD_SEND_STATUS_REQ` | Request repeater status |
-| 30 | `CMD_GET_CONTACT_BY_KEY` | Fetch one contact by pubkey |
-| 31 | `CMD_GET_CHANNEL` | Read a channel slot |
-| 32 | `CMD_SET_CHANNEL` | Write a channel slot (name + PSK) |
-| 36 | `CMD_SEND_TRACE_PATH` | Path trace (tag/auth/flag) |
-| 37 | `CMD_SET_DEVICE_PIN` | Set the BLE pairing PIN (u32 LE) |
-| 38 | `CMD_SET_OTHER_PARAMS` | Telemetry/advert-location/multi-ack policy |
-| 39 | `CMD_SEND_TELEMETRY_REQ` | Request telemetry from a contact |
-| 40 | `CMD_GET_CUSTOM_VAR` | Read custom vars |
-| 41 | `CMD_SET_CUSTOM_VAR` | Write a custom var |
-| 50 | `CMD_SEND_BINARY_REQ` | Binary request (telemetry/neighbors/etc.) |
-| 54 | `CMD_SET_FLOOD_SCOPE` | Set flood scope/region tag |
-| 55 | `CMD_SEND_CONTROL_DATA` | Control/discovery packet |
-| 56 | `CMD_GET_STATS` | Core/radio/packet stats |
-| 57 | `CMD_SEND_ANON_REQ` | Anonymous request (e.g. regions) |
-| 58 | `CMD_SET_AUTO_ADD_CONFIG` | Auto-add contact policy |
-| 59 | `CMD_GET_AUTO_ADD_CONFIG` | Read auto-add policy |
-| 61 | `CMD_SET_PATH_HASH_MODE` | On-air path hash width (mode 0–3) |
+> **Transcribed from firmware 2026-08-06** — `examples/companion_radio/MyMesh.cpp`
+> (`FIRMWARE_VERSION "v1.16.0"`, `FIRMWARE_VER_CODE 13`). This table is
+> now a copy of the source of truth rather than an inference from a
+> client, so where an earlier revision of this file disagreed, this wins.
+> Rows marked ✗ are defined by firmware and **not implemented here**.
+
+| Code | Name | Purpose | |
+|---:|---|---|---|
+| 1 | `CMD_APP_START` | Handshake / start session | |
+| 2 | `CMD_SEND_TXT_MSG` | Send a direct message (or CLI cmd, see txt_type) | |
+| 3 | `CMD_SEND_CHANNEL_TXT_MSG` | Send a channel (group) message | |
+| 4 | `CMD_GET_CONTACTS` | Request contact list (optional `since`) | |
+| 5 | `CMD_GET_DEVICE_TIME` | Read RTC | |
+| 6 | `CMD_SET_DEVICE_TIME` | Set RTC | |
+| 7 | `CMD_SEND_SELF_ADVERT` | Advertise self (flood flag) | |
+| 8 | `CMD_SET_ADVERT_NAME` | Set node display name | |
+| 9 | `CMD_ADD_UPDATE_CONTACT` | Add/update a contact (custom path, etc.) | |
+| 10 | `CMD_SYNC_NEXT_MESSAGE` | Pull next queued inbound message | |
+| 11 | `CMD_SET_RADIO_PARAMS` | Freq/BW/SF/CR (+clientRepeat v9+) | |
+| 12 | `CMD_SET_RADIO_TX_POWER` | TX power (dBm) | |
+| 13 | `CMD_RESET_PATH` | Reset stored path to a contact | |
+| 14 | `CMD_SET_ADVERT_LATLON` | Set advertised location | |
+| 15 | `CMD_REMOVE_CONTACT` | Delete a contact | |
+| 16 | `CMD_SHARE_CONTACT` | Zero-hop share of a contact | |
+| 17 | `CMD_EXPORT_CONTACT` | Export a contact (or self if empty key) | |
+| 18 | `CMD_IMPORT_CONTACT` | Import a contact from an advert blob | |
+| 19 | `CMD_REBOOT` | Reboot radio (payload `"reboot"`) | |
+| 20 | `CMD_GET_BATT_AND_STORAGE` | Battery + storage stats | |
+| 21 | `CMD_SET_TUNING_PARAMS` | Radio tuning parameters | ✗ |
+| 22 | `CMD_DEVICE_QUERY` | Query device (app protocol version) | |
+| 23 | `CMD_EXPORT_PRIVATE_KEY` | Read the identity private key | ✗ |
+| 24 | `CMD_IMPORT_PRIVATE_KEY` | Replace the identity private key | ✗ |
+| 25 | `CMD_SEND_RAW_DATA` | Send a raw payload | ✗ |
+| 26 | `CMD_SEND_LOGIN` | Log in to a repeater/room (password) | |
+| 27 | `CMD_SEND_STATUS_REQ` | Request repeater status | |
+| 28 | `CMD_HAS_CONNECTION` | Is there a live session with a node | ✗ |
+| 29 | `CMD_LOGOUT` | End a repeater/room session ("Disconnect") | ✗ |
+| 30 | `CMD_GET_CONTACT_BY_KEY` | Fetch one contact by pubkey | |
+| 31 | `CMD_GET_CHANNEL` | Read a channel slot | |
+| 32 | `CMD_SET_CHANNEL` | Write a channel slot (name + PSK) | |
+| 33 | `CMD_SIGN_START` | Begin a signing session | ✗ |
+| 34 | `CMD_SIGN_DATA` | Feed data to sign | ✗ |
+| 35 | `CMD_SIGN_FINISH` | Finish and return the signature | ✗ |
+| 36 | `CMD_SEND_TRACE_PATH` | Path trace (tag/auth/flag) | |
+| 37 | `CMD_SET_DEVICE_PIN` | Set the BLE pairing PIN (u32 LE) | |
+| 38 | `CMD_SET_OTHER_PARAMS` | Telemetry/advert-location/multi-ack policy | |
+| 39 | `CMD_SEND_TELEMETRY_REQ` | Request telemetry ("can deprecate this") | |
+| 40 | `CMD_GET_CUSTOM_VARS` | Read custom vars | |
+| 41 | `CMD_SET_CUSTOM_VAR` | Write a custom var | |
+| 42 | `CMD_GET_ADVERT_PATH` | Read the path an advert took | ✗ |
+| 43 | `CMD_GET_TUNING_PARAMS` | Read radio tuning parameters | ✗ |
+| 50 | `CMD_SEND_BINARY_REQ` | Binary request (telemetry/neighbors/etc.) | |
+| 51 | `CMD_FACTORY_RESET` | **Wipe the companion radio** | ✗ |
+| 52 | `CMD_SEND_PATH_DISCOVERY_REQ` | Path discovery (→ push `0x8D`) | ✗ |
+| 54 | `CMD_SET_FLOOD_SCOPE_KEY` | Set flood scope/region tag (v8+) | |
+| 55 | `CMD_SEND_CONTROL_DATA` | Control/discovery packet (v8+) | |
+| 56 | `CMD_GET_STATS` | Core/radio/packet stats (v8+) | |
+| 57 | `CMD_SEND_ANON_REQ` | Anonymous request (e.g. regions) | |
+| 58 | `CMD_SET_AUTOADD_CONFIG` | Auto-add contact policy | |
+| 59 | `CMD_GET_AUTOADD_CONFIG` | Read auto-add policy | |
+| 60 | `CMD_GET_ALLOWED_REPEAT_FREQ` | Frequencies this node may client-repeat on | ✗ |
+| 61 | `CMD_SET_PATH_HASH_MODE` | On-air path hash width (mode 0–3) | |
+| 62 | `CMD_SEND_CHANNEL_DATA` | Channel datagram | ✗ |
+| 63 | `CMD_SET_DEFAULT_FLOOD_SCOPE` | Default flood scope | ✗ |
+| 64 | `CMD_GET_DEFAULT_FLOOD_SCOPE` | Read default flood scope | ✗ |
+| 65 | `CMD_SEND_RAW_PACKET` | Transmit a raw packet | ✗ |
+
+**There is no companion CLI command, and no companion CLI.** Confirmed
+2026-08-06 against firmware: `examples/companion_radio/` never includes
+`CommonCLI` — the text CLI belongs to repeater/room firmware.
+`CMD_SEND_TXT_MSG` with `txt_type = TXT_TYPE_CLI_DATA` only ever
+addresses a **remote contact** (`sendCommandData(*recipient, …)`), and
+the one console in companion firmware is `enterCLIRescue()`, which reads
+USB serial directly and prints to `Serial`, bypassing the frame protocol
+entirely. A BLE-attached client cannot run a CLI command on its own
+radio and cannot read its output.
 
 ---
 
@@ -140,7 +174,16 @@ outstanding commands and matches `RESP_CODE_OK`/`RESP_CODE_ERR` to the oldest.
 | 18 | `RESP_CODE_CHANNEL_INFO` (§9) |
 | 21 | `RESP_CODE_CUSTOM_VARS` |
 | 24 | `RESP_CODE_STATS` (`[1]`=stats type: 0 core / 1 radio / 2 packets) |
-| 25 | `RESP_CODE_AUTO_ADD_CONFIG` |
+| 14 | `RESP_CODE_PRIVATE_KEY` (reply to `CMD_EXPORT_PRIVATE_KEY`) |
+| 15 | `RESP_CODE_DISABLED` |
+| 19 | `RESP_CODE_SIGN_START` |
+| 20 | `RESP_CODE_SIGNATURE` |
+| 22 | `RESP_CODE_ADVERT_PATH` |
+| 23 | `RESP_CODE_TUNING_PARAMS` |
+| 25 | `RESP_CODE_AUTOADD_CONFIG` |
+| 26 | `RESP_ALLOWED_REPEAT_FREQ` |
+| 27 | `RESP_CODE_CHANNEL_DATA_RECV` |
+| 28 | `RESP_CODE_DEFAULT_FLOOD_SCOPE` |
 
 (`RESP_CODE_CHANNEL_MSG_RECV` = 8 exists alongside its V3 form 17.)
 
@@ -168,11 +211,28 @@ outstanding commands and matches `RESP_CODE_OK`/`RESP_CODE_ERR` to the oldest.
 | 0x86 | `PUSH_CODE_LOGIN_FAIL` | |
 | 0x87 | `PUSH_CODE_STATUS_RESPONSE` | Repeater status |
 | 0x88 | `PUSH_CODE_LOG_RX_DATA` | Raw RX packet (`[1]`=snr/4, `[2]`=rssi, then §7 packet) |
+
+> **The RX log fires before deduplication, and that is load-bearing.**
+> `Dispatcher::checkRecv()` calls `logRxRaw()` on the line after
+> `recvRaw()` — before `tryParsePacket`, before `_tables->hasSeen()`,
+> before any routing decision. A client therefore receives **every**
+> packet the radio demodulates, including ones the mesh layer is about
+> to discard. That includes rebroadcasts of the client's OWN packets:
+> firmware marks outbound packets seen precisely so it will not
+> re-transmit them (`Mesh.cpp`, "mark this packet as already sent in
+> case it is rebroadcast back to us"), so they are dropped for routing
+> and still logged. This is what makes "which repeaters carry my
+> traffic" answerable at all — see PARITY §2. Verified against firmware
+> v1.16.0 on 2026-08-06.
 | 0x89 | `PUSH_CODE_TRACE_DATA` | Path-trace result |
 | 0x8A | `PUSH_CODE_NEW_ADVERT` | New contact advert (same layout as `RESP_CODE_CONTACT`) |
 | 0x8B | `PUSH_CODE_TELEMETRY_RESPONSE` | Telemetry (Cayenne LPP) |
 | 0x8C | `PUSH_CODE_BINARY_RESPONSE` | Response to `CMD_SEND_BINARY_REQ` |
 | 0x8E | `PUSH_CODE_CONTROL_DATA` | Discovery/control response |
+| 0x84 | `PUSH_CODE_RAW_DATA` | Raw payload received |
+| 0x8D | `PUSH_CODE_PATH_DISCOVERY_RESPONSE` | Reply to `CMD_SEND_PATH_DISCOVERY_REQ` |
+| 0x8F | `PUSH_CODE_CONTACT_DELETED` | A contact was evicted (storage full) |
+| 0x90 | `PUSH_CODE_CONTACTS_FULL` | Contact storage is full |
 
 ---
 

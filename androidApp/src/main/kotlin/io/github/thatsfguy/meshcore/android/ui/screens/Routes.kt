@@ -19,3 +19,6 @@ const val CONVERSATION_ROUTE: String = "conversation/{kind}/{peer}"
  * public key, or a channel index).
  */
 fun conversationRoute(kind: String, peerKey: String): String = "conversation/$kind/$peerKey"
+
+/** "Who repeats me" — declared by the NavHost, navigated to from Nodes. */
+const val HEARD_REPEATS_ROUTE: String = "repeats"

@@ -33,6 +33,8 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import io.github.thatsfguy.meshcore.android.platform.BlePermissions
 import io.github.thatsfguy.meshcore.android.ui.MeshCoreViewModel
+import io.github.thatsfguy.meshcore.android.ui.screens.HEARD_REPEATS_ROUTE
+import io.github.thatsfguy.meshcore.android.ui.screens.HeardRepeatsScreen
 import io.github.thatsfguy.meshcore.android.ui.screens.CONVERSATION_ROUTE
 import io.github.thatsfguy.meshcore.android.ui.screens.ChatsScreen
 import io.github.thatsfguy.meshcore.android.ui.screens.conversationRoute
@@ -210,6 +212,9 @@ private fun AppShell(
             }
             composable("chats") { ChatsScreen(vm, nav) }
             composable("nodes") { NodesScreen(vm, nav) }
+            // Reached from Nodes ⋮ — it is about the repeaters around
+            // this node, which is what that tab is for.
+            composable(HEARD_REPEATS_ROUTE) { HeardRepeatsScreen(vm, nav) }
             composable("map") { MapScreen(vm) }
             // Settings is hub-and-spoke for the same reason repeater
             // admin is: eleven expandable sections on one scroll, one of

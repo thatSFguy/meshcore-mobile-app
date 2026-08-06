@@ -24,6 +24,7 @@ import io.github.thatsfguy.meshcore.model.Channel
 import io.github.thatsfguy.meshcore.model.Contact
 import io.github.thatsfguy.meshcore.model.DeviceInfo
 import io.github.thatsfguy.meshcore.model.SelfInfo
+import io.github.thatsfguy.meshcore.protocol.HeardRepeats
 import io.github.thatsfguy.meshcore.protocol.ChannelCrypto
 import io.github.thatsfguy.meshcore.protocol.Codes
 import io.github.thatsfguy.meshcore.protocol.ConfigBackup
@@ -119,6 +120,26 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
     val deviceInfo: StateFlow<DeviceInfo?> = _service.flatMapLatest {
         it?.engine?.deviceInfo ?: flowOf(null)
     }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    /**
+     * Copies of our own signed advert that came back off the mesh — the
+     * evidence behind "who repeats me" (see [HeardRepeats]).
+     */
+    val heardRepeats: StateFlow<List<HeardRepeats.Echo>> = _service.flatMapLatest {
+        it?.engine?.heardRepeats ?: flowOf(emptyList())
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    /**
+     * The engine's monotonic clock, for ageing [heardRepeats].
+     *
+     * Those stamps are monotonic-since-engine-start, so they must be
+     * compared against this and never against the wall clock.
+     */
+    fun engineNowMillis(): Long = _service.value?.engine?.nowMillis() ?: 0L
+
+    fun clearHeardRepeats() {
+        _service.value?.engine?.clearHeardRepeats()
+    }
 
     val liveContacts: StateFlow<Map<String, Contact>> = _service.flatMapLatest {
         it?.engine?.contacts ?: flowOf(emptyMap())

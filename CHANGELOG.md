@@ -11,6 +11,25 @@ Every entry describes what is in **that tagged build**. A feature that landed af
 belongs in the next section, not this one — 0.3.0 was once credited with four features that
 shipped after it, which misled nobody so much as the author, three months later.
 
+## 0.7.0
+
+- **New: "Who repeats me"** (Nodes → ⋮). Which repeaters are actually carrying your
+  traffic — the mirror of a message's "Arrived via", and the one you can *run*: tap **Send
+  a flood advert** and watch which repeaters send a copy back.
+- Each row separates the two things people conflate. A repeater that **heard you** pulled
+  your transmission out of the air; a repeater that **you heard** is the one whose
+  transmission reached your radio. Only the second has a measured SNR, and only that one
+  shows a number. One repeater doing both is flagged **Two-way**.
+- Nobody else can put a repeater on your list. Every row comes from a copy of your own
+  **Ed25519-signed advert**, so forging one would need your private key.
+- The screen says what it cannot see: a repeater that carried your traffic onward without
+  a copy coming back cannot appear, so the list is a floor, not a coverage map. An
+  ambiguous hop stays `(2 matches)` rather than being credited to one repeater.
+- Under the hood this was thought impossible here for five days — our own notes said the
+  route data "isn't answerable from the RX log alone". Reading the firmware settled it: the
+  radio hands the app every packet it demodulates *before* discarding duplicates, and a
+  repeater bouncing your own packet back is exactly such a duplicate.
+
 ## 0.6.7
 
 - **The app's "Forget" is now "Remove", because it was being confused with Android's.**
