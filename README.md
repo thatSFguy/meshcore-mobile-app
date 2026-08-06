@@ -189,9 +189,9 @@ follows is the summary.
 | RF **coverage** and **line-of-sight** map tools | Cut by decision, not effort. Terrain propagation is a solved problem with better tools than a phone app can be — and a phone-sized approximation would be confidently wrong in exactly the situations you'd rely on it. |
 | Google Play Services, Firebase | Never linked. The app runs the same on a de-Googled ROM. |
 
-Four more were cut earlier, when the scope was pruned from MeshCore Open's inventory: an
-on-device LLM translator (~31 MB of llama.cpp), a GIF picker and remote media, voice /
-telephony, and the Chrome-required web gate.
+Four more were cut when the original scope was set, and have not been revisited: an on-device
+LLM translator (~31 MB of llama.cpp), a GIF picker and remote media, voice / telephony, and a
+Chrome-required web gate.
 
 ### Dropped for now — real gaps, listed honestly
 
@@ -242,8 +242,8 @@ telemetry, no billing, one outbound connection, and secrets in the Keystore.
 
 ## Security posture
 
-The protocol spec ([`MESHCORE_PROTOCOL.md`](MESHCORE_PROTOCOL.md)) was reverse-engineered from a
-security review of the MeshCore Open client, and §12 lists the mistakes that review found. Each is
+The protocol spec ([`MESHCORE_PROTOCOL.md`](MESHCORE_PROTOCOL.md)) is reverse-engineered, and §12
+lists the client-side mistakes a security review of an existing MeshCore client turned up. Each is
 enforced here in code, not just documented:
 
 - **Advert Ed25519 signatures are verified** before any node is imported, mapped, or shown in the

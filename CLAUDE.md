@@ -91,8 +91,10 @@ Layout:
 Reference docs:
 - **`MESHCORE_PROTOCOL.md`** — the MeshCore companion + over-the-air wire spec (transports,
   command/response/push codes, frame layouts, advert Ed25519 signature, channel AES-ECB
-  crypto, PSK derivation). Reverse-engineered from `../meshcore-open` during a security
-  review. Read this before touching protocol code. (§2 framing corrected 2026-07-31:
+  crypto, PSK derivation). Reverse-engineered during a security review of an existing
+  client; it cites its evidence inline. Read this before touching protocol code, and note
+  that it loses to the firmware — see *Where the protocol authority actually lives*.
+  (§2 framing corrected 2026-07-31:
   USB/TCP use start-byte+length framing per the reference client, not COBS. §7
   `CMD_SEND_TRACE_PATH` expanded 2026-08-01 from live captures: the `flag` byte carries
   the hop-hash width and the payload is the route and is NOT optional — the one-line
@@ -100,10 +102,10 @@ Reference docs:
 - **`PARITY.md`** — the live feature plan: surface-by-surface vs the mainstream app,
   what's done, what's out of scope and why, and where we deliberately differ. Supersedes
   SCOPE.md where they disagree.
-- **`SCOPE.md`** — the original v1 feature set (pruned from MeshCore Open's inventory).
+- **`SCOPE.md`** — the original v1 feature set (pruned from an existing client's inventory).
 - **`README.md`** — vision + non-goals; **`REUSE.md`** — what was copied from the sibling.
 
-## The two sibling repos this project draws from
+## The sibling repo this project draws from
 
 - **`../reticulum-mobile-app`** — the **code foundation to reuse.** Native Kotlin
   Multiplatform Reticulum/LXMF client by the same author. Structure: `:shared` (commonMain
@@ -115,10 +117,14 @@ Reference docs:
   **Drop** its Reticulum-specific parts (NomadNet/Micron browser, RRC Rooms, Graph, LXST
   voice/opus). Prefer **copy-the-pieces-into-this-repo** over fork-and-delete (forking drags
   in the whole Reticulum stack — the opposite of minimal).
-- **`../meshcore-open`** — the **Flutter reference client** the protocol spec was derived
-  from (different stack — Dart — so it's a *reference*, not code to copy). A security-audited
-  private fork lives at `github.com/thatSFguy/meshcore-open-secure` with `SECURITY_AUDIT.md`
-  and ~10 fix PRs; consult it for protocol details and for the concrete pitfalls to avoid.
+
+**There is no second sibling.** Early protocol work leaned on a third-party Flutter client
+in a neighbouring directory. That is over: it is not consulted, not cited in prose, and not
+somewhere to go for an answer. It is a *client*, which means it records one author's
+decisions and nothing more — and it has already been wrong here in a way that reached this
+codebase (see *Where the protocol authority actually lives*). Protocol questions go to the
+firmware. Existing `// ported from …` comments in `shared/protocol/` stay as provenance for
+byte layouts already derived; they are history, not a pointer.
 
 ## Architecture plan
 
@@ -152,7 +158,7 @@ Kotlin Multiplatform, mirroring reticulum-mobile-app:
   it; a phone-sized terrain approximation would be confidently wrong exactly when it
   mattered).
 
-## Security carry-over (do NOT repeat MeshCore Open's findings — MESHCORE_PROTOCOL §12)
+## Security carry-over (do NOT repeat the §12 client-side findings — MESHCORE_PROTOCOL §12)
 
 Verify advert Ed25519 signatures before importing a contact; never trust channel sender
 names (identity/mutation/echo-suppression); store all secrets (login passwords, channel
@@ -253,8 +259,8 @@ nice-to-have, and it has repeatedly paid for itself:
    merged PRs). This is what the hardware actually does.
 2. **`MESHCORE_PROTOCOL.md`** here, which cites its evidence — but is reverse-engineered,
    so it loses to (1).
-3. **A client**, of which `../meshcore-open` is one. Useful for *how* something is
-   presented; not authoritative on *what* the protocol or the defaults are.
+3. **A client** — any of them. Useful for *how* something is presented; not authoritative
+   on *what* the protocol or the defaults are.
 
 `liamcottle/meshcore.js` is a good cross-check and worth consulting, but it is a protocol
 layer only (advert/packet/buffers/constants) with no retry or routing policy — which is
@@ -263,14 +269,15 @@ itself an answer: policy belongs to the app, not the wire.
 Always separate **merged** from **proposed**. PR #2594 (6-byte ACKs) is merged and shipped;
 issues #1342 / #1397 / #1489 are open proposals and must not be built against.
 
-**This rule was earned on 2026-08-05.** A retry recommendation derived from
-`../meshcore-open` alone got the attempt count wrong (it uses 5; documented default is 3),
-got the default wrong (it ships the flood fallback *disabled*; documented default is on) and
-missed the path reset entirely — the one part that makes the feature work. MeshCore's own FAQ
-([`meshcore-dev/MeshCore/docs/faq.md`](https://github.com/meshcore-dev/MeshCore/blob/main/docs/faq.md),
+**This rule was earned on 2026-08-05.** A retry recommendation derived from a third-party
+client alone got the attempt count wrong (that client uses 5; the documented default is 3),
+got the default wrong (it ships the flood fallback *disabled*; the documented default is on)
+and missed the path reset entirely — the one part that makes the feature work. MeshCore's own
+FAQ ([`meshcore-dev/MeshCore/docs/faq.md`](https://github.com/meshcore-dev/MeshCore/blob/main/docs/faq.md),
 mirrored at docs.meshcore.io/faq) documents DM retry as **3 attempts, flood on the last,
-resetting the path, on by default, toggleable**. MCO uses 5 and ships the fallback
-*disabled*.
+resetting the path, on by default, toggleable**. That is what ships here. The point is not
+that the client was badly written — it is that a client is one author's answer, and three of
+its four details differed from the firmware's.
 
 ## Settled decisions — do not re-litigate without new evidence
 

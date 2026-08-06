@@ -9,7 +9,7 @@
 > deliberately keep our own handling for security reasons. Where this document and
 > PARITY.md disagree, PARITY.md wins.
 
-Derived by pruning the MeshCore Open feature inventory (~26 screens) down to a deliberate
+Derived by pruning an existing client's feature inventory (~26 screens) down to a deliberate
 v1, then implementing it natively (KMP) on the reticulum-mobile-app foundation. Decisions
 below are locked for v1; "Deferred" items are post-v1, "Cut" items are not planned.
 
@@ -52,8 +52,8 @@ below are locked for v1; "Deferred" items are post-v1, "Cut" items are not plann
 - **Device settings** — radio params (freq/BW/SF/CR/TX power), identity, advertised name,
   advertised GPS.
 - **App settings** — theme + a small, trimmed preference set.
-- **One diagnostics log** (merge MeshCore Open's app-log + BLE-frame-log into a single,
-  redaction-aware, off-by-default log).
+- **One diagnostics log** — a single, redaction-aware, off-by-default log, rather than the
+  separate app-log and BLE-frame-log the inventory showed.
 
 ## Deferred (post-v1)
 
@@ -74,7 +74,7 @@ below are locked for v1; "Deferred" items are post-v1, "Cut" items are not plann
 
 ## Security carry-over
 
-The v1 build must not repeat the MeshCore Open findings (see MESHCORE_PROTOCOL.md §12):
+The v1 build must not repeat the client-side findings in MESHCORE_PROTOCOL.md §12:
 verify advert Ed25519 signatures, never trust channel sender names, keystore for all
 secrets (login passwords, channel PSKs, community secrets, identity key), guard every
 frame parse, warn that the TCP transport is plaintext, and present channels as obfuscated

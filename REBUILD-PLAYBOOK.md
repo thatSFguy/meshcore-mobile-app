@@ -195,8 +195,8 @@ popular one.** The fidelity you gain is worth more than the polish you lose.
 Having a good reference is not enough — you have to copy the right layer from it.
 
 The project behind this playbook had a fully open-source client of the same protocol in a
-sibling directory, and *did* use it: v1 scope was explicitly "pruning the MeshCore Open
-feature inventory (~26 screens)." What it took was the **list of screens**. What it never
+sibling directory, and *did* use it: v1 scope was explicitly a pruning of that client's
+feature inventory (~26 screens). What it took was the **list of screens**. What it never
 took was **how those screens connect** — the reference fronts its device admin with a hub
 and five focused screens; the rebuild shipped one screen with six tabs.
 

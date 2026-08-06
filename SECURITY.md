@@ -91,9 +91,10 @@ affiliated with the official MeshCore app or with the MeshCore project.
 
 **Vulnerabilities in the MeshCore protocol itself** — the channel
 cipher, the companion frame format, the firmware — belong upstream at
-<https://meshcore.co.uk/>, not here. Likewise bugs in the MeshCore Open
-Flutter client. If you're not sure which project a finding belongs to,
-file it here and I'll triage and forward as appropriate.
+<https://meshcore.co.uk/>, not here. Likewise bugs in any other MeshCore
+client — this repo is only responsible for its own code. If you're not
+sure which project a finding belongs to, file it here and I'll triage
+and forward as appropriate.
 
 ## Hall of fame
 

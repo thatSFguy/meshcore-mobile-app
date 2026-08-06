@@ -3,7 +3,7 @@
 **Policy (2026-08-01):** the mainstream app — `com.liamcottle.meshcore.android`,
 "MeshCore", v1.47.0 — is the **floor** for this app's feature set. Anything it does that
 we don't is a gap to close, unless it's explicitly out of scope below. This supersedes
-the original "pruned from MeshCore Open" scoping in [`SCOPE.md`](SCOPE.md) for anything
+the original pruned-from-an-inventory scoping in [`SCOPE.md`](SCOPE.md) for anything
 the two disagree on.
 
 **Two things parity does NOT mean:**
