@@ -17,6 +17,7 @@ import android.os.Binder
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
+import io.github.thatsfguy.meshcore.protocol.MessageNotice
 import io.github.thatsfguy.meshcore.android.MainActivity
 import io.github.thatsfguy.meshcore.android.R
 import io.github.thatsfguy.meshcore.android.storage.DiagnosticsLog
@@ -399,11 +400,15 @@ class MeshCoreService : Service() {
             Intent(this, MainActivity::class.java),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
+        // A quote-reply is one string on the wire, so printing it raw
+        // gave ">yeah good" — the answer buried behind the question, and
+        // the collapsed line showing the wrong half of it.
+        val notice = MessageNotice.forMessage(text)
         val notification = NotificationCompat.Builder(this, MSG_CHANNEL)
             .setSmallIcon(R.drawable.ic_stat_message)
             .setContentTitle(title)
-            .setContentText(text)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setContentText(notice.collapsed)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(notice.expanded))
             .setContentIntent(intent)
             .setAutoCancel(true)
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)

@@ -131,4 +131,74 @@ class QuotingTest {
         assertTrue(notice.length < 100, "notification body too long: ${notice.length}")
         assertTrue(notice.endsWith("…\""))
     }
+
+    // --- notification bodies -----------------------------------------------
+
+    @Test
+    fun `a reply notification separates the quote from the answer`() {
+        // The reported bug, verbatim: a reply "good" to a message "yeah"
+        // arrived in the shade as ">yeah good".
+        val notice = MessageNotice.forMessage("> yeah\ngood")
+        assertEquals("good", notice.collapsed)
+        assertEquals("↩ yeah\ngood", notice.expanded)
+        assertTrue(!notice.collapsed.contains("yeah"), "the answer still carries the question")
+        assertTrue(!notice.expanded.startsWith(">"), "raw quote marker leaked")
+    }
+
+    @Test
+    fun `the collapsed line is the reply, never the message it answered`() {
+        // Android shows one line before you expand. That line must be
+        // what was just said.
+        val notice = MessageNotice.forMessage("> Kaylee: are you heading out tomorrow\nyes, about six")
+        assertEquals("yes, about six", notice.collapsed)
+    }
+
+    @Test
+    fun `the expanded form keeps the context, marked`() {
+        val notice = MessageNotice.forMessage("> Kaylee: heading out?\nyes")
+        assertTrue(notice.expanded.startsWith(MessageNotice.QUOTE_MARK))
+        assertTrue(notice.expanded.contains("Kaylee: heading out?"))
+        assertTrue(notice.expanded.endsWith("\nyes"))
+    }
+
+    @Test
+    fun `a plain message is unchanged in both forms`() {
+        val notice = MessageNotice.forMessage("just a message")
+        assertEquals("just a message", notice.collapsed)
+        assertEquals("just a message", notice.expanded)
+    }
+
+    @Test
+    fun `an already-formatted reaction notice passes through untouched`() {
+        // Reactions reach the same builder pre-formatted; it must not
+        // try to re-split them.
+        val reaction = ReactionNotice.text("👍", "leaving about six")
+        val notice = MessageNotice.forMessage(reaction)
+        assertEquals(reaction, notice.collapsed)
+        assertEquals(reaction, notice.expanded)
+    }
+
+    @Test
+    fun `a quote with no reply still says something`() {
+        val notice = MessageNotice.forMessage("> just the quote\n")
+        assertTrue(notice.collapsed.isNotBlank())
+        assertTrue(notice.collapsed.contains("just the quote"))
+    }
+
+    @Test
+    fun `a long quote is clipped so the reply stays visible`() {
+        val notice = MessageNotice.forMessage("> " + "x".repeat(400) + "\nshort answer")
+        assertEquals("short answer", notice.collapsed)
+        assertTrue(
+            notice.expanded.length < 140,
+            "expanded body too long: ${notice.expanded.length}",
+        )
+    }
+
+    @Test
+    fun `a multi-line quote is flattened into one context line`() {
+        val notice = MessageNotice.forMessage("> one\n> two\nthe answer")
+        assertEquals("the answer", notice.collapsed)
+        assertEquals(2, notice.expanded.lines().size)
+    }
 }

@@ -11,6 +11,12 @@ Every entry describes what is in **that tagged build**. A feature that landed af
 belongs in the next section, not this one — 0.3.0 was once credited with four features that
 shipped after it, which misled nobody so much as the author, three months later.
 
+## 0.5.6
+
+- Reply notifications showed the quote and the answer run together — a reply of "good" to
+  "yeah" arrived as ">yeah good". The one line Android shows before you expand is now the
+  **reply**; expanding shows the quoted message above it, marked with ↩.
+
 ## 0.5.5
 
 - The conversation list showed the message being *replied to* instead of the reply. A reply

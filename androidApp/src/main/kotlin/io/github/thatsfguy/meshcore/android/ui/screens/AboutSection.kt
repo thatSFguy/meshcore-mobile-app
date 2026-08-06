@@ -89,6 +89,11 @@ fun AboutSection(vm: MeshCoreViewModel) {
  * is a changelog you can't read in the field.
  */
 private val CHANGELOG: List<Pair<String, List<String>>> = listOf(
+    "0.5.6" to listOf(
+        "Reply notifications showed the quote and the answer run together — a reply of " +
+            "\"good\" to \"yeah\" arrived as \">yeah good\". The line shown before you " +
+            "expand is now the reply; expanding shows the quoted message above it.",
+    ),
     "0.5.5" to listOf(
         "The conversation list showed the message being replied TO instead of the reply. A " +
             "reply is sent as the quoted text followed by what you actually said, and the " +
