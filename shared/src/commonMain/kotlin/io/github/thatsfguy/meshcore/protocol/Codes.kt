@@ -14,6 +14,7 @@ object Codes {
     const val CMD_GET_CONTACTS = 4
     const val CMD_GET_DEVICE_TIME = 5
     const val CMD_SET_DEVICE_TIME = 6
+    const val CMD_SET_DEVICE_PIN = 37
     const val CMD_SEND_SELF_ADVERT = 7
     const val CMD_SET_ADVERT_NAME = 8
     const val CMD_ADD_UPDATE_CONTACT = 9

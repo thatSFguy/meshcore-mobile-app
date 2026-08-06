@@ -11,6 +11,17 @@ Every entry describes what is in **that tagged build**. A feature that landed af
 belongs in the next section, not this one — 0.3.0 was once credited with four features that
 shipped after it, which misled nobody so much as the author, three months later.
 
+## 0.6.4
+
+- **Change the radio's Bluetooth pairing PIN** — Settings → Radio link → Bluetooth PIN. Nodes
+  without a screen ship with 123456, which is public and the same on every one of them, so
+  until you change it anyone in Bluetooth range can pair and read the radio's contacts,
+  messages and settings.
+- The current PIN is never shown, because the firmware provides no way to read it back. The
+  screen can only set a new one.
+- Changing it invalidates the pairing your phone already has, so it says so before you commit
+  and tells you to write the PIN down — nothing can recover it.
+
 ## 0.6.3
 
 - **Restoring a backup now actually restores contacts.** The restore dialog offered a contacts

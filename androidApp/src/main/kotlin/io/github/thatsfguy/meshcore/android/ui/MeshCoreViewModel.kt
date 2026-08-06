@@ -1771,6 +1771,33 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
         _loginError.value = _loginError.value - keyHex
     }
 
+    /**
+     * Change the radio's BLE pairing PIN.
+     *
+     * The success message says what to do next rather than just
+     * "done": the phone's existing bond is now stale, and a user who
+     * does not know to re-pair will read the next failed connection as
+     * the app being broken.
+     */
+    fun setDevicePin(text: String) {
+        val pin = io.github.thatsfguy.meshcore.protocol.DevicePin.parse(text) ?: run {
+            transientMessage.value = "A PIN is exactly 6 digits"
+            return
+        }
+        val svc = _service.value ?: run {
+            transientMessage.value = "Not connected to a radio"
+            return
+        }
+        viewModelScope.launch {
+            val ok = runCatching { svc.engine.setDevicePin(pin) }.getOrDefault(false)
+            transientMessage.value = if (ok) {
+                "PIN changed. Forget this radio in Bluetooth settings, then pair again."
+            } else {
+                "The radio did not accept the new PIN"
+            }
+        }
+    }
+
     fun sendSelfAdvert(flood: Boolean) =
         deviceAction(if (flood) "Flood advert sent" else "Zero-hop advert sent") {
             it.sendSelfAdvert(flood)

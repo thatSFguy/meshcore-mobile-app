@@ -57,6 +57,7 @@ import io.github.thatsfguy.meshcore.android.ui.screens.SettingsClockScreen
 import io.github.thatsfguy.meshcore.android.ui.screens.SettingsConnectionScreen
 import io.github.thatsfguy.meshcore.android.ui.screens.SettingsCustomVarsScreen
 import io.github.thatsfguy.meshcore.android.ui.screens.SettingsDataScreen
+import io.github.thatsfguy.meshcore.android.ui.screens.SettingsDevicePinScreen
 import io.github.thatsfguy.meshcore.android.ui.screens.SettingsIdentityScreen
 import io.github.thatsfguy.meshcore.android.ui.screens.SettingsPoliciesScreen
 import io.github.thatsfguy.meshcore.android.ui.screens.SettingsRadioScreen
@@ -216,6 +217,7 @@ private fun AppShell(
             composable("settings") { SettingsScreen(vm, nav) }
             composable("settings/connection") { SettingsConnectionScreen(vm, nav) }
             composable("settings/transports") { SettingsTransportsScreen(vm, nav) }
+            composable("settings/pin") { SettingsDevicePinScreen(vm, nav) }
             composable("settings/identity") { SettingsIdentityScreen(vm, nav) }
             composable("settings/radio") { SettingsRadioScreen(vm, nav) }
             composable("settings/clock") { SettingsClockScreen(vm, nav) }

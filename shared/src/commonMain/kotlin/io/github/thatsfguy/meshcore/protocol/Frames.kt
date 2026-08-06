@@ -172,6 +172,28 @@ object Frames {
     fun setRadioTxPower(powerDbm: Int): ByteArray =
         byteArrayOf(Codes.CMD_SET_RADIO_TX_POWER.toByte(), powerDbm.toByte())
 
+    /**
+     * CMD_SET_DEVICE_PIN: `[cmd][u32 LE pin]`.
+     *
+     * The BLE pairing PIN. Verified against the firmware's own handler
+     * (`companion_radio/MyMesh.cpp`): it requires `len >= 5` and reads
+     * the value with `memcpy(&pin, &cmd_frame[1], 4)` into a
+     * `uint32_t`, so the wire form is four little-endian bytes and NOT
+     * the six ASCII digits the user typed.
+     *
+     * Nodes without a screen ship with 123456, which is public
+     * knowledge and therefore no protection at all until it is changed.
+     *
+     * There is no matching get: the firmware exposes no way to read the
+     * PIN back, so nothing in this app can display the current one.
+     */
+    fun setDevicePin(pin: Int): ByteArray {
+        val w = BufferWriter()
+        w.writeByte(Codes.CMD_SET_DEVICE_PIN)
+        w.writeUInt32LE(pin.toLong())
+        return w.toBytes()
+    }
+
     /** CMD_RESET_PATH: [cmd][pubkey x32] */
     fun resetPath(pubKey: ByteArray): ByteArray =
         cmdWithPubKey(Codes.CMD_RESET_PATH, pubKey)

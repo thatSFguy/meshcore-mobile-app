@@ -154,7 +154,10 @@ class SettingsHubModelTest {
     fun `only the node's own settings are marked as needing a radio`() {
         val needs = settingsGroups().flatMap { it.tiles }.filter { it.needsRadio }.map { it.route }
         assertEquals(
-            listOf("identity", "radio", "clock", "policies", "autoadd", "customvars"),
+            // "pin" needs one too: the pairing PIN is a property of the
+            // radio, not of the app, and there is nothing to change
+            // without a node attached.
+            listOf("pin", "identity", "radio", "clock", "policies", "autoadd", "customvars"),
             needs,
         )
         // App and messaging settings are local and must work offline.

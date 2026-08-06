@@ -102,6 +102,7 @@ outstanding commands and matches `RESP_CODE_OK`/`RESP_CODE_ERR` to the oldest.
 | 31 | `CMD_GET_CHANNEL` | Read a channel slot |
 | 32 | `CMD_SET_CHANNEL` | Write a channel slot (name + PSK) |
 | 36 | `CMD_SEND_TRACE_PATH` | Path trace (tag/auth/flag) |
+| 37 | `CMD_SET_DEVICE_PIN` | Set the BLE pairing PIN (u32 LE) |
 | 38 | `CMD_SET_OTHER_PARAMS` | Telemetry/advert-location/multi-ack policy |
 | 39 | `CMD_SEND_TELEMETRY_REQ` | Request telemetry from a contact |
 | 40 | `CMD_GET_CUSTOM_VAR` | Read custom vars |
@@ -218,6 +219,15 @@ CMD_SET_RADIO_TX_POWER (12)     [1] power_dbm
 CMD_SET_ADVERT_LATLON (14)      i32 lat*1e6 | i32 lon*1e6
 CMD_SET_ADVERT_NAME (8)         name (≤31 bytes)
 CMD_SEND_SELF_ADVERT (7)        [1] flood(0/1)
+CMD_SET_DEVICE_PIN (37)         u32 LE pin
+  // Evidence: companion_radio/MyMesh.cpp requires `len >= 5` and reads
+  //   uint32_t pin; memcpy(&pin, &cmd_frame[1], 4);
+  // so this is a NUMBER, not the six ASCII digits the user typed.
+  // "000123" is a valid PIN whose value is 123 — anything round-tripping
+  // through an int has to re-pad, or it shows a PIN the radio does not have.
+  // Write-only: there is no CMD_GET_DEVICE_PIN, so a client can never
+  // display the PIN in force. Nodes without a screen default to 123456,
+  // which is public and identical across every such node.
 CMD_SET_PATH_HASH_MODE (61)     [1] 0 | [1] mode(0..3)   // hop-hash width = mode+1 bytes
 CMD_SET_FLOOD_SCOPE (54)        [1] 0 [| [16] scope]     // scope = SHA256("#region")[:16]; omit=reset
 

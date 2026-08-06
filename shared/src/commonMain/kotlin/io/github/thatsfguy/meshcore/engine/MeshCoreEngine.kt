@@ -1458,6 +1458,18 @@ class MeshCoreEngine(
 
     /** CMD_SET_OTHER_PARAMS: telemetry-permission flags, advert-location
      *  policy (0 none / 1 share), multi-acks (0/1). */
+    /**
+     * Set the BLE pairing PIN.
+     *
+     * Write-only: the firmware offers no way to read it back, so the
+     * app can never show the current one and must not pretend to.
+     *
+     * Not [okAndRefreshSelf] — the PIN is not part of SELF_INFO, so
+     * re-reading it would prove nothing about whether this worked.
+     */
+    suspend fun setDevicePin(pin: Int): Boolean =
+        sendAndAwait(Frames.setDevicePin(pin)) { it is DeviceEvent.Ok } is DeviceEvent.Ok
+
     suspend fun setOtherParams(
         allowTelemetryFlags: Int,
         advertLocationPolicy: Int,

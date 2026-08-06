@@ -51,6 +51,12 @@ fun settingsGroups(): List<SettingsGroup> = listOf(
         listOf(
             SettingsTile("connection", "Connection", "Connect, disconnect, saved radios"),
             SettingsTile("transports", "Transports", "Which link types may be used"),
+            // Under Radio link rather than This node: someone hunting
+            // for the Bluetooth PIN is thinking about how they connect,
+            // not about the node's identity. Thin screen, but the
+            // thinness is earned — it is a credential with a public
+            // default and a consequence that needs room to state.
+            SettingsTile("pin", "Bluetooth PIN", "Pairing PIN for this radio", needsRadio = true),
         ),
     ),
     SettingsGroup(

@@ -124,6 +124,11 @@ fun SettingsTransportsScreen(vm: MeshCoreViewModel, nav: NavController) {
     }
 }
 
+@Composable
+fun SettingsDevicePinScreen(vm: MeshCoreViewModel, nav: NavController) {
+    SettingsSpoke("Bluetooth PIN", vm, nav) { DevicePinSection(vm) }
+}
+
 // --- This node ---------------------------------------------------------
 
 @Composable

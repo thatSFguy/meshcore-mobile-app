@@ -89,6 +89,13 @@ fun AboutSection(vm: MeshCoreViewModel) {
  * is a changelog you can't read in the field.
  */
 private val CHANGELOG: List<Pair<String, List<String>>> = listOf(
+    "0.6.4" to listOf(
+        "Change the radio's Bluetooth pairing PIN — Settings, Radio link, Bluetooth PIN. " +
+            "Nodes without a screen ship with 123456, which is public and identical on " +
+            "every one of them.",
+        "The current PIN is never shown: the firmware gives no way to read it back.",
+        "Changing it invalidates your phone's existing pairing, so it says so first.",
+    ),
     "0.6.3" to listOf(
         "Restoring a backup now actually restores contacts — the option existed, counted " +
             "them, and then never wrote them.",
