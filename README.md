@@ -164,6 +164,82 @@ redaction-aware diagnostics log that is **off by default**. Each row reports its
 which transports are on, what frequency the radio is using and whether map tiles are being fetched
 are answered without opening anything.
 
+## Compared with the official MeshCore app — and what was dropped
+
+The official MeshCore Android app (`com.liamcottle.meshcore.android`) is written in **Flutter**;
+its UI compiles into `libapp.so`, and pulling the APK and extracting the Dart class names gives a
+complete map of its surface — 97 `*Screen` / `*Sheet` / `*Dialog` classes plus a service layer.
+That inventory is the reference this project was measured against, and it is treated as the
+**floor**: anything it does that MCH doesn't is a gap unless it appears below. MCH is a
+from-scratch native Kotlin client, not a fork — no Dart runtime, and nothing carried over except
+the wire protocol.
+
+Most of that surface is reimplemented. This section is about the rest.
+[`PARITY.md`](PARITY.md) carries the live row-by-row matrix with dates and reasoning; what
+follows is the summary.
+
+### Dropped by design — MCH will not grow these
+
+| Their surface | Why it isn't here |
+|---|---|
+| In-app purchases, Pro features, offline product activation, `BillingService` | There is no commercial layer, so there is no Play Billing dependency to link against. |
+| Crash and bug reporting (`BugsnagManager`, bug-reporting settings) | The app makes exactly one kind of outbound connection — OpenStreetMap tiles. That is a checkable promise, and a crash reporter would end it. |
+| Internet Map, "Add Contact from Internet", "Add me to the Map" | All three are server-mediated: they query or publish node positions and identities through their backend. No servers, no accounts. |
+| `AppInfoService`, `DeviceIdService` | Device identifiers exist to be correlated. Nothing here needs one. |
+| RF **coverage** and **line-of-sight** map tools | Cut by decision, not effort. Terrain propagation is a solved problem with better tools than a phone app can be — and a phone-sized approximation would be confidently wrong in exactly the situations you'd rely on it. |
+| Google Play Services, Firebase | Never linked. The app runs the same on a de-Googled ROM. |
+
+Four more were cut earlier, when the scope was pruned from MeshCore Open's inventory: an
+on-device LLM translator (~31 MB of llama.cpp), a GIF picker and remote media, voice /
+telephony, and the Chrome-required web gate.
+
+### Dropped for now — real gaps, listed honestly
+
+- **Languages.** Theirs ships 30+ locales; **MCH is English only**, and for most people this is
+  the biggest thing on the page. It stays that way until someone can check the result:
+  machine-translating safety-critical warning copy — *this link is unencrypted*, *this code is
+  the key*, *channels are obfuscated, not secure* — into a language nobody here reads would be
+  worse than shipping English.
+- **Heard repeats** — which repeaters rebroadcast *your* traffic. The mirror question, *how did
+  this message reach me*, does ship (message details → **Arrived via**), but the RX log doesn't
+  answer this one and it needs its own mechanism.
+- **Writing repeater ACL entries.** Reading the access list ships; adding a user does not. The
+  `set` syntax couldn't be confirmed from their binary and no repeater on this mesh supports
+  ACLs to verify against — and the command grants control of someone else's node, which is the
+  worst possible place to guess.
+- **Companion-side factory reset.** The repeater/room CLI `erase` ships behind a confirmation.
+  There is no companion equivalent in the protocol (§4 has reboot, not erase) and their
+  mechanism couldn't be identified, so nothing here wipes your radio.
+- **Print, custom map markers, developer and experimental menus.** Low priority, no security
+  weight.
+- **A Tools hub** — deliberately skipped rather than pending. Every tool (trace, noise floor,
+  discovery, regions) is reachable from the node it applies to; a hub would duplicate navigation
+  without adding capability.
+- **`MessageSettingsScreen`, `ContactSettingsScreen`** — a class-name inventory gives their
+  names and not their behaviour, and these two can't be specified without watching the app run.
+
+### Kept, but deliberately not the way they do it
+
+These are not gaps to close by copying. Each one ships the feature and keeps stricter handling:
+
+| Their behaviour | MCH |
+|---|---|
+| An always-available packet / RX log | Diagnostics are **off by default** and redact `set prv.key`, passwords and long hex before a line is stored. |
+| A hop hash rendered as a node name | A hop is a truncated key hash — two bytes is 16 bits and cheap to collide. A hop is named only when **exactly one** contact matches; otherwise it stays `(N matches)`. Never a silent pick. |
+| A scanned contact card is added | Contact cards are **unsigned**. Scanning one shows the full public key and asks. Signed adverts still go through the verifying import path. |
+| "Block a channel sender" | A MeshCore group message is `"name: text"` inside the ciphertext and carries **no sender key**, so a channel block is not possible. DMs block on the full 32-byte public key; channel names ship as **Hidden channel names**, labelled as the noise filter it is. Calling it blocking is the actual security bug available here. |
+| Region discovery rewrites the target's stored path, then restores it | The contact's existing path is sent as the reply path instead. Clobbering a pinned route — and leaving it clobbered if the app dies mid-request — is worse than a query that goes unanswered. |
+| Channels presented as messaging | Labelled **obfuscated, not secure** on every surface, because AES-ECB with a 2-byte MAC is what the protocol mandates. |
+
+### What you give up by choosing MCH
+
+The official app is the reference implementation: more complete, more widely used, translated,
+and where new MeshCore features land first. MCH is one person's app, explicitly
+[closed to feature requests](#project-scope--personal-app-shared-in-the-open), and its entire
+design goal is to stop growing. If you want the fullest MeshCore client, theirs is the honest
+recommendation. Use this one if the trade you want is the other one — fewer features, no
+telemetry, no billing, one outbound connection, and secrets in the Keystore.
+
 ## Security posture
 
 The protocol spec ([`MESHCORE_PROTOCOL.md`](MESHCORE_PROTOCOL.md)) was reverse-engineered from a
