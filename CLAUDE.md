@@ -284,6 +284,19 @@ its four details differed from the firmware's.
 
 ## Settled decisions — do not re-litigate without new evidence
 
+**CryptoKit's Ed25519 is hedged; Bouncy Castle's is RFC-deterministic.** Proven on CI
+2026-08-06, not assumed. RFC 8032 derives the signing nonce from key and message alone, so a
+conforming implementation reproduces the spec's example signatures byte for byte — Bouncy
+Castle does, and `Ed25519Conformance.signaturesAreRfcDeterministic` asserts it on Android.
+Apple's `Curve25519.Signing` mixes in randomness and emits a **different valid signature every
+time**. Both are correct Ed25519. Do NOT "fix" the iOS bridge to match the RFC bytes, and do not
+assert byte equality in a cross-platform test: the property that matters is that a signature
+*verifies*, which is all the mesh ever checks, and which
+`Ed25519Conformance.signaturesVerifyUnderThePublishedKey` asserts on both platforms.
+The diagnostic pattern, if this resurfaces: correct public key + verify working + signature
+bytes differing means hedging, not a broken bridge.
+
+
 **There is no reason to sign in as a guest when you hold the admin password.** Verified
 2026-08-05 against the firmware: `set guest.password` is a *repeater setting* under "allow
 read-only guest access", `CMD_SEND_LOGIN` carries a password and no requested-level field,
