@@ -60,7 +60,7 @@ fun ChatsScreen(vm: MeshCoreViewModel, nav: NavController) {
     val communityScanLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
         com.journeyapps.barcodescanner.ScanContract(),
     ) { result ->
-        result.contents?.let { vm.joinCommunity(it) }
+        result.contents?.let { vm.importScannedCode(it) }
     }
 
     Scaffold(
@@ -83,7 +83,7 @@ fun ChatsScreen(vm: MeshCoreViewModel, nav: NavController) {
                         communityScanLauncher.launch(
                             com.journeyapps.barcodescanner.ScanOptions()
                                 .setDesiredBarcodeFormats(com.journeyapps.barcodescanner.ScanOptions.QR_CODE)
-                                .setPrompt("Scan a MeshCore community QR")
+                                .setPrompt("Scan a MeshCore QR — community, channel or contact")
                                 .setBeepEnabled(false)
                                 .setCaptureActivity(
                                     io.github.thatsfguy.meshcore.android.platform.PortraitCaptureActivity::class.java,

@@ -31,6 +31,7 @@ import io.github.thatsfguy.meshcore.protocol.NodeDiscovery
 import io.github.thatsfguy.meshcore.protocol.Quoting
 import io.github.thatsfguy.meshcore.protocol.Reactions
 import io.github.thatsfguy.meshcore.protocol.Regions
+import io.github.thatsfguy.meshcore.protocol.ScannedCode
 import io.github.thatsfguy.meshcore.protocol.SendRetry
 import io.github.thatsfguy.meshcore.protocol.ShareUri
 import io.github.thatsfguy.meshcore.transport.ConnectionMemory
@@ -842,6 +843,26 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
     val pendingChannelShare = MutableStateFlow<ShareUri.Decoded.ChannelShare?>(null)
 
     /** Handle a scanned/pasted meshcore:// code, in either form. */
+    /**
+     * Handle any scanned MeshCore code, whichever screen scanned it.
+     *
+     * The Chats scanner used to hand everything to the community JSON
+     * parser and the Nodes scanner to the URI parser, so scanning a
+     * repeater's contact QR from Chats produced "Invalid community
+     * code" — an error about the app's own screen layout, dressed up as
+     * a problem with the code. Which decoder to use is something the
+     * app can work out ([ScannedCode]).
+     */
+    fun importScannedCode(text: String) {
+        when (ScannedCode.classify(text)) {
+            ScannedCode.Community -> joinCommunity(text)
+            ScannedCode.MeshCoreUri -> importContactUri(text)
+            // Let the URI decoder produce the specific complaint; it
+            // distinguishes malformed from oversized from not-ours.
+            ScannedCode.Unknown -> importContactUri(text)
+        }
+    }
+
     fun importContactUri(text: String) {
         if (_service.value == null) return
         // Scanned QR data is entirely attacker-controlled: decode is
@@ -851,7 +872,8 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
             is ShareUri.Decoded.Contact -> pendingContactCard.value = decoded
             is ShareUri.Decoded.ChannelShare -> pendingChannelShare.value = decoded
             ShareUri.Decoded.NotAContactCode ->
-                transientMessage.value = "Not a meshcore:// contact code"
+                transientMessage.value = "Not a MeshCore code — expected a contact, channel " +
+                    "or community QR"
             ShareUri.Decoded.TooLarge ->
                 transientMessage.value = "Contact code too large"
             ShareUri.Decoded.Malformed ->
@@ -1506,6 +1528,25 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
             }
             backupRepo.pendingChannelPsks.clear()
         }
+        // Contacts, same serialised queue as the channels above.
+        //
+        // These used to be counted and then abandoned, with the result
+        // string admitting "Contacts were not written" at the end of a
+        // long sentence. Restoring a backup onto a new radio therefore
+        // produced an app with no contacts and no obvious reason why.
+        var contactsWritten = 0
+        if (svc != null && options.contacts) {
+            for (contact in parsed.plain.contacts) {
+                val key = hexToBytesOrNull(contact.keyHex) ?: continue
+                val ok = runCatching {
+                    svc.engine.addContactFromCard(key, contact.name, contact.type)
+                }.getOrDefault(false)
+                if (ok) contactsWritten++
+            }
+            // The list the UI shows mirrors the radio, so re-read it
+            // rather than waiting for whatever refresh comes next.
+            if (contactsWritten > 0) runCatching { svc.engine.syncContacts() }
+        }
         regionRevision.value++
 
         return buildString {
@@ -1517,8 +1558,11 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
                 // "restored 4 channels" when 4 arrived empty would be a lie.
                 append(", $channelsWritten of ${parsed.plain.channels.size} channel(s)")
             }
-            if (result.contactsQueued > 0) {
-                append(". Contacts were not written — import them from the backup's QR flow instead")
+            if (options.contacts) {
+                append(", $contactsWritten of ${parsed.plain.contacts.size} contact(s)")
+                if (svc == null) {
+                    append(" (connect a radio to restore contacts)")
+                }
             }
             for (skip in result.skipped) append(". Skipped: $skip")
         }

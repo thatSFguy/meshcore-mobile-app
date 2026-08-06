@@ -72,7 +72,7 @@ fun NodesScreen(vm: MeshCoreViewModel, nav: NavController) {
     var detail by remember { mutableStateOf<ContactEntity?>(null) }
 
     val scanLauncher = rememberLauncherForActivityResult(ScanContract()) { result ->
-        result.contents?.let { vm.importContactUri(it) }
+        result.contents?.let { vm.importScannedCode(it) }
     }
     var showSelfQr by remember { mutableStateOf(false) }
     var discovering by remember { mutableStateOf(false) }
@@ -87,7 +87,7 @@ fun NodesScreen(vm: MeshCoreViewModel, nav: NavController) {
                         scanLauncher.launch(
                             ScanOptions()
                                 .setDesiredBarcodeFormats(ScanOptions.QR_CODE)
-                                .setPrompt("Scan a meshcore:// contact QR")
+                                .setPrompt("Scan a MeshCore QR — contact, channel or community")
                                 .setBeepEnabled(false)
                                 .setCaptureActivity(PortraitCaptureActivity::class.java),
                         )
@@ -106,7 +106,7 @@ fun NodesScreen(vm: MeshCoreViewModel, nav: NavController) {
                 scanLauncher.launch(
                     ScanOptions()
                         .setDesiredBarcodeFormats(ScanOptions.QR_CODE)
-                        .setPrompt("Scan a meshcore:// contact QR")
+                        .setPrompt("Scan a MeshCore QR — contact, channel or community")
                         .setBeepEnabled(false)
                         .setCaptureActivity(PortraitCaptureActivity::class.java),
                 )

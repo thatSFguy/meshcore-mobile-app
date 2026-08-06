@@ -11,6 +11,16 @@ Every entry describes what is in **that tagged build**. A feature that landed af
 belongs in the next section, not this one — 0.3.0 was once credited with four features that
 shipped after it, which misled nobody so much as the author, three months later.
 
+## 0.6.3
+
+- **Restoring a backup now actually restores contacts.** The restore dialog offered a contacts
+  option, counted them, and then never wrote them — admitting it in a sentence at the end of a
+  long status line. Restoring onto a new radio left you with no contacts and no obvious reason.
+- **Any MeshCore QR can be scanned from either scanner.** Scanning a repeater's contact code
+  from the Chats + button used to answer "Invalid community code", because that button was
+  wired only to the community parser. Contact, channel, advert and community codes are now
+  recognised wherever you scan them.
+
 ## 0.6.2
 
 - The route map painted over the rows around it — "Hops travelled" and the Route heading were

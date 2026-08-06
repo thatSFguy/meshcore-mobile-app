@@ -89,6 +89,12 @@ fun AboutSection(vm: MeshCoreViewModel) {
  * is a changelog you can't read in the field.
  */
 private val CHANGELOG: List<Pair<String, List<String>>> = listOf(
+    "0.6.3" to listOf(
+        "Restoring a backup now actually restores contacts — the option existed, counted " +
+            "them, and then never wrote them.",
+        "Any MeshCore QR can be scanned from either scanner. A repeater's contact code " +
+            "scanned from Chats used to answer \"Invalid community code\".",
+    ),
     "0.6.2" to listOf(
         "The route map painted over the rows around it, and pinch-zooming threw the route " +
             "lines across the whole sheet. It is clipped to its own bounds now.",
