@@ -104,8 +104,11 @@ class MessageRepeatsTest {
 
     @Test
     fun `the badge is terse enough to sit under a bubble`() {
-        assertEquals("↻ 1 repeat", MessageRepeats.badge("b389", 2))
-        assertEquals("↻ 2 repeats", MessageRepeats.badge("b389f0b3", 2))
+        // Glyph and number only — no noun. The footer already carries
+        // a time, a tick and sometimes an attempt count.
+        assertEquals("↻ 1", MessageRepeats.badge("b389", 2))
+        assertEquals("↻ 2", MessageRepeats.badge("b389f0b3", 2))
+        assertTrue(!MessageRepeats.badge("b389", 2)!!.contains("repeat"))
     }
 
     @Test
@@ -232,5 +235,23 @@ class MessageRepeatsTest {
     @Test
     fun `a truncated key cannot match`() {
         assertNull(MessageRepeats.creditDirect(listOf(sent(1, "b", 0L)), 0xb3, 1_000L))
+    }
+
+    @Test
+    fun `the live capture credits the one recipient that matches`() {
+        // Verbatim from the phone, 2026-08-06: three recent sent DMs to
+        // two contacts, an echo for dest 0x0a, and only one candidate
+        // whose key starts 0a. Both echoes (paths f0b3 and b389) landed
+        // on the same message.
+        val c = listOf(
+            sent(18, "0a45d1d46043", 10_000L),
+            sent(17, "d1f5aaaa", 5_000L),
+            sent(16, "d1f5aaaa", 1_000L),
+        )
+        assertEquals(18L, MessageRepeats.creditDirect(c, 0x0a, 12_000L)?.id)
+        // And the two echoes accumulate to the two relays seen.
+        var hex = MessageRepeats.merge(null, "f0b3", 2)
+        hex = MessageRepeats.merge(hex, "b389", 2)
+        assertEquals("↻ 2", MessageRepeats.badge(hex, 2))
     }
 }

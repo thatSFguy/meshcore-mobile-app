@@ -1,5 +1,6 @@
 package io.github.thatsfguy.meshcore.android.storage
 
+import io.github.thatsfguy.meshcore.android.BuildConfig
 import io.github.thatsfguy.meshcore.engine.MeshCoreEngine
 import io.github.thatsfguy.meshcore.engine.MeshEvent
 import io.github.thatsfguy.meshcore.model.Channel
@@ -868,11 +869,17 @@ class MessageRepository(
             destHash,
             now,
         )
-        android.util.Log.i(
-            "MCH-Repeat",
-            "dm repeat dest=%02x path=$pathHex candidates=${recent.size} ".format(destHash) +
-                "peers=${recent.map { it.peerKey.take(4) }} credited=${credited?.id}",
-        )
+        // DEBUG ONLY. This line names contact key prefixes, and a
+        // release build must not put those in the system log — the whole
+        // posture of this app is that contact keys stay in the encrypted
+        // database and the Keystore.
+        if (BuildConfig.DEBUG) {
+            android.util.Log.i(
+                "MCH-Repeat",
+                "dm repeat dest=%02x path=$pathHex candidates=${recent.size} ".format(destHash) +
+                    "peers=${recent.map { it.peerKey.take(4) }} credited=${credited?.id}",
+            )
+        }
         val row = recent.firstOrNull { it.id == credited?.id } ?: return
         noteRepeat(row, pathHex, width)
     }

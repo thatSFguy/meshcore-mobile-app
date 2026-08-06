@@ -781,14 +781,13 @@ class MeshCoreEngine(
                 val selfFirst = _selfInfo.value?.publicKey?.firstOrNull()?.toInt()?.and(0xFF)
                 val src = packet.payload.getOrNull(1)?.toInt()?.and(0xFF)
                 val dest = packet.payload.getOrNull(0)?.toInt()?.and(0xFF)
+                val ours = selfFirst != null && src == selfFirst
                 log(
                     "RX TXT_MSG route=${packet.routeType} hops=${packet.hopCount} " +
-                        "path=${packet.pathBytes.toHex()} dest=$dest src=$src self=$selfFirst",
+                        "path=${packet.pathBytes.toHex()} dest=$dest src=$src self=$selfFirst" +
+                        if (ours) " — OURS, repeat sighting" else "",
                 )
-                if (selfFirst != null && src == selfFirst && dest != null &&
-                    packet.pathBytes.isNotEmpty()
-                ) {
-                    log("RX TXT_MSG is OUR OWN — emitting repeat sighting")
+                if (ours && dest != null && packet.pathBytes.isNotEmpty()) {
                     _meshEvents.tryEmit(
                         MeshEvent.OwnDirectRepeatHeard(
                             destHash = dest,

@@ -13,7 +13,7 @@ shipped after it, which misled nobody so much as the author, three months later.
 
 ## 0.7.1
 
-- **Repeats now show on the sent message itself** — a `↻ 2 repeats` badge under the bubble,
+- **Repeats now show on the sent message itself** — a `↻ 2` badge under the bubble,
   which is where you're looking when the question occurs to you. The standing
   "Who repeats me" screen stays; it answers the coverage question this one can't.
 - **The info sheet names them.** Long-press a sent message → *Message details* → **Repeated
@@ -27,6 +27,10 @@ shipped after it, which misled nobody so much as the author, three months later.
   without a copy coming back can't be heard here, so silence is unmeasured, not zero.
 - Wording corrected throughout: **node**, not repeater. The first live measurement was
   relayed by a room server, and companions with client-repeat relay too.
+- Verified against a live mesh: a direct message re-broadcast by two nodes, both copies
+  heard, both credited to the right message. A message can now read `✗ (try 3) · ↻ 2` —
+  the mesh carried it and the recipient never answered, which the tick alone cannot tell
+  you.
 
 ## 0.7.0
 

@@ -1164,4 +1164,103 @@ class MeshCoreEngineTest {
 
         assertTrue(engine.heardRepeats.value.isEmpty())
     }
+
+    // ------------------------------------------------------------------
+    // Direct-message repeats, pinned to a live capture (2026-08-06)
+    //
+    // A DM sent to Kaylee was re-broadcast by two nodes and both copies
+    // came back. Verbatim from the phone's log:
+    //
+    //   RX TXT_MSG route=1 hops=1 path=f0b3 dest=10 src=227 self=227
+    //   RX TXT_MSG route=1 hops=1 path=b389 dest=10 src=227 self=227
+    //
+    // route=1 is ROUTE_TYPE_FLOOD, dest=10 is 0x0a (the recipient's
+    // first key byte) and src=self=227 is ours. Pinning the real bytes
+    // rather than a property: the DM half shipped twice looking correct
+    // and doing nothing, and both times a property-shaped test passed.
+    // ------------------------------------------------------------------
+
+    /** A TXT_MSG packet carrying OUR src_hash — our own message echoed. */
+    private fun ownDmEcho(
+        destHash: Int,
+        path: ByteArray,
+        width: Int = 2,
+        routeType: Int = 0x01,
+    ): ByteArray {
+        val header = (Codes.PAYLOAD_TYPE_TXT_MSG shl 2) or routeType
+        val hops = path.size / width
+        // dest_hash, src_hash (ours), 2-byte MAC, opaque ciphertext.
+        val payload = byteArrayOf(destHash.toByte(), selfKey[0], 0x11, 0x22) +
+            ByteArray(16) { 0x5A }
+        return byteArrayOf(header.toByte(), pathLenEnc(hops, width).toByte()) + path + payload
+    }
+
+    @Test
+    fun ourOwnDirectMessageComingBackIsReportedAsARepeat() = runTest {
+        val radio = FakeRadio()
+        radio.responder = standardResponder(radio)
+        val engine = MeshCoreEngine(backgroundScope, crypto, { now })
+        engine.attach(radio)
+        radio.connect()
+        engine.awaitReady()
+
+        val waiter = async {
+            withTimeout(5_000) {
+                engine.meshEvents.first { it is MeshEvent.OwnDirectRepeatHeard }
+            }
+        }
+        yield()
+        radio.push(rxLogPush(ownDmEcho(0x0a, byteArrayOf(0xf0.toByte(), 0xb3.toByte()))))
+
+        val event = waiter.await() as MeshEvent.OwnDirectRepeatHeard
+        assertEquals(0x0a, event.destHash)
+        assertEquals("f0b3", event.pathHex)
+        assertEquals(2, event.hashWidth)
+    }
+
+    @Test
+    fun someoneElsesDirectMessageIsNotOurTraffic() = runTest {
+        // src_hash is theirs, so this is an ordinary inbound packet. It
+        // must stay a HeardVia arrival and never become a repeat of ours
+        // — the failure would credit our coverage with their traffic.
+        val radio = FakeRadio()
+        radio.responder = standardResponder(radio)
+        val engine = MeshCoreEngine(backgroundScope, crypto, { now })
+        engine.attach(radio)
+        radio.connect()
+        engine.awaitReady()
+
+        val seen = ArrayList<MeshEvent>()
+        val job = launch { engine.meshEvents.collect { seen.add(it) } }
+        yield()
+        radio.push(rxLogPush(encryptedDmPacket(srcHash = peerKey[0].toInt() and 0xFF)))
+        yield(); yield(); yield()
+        job.cancel()
+
+        assertTrue(
+            seen.none { it is MeshEvent.OwnDirectRepeatHeard },
+            "someone else's message was credited as our own traffic",
+        )
+    }
+
+    @Test
+    fun anEchoWithNoPathIsNotARepeat() = runTest {
+        // Zero hops means nobody relayed it — we cannot hear our own
+        // transmission, so this is not evidence of a repeat.
+        val radio = FakeRadio()
+        radio.responder = standardResponder(radio)
+        val engine = MeshCoreEngine(backgroundScope, crypto, { now })
+        engine.attach(radio)
+        radio.connect()
+        engine.awaitReady()
+
+        val seen = ArrayList<MeshEvent>()
+        val job = launch { engine.meshEvents.collect { seen.add(it) } }
+        yield()
+        radio.push(rxLogPush(ownDmEcho(0x0a, ByteArray(0))))
+        yield(); yield(); yield()
+        job.cancel()
+
+        assertTrue(seen.none { it is MeshEvent.OwnDirectRepeatHeard })
+    }
 }

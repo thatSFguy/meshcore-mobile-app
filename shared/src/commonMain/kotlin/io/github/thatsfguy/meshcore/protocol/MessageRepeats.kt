@@ -79,21 +79,20 @@ object MessageRepeats {
     fun count(hex: String?, hashWidth: Int?): Int = relays(hex, hashWidth).size
 
     /**
-     * The one-line badge under a sent bubble.
+     * The badge under a sent bubble: the glyph and a count, nothing else.
+     *
+     * No noun. The bubble footer already carries a time, a tick and
+     * sometimes an attempt count, and "2 repeats" spent more of that
+     * line on the word than on the number. [summary] says it in full in
+     * the info sheet, which is where precision belongs.
      *
      * Null when nothing was heard — which is NOT the same as "nobody
      * repeated it", and is why the absence renders as nothing at all
      * rather than as a zero. A radio out of range of every repeat is
      * indistinguishable here from a message nobody carried.
      */
-    fun badge(hex: String?, hashWidth: Int?): String? = when (val n = count(hex, hashWidth)) {
-        0 -> null
-        1 -> "↻ 1 repeat"
-        // Terse because it sits under a bubble, where a sentence would
-        // crowd the message. The count is DISTINCT nodes; [summary] says
-        // so in full in the info sheet, which is where precision goes.
-        else -> "↻ $n repeats"
-    }
+    fun badge(hex: String?, hashWidth: Int?): String? =
+        count(hex, hashWidth).takeIf { it > 0 }?.let { "↻ $it" }
 
     /**
      * The heading line in the message info sheet.
