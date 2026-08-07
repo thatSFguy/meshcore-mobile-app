@@ -44,8 +44,6 @@ fun MapScreen(vm: MeshCoreViewModel) {
     val self by vm.selfInfo.collectAsState()
 
     var showLabels by remember { mutableStateOf(true) }
-    val routeKey by vm.mapRouteContact.collectAsState()
-    val routePlot = remember(routeKey, contacts) { vm.mapRoute() }
     var fitRequest by remember { mutableIntStateOf(0) }
     var typeFilter by remember { mutableStateOf(vm.prefs.mapTypeFilter) }
     var tilesEnabled by remember { mutableStateOf(vm.prefs.mapTilesEnabled) }
@@ -141,25 +139,10 @@ fun MapScreen(vm: MeshCoreViewModel) {
             }
         }
 
+        // This tab is the node map and nothing else. A contact's route
+        // is drawn in the routing sheet, on the same component the
+        // message info sheet uses — see StoredRoutePathMap.
         androidx.compose.foundation.layout.Column(Modifier.fillMaxSize().padding(padding)) {
-        // A drawn route must explain itself: a dashed line with gaps is
-        // not the same claim as a solid one, and nothing on screen tells
-        // the user which they're looking at unless it says so.
-        routePlot?.let { plot ->
-            Text(
-                plot.summary() + if (plot.hasGaps) {
-                    "  Gaps are dashed — a hop matching more than one contact is never placed."
-                } else {
-                    ""
-                },
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(
-                    horizontal = androidx.compose.ui.unit.Dp(12f),
-                    vertical = androidx.compose.ui.unit.Dp(6f),
-                ),
-            )
-        }
         AndroidView(
             factory = { mapView },
             // weight, not fillMaxSize: inside a Column a fillMaxSize
@@ -199,45 +182,6 @@ fun MapScreen(vm: MeshCoreViewModel) {
                             title = c.displayName(),
                         ),
                     )
-                }
-
-                // Route overlay (PARITY §9). Drawn ONLY through hops
-                // that resolved to exactly one positioned contact — an
-                // ambiguous hop is a gap in the line, never a guess, so
-                // the drawing can't claim more than the data supports.
-                routePlot?.let { plot ->
-                    val located = plot.plotted.mapNotNull { hop ->
-                        val lat = hop.latitude
-                        val lon = hop.longitude
-                        if (lat == null || lon == null) null else GeoPoint(lat, lon)
-                    }
-                    // Start the line at this node — a route begins here,
-                    // and without it a one-hop route is a dot.
-                    val line = buildList {
-                        if (kotlin.math.abs(selfLat) > 1e-6 || kotlin.math.abs(selfLon) > 1e-6) {
-                            add(GeoPoint(selfLat, selfLon))
-                        }
-                        addAll(located)
-                    }
-                    if (line.size >= 2) {
-                        map.overlays.add(
-                            Polyline(map).apply {
-                                setPoints(line)
-                                outlinePaint.strokeWidth = 8f
-                                outlinePaint.color = android.graphics.Color.argb(
-                                    if (plot.hasGaps) 130 else 220, 0x4F, 0xC3, 0xF7,
-                                )
-                                // A route with gaps is drawn dashed, so a
-                                // line you can't fully vouch for doesn't
-                                // look like one you can.
-                                if (plot.hasGaps) {
-                                    outlinePaint.pathEffect =
-                                        android.graphics.DashPathEffect(floatArrayOf(18f, 14f), 0f)
-                                }
-                            },
-                        )
-                        points.addAll(line)
-                    }
                 }
 
                 // Fit on first layout and on menu request.

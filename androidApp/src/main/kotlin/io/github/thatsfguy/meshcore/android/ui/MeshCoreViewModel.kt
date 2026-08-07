@@ -599,12 +599,6 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /**
-     * Contact whose route the Map tab should draw, or null for none.
-     * Set from the routing sheet; the map reads it.
-     */
-    val mapRouteContact = MutableStateFlow<String?>(null)
-
-    /**
      * A contact's STORED route, resolved hop by hop. Null when the
      * contact is unknown or reached by flooding — there is no route to
      * draw in either case.
@@ -623,10 +617,6 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
             },
         )
     }
-
-    /** The route to draw on the map, resolved hop by hop. */
-    fun mapRoute(): io.github.thatsfguy.meshcore.protocol.PathGeometry.Plot? =
-        plotStoredPath(mapRouteContact.value)
 
     /**
      * Where a path's hops are, as far as can honestly be said
@@ -714,6 +704,52 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
             )
         }
         return io.github.thatsfguy.meshcore.protocol.PathSketch.build(chain)
+    }
+
+    /**
+     * A contact's STORED outbound route, laid out for the same map the
+     * message info sheet draws.
+     *
+     * Runs this radio → each hop → the contact, which is the direction
+     * the route is used in. When the last hop IS the destination — the
+     * usual case for a repeater you route to — it is marked as the
+     * endpoint rather than repeated, so the line does not end in a
+     * doubled pin.
+     *
+     * Width comes from the contact's own `pathInfo`, not from
+     * DEVICE_INFO: this path was recorded at that width, and the hop
+     * width is the defect this codebase keeps re-learning.
+     */
+    fun sketchStoredPath(
+        keyHex: String,
+    ): io.github.thatsfguy.meshcore.protocol.PathSketch.Sketch? {
+        val live = liveContacts.value[keyHex] ?: return null
+        val path = live.storedPath.takeIf { it.isNotEmpty() } ?: return null
+        val contacts = dbContacts.value
+        val plot = io.github.thatsfguy.meshcore.protocol.PathGeometry.plot(
+            path,
+            live.pathInfo.hashWidth,
+            contacts.map {
+                io.github.thatsfguy.meshcore.protocol.PathGeometry.PositionedContact(
+                    it.keyHex, it.name, it.latitude, it.longitude,
+                )
+            },
+        )
+        if (plot.hops.isEmpty()) return null
+
+        val dest = contacts.firstOrNull { it.keyHex == keyHex }
+        return io.github.thatsfguy.meshcore.protocol.PathSketch.build(
+            io.github.thatsfguy.meshcore.protocol.PathSketch.outboundChain(
+                selfLabel = selfInfo.value?.name?.ifBlank { null } ?: "This radio",
+                selfLatitude = selfInfo.value?.latitude,
+                selfLongitude = selfInfo.value?.longitude,
+                hops = plot.hops,
+                destKeyHex = keyHex,
+                destLabel = dest?.name?.ifBlank { null } ?: keyHex.take(12),
+                destLatitude = dest?.latitude,
+                destLongitude = dest?.longitude,
+            ),
+        )
     }
 
     // --- Routing / paths ---------------------------------------------

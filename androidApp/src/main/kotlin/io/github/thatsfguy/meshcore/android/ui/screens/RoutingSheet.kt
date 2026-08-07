@@ -69,7 +69,6 @@ fun RoutingSheet(
     // Bytes per hop on THIS mesh; every hop-token parse depends on it.
     val hopWidth = vm.deviceInfo.collectAsState().value?.pathHashByteWidth ?: 1
     val hasStoredRoute = (liveContact?.storedPath?.size ?: 0) > 0
-    val mapPlot = remember(keyHex, liveContact) { vm.plotStoredPath(keyHex) }
     // Full-key-hex -> name, so a picked hop can be named and, more
     // importantly, so a stored path can be resolved back to the nodes
     // behind it rather than to bare hashes.
@@ -340,21 +339,15 @@ fun RoutingSheet(
                 }
             }
 
+            // The route drawn here, not shipped to the Map tab. The old
+            // button set a flag the Map tab read, which meant tapping it
+            // appeared to do nothing: it did not navigate, its toast was
+            // swallowed by the modal sheet, and the summary it drew over
+            // there was painted over by the MapView. Same map component
+            // as the message info sheet, so there is one implementation
+            // of "draw a route" and it is the one already proven.
             if (hasStoredRoute) {
-                ButtonFlowRow {
-                    TextButton(onClick = {
-                        vm.mapRouteContact.value = keyHex
-                        vm.transientMessage.value =
-                            "Route sent to the Map tab" +
-                                (mapPlot?.let { " — " + it.summary() } ?: "")
-                    }) { Text("Show route on map") }
-                    if (vm.mapRouteContact.value != null) {
-                        TextButton(onClick = { vm.mapRouteContact.value = null }) {
-                            Text("Clear map route")
-                        }
-                    }
-                }
-                mapPlot?.let { HintText(it.summary()) }
+                StoredRoutePathMap(vm, keyHex)
             }
 
             Spacer(Modifier.height(12.dp))

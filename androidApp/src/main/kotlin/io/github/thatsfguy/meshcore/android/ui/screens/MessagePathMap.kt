@@ -60,6 +60,49 @@ fun MessagePathMap(vm: MeshCoreViewModel, m: MessageEntity, senderLabel: String)
     val sketch = remember(m.id, contacts, self, deviceInfo) {
         vm.sketchArrival(m, senderLabel)
     }
+    PathSketchMap(vm, sketch)
+}
+
+/**
+ * A contact's stored outbound route, on the same map.
+ *
+ * The routing sheet's own view of the route it is editing. This used to
+ * be a "Show route on map" button that set a flag the Map tab read: it
+ * navigated nowhere, said nothing, and the banner it drew was painted
+ * over by the MapView itself (see the clipToBounds note below — the same
+ * defect, one screen up). Drawing it where the route is being edited
+ * removes the round trip and the flag with it.
+ */
+@Composable
+fun StoredRoutePathMap(
+    vm: MeshCoreViewModel,
+    keyHex: String,
+    heading: String = "Route on map",
+) {
+    val contacts by vm.dbContacts.collectAsState()
+    val self by vm.selfInfo.collectAsState()
+    val liveContacts by vm.liveContacts.collectAsState()
+
+    val sketch = remember(keyHex, contacts, self, liveContacts) {
+        vm.sketchStoredPath(keyHex)
+    }
+    PathSketchMap(vm, sketch, heading = heading)
+}
+
+/**
+ * The shared body: draw a [PathSketch.Sketch] on an osmdroid map.
+ *
+ * Skipped entirely when nothing can be placed — an empty grey rectangle
+ * communicates less than the sentence that replaces it.
+ */
+@Composable
+private fun PathSketchMap(
+    vm: MeshCoreViewModel,
+    sketch: PathSketch.Sketch?,
+    // NOT `title`: inside the Marker { } builder below that name binds
+    // to Marker.title, and the assignment silently retargets.
+    heading: String = "Route",
+) {
     if (sketch == null || sketch.isEmpty) return
 
     val context = LocalContext.current
@@ -78,7 +121,7 @@ fun MessagePathMap(vm: MeshCoreViewModel, m: MessageEntity, senderLabel: String)
     }
 
     Spacer(Modifier.height(12.dp))
-    Text("Route", style = MaterialTheme.typography.titleSmall)
+    Text(heading, style = MaterialTheme.typography.titleSmall)
     Text(
         sketch.summary(),
         style = MaterialTheme.typography.bodySmall,

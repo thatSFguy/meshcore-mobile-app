@@ -106,6 +106,81 @@ object PathSketch {
     )
 
     /**
+     * The chain for a contact's STORED outbound route: this radio →
+     * each hop → the contact.
+     *
+     * The one rule worth pinning is the tail. A stored route's last hop
+     * is very often the destination itself — routing to a repeater is
+     * the ordinary case — and appending the contact again would put two
+     * pins on one spot and a zero-length segment between them. So when
+     * the last hop's hash prefixes [destKeyHex], that hop IS the
+     * endpoint; otherwise the destination is appended as its own.
+     *
+     * A hop whose *identity* is unknown is never treated as the
+     * destination however well its hash matches, because a hash that
+     * matched two contacts tells us nothing about which one this is.
+     */
+    fun outboundChain(
+        selfLabel: String,
+        selfLatitude: Double?,
+        selfLongitude: Double?,
+        hops: List<PathGeometry.HopPoint>,
+        destKeyHex: String,
+        destLabel: String,
+        destLatitude: Double?,
+        destLongitude: Double?,
+    ): List<Waypoint> {
+        if (hops.isEmpty()) return emptyList()
+        val last = hops.last()
+        // Only an IDENTITY failure disqualifies it. NoPosition means we
+        // know who this is and not where, which still makes it the
+        // destination — it is placed by inference like any other
+        // position-less node, and appending the contact again would put
+        // the same unknown node in twice.
+        val lastIdentityKnown = last.gap == null || last.gap == PathGeometry.Gap.NoPosition
+        val lastIsDest = lastIdentityKnown &&
+            last.hashHex.isNotEmpty() &&
+            destKeyHex.startsWith(last.hashHex, ignoreCase = true)
+
+        return buildList {
+            add(
+                Waypoint(
+                    label = selfLabel,
+                    latitude = selfLatitude,
+                    longitude = selfLongitude,
+                    isEndpoint = true,
+                ),
+            )
+            hops.forEachIndexed { i, hop ->
+                add(
+                    Waypoint(
+                        label = hop.name ?: hop.hashHex,
+                        latitude = hop.latitude,
+                        longitude = hop.longitude,
+                        // An ambiguous or unmatched hop is not merely
+                        // position-less: we do not know WHO it was, so
+                        // it must never be placed, even approximately.
+                        unidentifiedReason = hop.gap
+                            ?.takeIf { it != PathGeometry.Gap.NoPosition }
+                            ?.let { PathGeometry.gapReason(it) },
+                        isEndpoint = lastIsDest && i == hops.lastIndex,
+                    ),
+                )
+            }
+            if (!lastIsDest) {
+                add(
+                    Waypoint(
+                        label = destLabel,
+                        latitude = destLatitude,
+                        longitude = destLongitude,
+                        isEndpoint = true,
+                    ),
+                )
+            }
+        }
+    }
+
+    /**
      * Build the sketch for an ordered [chain] running sender → receiver.
      *
      * Inference rules, all deterministic — the same route must draw the

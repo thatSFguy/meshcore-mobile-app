@@ -89,6 +89,17 @@ fun AboutSection(vm: MeshCoreViewModel) {
  * is a changelog you can't read in the field.
  */
 private val CHANGELOG: List<Pair<String, List<String>>> = listOf(
+    "0.7.4" to listOf(
+        "A contact's route is drawn where you edit it. \"Show route on map\" set a flag " +
+            "the Map tab read and left you in the routing sheet — it did not navigate, " +
+            "and the summary it drew over there was painted over by the map itself. " +
+            "Tapping it did nothing you could see.",
+        "The route now renders inline in the routing sheet, on the same component the " +
+            "message info sheet uses. The Map tab is the node map and nothing else again.",
+        "A route whose last hop IS the destination no longer stacks two pins on one " +
+            "spot. A hop we cannot identify never stands in for the destination, however " +
+            "well its hash matches.",
+    ),
     "0.7.3" to listOf(
         "Fetch neighbours works — it never had. The request was one byte where the " +
             "firmware reads eleven, so the node read \"return zero entries\" out of " +

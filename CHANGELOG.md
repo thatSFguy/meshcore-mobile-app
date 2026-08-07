@@ -11,6 +11,20 @@ Every entry describes what is in **that tagged build**. A feature that landed af
 belongs in the next section, not this one — 0.3.0 was once credited with four features that
 shipped after it, which misled nobody so much as the author, three months later.
 
+## 0.7.4
+
+- **A contact's route is drawn where you edit it.** "Show route on map" set a flag the Map
+  tab read, then left you in the routing sheet: it did not navigate, its confirmation was
+  swallowed by the sheet, and the summary it drew over on the Map tab was painted over by
+  the map itself. Tapping it did nothing you could see. The route now renders inline in
+  the routing sheet, on the same component the message info sheet already uses — one
+  implementation of "draw a route", and it is the one that was already proven.
+- The Map tab is the node map and nothing else again; the route flag is gone.
+- A stored route whose last hop **is** the destination — routing to a repeater, the
+  ordinary case — no longer stacks two pins on one spot. A hop we cannot identify never
+  stands in for the destination, however well its hash matches, but one we know the
+  identity of and not the position still does.
+
 ## 0.7.3
 
 - **Fetch neighbours works.** It never had. The request carried one byte — the request
