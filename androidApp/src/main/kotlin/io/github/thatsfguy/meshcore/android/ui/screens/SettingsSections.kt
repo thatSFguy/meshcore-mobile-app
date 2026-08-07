@@ -36,6 +36,7 @@ import io.github.thatsfguy.meshcore.android.storage.ChannelEntity
 import io.github.thatsfguy.meshcore.android.ui.MeshCoreViewModel
 import io.github.thatsfguy.meshcore.engine.EngineState
 import io.github.thatsfguy.meshcore.protocol.Codes
+import io.github.thatsfguy.meshcore.protocol.PathHashMode
 import io.github.thatsfguy.meshcore.protocol.Regions
 import java.text.DateFormat
 import java.util.Date
@@ -407,11 +408,14 @@ internal fun PoliciesSection(vm: MeshCoreViewModel) {
 
     Spacer(Modifier.height(8.dp))
     Text("On-air path hash width", style = MaterialTheme.typography.labelLarge)
-    HintText("Bytes per hop in packet paths (mode 0–3 → 1–4 bytes). All nodes on a mesh must match; firmware v10+.")
+    HintText("Bytes per hop in packet paths. All nodes on a mesh must match; firmware v10+.")
     // The active width is radio truth (DEVICE_INFO), not local state.
     val deviceInfo by vm.deviceInfo.collectAsState()
-    val pathMode = ((deviceInfo?.pathHashByteWidth ?: 1) - 1).coerceIn(0, 3)
-    ChoiceChips(listOf("1 B", "2 B", "3 B", "4 B"), pathMode) {
+    // Options come from PathHashMode, not a literal list: this offered a
+    // "4 B" chip for mode 3, which the radio refuses with
+    // ERR_CODE_ILLEGAL_ARG, so tapping it silently did nothing.
+    val pathMode = PathHashMode.modeFor(deviceInfo?.pathHashByteWidth ?: 1)
+    ChoiceChips(PathHashMode.LABELS, pathMode) {
         vm.setPathHashMode(it)
     }
 

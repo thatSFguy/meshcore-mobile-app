@@ -11,6 +11,22 @@ Every entry describes what is in **that tagged build**. A feature that landed af
 belongs in the next section, not this one — 0.3.0 was once credited with four features that
 shipped after it, which misled nobody so much as the author, three months later.
 
+## 0.7.5
+
+- **The "4 B" path-hash option never worked and is gone.** Mode 3 is reserved, and the
+  firmware refuses it at every layer — the companion handler answers `ERR_CODE_ILLEGAL_ARG`,
+  the CLI answers "Error, must be 0,1, or 2", and the node clamps it to 2 on load. Tapping
+  it did nothing and said nothing. The real range is 1–3 bytes, and the in-app command help
+  said "0–3" too; both now come from one place that a test holds to the firmware's range.
+- **You can set the path hash width on a repeater from the app.** It was the one radio
+  parameter that still needed the console. It sits under Settings → Radio on the node you
+  are administering, reads the node's current width when you open the section, and applies
+  on tap rather than on Save — a chip showing a value the node has not been told about
+  would be a lie. Every node on a mesh must match, so it is deliberately next to the
+  frequency and bandwidth it has to agree with.
+- Noise floor reads **dBm**, not dB — an absolute power, like the RSSI beside it. SNR is
+  the ratio and correctly keeps dB. The noise-floor watch had no unit at all.
+
 ## 0.7.4
 
 - **A contact's route is drawn where you edit it.** "Show route on map" set a flag the Map

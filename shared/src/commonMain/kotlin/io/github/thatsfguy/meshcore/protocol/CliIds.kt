@@ -37,6 +37,7 @@ object CliIds {
     const val NAME: String = "name"
     const val NEIGHBORS: String = "neighbors"
     const val OWNER_INFO: String = "owner.info"
+    const val PATH_HASH_MODE: String = "path.hash.mode"
     const val RADIO: String = "radio"
     const val RADIO_RXGAIN: String = "radio.rxgain"
     const val REBOOT: String = "reboot"
@@ -70,6 +71,7 @@ object CliIds {
         NAME,
         NEIGHBORS,
         OWNER_INFO,
+        PATH_HASH_MODE,
         RADIO,
         RADIO_RXGAIN,
         REBOOT,

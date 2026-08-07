@@ -89,6 +89,16 @@ fun AboutSection(vm: MeshCoreViewModel) {
  * is a changelog you can't read in the field.
  */
 private val CHANGELOG: List<Pair<String, List<String>>> = listOf(
+    "0.7.5" to listOf(
+        "The \"4 B\" path-hash option never worked and is gone. Mode 3 is reserved and " +
+            "the firmware refuses it at every layer, so tapping it did nothing and said " +
+            "nothing. The real range is 1–3 bytes; the command help said \"0–3\" too.",
+        "You can set the path hash width on a repeater from the app — the one radio " +
+            "parameter that still needed the console. Settings → Radio on the node you " +
+            "are administering. Every node on a mesh must match.",
+        "Noise floor reads dBm, not dB — an absolute power, like the RSSI beside it. " +
+            "SNR is the ratio and keeps dB.",
+    ),
     "0.7.4" to listOf(
         "A contact's route is drawn where you edit it. \"Show route on map\" set a flag " +
             "the Map tab read and left you in the routing sheet — it did not navigate, " +

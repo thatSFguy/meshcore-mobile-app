@@ -31,6 +31,7 @@ import io.github.thatsfguy.meshcore.protocol.CliFormFields
 import io.github.thatsfguy.meshcore.protocol.CliIds
 import io.github.thatsfguy.meshcore.protocol.CliValues
 import io.github.thatsfguy.meshcore.protocol.NodeRole
+import io.github.thatsfguy.meshcore.protocol.PathHashMode
 import kotlinx.coroutines.launch
 
 /**
@@ -155,7 +156,7 @@ fun RemoteSettingsForm(
         RemoteSection(
             title = "Radio",
             isReady = isReady,
-            fetchIds = listOf(CliIds.RADIO, CliIds.TX),
+            fetchIds = listOf(CliIds.RADIO, CliIds.TX, CliIds.PATH_HASH_MODE),
             fetch = ::fetch,
             saveEnabled = isAdmin && listOf(
                 CliFormFields.RADIO_FREQ,
@@ -215,6 +216,29 @@ fun RemoteSettingsForm(
                 SettingsTextField("TX (dBm)", values[CliIds.TX].orEmpty(), Modifier.weight(1f)) {
                     edit(CliIds.TX, it)
                 }
+            }
+
+            // Applies on tap rather than on Save, like the switches: the
+            // chips ARE the committed value, and a chip that shows a
+            // selection the node has not been told about is a lie.
+            Spacer(Modifier.height(8.dp))
+            Text("On-air path hash width", style = MaterialTheme.typography.labelLarge)
+            HintText("Bytes per hop in packet paths. Every node on the mesh must match.")
+            // Blank until the node answers `get path.hash.mode` — the
+            // width is mesh truth and guessing a default would show a
+            // selection nobody chose. -1 selects nothing.
+            val hashMode = values[CliIds.PATH_HASH_MODE]?.trim()?.toIntOrNull()
+                ?.takeIf { PathHashMode.isValid(it) }
+            ChoiceChips(
+                PathHashMode.LABELS,
+                selected = hashMode ?: -1,
+                enabled = isAdmin && isReady,
+            ) { mode ->
+                values[CliIds.PATH_HASH_MODE] = mode.toString()
+                scope.launch { vm.cliQuery(keyHex, "set ${CliIds.PATH_HASH_MODE} $mode") }
+            }
+            if (hashMode == null) {
+                HintText("Fetch to read the node's current width.")
             }
         }
 

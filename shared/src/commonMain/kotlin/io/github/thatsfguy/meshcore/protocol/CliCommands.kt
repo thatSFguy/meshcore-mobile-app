@@ -203,8 +203,12 @@ object CliCatalog {
             companionEquivalent = "CMD_SET_OTHER_PARAMS",
         ),
         CliCommand(
+            // 0-2, NOT 0-3: mode 3 is reserved and refused by every
+            // layer of the firmware. See PathHashMode.
             "path.hash.mode", CliKind.GetSet, "Path hash mode",
-            "On-air path hash width mode 0–3.", ALL, "Mesh", argHint = "<0-3>",
+            "Bytes per hop in packet paths: mode 0-2 = 1-3 bytes. " +
+                "Every node on the mesh must match.",
+            ALL, "Mesh", argHint = "<0-2>",
             companionEquivalent = "CMD_SET_PATH_HASH_MODE",
         ),
         CliCommand(
