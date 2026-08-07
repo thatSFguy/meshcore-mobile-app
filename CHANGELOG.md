@@ -11,6 +11,37 @@ Every entry describes what is in **that tagged build**. A feature that landed af
 belongs in the next section, not this one — 0.3.0 was once credited with four features that
 shipped after it, which misled nobody so much as the author, three months later.
 
+## 0.7.3
+
+- **Fetch neighbours works.** It never had. The request carried one byte — the request
+  type — where the firmware reads eleven, so the node took the "how many to return" count
+  from whatever followed our payload, read zero, and answered with a table header and no
+  rows. The app reported that as *"knows 2 neighbour(s) but returned none — try again, the
+  table may be paged"*, which was wrong twice: it was not paging, and no amount of
+  retrying could have helped. The request now carries count, offset, sort order, prefix
+  length and a nonce, and pages properly when a node knows more than one reply can hold.
+- Neighbours ask for a **6-byte key prefix** instead of 4. 32 bits is cheap to collide on
+  purpose, and a colliding prefix puts a name on the wrong node.
+- Each neighbour shows **how long ago it was heard**. That field was being read as an
+  epoch timestamp; the firmware sends elapsed seconds, on the node's own clock.
+- The section now says **what a neighbour table actually is**: other repeaters, heard
+  directly at zero hops. Companions, rooms and sensors never appear, and a relayed advert
+  never counts — which is why a healthy repeater reports two or three and not a cap.
+  Nodes that keep no such table no longer offer the button at all.
+- **New: Probe.** The table is filled only by adverts that happen to arrive — nothing
+  polls it and nothing expires — so it lists who advertised since the node booted, not
+  who is in range. Probe broadcasts `discover.neighbors` and makes them answer. On a live
+  repeater this turned up a neighbour at a perfectly usable 3.5 dB that had been absent
+  for hours. It costs airtime, so it is a deliberate button and not something the plain
+  fetch does behind your back; admin only, since it goes through the node's CLI.
+- **The admin console shows console traffic only.** It had been rendering the whole
+  message thread with the node, so on a room server the room's own chat — "hey", "hi",
+  "check" — appeared among the CLI replies, and **"Clear console" deleted those messages
+  along with the command history**. Clearing now takes the console and nothing else.
+- **The console is ordered by when things arrived here**, not by the timestamp the node
+  claims. Repeaters and room servers have no GPS and usually no correct clock, so a reply
+  could sort hours away from the command that caused it.
+
 ## 0.7.2
 
 - **Direct-message repeats actually work now.** 0.7.1 shipped them looking correct and

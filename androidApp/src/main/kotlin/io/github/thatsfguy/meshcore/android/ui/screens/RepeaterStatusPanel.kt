@@ -16,6 +16,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -27,6 +28,7 @@ import io.github.thatsfguy.meshcore.android.ui.MeshCoreViewModel
 import io.github.thatsfguy.meshcore.protocol.RepeaterStatus
 import io.github.thatsfguy.meshcore.protocol.StatusCodec
 import io.github.thatsfguy.meshcore.protocol.TelemetryReading
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
@@ -271,6 +273,16 @@ private fun NoiseFloorSection(vm: MeshCoreViewModel, keyHex: String) {
     }
 }
 
+/**
+ * How long to let discover replies land before re-reading the table.
+ *
+ * Not a guess: driven against a live repeater, a neighbour that had been
+ * missing for hours appeared roughly 30s after the broadcast. Re-reading
+ * immediately returns the same stale list, which reads as "the probe did
+ * nothing".
+ */
+private const val PROBE_SETTLE_MS = 40_000L
+
 /** Seconds between noise-floor samples — each one costs airtime. */
 private const val WATCH_INTERVAL_MS = 5_000L
 private const val WATCH_SAMPLES = 24
@@ -286,6 +298,15 @@ private const val WATCH_SAMPLES = 24
  */
 @Composable
 private fun NeighboursSection(vm: MeshCoreViewModel, keyHex: String) {
+    // Only repeater firmware keeps a neighbour table — room servers and
+    // sensors have no `0x06` handler at all, so the button could only
+    // ever time out into "no reply, are you in range?", which blames the
+    // link for a question the node cannot be asked.
+    val contacts by vm.dbContacts.collectAsState()
+    val isRepeater = contacts.firstOrNull { it.keyHex == keyHex }?.type ==
+        io.github.thatsfguy.meshcore.protocol.Codes.ADV_TYPE_REPEATER
+    if (!isRepeater) return
+
     val scope = rememberCoroutineScope()
     var table by remember(keyHex) {
         mutableStateOf<io.github.thatsfguy.meshcore.protocol.Neighbours.Table?>(null)
@@ -293,40 +314,103 @@ private fun NeighboursSection(vm: MeshCoreViewModel, keyHex: String) {
     var loading by remember { mutableStateOf(false) }
     var note by remember { mutableStateOf<String?>(null) }
 
+    // Rows accumulated across pages; the node returns at most a
+    // bufferful per reply and we ask for the rest by offset.
+    var rows by remember(keyHex) {
+        mutableStateOf<List<io.github.thatsfguy.meshcore.protocol.Neighbours.Neighbour>>(emptyList())
+    }
+
+    // The probe goes through the admin CLI, and Status is reachable on a
+    // read-only session, so the button has to be gated separately from
+    // the section.
+    val sessions by vm.adminSessions.collectAsState()
+    val isAdmin = sessions[keyHex]?.isAdmin == true
+    var probing by remember(keyHex) { mutableStateOf(false) }
+
+    suspend fun fetch(offset: Int) {
+        loading = true; note = null
+        val t = vm.repeaterNeighbours(keyHex, offset = offset)
+        table = t
+        when {
+            t == null -> note = "No reply — in range and logged in?"
+            // A correct request cannot produce this: the node is
+            // claiming rows and returning an empty first page. Say it is
+            // wrong rather than inviting a retry that cannot help.
+            t.isEmptyButNotEmpty ->
+                note = "The node says it knows ${t.total} neighbour(s) but returned an " +
+                    "empty page. That is a rejected request, not a paged table — retrying " +
+                    "will not change it."
+            else -> rows = if (offset == 0) t.entries else rows + t.entries
+        }
+        loading = false
+    }
+
     Spacer(Modifier.height(12.dp))
     Text("Neighbours", style = MaterialTheme.typography.titleSmall)
     ButtonFlowRow {
         TextButton(
-            enabled = !loading,
-            onClick = {
-                scope.launch {
-                    loading = true; note = null
-                    table = vm.repeaterNeighbours(keyHex)
-                    if (table == null) note = "No reply — in range and logged in?"
-                    loading = false
-                }
-            },
+            enabled = !loading && !probing,
+            onClick = { scope.launch { rows = emptyList(); fetch(0) } },
         ) { Text("Fetch neighbours") }
+        if (isAdmin) {
+            TextButton(
+                enabled = !loading && !probing,
+                onClick = {
+                    scope.launch {
+                        probing = true
+                        note = null
+                        if (!vm.probeNeighbours(keyHex)) {
+                            note = "The node did not take the probe."
+                        } else {
+                            // Replies arrive over the air, one per
+                            // repeater that hears it. Measured against a
+                            // live node: a new neighbour landed in the
+                            // table about 30s after the broadcast, so
+                            // re-reading immediately would show the same
+                            // stale list and look like the probe failed.
+                            delay(PROBE_SETTLE_MS)
+                            rows = emptyList()
+                            fetch(0)
+                        }
+                        probing = false
+                    }
+                },
+            ) { Text("Probe") }
+        }
+        table?.let { t ->
+            if (t.isPartial && rows.isNotEmpty()) {
+                TextButton(
+                    enabled = !loading && !probing,
+                    onClick = { scope.launch { fetch(rows.size) } },
+                ) { Text("Fetch more") }
+            }
+        }
     }
-    if (loading) SectionSpinner("Asking the node…")
+    if (probing) {
+        SectionSpinner("Asking nearby repeaters to answer…")
+        // Without this the spinner sits for the better part of a minute
+        // with nothing to say why.
+        HintText("They answer over the air; this takes about a minute.")
+    }
+    if (loading && !probing) SectionSpinner("Asking the node…")
     note?.let { HintText(it) }
 
     table?.let { t ->
-        // "Answered with nothing" and "answered with a page of nothing"
-        // are different facts. Seen on real hardware: a repeater
-        // reported total=1 with zero entries, and saying "no
-        // neighbours" alongside "0 of 1" contradicted itself.
-        if (t.entries.isEmpty()) {
+        if (rows.isEmpty() && t.total == 0) {
+            // "Nobody is out there" and "nobody has advertised lately"
+            // look identical here, and only one of them is true — so
+            // point at the probe rather than letting an empty list read
+            // as a finding.
             HintText(
-                if (t.total > 0) {
-                    "The node says it knows ${t.total} neighbour(s) but returned none in " +
-                        "this reply. Try again — the table may be paged."
+                if (isAdmin) {
+                    "The node reported no neighbours. Nothing keeps this list current, so " +
+                        "try Probe before believing it."
                 } else {
-                    "The node answered and reported no neighbours."
+                    "The node reported no neighbours — but nothing keeps this list current."
                 },
             )
         }
-        for (n in t.entries) {
+        for (n in rows) {
             val names = vm.neighbourNames(n)
             Row(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
                 Text(
@@ -335,17 +419,41 @@ private fun NeighboursSection(vm: MeshCoreViewModel, keyHex: String) {
                     fontFamily = FontFamily.Monospace,
                     modifier = Modifier.weight(1f),
                 )
+                Text(
+                    io.github.thatsfguy.meshcore.protocol.Neighbours
+                        .heardAgoLabel(n.heardSecondsAgo),
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(end = 8.dp),
+                )
                 Text("%.1f dB".format(n.snr), style = MaterialTheme.typography.bodySmall)
             }
         }
-        if (t.isPartial && t.entries.isNotEmpty()) {
-            HintText("Showing ${t.entries.size} of ${t.total} the node knows.")
-        }
-        if (t.entries.isNotEmpty()) {
-            HintText(
-                "Prefixes, not full keys — a prefix names a node only as far as it goes. " +
-                    "This is what this repeater says it hears, relayed by that repeater.",
-            )
+        if (rows.isNotEmpty()) {
+            if (t.isPartial) {
+                HintText("Showing ${rows.size} of ${t.total} the node knows.")
+            }
+            // Lead with what the table actually contains. "Neighbours"
+            // reads as "everyone this node hears", and the firmware
+            // records something much narrower — so a short list looks
+            // like a bug until you know that.
+            ExpandableHint("Other repeaters heard directly — and only as fresh as their last advert.") {
+                HintText(
+                    "The node records a neighbour only from a repeater's own advert that " +
+                        "arrived at zero hops. Companions, rooms and sensors never appear.",
+                )
+                HintText(
+                    "Nothing polls and nothing expires, so this is who advertised since the " +
+                        "node booted, not who is in range. Probe makes them answer now.",
+                )
+                HintText(
+                    "A prefix names a node only as far as it goes, so a row can match " +
+                        "more than one contact.",
+                )
+                HintText(
+                    "The list is what this repeater says it hears, relayed by that " +
+                        "repeater, and heard-ago is on its clock.",
+                )
+            }
         }
     }
 }

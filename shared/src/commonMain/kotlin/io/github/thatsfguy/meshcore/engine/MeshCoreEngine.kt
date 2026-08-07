@@ -1141,21 +1141,29 @@ class MeshCoreEngine(
         byteArrayOf(Codes.PUSH_CODE_STATUS_RESPONSE.toByte()) + ev.payload
 
     /**
-     * Ask a repeater for its one-hop neighbour table (PARITY §6).
+     * Ask a repeater for one page of its one-hop neighbour table
+     * (PARITY §6).
      *
      * Null means no answer; an empty table means "answered, knows
      * nobody" — which are different facts about a repeater's coverage.
+     *
+     * The [request] is used twice on purpose — once to build the bytes
+     * and once to read the reply — because the entry width is a
+     * parameter we chose, not a constant, and the two must not be able
+     * to drift apart.
      */
     suspend fun requestNeighbours(
         repeaterPubKey: ByteArray,
+        request: Neighbours.Request = Neighbours.Request(),
         timeoutMs: Long = 30_000,
     ): Neighbours.Table? {
+        val nonce = crypto.randomBytes(Neighbours.NONCE_BYTES)
         val ev = sendAndAwait(
-            Frames.sendBinaryRequest(repeaterPubKey, Neighbours.requestPayload()),
+            Frames.sendBinaryRequest(repeaterPubKey, request.payload(nonce)),
             timeoutMs = timeoutMs,
         ) { it is DeviceEvent.BinaryResponse }
         val payload = (ev as? DeviceEvent.BinaryResponse)?.payload ?: return null
-        return Neighbours.parse(binaryResponseBody(payload))
+        return Neighbours.parse(binaryResponseBody(payload), request)
     }
 
     /** Request Cayenne-LPP telemetry from a node; empty on timeout. */

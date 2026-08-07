@@ -200,9 +200,10 @@ fun RepeaterConsoleScreen(
     prefill: String = "",
 ) {
     val ctx = rememberSpokeContext(vm, keyHex)
-    val messages by remember(keyHex) {
-        vm.thread(MessageRepository.KIND_DM, keyHex)
-    }.collectAsState()
+    // CLI traffic only, in local arrival order — NOT the DM thread. On a
+    // room server that thread also carries the room's chat, and it is
+    // ordered by a clock the node does not have. See MessageDao.cliThread.
+    val messages by remember(keyHex) { vm.cliThread(keyHex) }.collectAsState()
 
     SpokeScaffold(
         title = "Console",
@@ -211,7 +212,7 @@ fun RepeaterConsoleScreen(
         nodeName = ctx.name,
         menuActions = listOf(
             MenuAction("Command help") { nav.navigate("repeater/$keyHex/help") },
-            MenuAction("Clear console", destructive = true) { vm.clearThread("dm", keyHex) },
+            MenuAction("Clear console", destructive = true) { vm.clearCliThread(keyHex) },
         ),
     ) { modifier ->
         CliConsole(

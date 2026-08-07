@@ -227,6 +227,13 @@ nice-to-have, and it has repeatedly paid for itself:
   disagreeing, with a green suite. When a spec line names a field without saying what
   goes in it (`[1] flag | payload?`), that is the moment to go read the reference
   client's *sender*, not just its parser.
+  **This happened a second time on 2026-08-07** — `Fetch neighbours` sent one byte where
+  the firmware reads eleven, and the suite's ninth test, `theRequestPayloadIsJustTheType`,
+  *pinned the broken builder as correct*. A builder test written against our own parser is
+  not a test; it is the same assumption twice. Write it against the firmware's **reader**
+  and cite the file and line. Note the failure was silent and plausible: the node answered,
+  the parse succeeded, and the UI invented "the table may be paged" to explain it — so a
+  feature that has never once returned data can look merely flaky for months.
 - **Pin the real captured value, not just a property.** The `path_len` bug ("34 hops"
   for a 4-hop node) is pinned with the actual `0x44` byte from a live contact. The
   reference client's own reaction tests assert only that its hash is deterministic and

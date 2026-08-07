@@ -311,6 +311,17 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
             if (key.isEmpty()) flowOf(emptyList()) else db.messages().thread(key, kind, peerKey)
         }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
+    /**
+     * The admin console for a node: CLI traffic only, ordered by local
+     * arrival. See `MessageDao.cliThread` for why neither half of that
+     * is the same as [thread].
+     */
+    fun cliThread(peerKey: String): StateFlow<List<MessageEntity>> =
+        selfKey.flatMapLatest { key ->
+            if (key.isEmpty()) flowOf(emptyList())
+            else db.messages().cliThread(key, MessageRepository.KIND_DM, peerKey)
+        }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
     /** Newest-[limit] window of a thread, for paged scrollback. */
     fun threadPaged(kind: String, peerKey: String, limit: Int): StateFlow<List<MessageEntity>> =
         selfKey.flatMapLatest { key ->
@@ -1308,10 +1319,35 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
      */
     suspend fun repeaterNeighbours(
         keyHex: String,
+        offset: Int = 0,
     ): io.github.thatsfguy.meshcore.protocol.Neighbours.Table? {
         val svc = _service.value ?: return null
         val key = hexToBytesOrNull(keyHex) ?: return null
-        return runCatching { svc.engine.requestNeighbours(key) }.getOrNull()
+        val request = io.github.thatsfguy.meshcore.protocol.Neighbours.Request(offset = offset)
+        return runCatching { svc.engine.requestNeighbours(key, request) }.getOrNull()
+    }
+
+    /**
+     * Ask a repeater to go looking for neighbours, rather than waiting
+     * to be advertised at.
+     *
+     * A neighbour table is populated ONLY by zero-hop adverts that
+     * happen to arrive (`MyMesh.cpp:641`); nothing polls, and nothing
+     * expires. So it says "who advertised directly since this node
+     * booted", not "who is in range" — a repeater sitting at a
+     * perfectly good 3.5 dB can be missing for hours. `discover.neighbors`
+     * broadcasts a request that makes them answer, and the replies land
+     * in the table by the same path an advert would.
+     *
+     * Admin only: it goes through the node's admin CLI. Returns false
+     * when the node did not take the command.
+     */
+    suspend fun probeNeighbours(keyHex: String): Boolean {
+        val svc = _service.value ?: return false
+        val key = hexToBytesOrNull(keyHex) ?: return false
+        return runCatching {
+            svc.engine.sendCliCommand(key, "discover.neighbors") != null
+        }.getOrDefault(false)
     }
 
     /** Names a neighbour prefix could belong to — plural stays plural. */
@@ -1786,6 +1822,20 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             val key = selfKey.value
             if (key.isNotEmpty()) db.messages().clearThread(key, kind, peerKey)
+        }
+    }
+
+    /**
+     * Clear the console only. A room server's CLI and its chat share one
+     * DM thread, so [clearThread] here would take the room's messages
+     * with it — which is not what "Clear console" offers to do.
+     */
+    fun clearCliThread(peerKey: String) {
+        viewModelScope.launch {
+            val key = selfKey.value
+            if (key.isNotEmpty()) {
+                db.messages().clearCliThread(key, MessageRepository.KIND_DM, peerKey)
+            }
         }
     }
 

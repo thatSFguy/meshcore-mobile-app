@@ -574,7 +574,51 @@ range.
 
 **Binary request types** (`CMD_SEND_BINARY_REQ` payload `[0]`):
 `0x01` get_status, `0x02` keep_alive, `0x03` get_telemetry, `0x05` get_access_list,
-`0x06` get_neighbors. Telemetry payload: `[0x03,0,0,0,0]` (byte1 = inverse permission mask).
+`0x06` get_neighbours. Telemetry payload: `[0x03,0,0,0,0]` (byte1 = inverse permission mask).
+
+**`0x06` get_neighbours is 11 bytes and the node reads every one of them.** Corrected
+2026-08-07 from firmware v1.16.0 (`examples/simple_repeater/MyMesh.cpp:279-294`), after
+shipping a one-byte request — the type alone — which the node answered with a table
+header and zero rows. It was not paging and no retry would have helped: `count` came from
+whatever followed our payload.
+
+```
+[0]     0x06
+[1]     request_version — only 0 is implemented; anything else is silently ignored
+[2]     count      u8      entries to return
+[3..4]  offset     u16 LE  index into the sorted list
+[5]     order_by   u8      0 newest→oldest, 1 oldest→newest, 2 strongest→weakest, 3 weakest→strongest
+[6]     prefix_len u8      bytes of pub key per entry; clamped to PUB_KEY_SIZE (32)
+[7..10] nonce              4 random bytes, for packet-hash uniqueness
+```
+
+Reply body, after the binary-response header:
+
+```
+u16 total            neighbours the node knows (its whole table, not this page)
+u16 count            entries in THIS reply
+count × { [prefix_len] key_prefix | u32 heard_seconds_ago | i8 snr_quarters }
+```
+
+Two traps in the reply. `heard_seconds_ago` is **elapsed time**, `now - heard_timestamp`
+on the node's own clock — not an epoch stamp. And the entry width is `prefix_len`, the
+value *we* sent, so a parser must be handed the request that produced the bytes rather
+than assuming a constant.
+
+The node's `results_buffer` is **130 bytes**, so a page holds `130 / (prefix_len + 5)`
+entries however large a `count` is asked for; over-asking just truncates and then looks
+like paging.
+
+**What the table contains is much narrower than "neighbours" suggests**: only other
+**repeaters**, heard at **zero hops**. `onAdvertRecv` calls `putNeighbour` only when
+`getPathHashCount() == 0`, the packet is not a Share, and the advert type is
+`ADV_TYPE_REPEATER` (`MyMesh.cpp:641`). Companions, room servers, sensors and trackers
+never appear, and a relayed advert never counts — so a repeat-enabled **room server is
+still excluded**, because it advertises `ADV_TYPE_ROOM`
+(`examples/simple_room_server/MyMesh.cpp:119`). A repeater commonly reports two or three
+neighbours; that is the mesh, not a cap (`MAX_NEIGHBOURS` is 50 on every shipped variant).
+Room-server firmware has no neighbour table and no `0x06` handler at all, so it cannot
+answer this request.
 
 **Control/discovery** (`CMD_SEND_CONTROL_DATA`): subtypes `0x08` DISCOVER_REQ /
 `0x09` DISCOVER_RESP; discover payload `[(0x08<<4)|prefix_only][type_mask][u32 tag][u32 since]`.

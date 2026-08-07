@@ -29,11 +29,50 @@ interface MessageDao {
     )
     fun thread(selfKey: String, kind: String, peerKey: String): Flow<List<MessageEntity>>
 
+    /**
+     * The admin console: CLI traffic ONLY, in the order it happened
+     * here.
+     *
+     * Two things this fixes, both from the console having reused the
+     * whole DM thread.
+     *
+     * **`txtType = 1` and nothing else.** Our own commands are recorded
+     * as type 1 too, so this is the exact complement of the chat
+     * filter below — the two together partition the thread. Reading it
+     * unfiltered put a room's actual posts ("hey", "hi", "check" —
+     * TXT_TYPE_SIGNED, 2) into the room's console.
+     *
+     * **Ordered by `receivedAt`, not `timestamp`.** `timestamp` is
+     * sender-claimed, and a repeater or room server has no GPS and
+     * usually no correct clock. Sorting a console that way interleaves
+     * OUR commands (stamped by the phone, correctly) with THEIR replies
+     * (stamped hours off), so a reply lands nowhere near the command
+     * that caused it. `receivedAt` is local millis in both directions,
+     * which is the only clock that orders a conversation we took part
+     * in. `id` breaks ties within a millisecond.
+     */
+    @Query(
+        "SELECT * FROM messages WHERE selfKey = :selfKey AND kind = :kind AND peerKey = :peerKey " +
+            "AND txtType = 1 ORDER BY receivedAt ASC, id ASC",
+    )
+    fun cliThread(selfKey: String, kind: String, peerKey: String): Flow<List<MessageEntity>>
+
+    /**
+     * Clear the console WITHOUT touching conversation. On a room server
+     * the CLI and the chat share one thread, so the blanket
+     * [clearThread] silently took the room's messages with it.
+     */
+    @Query(
+        "DELETE FROM messages WHERE selfKey = :selfKey AND kind = :kind " +
+            "AND peerKey = :peerKey AND txtType = 1",
+    )
+    suspend fun clearCliThread(selfKey: String, kind: String, peerKey: String)
+
     /** Newest [limit] messages of a thread (paging window). */
     // Everything EXCEPT CLI replies (txt_type 1). Those are remote-admin
     // console output, not conversation, and pouring `get radio` into the
-    // chat is noise. They stay in the table — the admin screen's
-    // `thread()` above reads them unfiltered.
+    // chat is noise. They stay in the table — the console reads exactly
+    // the rows this excludes, via `cliThread()` above.
     //
     // Note this must exclude ONLY type 1: room-server posts arrive as
     // TXT_TYPE_SIGNED (2), so a `txtType = 0` filter silently empties

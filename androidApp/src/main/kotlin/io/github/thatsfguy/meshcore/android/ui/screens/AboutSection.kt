@@ -89,6 +89,31 @@ fun AboutSection(vm: MeshCoreViewModel) {
  * is a changelog you can't read in the field.
  */
 private val CHANGELOG: List<Pair<String, List<String>>> = listOf(
+    "0.7.3" to listOf(
+        "Fetch neighbours works — it never had. The request was one byte where the " +
+            "firmware reads eleven, so the node read \"return zero entries\" out of " +
+            "whatever followed it and answered with an empty table. \"Try again, the " +
+            "table may be paged\" was wrong: it was not paging, and retrying could not " +
+            "have helped.",
+        "Neighbours ask for a 6-byte key prefix instead of 4, and each one shows how " +
+            "long ago it was heard — elapsed time on the node's clock, which is what the " +
+            "firmware actually sends.",
+        "The section says what a neighbour table is: other repeaters, heard directly at " +
+            "zero hops. Rooms, companions and sensors never appear, which is why a " +
+            "healthy repeater lists two or three. Nodes that keep no table don't offer " +
+            "the button.",
+        "New: Probe. Nothing keeps a neighbour table current — it lists who advertised " +
+            "since the node booted, not who is in range. Probe makes nearby repeaters " +
+            "answer now; on a live node it found one at 3.5 dB that had been missing for " +
+            "hours. It spends airtime, so it is its own button, admin only.",
+        "The admin console shows console traffic only. It had rendered the whole thread " +
+            "with the node, so a room's own chat appeared among the CLI replies — and " +
+            "\"Clear console\" deleted those messages too. Clearing now takes the " +
+            "console and nothing else.",
+        "The console is ordered by when things arrived here, not by the timestamp the " +
+            "node claims. Repeaters rarely have a correct clock, so a reply could sort " +
+            "hours away from the command that caused it.",
+    ),
     "0.7.2" to listOf(
         "Direct-message repeats actually work now — 0.7.1 credited one only when exactly " +
             "one message to that contact sat in a two-minute window, so sending a few in " +
