@@ -104,7 +104,10 @@ fun RepeaterStatusPanel(vm: MeshCoreViewModel, keyHex: String) {
             StatField("Uptime", StatusCodec.formatUptime(s.uptimeSeconds))
             StatField("Queue length", s.queueLength.toString())
             StatField("Last RSSI / SNR", "${s.lastRssi} dBm / %.1f dB".format(s.lastSnr))
-            StatField("Noise floor", "${s.noiseFloor} dB")
+            // dBm, not dB: an absolute power, like RSSI beside it. SNR
+            // is the ratio and keeps dB. (The firmware's own comment
+            // says "dBi", which is antenna gain — wrong a third way.)
+            StatField("Noise floor", "${s.noiseFloor} dBm")
             StatField("Channel utilisation", "%.1f %%".format(s.channelUtilizationPercent))
             HorizontalDivider(Modifier.padding(vertical = 6.dp))
             Text("Packets", style = MaterialTheme.typography.titleSmall)
@@ -259,8 +262,10 @@ private fun NoiseFloorSection(vm: MeshCoreViewModel, keyHex: String) {
     if (samples.isEmpty()) {
         HintText("Polls the node every ${WATCH_INTERVAL_MS / 1000}s while this is on.")
     } else {
+        // The unit once, on the leading value — the run below is a
+        // shape, and repeating "dBm" on every figure buries it.
         Text(
-            "Now ${samples.last()} · min ${samples.min()} · max ${samples.max()} " +
+            "Now ${samples.last()} dBm · min ${samples.min()} · max ${samples.max()} " +
                 "(${samples.size} samples)",
             style = MaterialTheme.typography.bodySmall,
         )
