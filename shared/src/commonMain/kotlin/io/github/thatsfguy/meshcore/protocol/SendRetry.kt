@@ -38,6 +38,23 @@ object SendRetry {
     /** The documented default. */
     const val DEFAULT_MAX_ATTEMPTS: Int = 3
 
+    /**
+     * How long to keep listening for an ACK after the last attempt has
+     * been given up on.
+     *
+     * A timeout is an estimate, not a deadline the mesh agreed to. An
+     * ACK that arrives a second after we stopped waiting means the
+     * message WAS delivered, and showing it as failed is simply wrong —
+     * it invites the user to send it again over a link that worked.
+     *
+     * The status still goes to Failed at the end of the attempts,
+     * because that is the honest report of what we know then; this
+     * window only lets a later fact correct it. 30s matches what
+     * MeshCore Open allows itself, and is comfortably longer than the
+     * flood timeout at the slowest spreading factor most meshes use.
+     */
+    const val LATE_ACK_GRACE_MS: Long = 30_000
+
     /** What to do for one attempt. */
     enum class Route {
         /** Send over whatever path the radio currently holds. */

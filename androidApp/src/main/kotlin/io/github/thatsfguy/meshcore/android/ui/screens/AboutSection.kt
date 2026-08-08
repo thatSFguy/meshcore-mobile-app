@@ -89,6 +89,16 @@ fun AboutSection(vm: MeshCoreViewModel) {
  * is a changelog you can't read in the field.
  */
 private val CHANGELOG: List<Pair<String, List<String>>> = listOf(
+    "0.7.6" to listOf(
+        "A delivered message can no longer be reported as a failure. Each retry opened " +
+            "its own listener, and the engine's event stream has no replay, so an ACK " +
+            "arriving when nothing was listening was lost — during the backoff between " +
+            "attempts, for an earlier attempt, or just after the last one gave up.",
+        "A late ACK now corrects the message. It still goes to Failed when the attempts " +
+            "run out, but the app listens for another 30 seconds and flips it to " +
+            "Delivered if the reply arrives. A timeout is an estimate, not a deadline " +
+            "the mesh agreed to.",
+    ),
     "0.7.5" to listOf(
         "The \"4 B\" path-hash option never worked and is gone. Mode 3 is reserved and " +
             "the firmware refuses it at every layer, so tapping it did nothing and said " +

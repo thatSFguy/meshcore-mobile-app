@@ -11,6 +11,22 @@ Every entry describes what is in **that tagged build**. A feature that landed af
 belongs in the next section, not this one — 0.3.0 was once credited with four features that
 shipped after it, which misled nobody so much as the author, three months later.
 
+## 0.7.6
+
+- **A delivered message can no longer be reported as a failure.** The retry loop opened a
+  fresh listener for each attempt, and the engine's event stream has no replay — so an ACK
+  that arrived when nothing happened to be listening was simply lost. Three ways that
+  happened, all of them a message that *did* arrive: during the backoff between attempts;
+  for an earlier attempt, since each is sent under its own ACK hash and only the current
+  one was watched; and just after the last attempt gave up. One listener now runs for the
+  whole send and records what it sees, so asking "did any of mine land?" re-checks what is
+  already known instead of racing.
+- **A late ACK now corrects the message.** After the last attempt the message still goes
+  to Failed — that is the honest report of what is known then — but the app keeps
+  listening for 30 seconds, and a reply that arrives late flips it to Delivered. A timeout
+  is an estimate, not a deadline the mesh agreed to, and showing a delivered message as
+  failed invites you to send it again over a link that worked.
+
 ## 0.7.5
 
 - **The "4 B" path-hash option never worked and is gone.** Mode 3 is reserved, and the

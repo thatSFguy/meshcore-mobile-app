@@ -9,6 +9,7 @@ import io.github.thatsfguy.meshcore.model.Channel
 import io.github.thatsfguy.meshcore.model.Contact
 import io.github.thatsfguy.meshcore.protocol.MessageRepeats
 import io.github.thatsfguy.meshcore.protocol.BlockList
+import io.github.thatsfguy.meshcore.protocol.DeliveryWatch
 import io.github.thatsfguy.meshcore.protocol.PathHistoryHygiene
 import io.github.thatsfguy.meshcore.protocol.ReactionCounts
 import io.github.thatsfguy.meshcore.protocol.ReactionNotice
@@ -676,49 +677,106 @@ class MessageRepository(
             ""
         }
 
-        var attempt = 0
-        while (attempt < maxAttempts) {
-            val route = SendRetry.routeFor(
-                attempt = attempt,
-                maxAttempts = maxAttempts,
-                hasStoredPath = pathHex.isNotEmpty(),
-                floodFallbackEnabled = floodFallbackEnabled,
-            )
-            if (route == SendRetry.Route.ResetAndFlood) {
-                // Clearing the path is what makes this stick: the radio
-                // floods this send AND has no dead route left to reuse,
-                // so the reply teaches it a live one.
-                runCatching { engine.resetPath(key) }
-            }
-
-            val sent = runCatching {
-                engine.sendDirectMessage(key, text, attempt = attempt, timestampSeconds = timestamp)
-            }.getOrNull()
-            if (sent == null) {
-                // The radio didn't even accept it — no point retrying fast.
-                db.messages().updateResult(rowId, MessageStatus.Failed.ordinal, null)
-                return
-            }
-            db.messages().updateResult(rowId, MessageStatus.Sent.ordinal, sent.ackHash)
-            db.messages().setAttempts(rowId, attempt + 1)
-
-            // Trust the radio's own airtime-derived timeout, with a floor.
-            val timeout = sent.timeoutMs.coerceIn(3_000L, 60_000L)
-            val scores = SendRetry.scoresStoredPath(route)
-            if (engine.awaitDelivery(sent.ackHash, timeout)) {
-                db.messages().updateResult(rowId, MessageStatus.Delivered.ordinal, sent.ackHash)
-                // A flood delivering says nothing good about the path we
-                // just threw away, so only a stored-path attempt scores.
-                if (scores && (pathHex.isNotEmpty() || attempt == 0)) {
-                    scorePathDirect(peerKeyHex, pathHex, true)
+        // ONE collector for the whole send, not one wait per attempt.
+        //
+        // meshEvents has no replay, so anything not being collected at
+        // the instant it is emitted is gone. Waiting only during an
+        // attempt's own timeout dropped an ACK three ways: one arriving
+        // during the backoff between attempts, one for an EARLIER
+        // attempt arriving later (each attempt has its own hash, and
+        // only the current one was watched), and one arriving just after
+        // the final attempt gave up. All three are delivered messages
+        // reported as failures.
+        //
+        // A StateFlow of what has been seen closes every gap: it is hot
+        // for the whole send, and `first {}` re-checks the value it
+        // already holds, so there is no window between waits either.
+        kotlinx.coroutines.coroutineScope {
+            val watch = DeliveryWatch()
+            val watcher = launch {
+                engine.meshEvents.collect { ev ->
+                    if (ev is MeshEvent.MessageDelivered) watch.record(ev.ackHash)
                 }
-                return
             }
-            if (scores) scorePathDirect(peerKeyHex, pathHex, false)
-            attempt++
-            if (attempt < maxAttempts) kotlinx.coroutines.delay(1_000L * attempt)
+
+            // Every hash this message has been sent under; an ACK for
+            // any of them means it arrived.
+            val ourHashes = mutableSetOf<Long>()
+            suspend fun awaitAnyAck(timeoutMs: Long): Boolean =
+                watch.awaitAny(ourHashes, timeoutMs)
+
+            try {
+                var attempt = 0
+                while (attempt < maxAttempts) {
+                    val route = SendRetry.routeFor(
+                        attempt = attempt,
+                        maxAttempts = maxAttempts,
+                        hasStoredPath = pathHex.isNotEmpty(),
+                        floodFallbackEnabled = floodFallbackEnabled,
+                    )
+                    if (route == SendRetry.Route.ResetAndFlood) {
+                        // Clearing the path is what makes this stick: the radio
+                        // floods this send AND has no dead route left to reuse,
+                        // so the reply teaches it a live one.
+                        runCatching { engine.resetPath(key) }
+                    }
+
+                    val sent = runCatching {
+                        engine.sendDirectMessage(
+                            key, text, attempt = attempt, timestampSeconds = timestamp,
+                        )
+                    }.getOrNull()
+                    if (sent == null) {
+                        // The radio didn't even accept it — no point retrying fast.
+                        db.messages().updateResult(rowId, MessageStatus.Failed.ordinal, null)
+                        return@coroutineScope
+                    }
+                    ourHashes += sent.ackHash
+                    db.messages().updateResult(rowId, MessageStatus.Sent.ordinal, sent.ackHash)
+                    db.messages().setAttempts(rowId, attempt + 1)
+
+                    // Trust the radio's own airtime-derived timeout, with a floor.
+                    val timeout = sent.timeoutMs.coerceIn(3_000L, 60_000L)
+                    val scores = SendRetry.scoresStoredPath(route)
+                    if (awaitAnyAck(timeout)) {
+                        db.messages()
+                            .updateResult(rowId, MessageStatus.Delivered.ordinal, sent.ackHash)
+                        // A flood delivering says nothing good about the path we
+                        // just threw away, so only a stored-path attempt scores.
+                        if (scores && (pathHex.isNotEmpty() || attempt == 0)) {
+                            scorePathDirect(peerKeyHex, pathHex, true)
+                        }
+                        return@coroutineScope
+                    }
+                    if (scores) scorePathDirect(peerKeyHex, pathHex, false)
+                    attempt++
+                    if (attempt < maxAttempts) {
+                        kotlinx.coroutines.delay(1_000L * attempt)
+                        // The backoff is not a blind spot: an ACK that
+                        // landed during it is already in deliveredAcks.
+                        if (awaitAnyAck(0)) {
+                            db.messages().updateResult(
+                                rowId, MessageStatus.Delivered.ordinal, ourHashes.last(),
+                            )
+                            return@coroutineScope
+                        }
+                    }
+                }
+
+                // Out of attempts. Failed is the honest report of what we
+                // know NOW — but keep the last hash on the row and keep
+                // listening, so a late ACK can correct it rather than
+                // leaving a delivered message looking like a failure.
+                db.messages()
+                    .updateResult(rowId, MessageStatus.Failed.ordinal, ourHashes.lastOrNull())
+                if (awaitAnyAck(SendRetry.LATE_ACK_GRACE_MS)) {
+                    db.messages()
+                        .updateResult(rowId, MessageStatus.Delivered.ordinal, ourHashes.last())
+                }
+            } finally {
+                watcher.cancel()
+            }
         }
-        db.messages().updateResult(rowId, MessageStatus.Failed.ordinal, null)
     }
 
     /** Score a path directly (retry path knows its route without an ack map). */
