@@ -246,11 +246,7 @@ internal fun RadioSection(vm: MeshCoreViewModel) {
         TextButton(onClick = { presetSheet = true }) { Text("Use a regional preset…") }
         TextButton(onClick = {
             scanLauncher.launch(
-                ScanOptions()
-                    .setDesiredBarcodeFormats(ScanOptions.QR_CODE)
-                    .setPrompt("Scan a mesh settings QR")
-                    .setBeepEnabled(false)
-                    .setCaptureActivity(PortraitCaptureActivity::class.java),
+                meshScanOptions("Scan a mesh settings QR"),
             )
         }) { Text("Scan settings QR…") }
     }

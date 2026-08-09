@@ -86,11 +86,7 @@ fun NodesScreen(vm: MeshCoreViewModel, nav: NavController) {
                 menuActions = listOf(
                     MenuAction("Import contact QR…") {
                         scanLauncher.launch(
-                            ScanOptions()
-                                .setDesiredBarcodeFormats(ScanOptions.QR_CODE)
-                                .setPrompt("Scan a MeshCore QR — contact, channel or community")
-                                .setBeepEnabled(false)
-                                .setCaptureActivity(PortraitCaptureActivity::class.java),
+                            meshScanOptions("Scan a MeshCore QR — contact, channel or community"),
                         )
                     },
                     MenuAction("Share my node QR…") { showSelfQr = true },
@@ -108,11 +104,7 @@ fun NodesScreen(vm: MeshCoreViewModel, nav: NavController) {
         floatingActionButton = {
             FloatingActionButton(onClick = {
                 scanLauncher.launch(
-                    ScanOptions()
-                        .setDesiredBarcodeFormats(ScanOptions.QR_CODE)
-                        .setPrompt("Scan a MeshCore QR — contact, channel or community")
-                        .setBeepEnabled(false)
-                        .setCaptureActivity(PortraitCaptureActivity::class.java),
+                    meshScanOptions("Scan a MeshCore QR — contact, channel or community"),
                 )
             }) {
                 Icon(Icons.Filled.Add, contentDescription = "Import contact QR")

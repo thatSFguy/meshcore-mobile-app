@@ -81,13 +81,7 @@ fun ChatsScreen(vm: MeshCoreViewModel, nav: NavController) {
                     MenuAction("Add channel…") { showChannelSheet = true },
                     MenuAction("Join community QR…") {
                         communityScanLauncher.launch(
-                            com.journeyapps.barcodescanner.ScanOptions()
-                                .setDesiredBarcodeFormats(com.journeyapps.barcodescanner.ScanOptions.QR_CODE)
-                                .setPrompt("Scan a MeshCore QR — community, channel or contact")
-                                .setBeepEnabled(false)
-                                .setCaptureActivity(
-                                    io.github.thatsfguy.meshcore.android.platform.PortraitCaptureActivity::class.java,
-                                ),
+                            meshScanOptions("Scan a MeshCore QR — contact, channel or community"),
                         )
                     },
                 ),

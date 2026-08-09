@@ -264,7 +264,7 @@ fun RemoteSettingsForm(
                     ) { Text("Use a regional preset…") }
                     TextButton(
                         enabled = isReady,
-                        onClick = { scanLauncher.launch(ScanOptions().setBeepEnabled(false)) },
+                        onClick = { scanLauncher.launch(meshScanOptions("Scan a mesh settings QR")) },
                     ) { Text("Scan settings QR…") }
                 }
             }

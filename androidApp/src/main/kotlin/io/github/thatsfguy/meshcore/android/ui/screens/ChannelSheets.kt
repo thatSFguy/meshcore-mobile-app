@@ -92,11 +92,7 @@ fun ChannelAddSheet(vm: MeshCoreViewModel, onDismiss: () -> Unit) {
             )
             TextButton(onClick = {
                 communityScanLauncher.launch(
-                    ScanOptions()
-                        .setDesiredBarcodeFormats(ScanOptions.QR_CODE)
-                        .setPrompt("Scan a MeshCore QR — community, channel or contact")
-                        .setBeepEnabled(false)
-                        .setCaptureActivity(PortraitCaptureActivity::class.java),
+                    meshScanOptions("Scan a MeshCore QR — contact, channel or community"),
                 )
             }) { Text("Scan community QR") }
         }

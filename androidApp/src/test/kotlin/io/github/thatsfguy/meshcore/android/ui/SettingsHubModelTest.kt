@@ -133,7 +133,41 @@ class SettingsHubModelTest {
                     source.contains(narrow),
                 )
             }
+            // Every launcher must build its options through the one
+            // factory. A hand-rolled ScanOptions drifts: the repeater
+            // Radio panel's opened SIDEWAYS in a portrait-locked app,
+            // and — invisibly — without PortraitCaptureActivity it also
+            // lost ALSO_INVERTED, so it could not read a dark-mode QR at
+            // all. About half the codes in circulation are inverted
+            // (MESHCORE_PROTOCOL §11), and a scanner that reads nothing
+            // looks exactly like a code that is bad.
+            assertFalse(
+                "${file.name} builds ScanOptions by hand — use meshScanOptions()",
+                source.contains("ScanOptions()"),
+            )
+            assertTrue(
+                "${file.name} scans a QR but does not use meshScanOptions()",
+                source.contains("meshScanOptions("),
+            )
         }
+    }
+
+    @Test
+    fun `the scan options factory carries portrait and the inverted hint`() {
+        // The factory is the only place these are set now, so this is
+        // the one assertion standing between the app and a scanner that
+        // silently ignores half the QR codes it is shown.
+        val factory = File(
+            "src/main/kotlin/io/github/thatsfguy/meshcore/android/ui/screens/ScanOptionsFactory.kt",
+        ).readText()
+        assertTrue(
+            "meshScanOptions must use PortraitCaptureActivity (portrait + inverted hints)",
+            factory.contains("PortraitCaptureActivity::class.java"),
+        )
+        val capture = File(
+            "src/main/kotlin/io/github/thatsfguy/meshcore/android/platform/PortraitCaptureActivity.kt",
+        ).readText()
+        assertTrue("ALSO_INVERTED hint was dropped", capture.contains("ALSO_INVERTED"))
     }
 
     @Test
