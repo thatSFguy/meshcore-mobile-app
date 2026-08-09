@@ -44,6 +44,7 @@ import io.github.thatsfguy.meshcore.android.ui.screens.MapScreen
 import io.github.thatsfguy.meshcore.android.ui.screens.NodesScreen
 import io.github.thatsfguy.meshcore.android.ui.screens.OsmdroidSetup
 import io.github.thatsfguy.meshcore.android.ui.screens.RepeaterConsoleScreen
+import io.github.thatsfguy.meshcore.android.ui.screens.ScanConfirmations
 import io.github.thatsfguy.meshcore.android.ui.screens.RepeaterHelpScreen
 import io.github.thatsfguy.meshcore.android.ui.screens.RepeaterHubScreen
 import io.github.thatsfguy.meshcore.android.ui.screens.RepeaterIdentityScreen
@@ -280,5 +281,16 @@ private fun AppShell(
                 )
             }
         }
+
+        // Scan confirmations live HERE, once, rather than on whichever
+        // screen happens to host a scanner.
+        //
+        // They used to be composed only by NodesScreen, so a code
+        // scanned from the Chats button set the pending state and
+        // nothing ever drew it: the scan appeared to do nothing at all.
+        // That is the same failure as the old "Show route on map" — a
+        // flag set for a screen that was not listening — and it applies
+        // to contact cards, channel shares and settings codes alike.
+        ScanConfirmations(vm)
     }
 }

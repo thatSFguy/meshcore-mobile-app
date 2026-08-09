@@ -1,5 +1,9 @@
 package io.github.thatsfguy.meshcore.android.ui.screens
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import com.journeyapps.barcodescanner.ScanContract
+import com.journeyapps.barcodescanner.ScanOptions
+import io.github.thatsfguy.meshcore.android.platform.PortraitCaptureActivity
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
@@ -231,8 +235,24 @@ internal fun RadioSection(vm: MeshCoreViewModel) {
                 matches.joinToString(", ") { it.name }
         },
     )
+    // The scanner belongs HERE as well as on Chats/Nodes. A settings QR
+    // changes exactly what this screen changes, and nobody looking for
+    // "how do I apply the code my mesh handed me" thinks to open the
+    // contact-import button on another tab.
+    val scanLauncher = rememberLauncherForActivityResult(ScanContract()) { result ->
+        result.contents?.let { vm.importScannedCode(it) }
+    }
     ButtonFlowRow {
         TextButton(onClick = { presetSheet = true }) { Text("Use a regional preset…") }
+        TextButton(onClick = {
+            scanLauncher.launch(
+                ScanOptions()
+                    .setDesiredBarcodeFormats(ScanOptions.QR_CODE)
+                    .setPrompt("Scan a mesh settings QR")
+                    .setBeepEnabled(false)
+                    .setCaptureActivity(PortraitCaptureActivity::class.java),
+            )
+        }) { Text("Scan settings QR…") }
     }
     if (presetSheet) {
         RadioPresetSheet(vm, onDismiss = { presetSheet = false })

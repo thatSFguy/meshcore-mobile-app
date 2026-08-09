@@ -1,5 +1,8 @@
 package io.github.thatsfguy.meshcore.android.ui.screens
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import com.journeyapps.barcodescanner.ScanContract
+import com.journeyapps.barcodescanner.ScanOptions
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -62,6 +65,43 @@ fun RemoteSettingsForm(
     val dirty = remember { mutableStateMapOf<String, Boolean>() }
     var confirmAction by remember { mutableStateOf<Pair<String, String>?>(null) }
     var presetSheet by remember { mutableStateOf(false) }
+
+    /**
+     * A settings QR scanned while administering THIS node.
+     *
+     * Deliberately not routed through the app-wide scan handler: that
+     * one applies a code to the radio in your hand, which is the right
+     * default from Chats or Nodes but exactly wrong here, where the
+     * whole screen is about a node across the mesh. Scanning from the
+     * repeater's own Radio panel means the repeater.
+     */
+    var scannedConfig by remember {
+        mutableStateOf<io.github.thatsfguy.meshcore.protocol.ShareUri.Decoded.RadioConfig?>(null)
+    }
+    var scanError by remember { mutableStateOf<String?>(null) }
+    val scanLauncher = rememberLauncherForActivityResult(ScanContract()) { result ->
+        val text = result.contents ?: return@rememberLauncherForActivityResult
+        // Same decoder, same refusals — a code is no more trustworthy
+        // for being scanned on an admin screen.
+        //
+        // Only a SETTINGS code is claimed here, because only that one
+        // means something different on this screen than elsewhere: it
+        // targets the node being administered rather than the radio in
+        // your hand. Everything else falls through to the app-wide
+        // handler, so scanning a contact card at this button still adds
+        // the contact instead of complaining about the screen you chose
+        // — which is the rule a test enforces after a scanner wired to
+        // one decoder answered "Invalid community code" for a perfectly
+        // good repeater card.
+        when (val d = io.github.thatsfguy.meshcore.protocol.ShareUri.decode(text)) {
+            is io.github.thatsfguy.meshcore.protocol.ShareUri.Decoded.RadioConfig ->
+                scannedConfig = d
+            is io.github.thatsfguy.meshcore.protocol.ShareUri.Decoded.UnsupportedVersion ->
+                scanError = "That settings code needs a newer version of the app (v${d.version})."
+            else ->
+                vm.importScannedCode(text)
+        }
+    }
 
     /**
      * Set to the name of what was just saved when the node needs a
@@ -222,6 +262,10 @@ fun RemoteSettingsForm(
                         enabled = isReady,
                         onClick = { presetSheet = true },
                     ) { Text("Use a regional preset…") }
+                    TextButton(
+                        enabled = isReady,
+                        onClick = { scanLauncher.launch(ScanOptions().setBeepEnabled(false)) },
+                    ) { Text("Scan settings QR…") }
                 }
             }
             Row {
@@ -589,6 +633,82 @@ fun RemoteSettingsForm(
                     // nothing.
                     pendingReboot = preset.name
                 }
+            },
+        )
+    }
+
+    scanError?.let { message ->
+        AlertDialog(
+            onDismissRequest = { scanError = null },
+            title = { Text("Can't use that code") },
+            text = { Text(message) },
+            confirmButton = { TextButton(onClick = { scanError = null }) { Text("OK") } },
+        )
+    }
+
+    scannedConfig?.let { config ->
+        val node = contact?.name?.ifBlank { null } ?: keyHex.take(12)
+        AlertDialog(
+            onDismissRequest = { scannedConfig = null },
+            title = { Text("Apply these settings to $node?") },
+            text = {
+                Column {
+                    Text(
+                        config.name.ifBlank { "(unnamed mesh)" },
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(config.summary(), style = MaterialTheme.typography.bodyMedium)
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        "This is a remote node. The settings save now and take effect when " +
+                            "$node reboots; after that this radio must be on the same " +
+                            "settings to reach it again.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "Anyone can make one of these codes; nothing in it is signed. " +
+                            io.github.thatsfguy.meshcore.protocol.RadioPresets.REGULATORY_CAVEAT,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                    config.region?.let {
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            "It also names flood region \"$it\", which is not written here — " +
+                                "regions are added on the node under Regions.",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val c = config
+                    scannedConfig = null
+                    scope.launch {
+                        // TX is untouched: it is not in the code, and it
+                        // is a local legal limit rather than a property
+                        // of the mesh.
+                        val csv = RadioUnits.khzToMhzText(c.frequencyKhz) + "," +
+                            RadioUnits.hzToKhzText(c.bandwidthHz) + "," +
+                            c.spreadingFactor + "," + c.codingRate
+                        vm.cliQuery(keyHex, "set ${CliIds.RADIO} $csv")
+                        vm.cliQuery(keyHex, "set ${CliIds.PATH_HASH_MODE} ${c.pathHashMode}")
+                        values[CliFormFields.RADIO_FREQ] =
+                            RadioUnits.khzToMhzText(c.frequencyKhz)
+                        values[CliFormFields.RADIO_BW] = RadioUnits.hzToKhzText(c.bandwidthHz)
+                        values[CliFormFields.RADIO_SF] = c.spreadingFactor.toString()
+                        values[CliFormFields.RADIO_CR] = c.codingRate.toString()
+                        values[CliIds.PATH_HASH_MODE] = c.pathHashMode.toString()
+                        CliFormFields.RADIO_FIELDS.forEach { dirty[it] = false }
+                        pendingReboot = c.name.ifBlank { "The scanned settings" }
+                    }
+                }) { Text("Apply", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { scannedConfig = null }) { Text("Cancel") }
             },
         )
     }
