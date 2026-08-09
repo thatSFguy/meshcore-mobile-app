@@ -89,6 +89,19 @@ fun AboutSection(vm: MeshCoreViewModel) {
  * is a changelog you can't read in the field.
  */
 private val CHANGELOG: List<Pair<String, List<String>>> = listOf(
+    "0.7.11" to listOf(
+        "\"Scan settings QR…\" is on both radio screens, beside \"Use a regional " +
+            "preset…\" — Settings → Radio for the radio in your hand, and a repeater's " +
+            "own Radio panel for a node across the mesh.",
+        "Scanning from the Chats button now does something. The confirmation dialogs " +
+            "were drawn only by the Nodes screen, so a code scanned anywhere else set " +
+            "everything up and then showed you nothing — contact cards and channel " +
+            "shares included.",
+        "The scanner opens the right way up, and can now read dark-mode QR codes from " +
+            "every button. One launcher was built by hand and missed the configuration " +
+            "carrying both, so it silently could not decode about half the codes in " +
+            "circulation.",
+    ),
     "0.7.10" to listOf(
         "The access list works — it never had. It asked over the air for something only " +
             "the node's own serial console can answer, so the node replied \"??: acl\", " +

@@ -11,6 +11,25 @@ Every entry describes what is in **that tagged build**. A feature that landed af
 belongs in the next section, not this one — 0.3.0 was once credited with four features that
 shipped after it, which misled nobody so much as the author, three months later.
 
+## 0.7.11
+
+- **"Scan settings QR…" is on both radio screens**, beside "Use a regional preset…" —
+  Settings → Radio for the radio in your hand, and a repeater's own Radio panel for a node
+  across the mesh. It existed before but only behind the contact-import buttons on other
+  tabs, which is not where anyone goes looking to apply a settings code.
+- **Scanning from the Chats button now does something.** The confirmation dialogs were
+  drawn only by the Nodes screen, so a code scanned anywhere else set everything up
+  correctly and then showed you nothing at all. That affected contact cards and channel
+  shares as much as settings codes.
+- **The scanner opens the right way up**, and — less visibly but worse — can now read
+  dark-mode QR codes from every button. One launcher had been built by hand and missed the
+  configuration that carries both, so it silently could not decode the roughly half of
+  codes in circulation that are rendered light-on-dark. A scanner that reads nothing looks
+  exactly like a code that is bad.
+- Internal: the scanner options, and the hex helpers behind them, are each defined once
+  now. Four copies of "is this hex" had already drifted apart without anyone noticing,
+  which is how the scanner bug happened in the first place.
+
 ## 0.7.10
 
 - **The access list works.** It never had. "Fetch access list" asked over the air for
