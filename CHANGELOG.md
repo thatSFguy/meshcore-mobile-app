@@ -11,6 +11,26 @@ Every entry describes what is in **that tagged build**. A feature that landed af
 belongs in the next section, not this one — 0.3.0 was once credited with four features that
 shipped after it, which misled nobody so much as the author, three months later.
 
+## 0.7.10
+
+- **The access list works.** It never had. "Fetch access list" asked over the air for
+  something only the node's own serial console can answer, so the node replied `??: acl` —
+  which reads like firmware too old for the feature rather than a question it could never
+  have answered. It now uses the request the firmware provides for this, and shows who has
+  Admin, Read-write, Read-only or Guest on a repeater.
+- **…and it no longer invents an entry.** The first working version showed a fourth row,
+  `000000000000  Guest` — an account with access to your repeater that does not exist. The
+  reply is encrypted and therefore padded, and the padding happened to be exactly the size
+  of one more entry. Inventing a row in an access list is worse than dropping one.
+- **Unused channel slots are out of the Chats list again.** Empty slots were reappearing as
+  "Channel 2", "Channel 3", "Channel 4" — conversations that do not exist. Two parts of the
+  app disagreed about what counts as a channel, and opening Settings → Channels (which
+  reads every slot the radio has) put the blank ones back. There is now one rule, which
+  also handles a channel you have just cleared: it leaves the list instead of lingering as
+  a nameless row.
+- Settings → Channels lists your real channels and an **Add channel** button, rather than
+  every empty slot the radio happens to have.
+
 ## 0.7.9
 
 - **Join a mesh by scanning a QR.** A code can now carry an area's radio settings —

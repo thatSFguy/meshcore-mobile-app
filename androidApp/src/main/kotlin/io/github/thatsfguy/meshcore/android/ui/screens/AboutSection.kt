@@ -89,6 +89,21 @@ fun AboutSection(vm: MeshCoreViewModel) {
  * is a changelog you can't read in the field.
  */
 private val CHANGELOG: List<Pair<String, List<String>>> = listOf(
+    "0.7.10" to listOf(
+        "The access list works — it never had. It asked over the air for something only " +
+            "the node's own serial console can answer, so the node replied \"??: acl\", " +
+            "which reads like old firmware rather than an unanswerable question.",
+        "…and it no longer invents an entry. The first working version showed a fourth " +
+            "row, 000000000000 Guest — an account with access to your repeater that does " +
+            "not exist. The encrypted reply is padded, and the padding was exactly the " +
+            "size of one more entry.",
+        "Unused channel slots are out of the Chats list again. Two parts of the app " +
+            "disagreed about what counts as a channel, and opening Settings → Channels " +
+            "put the blank ones back. One rule now, which also drops a channel you have " +
+            "just cleared instead of leaving a nameless row.",
+        "Settings → Channels lists your real channels and an Add channel button, not " +
+            "every empty slot the radio happens to have.",
+    ),
     "0.7.9" to listOf(
         "Join a mesh by scanning a QR. A code can carry an area's frequency, bandwidth, " +
             "spreading factor, coding rate, path-hash width and flood region. Scanning " +
