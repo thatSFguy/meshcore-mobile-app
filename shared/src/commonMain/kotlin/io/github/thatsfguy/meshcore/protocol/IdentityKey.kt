@@ -1,5 +1,7 @@
 package io.github.thatsfguy.meshcore.protocol
 
+import io.github.thatsfguy.meshcore.util.isHexDigits
+
 import io.github.thatsfguy.meshcore.crypto.CryptoProvider
 import io.github.thatsfguy.meshcore.util.toHex
 
@@ -46,7 +48,7 @@ object IdentityKey {
             ?.lowercase()
             ?: return null
         if (cleaned.length != KEY_HEX_LENGTH) return null
-        return cleaned.takeIf { k -> k.all { it in "0123456789abcdef" } }
+        return cleaned.takeIf { isHexDigits(it) }
     }
 
     fun isValidHex(raw: String?): Boolean = canonicalHex(raw) != null

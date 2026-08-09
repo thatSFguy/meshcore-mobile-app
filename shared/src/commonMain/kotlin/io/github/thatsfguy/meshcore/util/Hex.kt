@@ -28,6 +28,27 @@ fun hexToBytesOrNull(hex: String): ByteArray? {
     return out
 }
 
+/**
+ * True when [this] is a non-empty, even-length run of hex digits.
+ *
+ * There were four of these written inline — in ConfigBackup,
+ * MeshIdentity, IdentityKey and BlockList — and they had already
+ * diverged: three lowercase the input first and test a lowercase
+ * alphabet, the fourth tests both cases in place. All four happen to be
+ * correct, which is the point. Four copies of one idea is how the
+ * scanner options ended up with one that opened sideways and could not
+ * read half the QR codes in circulation.
+ *
+ * Case-insensitive, because hex is: a code that renders keys uppercase
+ * is not malformed.
+ */
+fun isHexString(text: String): Boolean =
+    text.isNotEmpty() && text.length % 2 == 0 && text.all { it.digitToIntOrNull(16) != null }
+
+/** As [isHexString], but for a run of any length (a prefix, say). */
+fun isHexDigits(text: String): Boolean =
+    text.all { it.digitToIntOrNull(16) != null }
+
 /** Strict variant for programmer-controlled input. */
 fun hexToBytes(hex: String): ByteArray =
     hexToBytesOrNull(hex) ?: throw IllegalArgumentException("Invalid hex string")

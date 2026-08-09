@@ -1,5 +1,7 @@
 package io.github.thatsfguy.meshcore.protocol
 
+import io.github.thatsfguy.meshcore.util.isHexDigits
+
 /**
  * Suppressing traffic you don't want (PARITY.md §3).
  *
@@ -45,7 +47,7 @@ object BlockList {
     fun canonicalKey(raw: String?): String? {
         val key = raw?.trim()?.lowercase() ?: return null
         if (key.length != 64) return null
-        return key.takeIf { k -> k.all { it in "0123456789abcdef" } }
+        return key.takeIf { isHexDigits(it) }
     }
 
     /**

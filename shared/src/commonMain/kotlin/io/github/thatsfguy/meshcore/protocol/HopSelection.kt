@@ -1,5 +1,7 @@
 package io.github.thatsfguy.meshcore.protocol
 
+import io.github.thatsfguy.meshcore.util.toHex as hexOfBytes
+
 /**
  * Building a manual route by picking nodes and ordering them, rather
  * than typing hex (PARITY.md §13).
@@ -130,10 +132,7 @@ object HopSelection {
 
     /** The route as the contiguous hex the contact record wants. */
     fun toHex(hops: List<Hop>, hashWidth: Int): String? =
-        toBytes(hops, hashWidth)?.joinToString("") {
-            val v = it.toInt() and 0xFF
-            "0123456789abcdef"[v shr 4].toString() + "0123456789abcdef"[v and 0x0F]
-        }
+        toBytes(hops, hashWidth)?.let { bytes -> with(bytes) { hexOfBytes() } }
 
     /**
      * Rebuild a selection from stored path bytes, naming each hop from

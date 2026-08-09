@@ -1,5 +1,7 @@
 package io.github.thatsfguy.meshcore.protocol
 
+import io.github.thatsfguy.meshcore.util.isHexString
+
 import io.github.thatsfguy.meshcore.crypto.CryptoProvider
 import io.github.thatsfguy.meshcore.crypto.pbkdf2HmacSha256
 import io.github.thatsfguy.meshcore.util.toHex
@@ -423,7 +425,7 @@ object ConfigBackup {
     }
 
     private fun isHex(s: String): Boolean =
-        s.isNotEmpty() && s.length % 2 == 0 && s.all { it in "0123456789abcdefABCDEF" }
+        isHexString(s)
 
     private fun isKeyHex(s: String): Boolean = s.length == 64 && isHex(s)
 

@@ -1,5 +1,7 @@
 package io.github.thatsfguy.meshcore.protocol
 
+import io.github.thatsfguy.meshcore.util.isHexDigits
+
 import io.github.thatsfguy.meshcore.crypto.CryptoProvider
 import io.github.thatsfguy.meshcore.util.toHex
 
@@ -54,7 +56,7 @@ data class MeshIdentity(
             maxAttempts: Int = 1_000_000,
         ): MeshIdentity? {
             val prefix = hexPrefix.lowercase()
-            require(prefix.all { it in "0123456789abcdef" }) { "prefix must be hex" }
+            require(isHexDigits(prefix)) { "prefix must be hex" }
             repeat(maxAttempts) {
                 val id = generate(crypto)
                 if (id.publicKeyHex.startsWith(prefix)) return id

@@ -1,5 +1,7 @@
 package io.github.thatsfguy.meshcore.protocol
 
+import io.github.thatsfguy.meshcore.util.toHex
+
 /**
  * The reply to `get acl` on a repeater or room server.
  *
@@ -134,10 +136,7 @@ object AccessList {
             val perms = body[off++].toInt() and 0xFF
             if (perms == 0) return@repeat   // deleted row, or padding
             out += BinEntry(
-                keyPrefixHex = prefix.joinToString("") {
-                    val v = it.toInt() and 0xFF
-                    "0123456789abcdef"[v shr 4].toString() + "0123456789abcdef"[v and 0x0F]
-                },
+                keyPrefixHex = prefix.toHex(),
                 permissions = perms,
             )
         }
