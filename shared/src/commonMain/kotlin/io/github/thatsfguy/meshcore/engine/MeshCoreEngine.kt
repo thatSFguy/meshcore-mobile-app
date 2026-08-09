@@ -3,6 +3,7 @@ package io.github.thatsfguy.meshcore.engine
 import io.github.thatsfguy.meshcore.crypto.CryptoProvider
 import io.github.thatsfguy.meshcore.model.BatteryAndStorage
 import io.github.thatsfguy.meshcore.model.Channel
+import io.github.thatsfguy.meshcore.model.ChannelList
 import io.github.thatsfguy.meshcore.model.Contact
 import io.github.thatsfguy.meshcore.model.DeviceInfo
 import io.github.thatsfguy.meshcore.model.SelfInfo
@@ -538,11 +539,12 @@ class MeshCoreEngine(
                 _meshEvents.tryEmit(MeshEvent.ContactsSynced)
             }
 
-            is DeviceEvent.ChannelInfoReceived -> {
-                val ch = event.channel
-                val current = _channels.value.filter { it.index != ch.index }
-                _channels.value = (current + ch).sortedBy { it.index }
-            }
+            is DeviceEvent.ChannelInfoReceived ->
+                // ONE rule for what a channel is, shared with the sweep
+                // in syncChannels — see ChannelList. This path used to
+                // keep unconfigured slots while the sweep dropped them,
+                // so reading a slot put blank rows back into the list.
+                _channels.value = ChannelList.applySlot(_channels.value, event.channel)
 
             is DeviceEvent.Sent -> _meshEvents.tryEmit(
                 MeshEvent.MessageSentToRadio(event.ackHash, event.timeoutMs, event.isFlood),
@@ -866,12 +868,15 @@ class MeshCoreEngine(
                 it is DeviceEvent.ChannelInfoReceived && it.channel.index == idx
             }
             when (ev) {
-                is DeviceEvent.ChannelInfoReceived -> if (!ev.channel.isEmpty) found.add(ev.channel)
+                // Collect every slot the radio reports; ChannelList
+                // applies the same empty-slot rule the event handler
+                // does, so the sweep and the handler cannot disagree.
+                is DeviceEvent.ChannelInfoReceived -> found.add(ev.channel)
                 is DeviceEvent.Err, null -> break // past the last slot / firmware balked
                 else -> Unit
             }
         }
-        _channels.value = found.sortedBy { it.index }
+        _channels.value = ChannelList.fromSlots(found)
         _meshEvents.tryEmit(MeshEvent.ChannelsSynced)
     }
 

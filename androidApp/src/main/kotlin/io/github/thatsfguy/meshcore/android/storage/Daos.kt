@@ -321,6 +321,7 @@ interface ChannelDao {
     @Query("DELETE FROM channels WHERE selfKey = :selfKey AND idx NOT IN (:liveIndices)")
     suspend fun deleteAbsent(selfKey: String, liveIndices: List<Int>)
 
+
     @Query("UPDATE channels SET unread = unread + 1, lastMessageAt = :at WHERE selfKey = :selfKey AND idx = :idx")
     suspend fun bumpUnread(selfKey: String, idx: Int, at: Long)
 

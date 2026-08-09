@@ -3,6 +3,7 @@ package io.github.thatsfguy.meshcore.android.storage
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import kotlinx.coroutines.test.runTest
+import kotlin.test.assertTrue
 import org.junit.After
 import org.junit.Before
 import org.junit.runner.RunWith
@@ -93,5 +94,24 @@ class ChannelReconcileTest {
             db.channels().deleteAbsent(self, listOf(0, 1, 2))
             assertEquals(3, db.channels().allOnce(self).size)
         }
+    }
+
+    @Test
+    fun reconcilingAgainstNoChannelsClearsThemAll() = runTest {
+        // I assumed Room's empty-list expansion (`idx NOT IN ()`) was a
+        // SQLite syntax error and built a wrapper around it. It is not —
+        // it deletes everything, which is the right answer to "the radio
+        // has no channels". Pinned so the next person does not add the
+        // same wrapper on the same hunch.
+        seed(0, 1, 2, 3)
+        db.channels().deleteAbsent(self, emptyList())
+        assertEquals(emptyList(), db.channels().allOnce(self).map { it.idx })
+    }
+
+    @Test
+    fun reconcilingKeepsOnlyTheLiveSlots() = runTest {
+        seed(0, 1, 2, 3, 4, 5, 6, 7)
+        db.channels().deleteAbsent(self, listOf(0, 1))
+        assertEquals(listOf(0, 1), db.channels().allOnce(self).map { it.idx }.sorted())
     }
 }

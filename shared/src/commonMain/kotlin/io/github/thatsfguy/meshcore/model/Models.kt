@@ -71,6 +71,40 @@ data class Channel(
 
     override fun hashCode(): Int = index * 31 + name.hashCode()
 }
+/**
+ * The one rule for turning slot reports into a channel list.
+ *
+ * There were two, and they disagreed. `syncChannels` dropped
+ * unconfigured slots; the `ChannelInfoReceived` handler kept them. Any
+ * screen that reads a slot goes through the handler — the Channels
+ * settings list reads every slot the radio has — so opening it refilled
+ * the list with blank entries, which were persisted and shown in Chats
+ * as "Channel 2", "Channel 3"…
+ *
+ * Same shape as the trace-flags and neighbours bugs: two halves of one
+ * codebase with different ideas about the same thing, and a green suite.
+ * Having one function means they cannot drift again.
+ */
+object ChannelList {
+
+    /**
+     * Fold one slot report into [current].
+     *
+     * An empty slot REMOVES its index rather than adding a nameless row
+     * — which is also the only correct handling of a channel that was
+     * just cleared on the radio.
+     */
+    fun applySlot(current: List<Channel>, slot: Channel): List<Channel> {
+        val without = current.filter { it.index != slot.index }
+        val next = if (slot.isEmpty) without else without + slot
+        return next.sortedBy { it.index }
+    }
+
+    /** The same rule over a full sweep of slots. */
+    fun fromSlots(slots: List<Channel>): List<Channel> =
+        slots.fold(emptyList()) { acc, s -> applySlot(acc, s) }
+}
+
 
 /** The radio's own identity/config (RESP_CODE_SELF_INFO). */
 data class SelfInfo(
