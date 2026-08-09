@@ -284,6 +284,63 @@ fun NodesScreen(vm: MeshCoreViewModel, nav: NavController) {
         )
     }
 
+    // A scanned settings code. This dialog is the whole safety story:
+    // nothing about the code is authenticated, and applying it decides
+    // whether this radio is on a mesh at all — and what frequency it
+    // transmits on, which is a legal question wherever you are standing.
+    // So every value is shown, and the regulatory caveat comes with it.
+    val pendingRadio by vm.pendingRadioConfig.collectAsState()
+    pendingRadio?.let { config ->
+        AlertDialog(
+            onDismissRequest = { vm.pendingRadioConfig.value = null },
+            title = { Text("Apply these radio settings?") },
+            text = {
+                Column {
+                    Text(
+                        config.name.ifBlank { "(unnamed mesh)" },
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(config.summary(), style = MaterialTheme.typography.bodyMedium)
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        "This retunes your radio. If these values are wrong you will not " +
+                            "see errors — you will see an empty mesh.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "Anyone can make one of these codes; nothing in it is signed. " +
+                            io.github.thatsfguy.meshcore.protocol.RadioPresets.REGULATORY_CAVEAT,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                    config.region?.let {
+                        Spacer(Modifier.height(8.dp))
+                        // Named separately because it is a different
+                        // failure: wrong radio values make you deaf,
+                        // a wrong region leaves you audible but unable
+                        // to propagate.
+                        Text(
+                            "It also names flood region \"$it\", which affects routing " +
+                                "rather than whether you can hear the mesh. Set it yourself " +
+                                "under Mesh policies if you want it.",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { vm.confirmRadioConfig(config) }) {
+                    Text("Apply", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { vm.pendingRadioConfig.value = null }) { Text("Cancel") }
+            },
+        )
+    }
+
     detail?.let { contact ->
         ContactDetailSheet(
             vm = vm,

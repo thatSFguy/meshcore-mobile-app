@@ -38,6 +38,33 @@ object ShareUri {
     const val CHANNEL_PATH = "channel/add"
 
     /**
+     * Path of the mesh-settings form — the radio parameters an area has
+     * agreed on, so joining is a scan rather than four numbers typed
+     * correctly.
+     *
+     * NEW HERE. Nothing else in the ecosystem emits this: the firmware
+     * has no QR at all, the mainstream app ships only `contact/add` and
+     * `channel/add`, and MeshCore Open's "community" code is a JSON blob
+     * carrying a channel secret, not radio settings. So this is our
+     * format, and scanners elsewhere will not understand it yet.
+     *
+     * Deliberately NOT carried:
+     *
+     *  - **TX power.** Every other field is "match this or you are not
+     *    on the mesh". Power is not — it is the local legal limit and
+     *    what the hardware can do. Shipping it in a code means one
+     *    person's jurisdiction propagates to everyone who scans.
+     *  - **Channel keys.** Adding a PSK turns a config code into a
+     *    secret: it would need keystore handling, log redaction, and a
+     *    warning that photographing it gives away the channel forever.
+     *    `channel/add` already exists for that, with those protections.
+     */
+    const val RADIO_PATH = "radio/set"
+
+    /** Format version, so a later field can be added without ambiguity. */
+    const val RADIO_VERSION = 1
+
+    /**
      * Upper bound on the whole URI. A contact card is ~150 bytes and an
      * advert blob ~100 bytes of payload; the cap is generous but keeps a
      * hostile QR from making us allocate before any parse happens.
@@ -88,6 +115,37 @@ object ShareUri {
             "?name=" + percentEncode(truncateToBytes(name, MAX_NAME_BYTES)) +
             "&channel_secret=" + pskHex.trim().uppercase()
 
+    /**
+     * Build a mesh-settings code. Units are the ones a person reads:
+     * MHz and kHz, matching what both settings screens now show.
+     *
+     * [region] is the flood-scope name and is optional — blank means
+     * global. It is a ROUTING setting, not a radio one: getting the
+     * radio fields wrong makes a node deaf, getting the region wrong
+     * leaves it audible but unable to propagate.
+     */
+    fun encodeRadio(
+        name: String,
+        frequencyKhz: Long,
+        bandwidthHz: Long,
+        spreadingFactor: Int,
+        codingRate: Int,
+        pathHashMode: Int,
+        region: String? = null,
+    ): String = buildString {
+        append(SCHEME).append(RADIO_PATH)
+        append("?v=").append(RADIO_VERSION)
+        append("&name=").append(percentEncode(truncateToBytes(name, MAX_NAME_BYTES)))
+        append("&freq=").append(RadioUnits.khzToMhzText(frequencyKhz))
+        append("&bw=").append(RadioUnits.hzToKhzText(bandwidthHz))
+        append("&sf=").append(spreadingFactor)
+        append("&cr=").append(codingRate)
+        append("&hash=").append(pathHashMode)
+        region?.trim()?.takeIf { it.isNotEmpty() }?.let {
+            append("&region=").append(percentEncode(truncateToBytes(it, MAX_NAME_BYTES)))
+        }
+    }
+
     // ------------------------------------------------------------------
     // Decoding
     // ------------------------------------------------------------------
@@ -110,6 +168,52 @@ object ShareUri {
          * grants read access to everything on that channel.
          */
         data class ChannelShare(val name: String, val pskHex: String) : Decoded
+
+        /**
+         * Radio parameters for an area, off a QR nobody vouched for.
+         *
+         * NOTHING HERE IS AUTHENTICATED. A code that retunes a radio is
+         * a config-injection vector, and a nastier one than a contact
+         * card: the worst a bad contact does is add a row, whereas these
+         * four values decide whether the node is on a mesh at all — and
+         * which frequency it transmits on, which is a legal question
+         * wherever the scanner happens to be standing.
+         *
+         * So this type carries data, never an action. It must be shown
+         * and confirmed before anything is applied, with the same
+         * regulatory caveat the preset sheet uses. Ranges are checked
+         * here so an out-of-band value cannot reach a radio at all, but
+         * "in range" is not "correct for you".
+         */
+        data class RadioConfig(
+            val name: String,
+            /** kHz, the unit CMD_SET_RADIO_PARAMS wants. */
+            val frequencyKhz: Long,
+            /** Hz — the wire really is asymmetric. */
+            val bandwidthHz: Long,
+            val spreadingFactor: Int,
+            val codingRate: Int,
+            val pathHashMode: Int,
+            /** Flood scope; null or blank means global. */
+            val region: String?,
+        ) : Decoded {
+            /** MHz · kHz · SF · CR, for a confirmation dialog. */
+            fun summary(): String = buildString {
+                append(RadioUnits.khzToMhzText(frequencyKhz)).append(" MHz · ")
+                append(RadioUnits.hzToKhzText(bandwidthHz)).append("kHz · ")
+                append("SF").append(spreadingFactor).append(" · ")
+                append("CR4/").append(codingRate).append(" · ")
+                append(PathHashMode.bytesFor(pathHashMode)).append("B hash")
+                region?.takeIf { it.isNotBlank() }?.let { append(" · region ").append(it) }
+            }
+        }
+
+        /**
+         * A settings code from a newer app than this one. Distinct from
+         * [Malformed] on purpose: the code is fine, we are old. Applying
+         * a partial understanding of it could half-tune a radio.
+         */
+        data class UnsupportedVersion(val version: Int) : Decoded
 
         /** A signed advert blob; the radio verifies it on import. */
         data class Advert(val blob: ByteArray) : Decoded {
@@ -139,6 +243,7 @@ object ShareUri {
         return when (path) {
             CONTACT_PATH -> decodeContactCard(body.substringAfter('?', ""))
             CHANNEL_PATH -> decodeChannelShare(body.substringAfter('?', ""))
+            RADIO_PATH -> decodeRadioConfig(body.substringAfter('?', ""))
             else -> decodeAdvert(body)
         }
     }
@@ -193,6 +298,63 @@ object ShareUri {
             pskHex = psk,
         )
     }
+
+    /**
+     * Parse a settings code, refusing anything a radio would reject.
+     *
+     * Every bound here is the firmware's, not a guess: SF and CR are
+     * protocol-bounded, the frequency range is what `set radio` accepts,
+     * the bandwidth must be a real LoRa step, and the hash mode stops at
+     * 2 because mode 3 is reserved. A value outside these cannot be a
+     * mesh anyone is on, so it is refused rather than shown to the user
+     * as something they could choose to apply.
+     */
+    private fun decodeRadioConfig(query: String): Decoded {
+        if (query.isEmpty()) return Decoded.Malformed
+        val params = parseQuery(query) ?: return Decoded.Malformed
+
+        // Version first: an unknown one must not be parsed on a guess.
+        val version = params["v"]?.trim()?.toIntOrNull() ?: return Decoded.Malformed
+        if (version != RADIO_VERSION) return Decoded.UnsupportedVersion(version)
+
+        val frequencyKhz = params["freq"]?.let { RadioUnits.mhzTextToKhz(it) }
+            ?: return Decoded.Malformed
+        if (frequencyKhz !in 300_000L..2_500_000L) return Decoded.Malformed
+
+        val bandwidthHz = params["bw"]?.let { RadioUnits.khzTextToHz(it) }
+            ?: return Decoded.Malformed
+        if (bandwidthHz !in LORA_BANDWIDTHS_HZ) return Decoded.Malformed
+
+        val sf = params["sf"]?.trim()?.toIntOrNull() ?: return Decoded.Malformed
+        if (sf !in 5..12) return Decoded.Malformed
+
+        val cr = params["cr"]?.trim()?.toIntOrNull() ?: return Decoded.Malformed
+        if (cr !in 5..8) return Decoded.Malformed
+
+        // Absent hash means "whatever this mesh already uses" — older
+        // meshes predate the setting entirely, so it is not required.
+        val hash = params["hash"]?.let {
+            it.trim().toIntOrNull() ?: return Decoded.Malformed
+        } ?: PathHashMode.MIN_MODE
+        if (!PathHashMode.isValid(hash)) return Decoded.Malformed
+
+        val region = sanitizeName(params["region"].orEmpty()).takeIf { it.isNotBlank() }
+
+        return Decoded.RadioConfig(
+            name = sanitizeName(params["name"].orEmpty()),
+            frequencyKhz = frequencyKhz,
+            bandwidthHz = bandwidthHz,
+            spreadingFactor = sf,
+            codingRate = cr,
+            pathHashMode = hash,
+            region = region,
+        )
+    }
+
+    /** The LoRa bandwidth steps, in Hz. Anything else is not a radio. */
+    private val LORA_BANDWIDTHS_HZ = setOf(
+        7_800L, 10_400L, 15_600L, 20_800L, 31_250L, 62_500L, 125_000L, 250_000L, 500_000L,
+    )
 
     private fun decodeAdvert(hex: String): Decoded {
         val blob = hexToBytesOrNull(hex) ?: return Decoded.Malformed

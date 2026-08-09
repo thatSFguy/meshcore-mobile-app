@@ -648,6 +648,33 @@ mint — so it cannot be imported through the verify path; it becomes a contact 
 must ask the user to confirm the key rather than adding it silently. Treat the name as
 display text in both forms; only the public key identifies anyone.
 
+3. **Mesh settings** — `meshcore://radio/set`, **defined by this project**, not seen
+   elsewhere. Added 2026-08-09 after confirming nobody has one: the firmware has no QR at
+   all, the mainstream app ships only forms 1 and 2 above plus `channel/add`, and MeshCore
+   Open's "community" code is a JSON blob (`{type:"meshcore_community",v:1,name,k}`)
+   carrying a 32-byte channel secret — not radio parameters. Expect no interop yet.
+
+   ```
+   meshcore://radio/set?v=1&name=<pct>&freq=<MHz>&bw=<kHz>&sf=<5-12>&cr=<5-8>&hash=<0-2>[&region=<pct>]
+   ```
+
+   Units are the human ones (MHz, kHz), converted to the wire's kHz/Hz on import. `hash` is
+   `path.hash.mode`; absent means mode 0, since meshes predate the setting. `region` is the
+   flood scope and is optional.
+
+   **Deliberately absent: TX power and channel keys.** Every field present is "match this
+   or you are not on the mesh"; TX power is not — it is the legal limit where the *scanner*
+   is standing and what their hardware can do, so shipping it propagates one person's
+   jurisdiction to everyone who scans. A PSK would turn a config code into a secret needing
+   keystore handling and log redaction; `channel/add` already exists for that.
+
+   **Nothing in it is authenticated**, and it is the most consequential code the app
+   accepts: a bad contact card adds a row, whereas these values decide whether a node is on
+   a mesh at all and which frequency it transmits on. Ranges are enforced at parse
+   (`ShareUri.decodeRadioConfig`) so an impossible value cannot reach a radio, and it must
+   always be shown and confirmed — never applied on scan. `tools/mesh-settings-qr.html`
+   generates them offline.
+
 Note also that QR codes rendered by dark-mode apps are **inverted** (light modules on a dark
 field). ZXing rejects those unless `DecodeHintType.ALSO_INVERTED` is set — worth doing, or
 half the codes in circulation won't scan.

@@ -929,6 +929,40 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
     /** A scanned channel key awaiting confirmation. */
     val pendingChannelShare = MutableStateFlow<ShareUri.Decoded.ChannelShare?>(null)
 
+    /**
+     * A scanned settings code awaiting confirmation, never applied.
+     *
+     * The most consequential thing the scanner can produce: these values
+     * decide whether the radio is on a mesh at all, and which frequency
+     * it transmits on. The dialog that reads this is the only thing
+     * between an anonymous QR and a retuned radio.
+     */
+    val pendingRadioConfig = MutableStateFlow<ShareUri.Decoded.RadioConfig?>(null)
+
+    /**
+     * Apply a confirmed settings code to the attached radio.
+     *
+     * TX power is deliberately untouched — it is not in the code, and it
+     * is the one parameter that is a local legal question rather than a
+     * property of the mesh.
+     */
+    fun confirmRadioConfig(config: ShareUri.Decoded.RadioConfig) {
+        pendingRadioConfig.value = null
+        val svc = _service.value ?: return
+        viewModelScope.launch {
+            runCatching {
+                svc.engine.setRadioParams(
+                    config.frequencyKhz,
+                    config.bandwidthHz,
+                    config.spreadingFactor,
+                    config.codingRate,
+                )
+                svc.engine.setPathHashMode(config.pathHashMode)
+            }
+            transientMessage.value = "Applied ${config.name.ifBlank { "scanned settings" }}"
+        }
+    }
+
     /** Handle a scanned/pasted meshcore:// code, in either form. */
     /**
      * Handle any scanned MeshCore code, whichever screen scanned it.
@@ -958,9 +992,16 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
             is ShareUri.Decoded.Advert -> importAdvertBlob(decoded.blob)
             is ShareUri.Decoded.Contact -> pendingContactCard.value = decoded
             is ShareUri.Decoded.ChannelShare -> pendingChannelShare.value = decoded
+            // NEVER applied here. A settings code retunes the radio, so
+            // it goes to a confirmation that shows every value first —
+            // see pendingRadioConfig.
+            is ShareUri.Decoded.RadioConfig -> pendingRadioConfig.value = decoded
+            is ShareUri.Decoded.UnsupportedVersion ->
+                transientMessage.value = "This settings code needs a newer version of the app " +
+                    "(format v${decoded.version})"
             ShareUri.Decoded.NotAContactCode ->
-                transientMessage.value = "Not a MeshCore code — expected a contact, channel " +
-                    "or community QR"
+                transientMessage.value = "Not a MeshCore code — expected a contact, channel, " +
+                    "settings or community QR"
             ShareUri.Decoded.TooLarge ->
                 transientMessage.value = "Contact code too large"
             ShareUri.Decoded.Malformed ->

@@ -11,12 +11,15 @@ package io.github.thatsfguy.meshcore.protocol
  *
  * ## Where these came from, and what they are not
  *
- * Mostly transcribed from the MeshCore Open reference client's own table
+ * Transcribed from the MeshCore Open reference client's own table
  * (`lib/models/radio_settings.dart`), which is what the local community
- * in each area is actually using. Entries marked LOCAL below are this
- * project's own additions — meshes the author runs or has been told
- * about, which no published table carries. Either way they are a good
- * default and NOT a statement of law:
+ * in each area is actually using. That makes them a good default and
+ * NOT a statement of law:
+ *
+ * A mesh this table does not cover is served by a scanned settings QR
+ * ([ShareUri] `radio/set`), not by adding a row here. A hardcoded entry
+ * goes stale silently and can only be corrected by shipping a build —
+ * which is the wrong shape for something a local community changes.
  *
  *  - **Frequency allocations and duty-cycle rules are jurisdictional.**
  *    A preset named for a country is what people there run, not
@@ -135,12 +138,6 @@ object RadioPresets {
         P("Russia Yekaterinburg (SVX)", 869.046, 62.5, 7, 7, 20),
         P("Switzerland", 869.618, 62.5, 8, 5, 14),
         P("USA Arizona", 908.205, 62.5, 10, 5, 20),
-        // LOCAL — not in the reference table. A wide-bandwidth, higher-SF
-        // profile for sparse rural coverage, where hops are long and few:
-        // 250kHz keeps airtime down at SF9, which buys range over the
-        // narrow 62.5kHz USA/Canada profile without the airtime cost of
-        // going slower still.
-        P("USA Rural", 906.375, 250.0, 9, 5, 22),
         P("USA/Canada", 910.525, 62.5, 7, 5, 20),
         P("Vietnam", 920.25, 250.0, 11, 5, 20),
         P("Off-Grid 433", 433.0, 250.0, 11, 8, 20),

@@ -39,49 +39,11 @@ class RadioPresetsTest {
 
     @Test
     fun theWholeTableIsPresent() {
-        // 47 transcribed from the reference table + 1 local addition.
-        assertEquals(48, RadioPresets.ALL.size)
+        assertEquals(47, RadioPresets.ALL.size)
         assertEquals(
             RadioPresets.ALL.size,
             RadioPresets.ALL.map { it.name }.distinct().size,
             "duplicate preset names",
-        )
-    }
-
-    @Test
-    fun theLocalRuralPresetIsWhatWasAskedFor() {
-        val rural = RadioPresets.byName("USA Rural")!!
-        assertEquals(906.375, rural.frequencyMhz)
-        assertEquals(250.0, rural.bandwidthKhz)
-        assertEquals(9, rural.spreadingFactor)
-        assertEquals(5, rural.codingRate)
-        assertEquals(22, rural.txPowerDbm)
-        // Exact in the units each transport wants — 906.375 MHz is not
-        // representable in binary, so this is the conversion that could
-        // silently land a kHz off.
-        assertEquals(906_375L, rural.frequencyKhz)
-        assertEquals(250_000L, rural.bandwidthHz)
-        // The name prefix is what files it under North America; "Rural
-        // USA" would land in "Other".
-        assertEquals("North America", RadioPresets.region(rural))
-    }
-
-    @Test
-    fun theLocalRuralPresetIsNotAnExistingOneRenamed() {
-        // Sharing parameters is legitimate in general — neighbouring
-        // countries agree, and a dozen Russian cities are on the same
-        // four values, which is exactly why matching() returns a LIST.
-        // But a LOCAL addition that duplicates a transcribed entry would
-        // be a redundant row, not a second community, so this one is
-        // held to being genuinely new.
-        val rural = RadioPresets.byName("USA Rural")!!
-        val sameParams = RadioPresets.matching(
-            rural.frequencyKhz, rural.bandwidthHz, rural.spreadingFactor, rural.codingRate,
-        )
-        assertEquals(
-            listOf("USA Rural"),
-            sameParams.map { it.name },
-            "USA Rural duplicates an existing preset's parameters",
         )
     }
 
