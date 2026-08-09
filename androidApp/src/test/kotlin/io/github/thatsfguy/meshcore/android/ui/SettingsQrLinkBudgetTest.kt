@@ -167,19 +167,56 @@ class SettingsQrLinkBudgetTest {
         // true the moment fields exist that are not mesh settings:
         // typing your antenna gain would report that the preset had been
         // edited when nothing shared had moved.
+        //
+        // The opt-out is keyed on the section, not on a marker class, so
+        // a control added to the calculator later cannot forget it.
         val loop = html
             .substringAfter("""for (const el of document.querySelectorAll("input, select"))""")
             .substringBefore("const onEdit")
         assertTrue(
-            "link-budget inputs must be skipped by the preset-invalidating loop",
-            loop.contains("""classList.contains("lb")"""),
+            "calculator controls must be skipped by the preset-invalidating loop",
+            loop.contains("""el.closest("#tab-loss")"""),
         )
+    }
+
+    @Test
+    fun theCalculatorLivesOnItsOwnTab() {
+        // It is not part of generating a code, and sitting in the middle
+        // of that flow implied it was. Every hardware input, and the
+        // view switch, must be inside the section the loop above skips —
+        // one of them left outside is invisible in the layout and wrong
+        // in behaviour.
+        val loss = html.substringAfter("""<section id="tab-loss"""").substringBefore("</section>")
         for (field in listOf("txp", "gtx", "grx", "loss")) {
             assertTrue(
-                "#$field must carry the lb class to be skipped",
-                Regex("""class="lb" id="$field"""").containsMatchIn(html),
+                "#$field must live on the calculator tab",
+                loss.contains("""id="$field""""),
             )
         }
+        assertTrue("the view switch belongs there too", loss.contains("""name="lbview""""))
+        assertTrue("and the table", loss.contains("""id="lb-table""""))
+
+        // The QR tab must not have kept a copy of any of it.
+        val qr = html.substringAfter("""<section id="tab-qr"""").substringBefore("</section>")
+        assertFalse("the calculator must not also be on the QR tab", qr.contains("""id="txp""""))
+        assertTrue("the QR tab still owns the code", qr.contains("""id="qr""""))
+    }
+
+    @Test
+    fun sensitivityHasNoFrequencyTerm() {
+        // The misconception this tab exists to correct. Sensitivity is
+        // thermal noise in the channel plus noise figure plus the
+        // demodulator's SNR limit — bandwidth and spreading factor only.
+        // Frequency changes what survives the path, not what the far end
+        // can hear, so a frequency argument here would be a bug wearing
+        // the shape of a feature.
+        val fn = html.substringAfter("function sensitivityDbm(").substringBefore("\n}")
+        assertTrue("must take only sf and bandwidth", fn.startsWith("sf, bwHz)"))
+        assertFalse("frequency must not enter sensitivity", fn.contains("freq"))
+        assertTrue(
+            "and the page must say so, since the question keeps coming up",
+            html.contains("Sensitivity does not depend on frequency"),
+        )
     }
 
     @Test

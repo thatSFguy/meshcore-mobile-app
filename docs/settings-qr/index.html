@@ -55,14 +55,25 @@
   p.rate { margin: 12px 0 0; font-size: .9rem; }
   p.rate b { font-variant-numeric: tabular-nums; }
   p.rate span { color: var(--muted); }
+  nav.tabs { display: flex; gap: 4px; margin: 0 0 18px; border-bottom: 1px solid var(--line); }
+  button.tab {
+    border: none; background: none; color: var(--muted); border-radius: 0; font: inherit;
+    padding: 9px 14px; border-bottom: 2px solid transparent; margin-bottom: -1px;
+  }
+  button.tab.on { color: var(--fg); border-bottom-color: var(--accent); font-weight: 600; }
+  .scroller { overflow-x: auto; margin-top: 14px; }
   table.lb {
-    width: 100%; border-collapse: collapse; margin: 14px 0 0;
+    width: 100%; min-width: 430px; border-collapse: collapse;
     font-size: .85rem; font-variant-numeric: tabular-nums;
   }
-  table.lb th, table.lb td { text-align: right; padding: 5px 6px; border-bottom: 1px solid var(--line); }
-  table.lb th:first-child, table.lb td:first-child { text-align: left; }
+  table.lb th, table.lb td { text-align: right; padding: 5px 7px; border-bottom: 1px solid var(--line); }
+  table.lb th:first-child, table.lb td:first-child { text-align: left; color: var(--muted); }
   table.lb th { color: var(--muted); font-weight: 500; font-size: .78rem; }
-  table.lb tr.now td { background: var(--chip); font-weight: 600; }
+  table.lb td.now { background: var(--chip); font-weight: 600; color: var(--fg); }
+  .views { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 14px; font-size: .86rem; }
+  .views label { display: flex; align-items: center; gap: 6px; margin: 0; color: var(--fg); font-size: .86rem; }
+  .views input { width: auto; }
+  .mono { font: 12.5px/1.5 ui-monospace, Menlo, Consolas, monospace; white-space: nowrap; }
   .presetnote { color: var(--muted); font-size: .85rem; margin-top: 8px; min-height: 1.2em; }
   ul.saved { list-style: none; padding: 0; margin: 10px 0 0; }
   ul.saved li {
@@ -86,10 +97,21 @@
 
 <main>
   <h1>Mesh settings QR</h1>
+  <p class="sub">Everything runs in this page — nothing is uploaded, and it works offline
+  once loaded.</p>
+
+  <nav class="tabs" role="tablist">
+    <button class="tab on" id="tab-qr-btn" role="tab" aria-selected="true"
+            aria-controls="tab-qr">Settings QR</button>
+    <button class="tab" id="tab-loss-btn" role="tab" aria-selected="false"
+            aria-controls="tab-loss">Sensitivity and path loss</button>
+  </nav>
+
+<section id="tab-qr" role="tabpanel" aria-labelledby="tab-qr-btn">
+
   <p class="sub">Generates a <code>meshcore://radio/set</code> code that
   <a href="https://github.com/thatSFguy/meshcore-mobile-app">MeshCore Hardened</a> can scan to
-  join your area's mesh. Everything runs in this page — nothing is uploaded, and it works
-  offline once loaded.</p>
+  join your area's mesh.</p>
 
   <fieldset>
     <legend>Start from</legend>
@@ -128,35 +150,6 @@
     </div>
     <div class="err" id="err"></div>
     <p class="rate" id="rate"></p>
-  </fieldset>
-
-  <fieldset>
-    <legend>Estimated path loss</legend>
-    <p class="note">How much loss the link can absorb before the signal is under the noise.
-    These four numbers describe <em>your</em> hardware, not the mesh — they are not in the QR
-    code, not written to a node over USB, and not part of a saved or exported setting. They
-    only change the estimate below, and they stay in this browser.</p>
-    <div class="grid">
-      <div><label for="txp">Transmit power (dBm)</label>
-        <input class="lb" id="txp" inputmode="decimal" value="22"></div>
-      <div><label for="gtx">Antenna gain, sender (dBi)</label>
-        <input class="lb" id="gtx" inputmode="decimal" value="2.15"></div>
-      <div><label for="grx">Antenna gain, receiver (dBi)</label>
-        <input class="lb" id="grx" inputmode="decimal" value="2.15"></div>
-      <div><label for="loss">Cable and connector loss (dB)</label>
-        <input class="lb" id="loss" inputmode="decimal" value="0"></div>
-    </div>
-    <div class="err" id="lb-err"></div>
-    <p class="rate" id="budget"></p>
-    <div id="lb-table"></div>
-    <p class="note"><strong>There is deliberately no distance here.</strong> Turning path loss
-    into range needs terrain, antenna height and clutter; a free-space figure at these budgets
-    comes out in the thousands of kilometres, which is worse than no answer. Use the decibels
-    instead — 6 dB is twice the distance in free space and rather less than that in the real
-    world. Each spreading-factor step is worth 2.5 dB, and halving the bandwidth another 3 dB.</p>
-    <p class="note">The figure is a ceiling with no fade margin: a link sitting exactly on it
-    does not survive rain, a passing truck, or the leaves coming out. Real deployments plan
-    10–20 dB below it.</p>
   </fieldset>
 
   <fieldset>
@@ -215,6 +208,71 @@
       </div>
     </div>
   </fieldset>
+
+</section>
+
+<section id="tab-loss" role="tabpanel" aria-labelledby="tab-loss-btn" hidden>
+
+  <p class="sub">What a receiver can still hear, and how much loss a link can absorb getting
+  to it. This is a calculator, not part of the code you hand out — nothing here goes into the
+  QR.</p>
+
+  <fieldset>
+    <legend>Receiver sensitivity</legend>
+    <p class="note"><strong>Sensitivity does not depend on frequency.</strong> It is set by
+    bandwidth and spreading factor alone: thermal noise in the channel, plus the receiver's
+    noise figure, plus how far below the noise that spreading factor can still decode.
+    <span class="mono">S = −174 + 10·log₁₀(BW) + NF + SNR<sub>min</sub></span>, with NF taken
+    as 6 dB. Frequency changes how much signal survives the journey, not what the far end can
+    hear when it arrives — which is why there is no frequency column below.</p>
+    <p class="note">At 125 kHz this lands on the SX1262 datasheet's typical figures across
+    SF7–SF12. SF5 and SF6 are extrapolated from the same 2.5 dB spacing and are the optimistic
+    end of the table, not measured values.</p>
+
+    <div class="views" role="radiogroup" aria-label="What to show">
+      <label><input type="radio" name="lbview" value="sens" checked> Sensitivity (dBm)</label>
+      <label><input type="radio" name="lbview" value="loss"> Path loss the link absorbs (dB)</label>
+      <label><input type="radio" name="lbview" value="air"> Airtime, 100 bytes (s)</label>
+    </div>
+    <div class="scroller" id="lb-table"></div>
+    <p class="note" id="lb-caption"></p>
+  </fieldset>
+
+  <fieldset>
+    <legend>Your hardware</legend>
+    <p class="note">Only used for the path-loss view. These four numbers describe <em>your</em>
+    radio, not the mesh — they are not in the QR code, not written to a node over USB, and not
+    part of a saved or exported setting. They stay in this browser.</p>
+    <div class="grid">
+      <div><label for="txp">Transmit power (dBm)</label>
+        <input class="lb" id="txp" inputmode="decimal" value="22"></div>
+      <div><label for="gtx">Antenna gain, sender (dBi)</label>
+        <input class="lb" id="gtx" inputmode="decimal" value="2.15"></div>
+      <div><label for="grx">Antenna gain, receiver (dBi)</label>
+        <input class="lb" id="grx" inputmode="decimal" value="2.15"></div>
+      <div><label for="loss">Cable and connector loss (dB)</label>
+        <input class="lb" id="loss" inputmode="decimal" value="0"></div>
+    </div>
+    <div class="err" id="lb-err"></div>
+    <p class="rate" id="budget"></p>
+  </fieldset>
+
+  <fieldset>
+    <legend>Reading it</legend>
+    <p class="note"><strong>There is deliberately no distance here.</strong> Turning path loss
+    into range needs terrain, antenna height and clutter; a free-space figure at these budgets
+    comes out in the thousands of kilometres, which is worse than no answer. Use the decibels
+    instead — 6 dB is twice the distance in free space and rather less than that in the real
+    world.</p>
+    <p class="note">The path-loss figure is a ceiling with no fade margin: a link sitting
+    exactly on it does not survive rain, a passing truck, or the leaves coming out. Real
+    deployments plan 10–20 dB below it.</p>
+    <p class="note">Sensitivity on its own always says "use SF12", which is true and useless.
+    Switch to the airtime view and the trade becomes visible: every 2.5 dB of reach costs
+    roughly double the time on air, and the air is shared with everyone else on the mesh.</p>
+  </fieldset>
+
+</section>
 </main>
 
 <script>
@@ -2806,7 +2864,41 @@ const LABEL_BAD = {
   txp: "transmit power", gtx: "sender gain", grx: "receiver gain", loss: "cable loss",
 };
 
-function renderBudget() {
+/* The bandwidths worth a column. The narrow end of LORA_BW (7.8 to
+ * 20.8 kHz) is left out: nothing on this mesh runs there, and a table
+ * nobody can read on a phone is a table nobody checks. They follow the
+ * same 3 dB-per-halving rule anyway, which the page states. */
+const BW_COLUMNS = [31.25, 62.5, 125, 250, 500];
+
+const VIEWS = {
+  sens: {
+    head: "Sensitivity (dBm)",
+    cell: (radio, sf, bwHz, cr) => sensitivityDbm(sf, bwHz).toFixed(1),
+    note: "Lower is better: how faint a signal that spreading factor can still decode. " +
+          "Frequency does not appear because it does not enter this — it changes what " +
+          "survives the path, not what the receiver can hear.",
+  },
+  loss: {
+    head: "Path loss absorbed (dB)",
+    cell: (radio, sf, bwHz, cr) => maxPathLossDb(radio, sf, bwHz).toFixed(1),
+    note: "Higher is better: your transmit power and antennas, less the wiring, less how " +
+          "faint the far end can hear. A ceiling with no fade margin.",
+  },
+  air: {
+    head: "Airtime for 100 bytes (s)",
+    cell: (radio, sf, bwHz, cr) => (airtimeMs(100, sf, bwHz, cr) / 1000).toFixed(2),
+    note: "Lower is better: how long one short message holds the channel against everyone " +
+          "else. This is the bill for the reach in the other two views.",
+  },
+};
+
+function currentView() {
+  const on = document.querySelector('input[name="lbview"]:checked');
+  const key = on ? on.value : "sens";
+  return VIEWS[key] ? key : "sens";
+}
+
+function renderLoss() {
   const c = currentConfig(), bwHz = toThousandths(c.bw);
   const radio = currentRadio();
   $("lb-err").textContent = radio.bad.length
@@ -2817,30 +2909,31 @@ function renderBudget() {
   const sens = sensitivityDbm(c.sf, bwHz);
   const budget = maxPathLossDb(radio, c.sf, bwHz);
   $("budget").innerHTML =
-    `At SF${c.sf} the far end can still hear <b>${sens.toFixed(1)} dBm</b>, so this link ` +
-    `absorbs up to <b>${budget.toFixed(1)} dB</b> of path loss ` +
+    `Your settings on the other tab — SF${c.sf} at ${c.bw} kHz — can hear down to ` +
+    `<b>${sens.toFixed(1)} dBm</b>, so the link absorbs up to <b>${budget.toFixed(1)} dB</b> ` +
     `<span>(${radio.txp.toFixed(0)} dBm out, ` +
     `${(radio.gtx + radio.grx).toFixed(1)} dBi of antenna, ` +
     `${radio.loss.toFixed(1)} dB of wiring)</span>`;
 
-  /* The table is the point: sensitivity alone tells you SF12 is best,
-   * which is true and useless. Airtime beside it is what makes the
-   * trade an actual decision. */
+  const key = currentView(), view = VIEWS[key];
+  const head = BW_COLUMNS.map(bw => `<th>${bw} kHz</th>`).join("");
   const rows = [];
   for (let sf = 5; sf <= 12; sf++) {
-    const b = maxPathLossDb(radio, sf, bwHz);
-    rows.push(
-      `<tr${sf === c.sf ? ' class="now"' : ""}><td>SF${sf}</td>` +
-      `<td>${sensitivityDbm(sf, bwHz).toFixed(1)} dBm</td>` +
-      `<td>${b.toFixed(1)} dB</td>` +
-      `<td>${(b - budget >= 0 ? "+" : "") + (b - budget).toFixed(1)} dB</td>` +
-      `<td>${(airtimeMs(100, sf, bwHz, c.cr) / 1000).toFixed(2)} s</td></tr>`,
-    );
+    const cells = BW_COLUMNS.map(bw => {
+      // The cell matching the QR tab's settings, so the calculator and
+      // the code you are about to print cannot drift apart unnoticed.
+      const here = sf === c.sf && Math.abs(bw - parseFloat(c.bw)) < 1e-9;
+      return `<td${here ? ' class="now"' : ""}>${view.cell(radio, sf, bw * 1000, c.cr)}</td>`;
+    }).join("");
+    rows.push(`<tr><td>SF${sf}</td>${cells}</tr>`);
   }
   $("lb-table").innerHTML =
-    '<table class="lb"><thead><tr><th>At ' + c.bw + ' kHz</th><th>Sensitivity</th>' +
-    '<th>Path loss</th><th>vs SF' + c.sf + '</th><th>100 B airtime</th></tr></thead>' +
-    "<tbody>" + rows.join("") + "</tbody></table>";
+    `<table class="lb"><thead><tr><th>${view.head}</th>${head}</tr></thead>` +
+    `<tbody>${rows.join("")}</tbody></table>`;
+
+  $("lb-caption").textContent = view.note +
+    (key === "air" ? ` Coding rate 4/${c.cr}, from the other tab.` : "") +
+    " The highlighted cell is your current settings.";
 }
 
 /* ---------- rendering ---------- */
@@ -2860,10 +2953,10 @@ function captionLines() {
 let lastUri = "", lastQr = null;
 
 function render() {
-  // Before the early return below: the budget depends on SF and
-  // bandwidth only, so it stays readable while a frequency is being
-  // typed and is momentarily invalid.
-  renderBudget();
+  // Before the early return below: the table depends on SF, bandwidth
+  // and coding rate only, so it stays readable while a frequency is
+  // being typed and is momentarily invalid.
+  renderLoss();
   const uri = currentUri();
   $("uri").textContent = uri || "—";
   $("qr").innerHTML = "";
@@ -2976,10 +3069,12 @@ $("copy").onclick = async () => {
 
 for (const el of document.querySelectorAll("input, select")) {
   if (el.id === "preset") continue;
-  // Your antenna is not one of the mesh's settings. Letting these
-  // through would knock the preset selector to "Custom…" and imply the
-  // saved settings had changed when nothing shared had.
-  if (el.classList.contains("lb")) continue;
+  // Nothing on the calculator tab is one of the mesh's settings — your
+  // antenna is yours. Letting these through would knock the preset
+  // selector to "Custom…" and imply the saved settings had changed when
+  // nothing shared had moved. Keyed on the section rather than on a
+  // class, so a control added there later cannot forget to opt out.
+  if (el.closest("#tab-loss")) continue;
   const onEdit = () => {
     // Touching a field means you are no longer on a named preset.
     if (!$("preset").value.startsWith("custom")) {
@@ -2992,10 +3087,26 @@ for (const el of document.querySelectorAll("input, select")) {
   el.addEventListener("change", onEdit);
 }
 
-for (const el of document.querySelectorAll("input.lb")) {
-  el.addEventListener("input", () => { saveRadio(); renderBudget(); });
-  el.addEventListener("change", () => { saveRadio(); renderBudget(); });
+for (const el of document.querySelectorAll("#tab-loss input")) {
+  const onEdit = () => { saveRadio(); renderLoss(); };
+  el.addEventListener("input", onEdit);
+  el.addEventListener("change", onEdit);
 }
+
+function showTab(which) {
+  const qr = which === "qr";
+  $("tab-qr").hidden = !qr;
+  $("tab-loss").hidden = qr;
+  for (const [btn, on] of [["tab-qr-btn", qr], ["tab-loss-btn", !qr]]) {
+    $(btn).classList.toggle("on", on);
+    $(btn).setAttribute("aria-selected", String(on));
+  }
+  // The QR tab owns SF, bandwidth and coding rate, so the calculator is
+  // rebuilt on the way in rather than left showing the last visit's.
+  if (!qr) renderLoss();
+}
+$("tab-qr-btn").onclick = () => showTab("qr");
+$("tab-loss-btn").onclick = () => showTab("loss");
 
 loadRadio();
 rebuildPresetList();
