@@ -50,6 +50,9 @@
   .warn { color: var(--warn); }
   .err { color: var(--warn); font-size: .85rem; margin-top: 8px; min-height: 1.2em; }
   p.note { color: var(--muted); font-size: .86rem; }
+  p.rate { margin: 12px 0 0; font-size: .9rem; }
+  p.rate b { font-variant-numeric: tabular-nums; }
+  p.rate span { color: var(--muted); }
 </style>
 
 <main>
@@ -90,6 +93,7 @@
       <div><label for="region">Flood region (optional)</label><input id="region" maxlength="31" placeholder="none"></div>
     </div>
     <div class="err" id="err"></div>
+    <p class="rate" id="rate"></p>
   </fieldset>
 
   <p class="note"><strong>Transmit power is deliberately not included.</strong> Every field above
@@ -2473,12 +2477,48 @@ function currentUri() {
   return u;
 }
 
+/* Nominal LoRa bit rate and the airtime of one typical packet.
+ *
+ * Rate alone flatters slow settings: SF11 looks like "1 kbps, fine".
+ * Airtime is what a shared medium actually spends, and it is what makes
+ * the trade legible — the same 100-byte message is 0.6s at SF7/62.5 and
+ * 1.6s at SF11/250. The formula is the Semtech one, matching
+ * Airtime.loRaAirtimeMs in the app so the two never disagree. */
+function bitrate(sf, bwHz, cr) { return sf * (bwHz / Math.pow(2, sf)) * (4 / cr); }
+
+function airtimeMs(payload, sf, bwHz, cr) {
+  // Low-data-rate optimisation kicks in when a symbol lasts longer than
+  // 16ms — Semtech's rule, and it depends on BANDWIDTH as well as SF.
+  // SF11 at 250kHz is an 8.19ms symbol, so LDRO is OFF there; the common
+  // "sf >= 11" shortcut (which the app's own Airtime still uses, though
+  // only in tests) over-states that case by about a fifth.
+  const symbolMs = Math.pow(2, sf) / (bwHz / 1000);
+  const de = symbolMs > 16 ? 1 : 0;
+  const sym = (1 << sf) / (bwHz / 1000);
+  const preamble = (8 + 4.25) * sym;
+  const num = 8 * payload - 4 * sf + 28 + 16;
+  const den = 4 * (sf - 2 * de);
+  const syms = 8 + Math.ceil(num / den) * (cr + 4);
+  return Math.ceil(preamble + syms * sym);
+}
+
+function showRate(bwHz, sf, cr) {
+  const bps = bitrate(sf, bwHz, cr);
+  const ms = airtimeMs(100, sf, bwHz, cr);
+  const rate = bps >= 1000 ? (bps / 1000).toFixed(2) + " kbps" : bps.toFixed(0) + " bps";
+  $("rate").innerHTML =
+    `Data rate <b>${rate}</b> <span>·</span> a 100-byte message occupies the channel for ` +
+    `<b>${(ms / 1000).toFixed(2)} s</b> <span>(lower SF and wider bandwidth are faster and ` +
+    `shorter-range; slower settings reach further but crowd the air)</span>`;
+}
+
 let lastUri = "", lastQr = null;
 function render() {
   const uri = currentUri();
   $("uri").textContent = uri || "—";
   $("qr").innerHTML = "";
-  if (!uri) { lastUri = ""; lastQr = null; return; }
+  if (!uri) { lastUri = ""; lastQr = null; $("rate").textContent = ""; return; }
+  showRate(toThousandths($("bw").value), +$("sf").value, +$("cr").value);
   lastUri = uri;
   try {
     // typeNumber 0 = pick the smallest version that fits; "M" is the

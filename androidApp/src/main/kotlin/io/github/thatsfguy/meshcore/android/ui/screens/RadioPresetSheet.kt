@@ -135,16 +135,17 @@ fun RadioPresetSheet(
                     )
                     if (targetName != null) {
                         Spacer(Modifier.height(8.dp))
-                        // The one-way-door warning. A repeater retunes
-                        // the moment the command lands, and the reply
-                        // comes back on the OLD parameters if at all —
-                        // after that the only way to reach it is to
-                        // retune this radio to match, or to go to it.
+                        // Saved now, applied on reboot — the firmware
+                        // answers `set radio` with "OK - reboot to
+                        // apply" and keeps using the old parameters
+                        // until it restarts (CommonCLI.cpp:571). The
+                        // one-way door is the REBOOT, not this dialog,
+                        // which is why the reboot gets its own prompt.
                         Text(
-                            "$targetName retunes as soon as this arrives. If it is wrong, " +
-                                "this radio can no longer reach $targetName to fix it — " +
-                                "you would have to match these settings here, or go to " +
-                                "the node.",
+                            "This saves the settings on $targetName; they take effect when " +
+                                "it reboots. Once it does, this radio must be on the same " +
+                                "settings to reach $targetName again — otherwise it needs " +
+                                "physical access.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.error,
                         )

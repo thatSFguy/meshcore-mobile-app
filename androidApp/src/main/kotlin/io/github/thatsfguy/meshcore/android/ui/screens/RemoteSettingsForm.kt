@@ -63,6 +63,15 @@ fun RemoteSettingsForm(
     var confirmAction by remember { mutableStateOf<Pair<String, String>?>(null) }
     var presetSheet by remember { mutableStateOf(false) }
 
+    /**
+     * Set to the name of what was just saved when the node needs a
+     * restart before it takes effect. `set radio` writes prefs only —
+     * the firmware literally replies "OK - reboot to apply" — so
+     * without this the operator gets a success and no change, which
+     * reads as the feature being broken.
+     */
+    var pendingReboot by remember { mutableStateOf<String?>(null) }
+
     // Seed from the cached contact record so the form is never empty.
     remember(contact?.keyHex) {
         if (contact != null) {
@@ -184,6 +193,10 @@ fun RemoteSettingsForm(
                         .any { dirty[it] == true }
                     if (radioEdited && f != null && bw != null && sf in 5..12 && cr in 5..8) {
                         add("set radio ${CliReplies.RadioCsv(f, bw, sf!!, cr!!).toCsv()}")
+                        // Same as the preset path: the node writes these
+                        // and keeps running on the old ones until it
+                        // restarts. Typing them by hand is no different.
+                        pendingReboot = "The radio settings you saved"
                     }
                     values[CliIds.TX]?.trim()?.toIntOrNull()?.let {
                         if (dirty[CliIds.TX] == true) add("set tx $it")
@@ -553,16 +566,15 @@ fun RemoteSettingsForm(
             targetName = contact?.name?.ifBlank { null } ?: keyHex.take(12),
             onApply = { preset ->
                 scope.launch {
-                    // TX FIRST, then the retune. `set radio` takes effect
-                    // the moment it lands, so anything sent after it goes
-                    // out on parameters the node has already left — the
-                    // TX command would simply never arrive.
                     vm.cliQuery(keyHex, "set ${CliIds.TX} ${preset.txPowerDbm}")
                     vm.cliQuery(keyHex, "set ${CliIds.RADIO} ${preset.toRadioCsv()}")
-                    // Show what we just asked for. Re-reading is not an
-                    // option: the node is on the new parameters and this
-                    // radio is not, so a fetch would time out and leave
-                    // the form looking like the command failed.
+                    // `set radio` over the CLI only writes prefs — the
+                    // firmware answers "OK - reboot to apply" and keeps
+                    // running on the old parameters until it restarts
+                    // (CommonCLI.cpp:571). So the node is still on the
+                    // air and still reachable, and re-reading it now
+                    // would show the OLD values, which is why the form
+                    // shows what was asked for instead.
                     values[CliFormFields.RADIO_FREQ] =
                         RadioUnits.khzToMhzText(preset.frequencyKhz)
                     values[CliFormFields.RADIO_BW] = RadioUnits.hzToKhzText(preset.bandwidthHz)
@@ -571,9 +583,47 @@ fun RemoteSettingsForm(
                     values[CliIds.TX] = preset.txPowerDbm.toString()
                     CliFormFields.RADIO_FIELDS.forEach { dirty[it] = false }
                     dirty[CliIds.TX] = false
-                    vm.transientMessage.value =
-                        "Sent ${preset.name}. This radio must match to reach it again."
+                    // Nothing has changed on air yet. Saying so — and
+                    // offering the reboot — is the difference between a
+                    // preset that works and one that looks like it did
+                    // nothing.
+                    pendingReboot = preset.name
                 }
+            },
+        )
+    }
+
+    pendingReboot?.let { what ->
+        val node = contact?.name?.ifBlank { null } ?: keyHex.take(12)
+        AlertDialog(
+            onDismissRequest = { pendingReboot = null },
+            title = { Text("Reboot $node to apply?") },
+            text = {
+                Column {
+                    Text(
+                        "$what is saved on $node, but the node is still running on its old " +
+                            "radio settings. It applies them when it restarts.",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "After the reboot this radio must be on the same settings to reach " +
+                            "$node again. If they do not match, you will need physical " +
+                            "access to the node.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    scope.launch { vm.cliQuery(keyHex, CliIds.REBOOT) }
+                    pendingReboot = null
+                    vm.transientMessage.value = "Reboot sent to $node"
+                }) { Text("Reboot now", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingReboot = null }) { Text("Later") }
             },
         )
     }
