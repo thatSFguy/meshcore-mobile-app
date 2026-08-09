@@ -2964,11 +2964,18 @@ function render() {
   lastUri = uri;
 
   const c = currentConfig(), bwHz = toThousandths(c.bw);
+  // Sensitivity comes from the same function the calculator tab uses.
+  // A second copy of the formula here is exactly how the two halves of
+  // this project have disagreed before, and it would be invisible: both
+  // numbers would look right.
   $("rate").innerHTML =
     `Data rate <b>${rateText(bwHz, c.sf, c.cr)}</b> <span>·</span> a 100-byte message ` +
     `occupies the channel for <b>${(airtimeMs(100, c.sf, bwHz, c.cr) / 1000).toFixed(2)} s</b> ` +
+    `<span>·</span> a receiver on these settings hears down to ` +
+    `<b>${sensitivityDbm(c.sf, bwHz).toFixed(1)} dBm</b> ` +
     `<span>(lower SF and wider bandwidth are faster and shorter-range; slower settings ` +
-    `reach further but crowd the air)</span>`;
+    `reach further but crowd the air — <a href="#" id="rate-more">the whole ` +
+    `trade in one table</a>)</span>`;
 
   try {
     const qr = qrcode(0, "M");
@@ -3107,6 +3114,15 @@ function showTab(which) {
 }
 $("tab-qr-btn").onclick = () => showTab("qr");
 $("tab-loss-btn").onclick = () => showTab("loss");
+
+// Delegated: render() rewrites the rate line on every keystroke, so a
+// handler bound to the link itself would be thrown away with it.
+$("rate").addEventListener("click", ev => {
+  if (ev.target.id !== "rate-more") return;
+  ev.preventDefault();
+  showTab("loss");
+  $("tab-loss").scrollIntoView({ block: "start" });
+});
 
 loadRadio();
 rebuildPresetList();

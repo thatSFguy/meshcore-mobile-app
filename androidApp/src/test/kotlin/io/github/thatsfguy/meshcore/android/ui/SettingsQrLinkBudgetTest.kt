@@ -148,6 +148,35 @@ class SettingsQrLinkBudgetTest {
     }
 
     @Test
+    fun theFormulaExistsOnlyOnce() {
+        // The QR tab's summary line quotes sensitivity too, and the
+        // tempting way to write that is to inline the arithmetic where
+        // it is displayed. That is the shape of defect this project
+        // keeps producing — two halves computing the same thing, both
+        // plausible, the suite green — and here it would be invisible,
+        // because a wrong number in dBm looks exactly like a right one.
+        // Block comments stripped: the formula is written out in prose
+        // beside the constant on purpose, and documenting it twice is
+        // not the same sin as computing it twice.
+        val code = html.replace(Regex("""/\*.*?\*/""", RegexOption.DOT_MATCHES_ALL), "")
+        assertEquals(
+            "the thermal-noise term must appear in exactly one function",
+            1,
+            Regex("""10 \* Math\.log10""").findAll(code).count(),
+        )
+        assertEquals(
+            "and the noise floor constant must be declared once",
+            1,
+            Regex("""-174""").findAll(code).count(),
+        )
+        val rate = html.substringAfter("""$("rate").innerHTML""").substringBefore(";")
+        assertTrue(
+            "the summary line must call the shared function, not recompute",
+            rate.contains("sensitivityDbm(c.sf, bwHz)"),
+        )
+    }
+
+    @Test
     fun theBudgetFieldsHaveTheirOwnStorage() {
         // Separate key, so importing someone else's settings file cannot
         // silently adopt their antenna — and so "Forget all", which
