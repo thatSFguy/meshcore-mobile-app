@@ -2,6 +2,7 @@ package io.github.thatsfguy.meshcore.android.ui
 
 import io.github.thatsfguy.meshcore.presentation.Inbox
 import io.github.thatsfguy.meshcore.presentation.AdminSession
+import io.github.thatsfguy.meshcore.protocol.PathRecovery
 import android.app.Application
 import android.content.ComponentName
 import android.content.Context
@@ -1278,10 +1279,56 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch { runCatching { svc.engine.requestStatus(key) } }
     }
 
+    /**
+     * Run an admin request, repairing the route if the node goes quiet.
+     *
+     * This is what "sign out and sign back in" was actually doing. The
+     * repeater's ACL entry never expires — there is no session to lose —
+     * so the only thing a re-login fixed was the cached return path,
+     * and only when it happened to go out as a flood. [PathRecovery]
+     * does that deliberately, and does the free probe before it spends
+     * the password.
+     *
+     * Recovery is gated on **being signed in**. For a node we were never
+     * signed into, a blank-password probe cannot be answered and the
+     * escalation would only spend the user's time confirming that the
+     * node is not talking to us.
+     */
+    private suspend fun <T> withPathRecovery(
+        keyHex: String,
+        request: suspend () -> T?,
+    ): T? {
+        val svc = _service.value ?: return null
+        val key = hexToBytesOrNull(keyHex) ?: return null
+        val attempt: suspend () -> T? = { runCatching { request() }.getOrNull() }
+        if ((_adminSessions.value[keyHex] ?: AdminSession.None) == AdminSession.None) {
+            return attempt()
+        }
+        var repairedAnything = false
+        val result = runCatching {
+            svc.engine.withPathRecovery(
+                repeaterPubKey = key,
+                password = savedLoginPassword(keyHex),
+                onStage = { stage ->
+                    repairedAnything = true
+                    PathRecovery.progressLabel(stage)?.let { transientMessage.value = it }
+                },
+                request = attempt,
+            )
+        }.getOrNull()
+        // Only claim the route was the problem if we actually tried to
+        // fix it — otherwise this is an ordinary unanswered request and
+        // the caller says so in its own words.
+        if (result == null && repairedAnything) {
+            transientMessage.value = PathRecovery.EXHAUSTED_MESSAGE
+        }
+        return result
+    }
+
     suspend fun repeaterStatus(keyHex: String): io.github.thatsfguy.meshcore.protocol.RepeaterStatus? {
         val svc = _service.value ?: return null
         val key = hexToBytesOrNull(keyHex) ?: return null
-        return runCatching { svc.engine.repeaterStatus(key) }.getOrNull()
+        return withPathRecovery(keyHex) { svc.engine.repeaterStatus(key) }
     }
 
     suspend fun repeaterTelemetry(keyHex: String): List<io.github.thatsfguy.meshcore.protocol.TelemetryReading> {
@@ -1401,7 +1448,7 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
         val svc = _service.value ?: return null
         val key = hexToBytesOrNull(keyHex) ?: return null
         val request = io.github.thatsfguy.meshcore.protocol.Neighbours.Request(offset = offset)
-        return runCatching { svc.engine.requestNeighbours(key, request) }.getOrNull()
+        return withPathRecovery(keyHex) { svc.engine.requestNeighbours(key, request) }
     }
 
     /**
@@ -1439,7 +1486,7 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
     ): List<io.github.thatsfguy.meshcore.protocol.AccessList.BinEntry>? {
         val svc = _service.value ?: return null
         val key = hexToBytesOrNull(keyHex) ?: return null
-        return runCatching { svc.engine.requestAccessList(key) }.getOrNull()
+        return withPathRecovery(keyHex) { svc.engine.requestAccessList(key) }
     }
 
     /** Names a neighbour prefix could belong to — plural stays plural. */

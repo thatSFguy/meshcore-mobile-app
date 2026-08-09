@@ -21,6 +21,7 @@ import io.github.thatsfguy.meshcore.protocol.AccessList
 import io.github.thatsfguy.meshcore.protocol.Neighbours
 import io.github.thatsfguy.meshcore.protocol.NodeDiscovery
 import io.github.thatsfguy.meshcore.protocol.PathCodec
+import io.github.thatsfguy.meshcore.protocol.PathRecovery
 import io.github.thatsfguy.meshcore.protocol.Regions
 import io.github.thatsfguy.meshcore.protocol.RoutingMode
 import io.github.thatsfguy.meshcore.protocol.TracePath
@@ -1108,6 +1109,85 @@ class MeshCoreEngine(
         return last
     }
 
+    /**
+     * Clear the route to [repeaterPubKey] in both directions.
+     *
+     * `CMD_RESET_PATH` clears it on our side, which forces the login
+     * that follows to go out as a flood; the flood is what makes the
+     * repeater clear ITS cached `out_path` for us
+     * (`simple_repeater/MyMesh.cpp`, `if (is_flood) client->out_path_len
+     * = OUT_PATH_UNKNOWN`). Doing only one half leaves the reply going
+     * down the same dead route.
+     *
+     * The login carries a **blank password on purpose**. For a sender
+     * already in the ACL the firmware never reaches the password
+     * comparison, so this re-establishes the route without putting the
+     * credential on the air. It answering also tells us something worth
+     * knowing: we are still in the node's ACL.
+     *
+     * Returns true when the node answered.
+     */
+    suspend fun resetPathAndProbe(repeaterPubKey: ByteArray): Boolean {
+        runCatching { resetPath(repeaterPubKey) }
+        return runCatching { sendLogin(repeaterPubKey, "").answered }.getOrDefault(false)
+    }
+
+    /**
+     * Run [request], and if it goes unanswered, repair the route and try
+     * again — the thing the user was doing by hand with Sign out /
+     * Sign in.
+     *
+     * The escalation order lives in [PathRecovery] and is tested there.
+     * What this adds is the reason the loop is shaped the way it is: a
+     * repair that itself goes unanswered escalates **without** re-sending
+     * the request. Re-sending after a failed repair would burn another
+     * full timeout to learn nothing — the route demonstrably was not
+     * fixed.
+     *
+     * [password] null or blank means the credential is not available
+     * (never saved, or the keystore is locked); the free probe still
+     * runs, and the loop simply ends one stage earlier.
+     *
+     * Null out means the same thing it meant before: no answer. A
+     * request that fails for any other reason — the node replying "not
+     * admin" by staying silent, for instance — is indistinguishable
+     * from a timeout at this layer, and gets the same treatment. That
+     * costs a wasted repair in a case that was never going to work; the
+     * alternative is not attempting recovery for the case that was.
+     */
+    suspend fun <T> withPathRecovery(
+        repeaterPubKey: ByteArray,
+        password: String?,
+        onStage: (PathRecovery.Stage) -> Unit = {},
+        request: suspend () -> T?,
+    ): T? {
+        val hasPassword = !password.isNullOrBlank()
+        var stage = PathRecovery.Stage.Initial
+        while (true) {
+            request()?.let { return it }
+
+            // Escalate until a repair reports success. PathRecovery only
+            // ever moves forwards and Exhausted is absorbing, so this
+            // terminates whatever the radio does.
+            var repaired = false
+            while (!repaired) {
+                stage = PathRecovery.escalate(stage, hasPassword)
+                if (stage == PathRecovery.Stage.Exhausted) return null
+                onStage(stage)
+                repaired = when (stage) {
+                    PathRecovery.Stage.PathReset ->
+                        resetPathAndProbe(repeaterPubKey)
+                    PathRecovery.Stage.Reauthenticated ->
+                        runCatching {
+                            sendLoginWithRetry(repeaterPubKey, password!!).accepted
+                        }.getOrDefault(false)
+                    else -> false
+                }
+                if (repaired) log("Path recovery: $stage repaired the route")
+            }
+        }
+    }
+
     /** Send a raw CLI command to a repeater. Replies arrive as
      *  [MeshEvent.DirectMessageReceived] with the repeater's prefix. */
     suspend fun sendCliCommand(repeaterPubKey: ByteArray, command: String): DeviceEvent.Sent? {
@@ -1160,12 +1240,11 @@ class MeshCoreEngine(
         repeaterPubKey: ByteArray,
         timeoutMs: Long = 30_000,
     ): List<AccessList.BinEntry>? {
-        val ev = sendAndAwait(
+        val body = binaryRequest(
             Frames.sendBinaryRequest(repeaterPubKey, AccessList.requestPayload()),
             timeoutMs = timeoutMs,
-        ) { it is DeviceEvent.BinaryResponse }
-        val payload = (ev as? DeviceEvent.BinaryResponse)?.payload ?: return null
-        return AccessList.parseBinary(binaryResponseBody(payload))
+        ) ?: return null
+        return AccessList.parseBinary(body)
     }
 
     /**
@@ -1186,12 +1265,11 @@ class MeshCoreEngine(
         timeoutMs: Long = 30_000,
     ): Neighbours.Table? {
         val nonce = crypto.randomBytes(Neighbours.NONCE_BYTES)
-        val ev = sendAndAwait(
+        val body = binaryRequest(
             Frames.sendBinaryRequest(repeaterPubKey, request.payload(nonce)),
             timeoutMs = timeoutMs,
-        ) { it is DeviceEvent.BinaryResponse }
-        val payload = (ev as? DeviceEvent.BinaryResponse)?.payload ?: return null
-        return Neighbours.parse(binaryResponseBody(payload), request)
+        ) ?: return null
+        return Neighbours.parse(body, request)
     }
 
     /** Request Cayenne-LPP telemetry from a node; empty on timeout. */
@@ -1765,6 +1843,59 @@ class MeshCoreEngine(
                 Regions.parseDiscoveryResponse(body)
             }
         }
+    }
+
+    /**
+     * Send a binary request and return the body of the reply that
+     * **carries our tag**, or null.
+     *
+     * `requestRegions` has done this since it was written; the ACL,
+     * neighbour and telemetry requests took the first
+     * `DeviceEvent.BinaryResponse` to arrive instead. Three of the four
+     * agreed and one did not, which is this project's recurring shape.
+     *
+     * In practice the radio covers for us — `companion_radio` keeps a
+     * single `pending_req` slot and drops any reply whose tag does not
+     * match it (`MyMesh.cpp:736`), so a late answer to a timed-out
+     * request is discarded before it reaches the wire. That makes this
+     * defence in depth rather than a bug fix. It is still worth having:
+     * the correlation costs one comparison, and "the radio happens to
+     * filter it for us" is a property of the firmware we would not
+     * notice losing.
+     *
+     * The reply pump subscribes BEFORE the send because the tag only
+     * becomes known when the radio's `Sent` receipt arrives, and on a
+     * 0-hop link the answer can beat us to it.
+     */
+    private suspend fun binaryRequest(
+        frame: ByteArray,
+        timeoutMs: Long,
+    ): ByteArray? = coroutineScope {
+        val replies = CoroutineChannel<ByteArray>(CoroutineChannel.UNLIMITED)
+        val pump = launch(start = CoroutineStart.UNDISPATCHED) {
+            events.collect { if (it is DeviceEvent.BinaryResponse) replies.trySend(it.payload) }
+        }
+        val sent = sendAndAwait(frame, timeoutMs = 10_000) {
+            it is DeviceEvent.Sent
+        } as? DeviceEvent.Sent
+
+        val body = if (sent == null) {
+            null
+        } else {
+            withTimeoutOrNull(timeoutMs) {
+                var match: ByteArray? = null
+                for (payload in replies) {
+                    if (binaryResponseTag(payload) == sent.ackHash) {
+                        match = binaryResponseBody(payload)
+                        break
+                    }
+                }
+                match
+            }
+        }
+        pump.cancel()
+        replies.close()
+        body
     }
 
     /** u32 tag echoed in a PUSH_CODE_BINARY_RESPONSE, or null if short. */

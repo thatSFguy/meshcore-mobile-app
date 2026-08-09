@@ -4,6 +4,8 @@ import io.github.thatsfguy.meshcore.model.Channel
 import io.github.thatsfguy.meshcore.platform.AndroidCryptoProvider
 import io.github.thatsfguy.meshcore.protocol.BufferWriter
 import io.github.thatsfguy.meshcore.protocol.ChannelCrypto
+import io.github.thatsfguy.meshcore.protocol.AccessList
+import io.github.thatsfguy.meshcore.protocol.PathRecovery
 import io.github.thatsfguy.meshcore.protocol.Advert
 import io.github.thatsfguy.meshcore.protocol.Codes
 import io.github.thatsfguy.meshcore.protocol.HeardRepeats
@@ -19,6 +21,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.yield
@@ -1262,5 +1265,257 @@ class MeshCoreEngineTest {
         job.cancel()
 
         assertTrue(seen.none { it is MeshEvent.OwnDirectRepeatHeard })
+    }
+
+    // ------------------------------------------------------------------
+    // Path recovery — what "sign out and sign back in" was really doing
+    // ------------------------------------------------------------------
+
+    private fun binarySentFrame(tag: Long, estTimeoutMs: Long = 3_000L): ByteArray =
+        BufferWriter().apply {
+            writeByte(Codes.RESP_CODE_SENT)
+            writeByte(0)
+            writeUInt32LE(tag)
+            writeUInt32LE(estTimeoutMs)
+        }.toBytes()
+
+    private fun binaryResponseFrame(tag: Long, body: ByteArray): ByteArray =
+        BufferWriter().apply {
+            writeByte(Codes.PUSH_CODE_BINARY_RESPONSE)
+            writeByte(0)   // reserved
+            writeUInt32LE(tag)
+            writeBytes(body)
+        }.toBytes()
+
+    /** One ACL row: 6-byte key prefix then the permissions byte. */
+    private fun aclEntry(permissions: Int): ByteArray =
+        ByteArray(AccessList.KEY_PREFIX_BYTES) { 0x11 } + byteArrayOf(permissions.toByte())
+
+    /** The password carried by a CMD_SEND_LOGIN frame the fake received. */
+    private fun loginPasswordOf(frame: ByteArray): String {
+        val start = 1 + 32
+        val end = frame.indexOfFirst(start) { it == 0.toByte() }
+        return frame.copyOfRange(start, end).decodeToString()
+    }
+
+    private inline fun ByteArray.indexOfFirst(from: Int, pred: (Byte) -> Boolean): Int {
+        for (i in from until size) if (pred(this[i])) return i
+        return size
+    }
+
+    /**
+     * Answers binary requests only after [failFirst] of them have gone
+     * unanswered, so a test can stage "the route was dead, then it was
+     * not" without any notion of time.
+     */
+    private fun flakyBinaryResponder(
+        radio: FakeRadio,
+        failFirst: Int,
+        body: ByteArray,
+        answerLogin: Boolean = true,
+    ): (ByteArray) -> List<ByteArray> {
+        val base = standardResponder(radio)
+        var seen = 0
+        val tag = 0x5150A11EL
+        return { frame ->
+            when (frame[0].toInt() and 0xFF) {
+                Codes.CMD_SEND_BINARY_REQ ->
+                    if (seen++ < failFirst) {
+                        listOf(binarySentFrame(tag))   // accepted, never answered
+                    } else {
+                        listOf(binarySentFrame(tag), binaryResponseFrame(tag, body))
+                    }
+                Codes.CMD_SEND_LOGIN ->
+                    if (answerLogin) listOf(loginSentFrame(), loginSuccessPush())
+                    else listOf(loginSentFrame())      // accepted, never answered
+                else -> base(frame)
+            }
+        }
+    }
+
+    private suspend fun TestScope.readyEngine(radio: FakeRadio): MeshCoreEngine {
+        val engine = MeshCoreEngine(backgroundScope, crypto, { now })
+        engine.attach(radio)
+        radio.connect()
+        engine.awaitReady()
+        return engine
+    }
+
+    @Test
+    fun anAdminRequestThatAnswersNeverTouchesTheRoute() = runTest {
+        // The control. Recovery that fires on a healthy request would
+        // put a flood login on the air every time you opened a screen.
+        val radio = FakeRadio()
+        radio.responder = flakyBinaryResponder(radio, failFirst = 0, body = aclEntry(3))
+        val engine = readyEngine(radio)
+
+        val acl = engine.withPathRecovery(peerKey, "hunter2") {
+            engine.requestAccessList(peerKey)
+        }
+
+        assertEquals(1, acl?.size)
+        assertEquals(0, radio.countOf(Codes.CMD_RESET_PATH))
+        assertEquals(0, radio.countOf(Codes.CMD_SEND_LOGIN))
+    }
+
+    @Test
+    fun anUnansweredRequestResetsTheRouteAndProbesWithABlankPassword() = runTest {
+        // The whole feature. The repeater caches the way back to us and
+        // answers down it; when that path dies the request still
+        // arrives and the reply goes nowhere. Clearing OUR path forces
+        // the login to flood, and a flooded login is what makes the
+        // repeater drop its own stale out_path.
+        val radio = FakeRadio()
+        radio.responder = flakyBinaryResponder(radio, failFirst = 1, body = aclEntry(3))
+        val engine = readyEngine(radio)
+
+        val acl = engine.withPathRecovery(peerKey, "hunter2") {
+            engine.requestAccessList(peerKey)
+        }
+
+        assertEquals(1, acl?.size, "the retry after the repair must succeed")
+        assertEquals(1, radio.countOf(Codes.CMD_RESET_PATH))
+
+        val logins = radio.sentFrames.filter { (it[0].toInt() and 0xFF) == Codes.CMD_SEND_LOGIN }
+        assertEquals(1, logins.size)
+        assertEquals(
+            "",
+            loginPasswordOf(logins[0]),
+            "the free probe must not put the password on the air",
+        )
+    }
+
+    @Test
+    fun theStoredPasswordIsOnlySpentAfterTheFreeProbeGoesUnanswered() = runTest {
+        // Ordering is the security property: CMD_SEND_LOGIN carries the
+        // password in cleartext, so the repair that costs nothing has to
+        // be tried first. Here nothing ever answers, so recovery walks
+        // the whole ladder and we can read the order off the wire.
+        val radio = FakeRadio()
+        radio.responder =
+            flakyBinaryResponder(radio, failFirst = 99, body = aclEntry(3), answerLogin = false)
+        val engine = readyEngine(radio)
+
+        val acl = engine.withPathRecovery(peerKey, "hunter2") {
+            engine.requestAccessList(peerKey)
+        }
+        assertNull(acl)
+
+        val passwords = radio.sentFrames
+            .filter { (it[0].toInt() and 0xFF) == Codes.CMD_SEND_LOGIN }
+            .map { loginPasswordOf(it) }
+        assertTrue(passwords.isNotEmpty(), "expected at least the probe")
+        assertEquals("", passwords.first(), "the blank probe must come first")
+        assertTrue(
+            passwords.drop(1).all { it == "hunter2" },
+            "after the probe, only the real credential: $passwords",
+        )
+    }
+
+    @Test
+    fun recoveryWithNoStoredPasswordStopsAfterTheProbe() = runTest {
+        // Without a credential there is nothing to escalate to, and
+        // attempting it anyway would cost the user another full timeout
+        // to arrive at the same answer.
+        val radio = FakeRadio()
+        radio.responder =
+            flakyBinaryResponder(radio, failFirst = 99, body = aclEntry(3), answerLogin = false)
+        val engine = readyEngine(radio)
+
+        assertNull(
+            engine.withPathRecovery(peerKey, password = null) {
+                engine.requestAccessList(peerKey)
+            },
+        )
+        assertEquals(1, radio.countOf(Codes.CMD_SEND_LOGIN), "probe only")
+        assertEquals(1, radio.countOf(Codes.CMD_RESET_PATH))
+    }
+
+    @Test
+    fun recoveryGivesUpInsteadOfLoopingForever() = runTest {
+        // A repeater that is simply gone must not turn into an app that
+        // floods logins at it until the battery dies. PathRecovery only
+        // moves forwards, so the request is sent a bounded number of
+        // times: the first attempt plus one after each repair.
+        val radio = FakeRadio()
+        radio.responder =
+            flakyBinaryResponder(radio, failFirst = 99, body = aclEntry(3), answerLogin = true)
+        val engine = readyEngine(radio)
+
+        assertNull(
+            engine.withPathRecovery(peerKey, "hunter2") { engine.requestAccessList(peerKey) },
+        )
+        assertEquals(
+            PathRecovery.requestAttempts(hasPassword = true),
+            radio.countOf(Codes.CMD_SEND_BINARY_REQ),
+        )
+    }
+
+    @Test
+    fun aFailedRepairEscalatesWithoutResendingTheRequest() = runTest {
+        // If the probe itself goes unanswered the route was NOT fixed,
+        // so re-sending the request would spend a second 30-second
+        // timeout proving what we already know.
+        val radio = FakeRadio()
+        radio.responder =
+            flakyBinaryResponder(radio, failFirst = 99, body = aclEntry(3), answerLogin = false)
+        val engine = readyEngine(radio)
+
+        engine.withPathRecovery(peerKey, "hunter2") { engine.requestAccessList(peerKey) }
+
+        // Probe unanswered, re-auth unanswered: both repairs failed, so
+        // only the original request was ever sent.
+        assertEquals(1, radio.countOf(Codes.CMD_SEND_BINARY_REQ))
+    }
+
+    @Test
+    fun theAccessListIgnoresAReplyTaggedForSomeoneElse() = runTest {
+        // requestRegions has correlated by tag since it was written;
+        // the ACL and neighbour requests took the first BinaryResponse
+        // to arrive. Three of four agreeing and one not is this
+        // project's recurring shape, and a mis-taken reply here parses
+        // as a DIFFERENT node's access list — a security surface that
+        // would look entirely plausible on screen.
+        val radio = FakeRadio()
+        val tag = 0x0BADCAFEL
+        radio.responder = { frame ->
+            when (frame[0].toInt() and 0xFF) {
+                Codes.CMD_SEND_BINARY_REQ -> listOf(
+                    binarySentFrame(tag),
+                    binaryResponseFrame(0xDEADBEEFL, aclEntry(3) + aclEntry(3)),
+                    binaryResponseFrame(tag, aclEntry(2)),
+                )
+                else -> standardResponder(radio)(frame)
+            }
+        }
+        val engine = readyEngine(radio)
+
+        val acl = engine.requestAccessList(peerKey)
+        assertEquals(1, acl?.size, "took the decoy: ${acl?.size} entries")
+        assertEquals(AccessList.ROLE_READ_WRITE, acl?.first()?.role)
+    }
+
+    @Test
+    fun neighboursAlsoCorrelateByTag() = runTest {
+        val radio = FakeRadio()
+        val tag = 0x11223344L
+        radio.responder = { frame ->
+            when (frame[0].toInt() and 0xFF) {
+                Codes.CMD_SEND_BINARY_REQ -> listOf(
+                    binarySentFrame(tag),
+                    binaryResponseFrame(0x99999999L, ByteArray(64) { 0x7F }),
+                    // total=0, count=0 — answered, knows nobody.
+                    binaryResponseFrame(tag, byteArrayOf(0, 0, 0, 0)),
+                )
+                else -> standardResponder(radio)(frame)
+            }
+        }
+        val engine = readyEngine(radio)
+
+        // The tagged reply is an empty table: answered, knows nobody.
+        // The decoy would have parsed as a table full of nonsense.
+        val table = engine.requestNeighbours(peerKey)
+        assertNotNull(table)
+        assertTrue(table.entries.isEmpty())
     }
 }
