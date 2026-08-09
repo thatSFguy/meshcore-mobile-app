@@ -64,6 +64,16 @@
   ul.saved li span.n { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   ul.saved li span.d { color: var(--muted); font-size: .82rem; }
   .empty { color: var(--muted); font-size: .86rem; }
+  label.filebtn {
+    font: inherit; padding: 8px 14px; border-radius: 7px; cursor: pointer; margin: 0;
+    border: 1px solid var(--line); background: var(--field); color: var(--fg);
+    display: inline-block; line-height: 1.2;
+  }
+  pre.log {
+    margin: 12px 0 0; padding: 10px; max-height: 220px; overflow: auto;
+    background: var(--field); border: 1px solid var(--line); border-radius: 7px;
+    font: 12px/1.5 ui-monospace, Menlo, Consolas, monospace; white-space: pre-wrap;
+  }
 </style>
 
 <main>
@@ -118,8 +128,12 @@
     experimenting. Nothing is sent anywhere, and clearing site data removes them.</p>
     <div class="row">
       <button id="save">Save current settings</button>
+      <button id="export">Export to file</button>
+      <label class="filebtn" for="import-file">Import from file</label>
+      <input type="file" id="import-file" accept="application/json,.json" hidden>
       <button id="clear-saved">Forget all</button>
     </div>
+    <div class="err" id="io-err"></div>
     <ul class="saved" id="saved-list"></ul>
   </fieldset>
 
@@ -130,6 +144,23 @@
   <p class="note warn">These are settings a community has agreed on, not legal advice.
   Frequency and duty cycle are regulated where you are, and getting them wrong is an offence in
   most places.</p>
+
+  <fieldset id="usb-box">
+    <legend>Apply over USB</legend>
+    <p class="note" id="usb-why">Plug a repeater, room server or companion node into this
+    computer and write the settings straight to it — no QR, no radio link. Over USB the node
+    takes commands without a login, because physical access already is the credential; it is
+    also the safest place to retune a node, since a mistake is recoverable by unplugging it
+    rather than by driving to a hilltop.</p>
+    <div class="row">
+      <button class="primary" id="usb-connect">Connect over USB</button>
+      <button id="usb-apply" disabled>Write these settings</button>
+      <button id="usb-reboot" disabled>Reboot node</button>
+      <button id="usb-disconnect" disabled>Disconnect</button>
+    </div>
+    <div class="err" id="usb-err"></div>
+    <pre id="usb-log" class="log" aria-live="polite"></pre>
+  </fieldset>
 
   <fieldset>
     <legend>Code</legend>
@@ -2810,4 +2841,245 @@ $("preset").value = "b:usa";
 applyConfig(PRESETS[0]);
 $("presetnote").textContent = PRESETS[0].note;
 render();
+
+/* ------------------------------------------------------------------ *
+ * Export / import of the saved list.
+ *
+ * Local storage is per-browser and per-device, which is fine while you
+ * are experimenting and useless the moment you want to hand a mesh's
+ * settings to the person who runs the other half of it. A file crosses
+ * that gap without a server.
+ * ------------------------------------------------------------------ */
+const EXPORT_KIND = "meshcore-hardened.settings";
+const EXPORT_VERSION = 1;
+
+$("export").onclick = () => {
+  const list = loadSaved();
+  if (!list.length) { $("io-err").textContent = "Nothing saved to export."; return; }
+  $("io-err").textContent = "";
+  const doc = { kind: EXPORT_KIND, v: EXPORT_VERSION, exported: new Date().toISOString(), settings: list };
+  const blob = new Blob([JSON.stringify(doc, null, 2)], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "meshcore-settings.json";
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+};
+
+/* Every field is re-validated. A settings file is the same class of
+ * input as the QR: someone else made it, and nothing in it is signed. */
+function sanitiseImported(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  const freqK = toThousandths(String(raw.freq));
+  const bw = parseFloat(raw.bw);
+  const sf = +raw.sf, cr = +raw.cr, hash = +(raw.hash ?? 1);
+  if (!Number.isFinite(freqK) || freqK < 300000 || freqK > 2500000) return null;
+  if (!LORA_BW.includes(bw)) return null;
+  if (!Number.isInteger(sf) || sf < 5 || sf > 12) return null;
+  if (!Number.isInteger(cr) || cr < 5 || cr > 8) return null;
+  if (!Number.isInteger(hash) || hash < 0 || hash > 2) return null;
+  const clean = s => String(s ?? "").replace(/[\x00-\x1f]/g, "").trim().slice(0, 31);
+  return {
+    name: clean(raw.name) || "(unnamed)",
+    freq: thousandthsText(freqK), bw: String(bw),
+    sf, cr, hash, region: clean(raw.region),
+  };
+}
+
+$("import-file").onchange = async ev => {
+  const file = ev.target.files && ev.target.files[0];
+  ev.target.value = "";
+  if (!file) return;
+  $("io-err").textContent = "";
+  try {
+    const doc = JSON.parse(await file.text());
+    const incoming = Array.isArray(doc) ? doc : doc.settings;
+    if (!Array.isArray(incoming)) throw new Error("no settings array");
+    if (!Array.isArray(doc) && doc.kind && doc.kind !== EXPORT_KIND) {
+      throw new Error("not a MeshCore settings file");
+    }
+    const list = loadSaved();
+    let added = 0, replaced = 0, refused = 0;
+    for (const raw of incoming) {
+      const c = sanitiseImported(raw);
+      if (!c) { refused++; continue; }
+      const at = list.findIndex(s => s.name === c.name);
+      if (at >= 0) { list[at] = c; replaced++; } else { list.push(c); added++; }
+    }
+    writeSaved(list);
+    rebuildPresetList(); renderSavedList();
+    const parts = [];
+    if (added) parts.push(`${added} added`);
+    if (replaced) parts.push(`${replaced} replaced`);
+    if (refused) parts.push(`${refused} refused as out of range`);
+    $("io-err").textContent = parts.length ? parts.join(", ") + "." : "Nothing usable in that file.";
+  } catch (e) {
+    $("io-err").textContent = "Could not read that file: " + e.message;
+  }
+};
+
+/* ------------------------------------------------------------------ *
+ * Apply over USB (Web Serial), like config.meshcore.io.
+ *
+ * A repeater's USB port is a plain text CLI at 115200: commands end
+ * with \r, the node echoes every character back, and a reply arrives on
+ * its own line prefixed "  -> " (examples/simple_repeater/main.cpp).
+ * There is no login over serial — handleCommand is called with
+ * sender_timestamp 0 — because physical access already is the
+ * credential.
+ *
+ * `set radio` only writes prefs; the firmware answers "OK - reboot to
+ * apply" and keeps running on the old parameters until it restarts. So
+ * the reboot is a separate, deliberate button rather than something
+ * this does behind your back.
+ * ------------------------------------------------------------------ */
+const SERIAL_OK = typeof navigator !== "undefined" && "serial" in navigator;
+let port = null, writer = null, reader = null, rxBuf = "", readLoopDone = null;
+
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+function usbLog(line) {
+  const el = $("usb-log");
+  el.textContent += line + "\n";
+  el.scrollTop = el.scrollHeight;
+}
+function usbButtons({ connected, busy }) {
+  $("usb-connect").disabled = connected || busy;
+  $("usb-apply").disabled = !connected || busy;
+  $("usb-reboot").disabled = !connected || busy;
+  $("usb-disconnect").disabled = !connected || busy;
+}
+
+async function readLoop() {
+  const dec = new TextDecoder();
+  reader = port.readable.getReader();
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      rxBuf += dec.decode(value, { stream: true });
+      // A node left talking to itself must not grow this without bound.
+      if (rxBuf.length > 16000) rxBuf = rxBuf.slice(-8000);
+    }
+  } catch { /* closed under us */ } finally {
+    try { reader.releaseLock(); } catch {}
+  }
+}
+
+/** Send one CLI line and wait for the "  -> " reply. Null on timeout. */
+async function cliSend(line, timeoutMs = 3000) {
+  rxBuf = "";
+  await writer.write(new TextEncoder().encode(line + "\r"));
+  const t0 = Date.now();
+  while (Date.now() - t0 < timeoutMs) {
+    // The node echoes the command back first, so anchor on the marker
+    // rather than on "some text arrived".
+    const at = rxBuf.indexOf("-> ");
+    if (at >= 0) {
+      const rest = rxBuf.slice(at + 3);
+      const nl = rest.indexOf("\n");
+      if (nl >= 0) return rest.slice(0, nl).trim().replace(/^>\s*/, "");
+    }
+    await sleep(40);
+  }
+  return null;
+}
+
+$("usb-connect").onclick = async () => {
+  $("usb-err").textContent = "";
+  usbButtons({ connected: false, busy: true });
+  try {
+    port = await navigator.serial.requestPort();
+    await port.open({ baudRate: 115200 });
+    writer = port.writable.getWriter();
+    readLoopDone = readLoop();
+    await sleep(300);
+
+    const ver = await cliSend("ver");
+    if (ver === null) {
+      usbLog("No reply to `ver`. Is this a MeshCore node, and is nothing else using the port?");
+      $("usb-err").textContent = "Connected, but the node did not answer.";
+    } else {
+      usbLog("Firmware: " + ver);
+    }
+    const radio = await cliSend("get radio");
+    if (radio) usbLog("Currently: " + radio + "  (freq,bw,sf,cr)");
+    const hash = await cliSend("get path.hash.mode");
+    if (hash !== null) usbLog("Path hash mode: " + hash);
+    usbButtons({ connected: true, busy: false });
+  } catch (e) {
+    $("usb-err").textContent = e && e.name === "NotFoundError"
+      ? "No port chosen." : "Could not open the port: " + (e && e.message);
+    await usbClose();
+    usbButtons({ connected: false, busy: false });
+  }
+};
+
+$("usb-apply").onclick = async () => {
+  const c = currentConfig();
+  if (!currentUri()) { $("usb-err").textContent = "Fix the settings above first."; return; }
+  $("usb-err").textContent = "";
+  usbButtons({ connected: true, busy: true });
+  try {
+    const csv = `${c.freq},${c.bw},${c.sf},${c.cr}`;
+    usbLog("> set radio " + csv);
+    usbLog("  " + (await cliSend("set radio " + csv) ?? "(no reply)"));
+    usbLog("> set path.hash.mode " + c.hash);
+    usbLog("  " + (await cliSend("set path.hash.mode " + c.hash) ?? "(no reply)"));
+    if (c.region) {
+      // `region load` is a multi-line mode and `region put` needs a
+      // parent — neither is a one-shot, so this reports rather than
+      // guesses. Radio settings make a node deaf; a region only changes
+      // what it forwards, so it is safe to leave for the operator.
+      usbLog("Region \"" + c.region + "\" not written — set it with `region put` on the node.");
+    }
+    usbLog("Saved. The node keeps its OLD settings until it reboots.");
+  } catch (e) {
+    $("usb-err").textContent = "Write failed: " + (e && e.message);
+  } finally {
+    usbButtons({ connected: true, busy: false });
+  }
+};
+
+$("usb-reboot").onclick = async () => {
+  usbButtons({ connected: true, busy: true });
+  try {
+    usbLog("> reboot");
+    await writer.write(new TextEncoder().encode("reboot\r"));
+    await sleep(600);
+    usbLog("Reboot sent. The node comes back on the new settings; every other node on the " +
+           "mesh must match them.");
+  } catch (e) {
+    $("usb-err").textContent = "Reboot failed: " + (e && e.message);
+  } finally {
+    usbButtons({ connected: true, busy: false });
+  }
+};
+
+async function usbClose() {
+  try { if (reader) await reader.cancel(); } catch {}
+  try { if (readLoopDone) await readLoopDone; } catch {}
+  try { if (writer) { writer.releaseLock(); } } catch {}
+  try { if (port) await port.close(); } catch {}
+  port = writer = reader = null; readLoopDone = null; rxBuf = "";
+}
+
+$("usb-disconnect").onclick = async () => {
+  await usbClose();
+  usbLog("Disconnected.");
+  usbButtons({ connected: false, busy: false });
+};
+
+if (!SERIAL_OK) {
+  // Web Serial is desktop Chrome/Edge only — not Firefox, not Safari,
+  // and not Chrome on Android. Saying which is more use than a disabled
+  // button with no explanation.
+  $("usb-box").querySelectorAll("button").forEach(b => b.disabled = true);
+  $("usb-why").innerHTML =
+    "<strong>This browser cannot talk to USB devices.</strong> Web Serial works in Chrome " +
+    "or Edge on a desktop computer — not Firefox, not Safari, and not any browser on a " +
+    "phone. Open this page there, or use the QR code above.";
+} else {
+  usbButtons({ connected: false, busy: false });
+}
+
 </script>
