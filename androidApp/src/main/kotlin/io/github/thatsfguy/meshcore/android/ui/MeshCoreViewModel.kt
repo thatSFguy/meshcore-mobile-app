@@ -1427,6 +1427,21 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
         }.getOrDefault(false)
     }
 
+    /**
+     * A repeater's access list, over the binary request.
+     *
+     * NOT `get acl`: that command only answers the serial console, so
+     * asking for it over the air returned "??: acl" and looked like old
+     * firmware. See AccessList.
+     */
+    suspend fun repeaterAccessList(
+        keyHex: String,
+    ): List<io.github.thatsfguy.meshcore.protocol.AccessList.BinEntry>? {
+        val svc = _service.value ?: return null
+        val key = hexToBytesOrNull(keyHex) ?: return null
+        return runCatching { svc.engine.requestAccessList(key) }.getOrNull()
+    }
+
     /** Names a neighbour prefix could belong to — plural stays plural. */
     fun neighbourNames(
         neighbour: io.github.thatsfguy.meshcore.protocol.Neighbours.Neighbour,

@@ -16,6 +16,7 @@ import io.github.thatsfguy.meshcore.protocol.Frames
 import io.github.thatsfguy.meshcore.protocol.SendRetry
 import io.github.thatsfguy.meshcore.protocol.HeardRepeats
 import io.github.thatsfguy.meshcore.protocol.HeardVia
+import io.github.thatsfguy.meshcore.protocol.AccessList
 import io.github.thatsfguy.meshcore.protocol.Neighbours
 import io.github.thatsfguy.meshcore.protocol.NodeDiscovery
 import io.github.thatsfguy.meshcore.protocol.PathCodec
@@ -1139,6 +1140,28 @@ class MeshCoreEngine(
 
     private fun statusFrame(ev: DeviceEvent.StatusResponse): ByteArray =
         byteArrayOf(Codes.PUSH_CODE_STATUS_RESPONSE.toByte()) + ev.payload
+
+    /**
+     * Ask a repeater for its access list (PARITY §6).
+     *
+     * Binary request, NOT the `get acl` CLI command — that one is
+     * guarded by `sender_timestamp == 0` in the firmware, so it only
+     * ever answers the serial console. See [AccessList].
+     *
+     * Null means no answer (or not admin — the firmware gates this on
+     * `sender->isAdmin()` and simply does not reply otherwise).
+     */
+    suspend fun requestAccessList(
+        repeaterPubKey: ByteArray,
+        timeoutMs: Long = 30_000,
+    ): List<AccessList.BinEntry>? {
+        val ev = sendAndAwait(
+            Frames.sendBinaryRequest(repeaterPubKey, AccessList.requestPayload()),
+            timeoutMs = timeoutMs,
+        ) { it is DeviceEvent.BinaryResponse }
+        val payload = (ev as? DeviceEvent.BinaryResponse)?.payload ?: return null
+        return AccessList.parseBinary(binaryResponseBody(payload))
+    }
 
     /**
      * Ask a repeater for one page of its one-hop neighbour table

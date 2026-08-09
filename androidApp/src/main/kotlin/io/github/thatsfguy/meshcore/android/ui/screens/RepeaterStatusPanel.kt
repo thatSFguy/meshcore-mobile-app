@@ -161,8 +161,8 @@ private fun StatField(label: String, value: String) {
 @Composable
 private fun AccessListSection(vm: MeshCoreViewModel, keyHex: String) {
     val scope = rememberCoroutineScope()
-    var parsed by remember(keyHex) {
-        mutableStateOf<io.github.thatsfguy.meshcore.protocol.AccessList.Parsed?>(null)
+    var entries by remember(keyHex) {
+        mutableStateOf<List<io.github.thatsfguy.meshcore.protocol.AccessList.BinEntry>?>(null)
     }
     var loading by remember { mutableStateOf(false) }
     var note by remember { mutableStateOf<String?>(null) }
@@ -175,9 +175,17 @@ private fun AccessListSection(vm: MeshCoreViewModel, keyHex: String) {
             onClick = {
                 scope.launch {
                     loading = true; note = null
-                    val reply = vm.cliQuery(keyHex, "get acl")
-                    parsed = io.github.thatsfguy.meshcore.protocol.AccessList.parse(reply)
-                    if (reply == null) note = "No reply — logged in and in range?"
+                    // Binary request, NOT `get acl`. That command is
+                    // guarded by `sender_timestamp == 0` in the
+                    // firmware, so it only ever answers the serial
+                    // console — over the air the node replied "??: acl",
+                    // which read like old firmware rather than a
+                    // question it could never have answered.
+                    entries = vm.repeaterAccessList(keyHex)
+                    if (entries == null) {
+                        note = "No reply. The node only answers this to an admin session — " +
+                            "a read-only login is not enough."
+                    }
                     loading = false
                 }
             },
@@ -185,11 +193,11 @@ private fun AccessListSection(vm: MeshCoreViewModel, keyHex: String) {
     }
     if (loading) SectionSpinner("Asking the node…")
     note?.let { HintText(it) }
-    parsed?.let { p ->
-        if (p.isEmpty) {
-            HintText("The node reported no access-list entries.")
+    entries?.let { list ->
+        if (list.isEmpty()) {
+            HintText("The node answered and reported no access-list entries.")
         }
-        for (entry in p.entries) {
+        for (entry in list) {
             Row(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
                 Text(
                     entry.keyPrefixHex,
@@ -197,31 +205,23 @@ private fun AccessListSection(vm: MeshCoreViewModel, keyHex: String) {
                     fontFamily = FontFamily.Monospace,
                     modifier = Modifier.weight(1f),
                 )
-                Text(entry.permission, style = MaterialTheme.typography.bodySmall)
+                Text(
+                    entry.roleLabel + if (entry.hasUnknownFlags) {
+                        // Never hide a bit we do not understand on an
+                        // access-list row: an unexplained flag is the
+                        // last thing to render as though it were known.
+                        " (0x%02x)".format(entry.permissions)
+                    } else {
+                        ""
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                )
             }
         }
-        // Anything the parser didn't recognise is shown as the node said
-        // it. A dropped line in an access list reads as "nobody has that
-        // access", which is exactly the wrong thing to imply.
-        for (line in p.unparsed) {
-            Text(
-                line,
-                style = MaterialTheme.typography.bodySmall,
-                fontFamily = FontFamily.Monospace,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        if (p.entries.isNotEmpty()) {
+        if (list.isNotEmpty()) {
             HintText(
                 "Prefixes, not full keys — a prefix identifies a node only as far as it " +
                     "goes. Editing the list is done from the node's own console.",
-            )
-        } else if (p.unparsed.isNotEmpty()) {
-            // Seen in the field: firmware without ACL support answers
-            // "??: acl". Show its words, then explain them.
-            HintText(
-                "That's the node's reply verbatim. A \"??\" means this firmware doesn't " +
-                    "know the command; some builds also require an admin login first.",
             )
         }
     }

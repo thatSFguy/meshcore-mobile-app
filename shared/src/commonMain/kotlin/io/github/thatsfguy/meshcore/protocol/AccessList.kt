@@ -18,6 +18,136 @@ package io.github.thatsfguy.meshcore.protocol
  */
 object AccessList {
 
+    // ------------------------------------------------------------------
+    // Binary form — the one that actually works over the air
+    // ------------------------------------------------------------------
+
+    /**
+     * `CMD_SEND_BINARY_REQ` / `REQ_TYPE_GET_ACCESS_LIST`.
+     *
+     * The text `get acl` cannot answer a remote client, and this app
+     * spent a release asking it to. In the firmware that command is
+     * guarded by `sender_timestamp == 0` — which is only true for the
+     * SERIAL console (`main.cpp` calls `handleCommand(0, …)`) — and it
+     * writes its output with `Serial.println`, setting `reply[0] = 0`.
+     * So over the air it matches nothing, answers nothing, and the node
+     * says `??: acl`, which reads like a firmware that is too old rather
+     * than a request that was never answerable.
+     *
+     * The binary request is the supported route
+     * (`MyMesh.cpp:265`, admin only):
+     * ```
+     *   request : [0x05][res1=0][res2=0]
+     *   reply   : count × { [6] key_prefix | [1] permissions }
+     * ```
+     * Entries whose permissions are 0 are deleted rows and the firmware
+     * skips them, so anything that arrives is live.
+     */
+    const val REQUEST_RESERVED_BYTES = 2
+
+    /** `[6] prefix | [1] permissions`. */
+    const val BIN_ENTRY_BYTES = 7
+
+    /** Bytes of public key each entry carries. NOT an identity. */
+    const val KEY_PREFIX_BYTES = 6
+
+    /** Refuse absurd lengths rather than trusting bytes off the mesh. */
+    const val MAX_ENTRIES = 256
+
+    /** `PERM_ACL_ROLE_MASK` — the role lives in the low two bits. */
+    const val ROLE_MASK = 0x03
+
+    const val ROLE_GUEST = 0
+    const val ROLE_READ_ONLY = 1
+    const val ROLE_READ_WRITE = 2
+    const val ROLE_ADMIN = 3
+
+    /** Request payload for REQ_TYPE_GET_ACCESS_LIST. */
+    fun requestPayload(): ByteArray =
+        ByteArray(1 + REQUEST_RESERVED_BYTES).also {
+            it[0] = Codes.REQ_TYPE_GET_ACCESS_LIST.toByte()
+            // res1/res2 must be zero; the firmware refuses anything else.
+        }
+
+    /** One entry from the binary reply. */
+    data class BinEntry(
+        /** 6-byte key prefix, hex. A prefix names a node only so far. */
+        val keyPrefixHex: String,
+        /** The permissions byte exactly as sent. */
+        val permissions: Int,
+    ) {
+        val role: Int get() = permissions and ROLE_MASK
+
+        /** "Admin", "Read-write", "Read-only", "Guest". */
+        val roleLabel: String get() = when (role) {
+            ROLE_ADMIN -> "Admin"
+            ROLE_READ_WRITE -> "Read-write"
+            ROLE_READ_ONLY -> "Read-only"
+            else -> "Guest"
+        }
+
+        /**
+         * True when the byte carries bits outside the role mask. Shown
+         * rather than hidden: an unknown flag on an access-list entry is
+         * exactly the thing not to render as though it were understood.
+         */
+        val hasUnknownFlags: Boolean get() = (permissions and ROLE_MASK.inv() and 0xFF) != 0
+    }
+
+    /**
+     * Parse the binary reply body.
+     *
+     * ## The body is padded, and the padding looks like entries
+     *
+     * The reply is encrypted, so it arrives rounded up to a 16-byte
+     * cipher block. Entries are 7 bytes, which does not divide 16, so
+     * the tail is whatever zeros the padding left. Against a live
+     * repeater with three admins that was 4 + 21 = 25 bytes padded to
+     * 32, giving 28 bytes of body — exactly four entries, the last of
+     * which was a phantom `000000000000 Guest`.
+     *
+     * Two rules sort real from padding, and both come from the
+     * firmware rather than from the shape of the bytes:
+     *
+     *  - `permissions == 0` is a DELETED row, which `MyMesh.cpp` skips
+     *    when building the reply. So a live entry never has it, and
+     *    anything that does is padding.
+     *  - a trailing partial entry is padding too, but ONLY if it is all
+     *    zeros. Anything else means the reply was cut short, and a
+     *    truncated access list must not render as a shorter one — a
+     *    missing row reads as "nobody has that access".
+     */
+    fun parseBinary(body: ByteArray): List<BinEntry>? {
+        val count = body.size / BIN_ENTRY_BYTES
+        if (count > MAX_ENTRIES) return null
+        // A partial trailing entry is only ever padding.
+        val remainder = body.size % BIN_ENTRY_BYTES
+        if (remainder != 0) {
+            val tail = body.copyOfRange(body.size - remainder, body.size)
+            if (tail.any { it.toInt() != 0 }) return null
+        }
+        val out = ArrayList<BinEntry>(count)
+        var off = 0
+        repeat(count) {
+            val prefix = body.copyOfRange(off, off + KEY_PREFIX_BYTES)
+            off += KEY_PREFIX_BYTES
+            val perms = body[off++].toInt() and 0xFF
+            if (perms == 0) return@repeat   // deleted row, or padding
+            out += BinEntry(
+                keyPrefixHex = prefix.joinToString("") {
+                    val v = it.toInt() and 0xFF
+                    "0123456789abcdef"[v shr 4].toString() + "0123456789abcdef"[v and 0x0F]
+                },
+                permissions = perms,
+            )
+        }
+        return out
+    }
+
+    // ------------------------------------------------------------------
+    // Text form — serial console only, kept for the console screen
+    // ------------------------------------------------------------------
+
     /** One access-list entry as the node reported it. */
     data class Entry(
         /** Hex key prefix the node named. Never a full identity — a
