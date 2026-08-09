@@ -89,6 +89,19 @@ fun AboutSection(vm: MeshCoreViewModel) {
  * is a changelog you can't read in the field.
  */
 private val CHANGELOG: List<Pair<String, List<String>>> = listOf(
+    "0.7.9" to listOf(
+        "Join a mesh by scanning a QR. A code can carry an area's frequency, bandwidth, " +
+            "spreading factor, coding rate, path-hash width and flood region. Scanning " +
+            "shows every value and asks first — nothing in a QR is signed.",
+        "The code carries no transmit power and no channel keys. Power is the legal limit " +
+            "where you are standing; a key would make the code a secret rather than " +
+            "something safe to print.",
+        "Applying radio settings to a repeater now offers to reboot it. The node saves " +
+            "them and keeps running on the old ones until it restarts, so without this a " +
+            "preset looked like it had done nothing. Your own radio applies immediately.",
+        "Generate codes at thatsfguy.github.io/meshcore-mobile-app/settings-qr/ — it runs " +
+            "in your browser, and the image carries the settings as readable text.",
+    ),
     "0.7.8" to listOf(
         "New preset: USA Rural — 906.375 MHz, 250 kHz, SF9, CR4/5, 22 dBm. Wide " +
             "bandwidth at a higher spreading factor, for sparse coverage where hops are " +

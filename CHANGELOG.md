@@ -11,6 +11,27 @@ Every entry describes what is in **that tagged build**. A feature that landed af
 belongs in the next section, not this one — 0.3.0 was once credited with four features that
 shipped after it, which misled nobody so much as the author, three months later.
 
+## 0.7.9
+
+- **Join a mesh by scanning a QR.** A code can now carry an area's radio settings —
+  frequency, bandwidth, spreading factor, coding rate, path-hash width and an optional
+  flood region. Scanning shows every value and asks before applying: nothing in a QR is
+  signed, and these are the settings that decide whether your radio is on the mesh at all.
+  Generate codes at
+  <https://thatsfguy.github.io/meshcore-mobile-app/settings-qr/> — it runs entirely in your
+  browser and the image carries the settings as readable text, so a printed code still says
+  what it does.
+- The code deliberately carries **no transmit power and no channel keys**. Power is the
+  legal limit where *you* are standing, not a property of the mesh; a channel key would make
+  the code a secret rather than something safe to pin to a noticeboard.
+- **Applying radio settings to a repeater now offers to reboot it.** The node saves them and
+  keeps running on the old ones until it restarts — the firmware says so, answering
+  "OK - reboot to apply" — so without the prompt a preset looked like it had done nothing.
+  This affects remote nodes only; your own radio applies immediately.
+- The dropped **USA Rural / USA Suburban** presets are gone from the app and live on the
+  generator page instead, alongside MeshCore's USA/Canada default. Hardcoded frequencies go
+  stale silently and need a release to fix; a page you can edit does not.
+
 ## 0.7.8
 
 - **New preset: USA Rural** — 906.375 MHz, 250 kHz, SF9, CR4/5, 22 dBm. Wide bandwidth at
