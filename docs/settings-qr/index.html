@@ -55,6 +55,14 @@
   p.rate { margin: 12px 0 0; font-size: .9rem; }
   p.rate b { font-variant-numeric: tabular-nums; }
   p.rate span { color: var(--muted); }
+  table.lb {
+    width: 100%; border-collapse: collapse; margin: 14px 0 0;
+    font-size: .85rem; font-variant-numeric: tabular-nums;
+  }
+  table.lb th, table.lb td { text-align: right; padding: 5px 6px; border-bottom: 1px solid var(--line); }
+  table.lb th:first-child, table.lb td:first-child { text-align: left; }
+  table.lb th { color: var(--muted); font-weight: 500; font-size: .78rem; }
+  table.lb tr.now td { background: var(--chip); font-weight: 600; }
   .presetnote { color: var(--muted); font-size: .85rem; margin-top: 8px; min-height: 1.2em; }
   ul.saved { list-style: none; padding: 0; margin: 10px 0 0; }
   ul.saved li {
@@ -120,6 +128,35 @@
     </div>
     <div class="err" id="err"></div>
     <p class="rate" id="rate"></p>
+  </fieldset>
+
+  <fieldset>
+    <legend>Estimated path loss</legend>
+    <p class="note">How much loss the link can absorb before the signal is under the noise.
+    These four numbers describe <em>your</em> hardware, not the mesh — they are not in the QR
+    code, not written to a node over USB, and not part of a saved or exported setting. They
+    only change the estimate below, and they stay in this browser.</p>
+    <div class="grid">
+      <div><label for="txp">Transmit power (dBm)</label>
+        <input class="lb" id="txp" inputmode="decimal" value="22"></div>
+      <div><label for="gtx">Antenna gain, sender (dBi)</label>
+        <input class="lb" id="gtx" inputmode="decimal" value="2.15"></div>
+      <div><label for="grx">Antenna gain, receiver (dBi)</label>
+        <input class="lb" id="grx" inputmode="decimal" value="2.15"></div>
+      <div><label for="loss">Cable and connector loss (dB)</label>
+        <input class="lb" id="loss" inputmode="decimal" value="0"></div>
+    </div>
+    <div class="err" id="lb-err"></div>
+    <p class="rate" id="budget"></p>
+    <div id="lb-table"></div>
+    <p class="note"><strong>There is deliberately no distance here.</strong> Turning path loss
+    into range needs terrain, antenna height and clutter; a free-space figure at these budgets
+    comes out in the thousands of kilometres, which is worse than no answer. Use the decibels
+    instead — 6 dB is twice the distance in free space and rather less than that in the real
+    world. Each spreading-factor step is worth 2.5 dB, and halving the bandwidth another 3 dB.</p>
+    <p class="note">The figure is a ceiling with no fade margin: a link sitting exactly on it
+    does not survive rain, a passing truck, or the leaves coming out. Real deployments plan
+    10–20 dB below it.</p>
   </fieldset>
 
   <fieldset>
@@ -2694,6 +2731,118 @@ function rateText(bwHz, sf, cr) {
   return bps >= 1000 ? (bps / 1000).toFixed(2) + " kbps" : bps.toFixed(0) + " bps";
 }
 
+/* ---------- link budget ---------- */
+
+/* The demodulator SNR limit for each spreading factor, in dB. This is
+ * the whole of what makes a slow setting reach further: the chip can
+ * still decode SF12 twenty dB below the noise floor.
+ *
+ * Sensitivity is then the textbook thermal model — kTB, plus the
+ * receiver's noise figure, plus that limit:
+ *
+ *     S(dBm) = -174 + 10·log10(BW_Hz) + NF + SNR_min
+ *
+ * At 125 kHz it reproduces the SX1262 datasheet's typical figures
+ * within a few tenths across SF7–SF12 (SF7 -124.5, SF12 -137.0), which
+ * is the range MeshCore actually uses. SF5 and SF6 are extrapolated
+ * from the same 2.5 dB-per-step spacing and are the optimistic end of
+ * this table, not measured values. */
+const SNR_MIN_DB = { 5: -2.5, 6: -5, 7: -7.5, 8: -10, 9: -12.5, 10: -15, 11: -17.5, 12: -20 };
+const NOISE_FIGURE_DB = 6;
+const THERMAL_NOISE_DBM_HZ = -174;
+
+function sensitivityDbm(sf, bwHz) {
+  return THERMAL_NOISE_DBM_HZ + 10 * Math.log10(bwHz) + NOISE_FIGURE_DB + SNR_MIN_DB[sf];
+}
+
+/* Path loss the link can absorb: everything put into the air, less what
+ * the wiring eats, less how quiet a signal the far end can still hear.
+ * No fade margin — see the note under the table. */
+function maxPathLossDb(radio, sf, bwHz) {
+  return radio.txp + radio.gtx + radio.grx - radio.loss - sensitivityDbm(sf, bwHz);
+}
+
+/* Your own hardware. Deliberately NOT part of currentConfig(): power and
+ * antennas are not "match this or you are not on the mesh", so they do
+ * not belong in a code meant to be printed and handed around. They get
+ * their own storage key for the same reason — importing someone else's
+ * settings must not silently adopt their antenna. */
+const RADIO_KEY = "meshcore-hardened.settings-qr.radio";
+const RADIO_FIELDS = ["txp", "gtx", "grx", "loss"];
+const RADIO_LIMITS = { txp: [-20, 40], gtx: [-10, 30], grx: [-10, 30], loss: [0, 20] };
+
+function currentRadio() {
+  const out = {};
+  const bad = [];
+  for (const f of RADIO_FIELDS) {
+    const v = parseFloat($(f).value);
+    const [lo, hi] = RADIO_LIMITS[f];
+    if (!Number.isFinite(v) || v < lo || v > hi) bad.push(f);
+    out[f] = Number.isFinite(v) ? Math.min(Math.max(v, lo), hi) : 0;
+  }
+  out.bad = bad;
+  return out;
+}
+
+function loadRadio() {
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem(RADIO_KEY)); } catch { /* ignore */ }
+  if (!saved) return;
+  for (const f of RADIO_FIELDS) {
+    if (Number.isFinite(saved[f])) $(f).value = String(saved[f]);
+  }
+}
+
+function saveRadio() {
+  const r = currentRadio();
+  try {
+    localStorage.setItem(RADIO_KEY, JSON.stringify(
+      { txp: r.txp, gtx: r.gtx, grx: r.grx, loss: r.loss },
+    ));
+  } catch { /* private mode, quota — the page still works, it just forgets */ }
+}
+
+const LABEL_BAD = {
+  txp: "transmit power", gtx: "sender gain", grx: "receiver gain", loss: "cable loss",
+};
+
+function renderBudget() {
+  const c = currentConfig(), bwHz = toThousandths(c.bw);
+  const radio = currentRadio();
+  $("lb-err").textContent = radio.bad.length
+    ? "Out of range, using the nearest sane value: "
+      + radio.bad.map(f => LABEL_BAD[f]).join(", ") + "."
+    : "";
+
+  const sens = sensitivityDbm(c.sf, bwHz);
+  const budget = maxPathLossDb(radio, c.sf, bwHz);
+  $("budget").innerHTML =
+    `At SF${c.sf} the far end can still hear <b>${sens.toFixed(1)} dBm</b>, so this link ` +
+    `absorbs up to <b>${budget.toFixed(1)} dB</b> of path loss ` +
+    `<span>(${radio.txp.toFixed(0)} dBm out, ` +
+    `${(radio.gtx + radio.grx).toFixed(1)} dBi of antenna, ` +
+    `${radio.loss.toFixed(1)} dB of wiring)</span>`;
+
+  /* The table is the point: sensitivity alone tells you SF12 is best,
+   * which is true and useless. Airtime beside it is what makes the
+   * trade an actual decision. */
+  const rows = [];
+  for (let sf = 5; sf <= 12; sf++) {
+    const b = maxPathLossDb(radio, sf, bwHz);
+    rows.push(
+      `<tr${sf === c.sf ? ' class="now"' : ""}><td>SF${sf}</td>` +
+      `<td>${sensitivityDbm(sf, bwHz).toFixed(1)} dBm</td>` +
+      `<td>${b.toFixed(1)} dB</td>` +
+      `<td>${(b - budget >= 0 ? "+" : "") + (b - budget).toFixed(1)} dB</td>` +
+      `<td>${(airtimeMs(100, sf, bwHz, c.cr) / 1000).toFixed(2)} s</td></tr>`,
+    );
+  }
+  $("lb-table").innerHTML =
+    '<table class="lb"><thead><tr><th>At ' + c.bw + ' kHz</th><th>Sensitivity</th>' +
+    '<th>Path loss</th><th>vs SF' + c.sf + '</th><th>100 B airtime</th></tr></thead>' +
+    "<tbody>" + rows.join("") + "</tbody></table>";
+}
+
 /* ---------- rendering ---------- */
 
 const HASH_LABEL = ["1B hash", "2B hash", "3B hash"];
@@ -2711,6 +2860,10 @@ function captionLines() {
 let lastUri = "", lastQr = null;
 
 function render() {
+  // Before the early return below: the budget depends on SF and
+  // bandwidth only, so it stays readable while a frequency is being
+  // typed and is momentarily invalid.
+  renderBudget();
   const uri = currentUri();
   $("uri").textContent = uri || "—";
   $("qr").innerHTML = "";
@@ -2823,6 +2976,10 @@ $("copy").onclick = async () => {
 
 for (const el of document.querySelectorAll("input, select")) {
   if (el.id === "preset") continue;
+  // Your antenna is not one of the mesh's settings. Letting these
+  // through would knock the preset selector to "Custom…" and imply the
+  // saved settings had changed when nothing shared had.
+  if (el.classList.contains("lb")) continue;
   const onEdit = () => {
     // Touching a field means you are no longer on a named preset.
     if (!$("preset").value.startsWith("custom")) {
@@ -2835,6 +2992,12 @@ for (const el of document.querySelectorAll("input, select")) {
   el.addEventListener("change", onEdit);
 }
 
+for (const el of document.querySelectorAll("input.lb")) {
+  el.addEventListener("input", () => { saveRadio(); renderBudget(); });
+  el.addEventListener("change", () => { saveRadio(); renderBudget(); });
+}
+
+loadRadio();
 rebuildPresetList();
 renderSavedList();
 $("preset").value = "b:usa";
