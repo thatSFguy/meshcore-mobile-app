@@ -11,6 +11,28 @@ Every entry describes what is in **that tagged build**. A feature that landed af
 belongs in the next section, not this one — 0.3.0 was once credited with four features that
 shipped after it, which misled nobody so much as the author, three months later.
 
+## 0.7.12
+
+- **A repeater that goes quiet now repairs itself.** When a node you are signed into stops
+  answering, the app clears the route and re-establishes it, then retries — the thing you
+  were doing by hand with Sign out / Sign in. It tells you while it works, and it does the
+  free repair first: the probe is a login carrying **no password**, which is enough for a
+  node that already knows you, so your credential does not go back on the air unless that
+  fails. There is no session to expire on a repeater — a login is permanent and survives a
+  reboot — so what re-signing-in ever fixed was the *route*, and only when it happened to
+  go out as a flood. This does it deliberately.
+- **Except when you pinned the route yourself**, where it says so instead. A pinned route
+  cannot be repaired this way — the node only forgets a dead return path for a login that
+  floods, and a pinned contact never floods — so it now fails in a third of the time and
+  names the pin rather than spending ninety seconds and your password proving it.
+- **The settings-QR generator estimates sensitivity and path loss.** A new tab gives
+  receiver sensitivity and the loss a link can absorb across every spreading factor and
+  bandwidth, with airtime beside it, and the summary line on the code page now says what a
+  receiver on those settings can hear. There is deliberately no distance: turning path loss
+  into range needs terrain, and a confident wrong number is worse than none.
+- Internal: the access-list and neighbour replies are now matched to the request that asked
+  for them, as the region lookup always was. Three of the four agreed and one did not.
+
 ## 0.7.11
 
 - **"Scan settings QR…" is on both radio screens**, beside "Use a regional preset…" —

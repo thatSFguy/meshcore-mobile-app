@@ -89,6 +89,20 @@ fun AboutSection(vm: MeshCoreViewModel) {
  * is a changelog you can't read in the field.
  */
 private val CHANGELOG: List<Pair<String, List<String>>> = listOf(
+    "0.7.12" to listOf(
+        "A repeater that goes quiet now repairs itself. The app clears the route, " +
+            "re-establishes it and retries — what you were doing by hand with Sign out / " +
+            "Sign in. The first repair is a login carrying no password, which is enough " +
+            "for a node that already knows you, so your credential only goes back on the " +
+            "air if that fails.",
+        "There is no session to expire on a repeater: a login is permanent and survives a " +
+            "reboot. What re-signing-in ever fixed was the route.",
+        "Except when you pinned the route yourself, where it says so instead — a pinned " +
+            "route cannot be repaired this way, so it fails fast and names the pin.",
+        "The settings-QR generator estimates sensitivity and path loss across every " +
+            "spreading factor and bandwidth, with airtime beside it. No distance: that " +
+            "needs terrain, and a confident wrong number is worse than none.",
+    ),
     "0.7.11" to listOf(
         "\"Scan settings QR…\" is on both radio screens, beside \"Use a regional " +
             "preset…\" — Settings → Radio for the radio in your hand, and a repeater's " +
