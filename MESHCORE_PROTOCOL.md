@@ -672,7 +672,8 @@ display text in both forms; only the public key identifies anyone.
    accepts: a bad contact card adds a row, whereas these values decide whether a node is on
    a mesh at all and which frequency it transmits on. Ranges are enforced at parse
    (`ShareUri.decodeRadioConfig`) so an impossible value cannot reach a radio, and it must
-   always be shown and confirmed — never applied on scan. `tools/mesh-settings-qr.html`
+   always be shown and confirmed — never applied on scan. `docs/settings-qr/index.html` (published at
+   <https://thatsfguy.github.io/meshcore-mobile-app/settings-qr/>)
    generates them offline.
 
 Note also that QR codes rendered by dark-mode apps are **inverted** (light modules on a dark

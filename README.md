@@ -90,6 +90,25 @@ Requires **Android 8.0 (API 26)** or newer.
    scan a community QR.
 5. **See the mesh**: the **Map** tab plots every node advertising GPS.
 
+### Joining a local mesh by QR
+
+A mesh only exists because every node agrees on four radio values, and typing them correctly
+is a poor way to join one. **[Mesh settings QR generator →](https://thatsfguy.github.io/meshcore-mobile-app/settings-qr/)**
+makes a code your area can print or post; scanning it in MCH shows the settings and asks
+before applying anything.
+
+The page runs entirely in your browser — nothing is uploaded, and it keeps working offline
+once loaded. It starts on MeshCore's USA/Canada default and offers wide-bandwidth profiles
+whose air characteristics match what Meshtastic calls *LongFast* and *MediumFast* (the
+frequencies are MeshCore's; the two networks do not interoperate). Settings you build
+yourself are remembered in that browser's local storage.
+
+The code carries frequency, bandwidth, spreading factor, coding rate, path-hash width and an
+optional flood region — and deliberately **not** transmit power or channel keys. Power is the
+legal limit where the person scanning is standing, and a channel key would make the code a
+secret rather than something safe to pin to a noticeboard. Format:
+[`MESHCORE_PROTOCOL.md` §11](MESHCORE_PROTOCOL.md); source: [`docs/settings-qr/`](docs/settings-qr/).
+
 | Chats | Nodes | Map |
 |---|---|---|
 | ![Chats](docs/screenshots/01-chats.png) | ![Nodes](docs/screenshots/02-nodes.png) | ![Map](docs/screenshots/04-map.png) |

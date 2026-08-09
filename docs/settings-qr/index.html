@@ -1,27 +1,28 @@
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>MeshCore Hardened — mesh settings QR</title>
 <style>
   :root {
     --bg: #ffffff; --fg: #16181d; --muted: #5b6270; --line: #d9dde5;
-    --accent: #1f6feb; --warn: #b3261e; --field: #ffffff;
+    --accent: #1f6feb; --warn: #b3261e; --field: #ffffff; --chip: #f2f4f8;
   }
-  :root:not([data-theme="light"]) { }
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
       --bg: #14161a; --fg: #e6e8ec; --muted: #9aa2b1; --line: #2b3038;
-      --accent: #5aa0ff; --warn: #ff8a80; --field: #1b1e24;
+      --accent: #5aa0ff; --warn: #ff8a80; --field: #1b1e24; --chip: #20242b;
     }
   }
   :root[data-theme="dark"] {
     --bg: #14161a; --fg: #e6e8ec; --muted: #9aa2b1; --line: #2b3038;
-    --accent: #5aa0ff; --warn: #ff8a80; --field: #1b1e24;
+    --accent: #5aa0ff; --warn: #ff8a80; --field: #1b1e24; --chip: #20242b;
   }
+  * { box-sizing: border-box; }
   body {
     background: var(--bg); color: var(--fg); margin: 0;
     font: 15px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
     padding: 24px 16px 64px;
   }
-  main { max-width: 720px; margin: 0 auto; }
+  main { max-width: 760px; margin: 0 auto; }
   h1 { font-size: 1.4rem; margin: 0 0 4px; }
   .sub { color: var(--muted); margin: 0 0 20px; }
   fieldset { border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px 18px; margin: 0 0 18px; }
@@ -29,23 +30,24 @@
   .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
   label { display: block; font-size: .8rem; color: var(--muted); margin-bottom: 4px; }
   input, select {
-    width: 100%; box-sizing: border-box; padding: 8px 10px; font: inherit;
+    width: 100%; padding: 8px 10px; font: inherit;
     background: var(--field); color: var(--fg);
     border: 1px solid var(--line); border-radius: 7px;
   }
   .out { display: flex; flex-wrap: wrap; gap: 22px; align-items: flex-start; }
-  #qr { background: #fff; padding: 12px; border-radius: 10px; line-height: 0; }
-  #qr canvas, #qr img { display: block; }
+  #qr { background: #fff; padding: 10px; border-radius: 10px; line-height: 0; }
+  #qr canvas { display: block; max-width: 100%; height: auto; }
   code#uri {
     display: block; word-break: break-all; background: var(--field);
     border: 1px solid var(--line); border-radius: 7px; padding: 10px;
-    font: 12.5px/1.5 ui-monospace, Menlo, Consolas, monospace; margin-top: 8px;
+    font: 12.5px/1.5 ui-monospace, Menlo, Consolas, monospace;
   }
   button {
     font: inherit; padding: 8px 14px; border-radius: 7px; cursor: pointer;
     border: 1px solid var(--line); background: var(--field); color: var(--fg);
   }
   button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.link { border: none; background: none; color: var(--accent); padding: 4px 6px; }
   .row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
   .warn { color: var(--warn); }
   .err { color: var(--warn); font-size: .85rem; margin-top: 8px; min-height: 1.2em; }
@@ -53,40 +55,54 @@
   p.rate { margin: 12px 0 0; font-size: .9rem; }
   p.rate b { font-variant-numeric: tabular-nums; }
   p.rate span { color: var(--muted); }
+  .presetnote { color: var(--muted); font-size: .85rem; margin-top: 8px; min-height: 1.2em; }
+  ul.saved { list-style: none; padding: 0; margin: 10px 0 0; }
+  ul.saved li {
+    display: flex; align-items: center; gap: 10px; padding: 7px 10px;
+    background: var(--chip); border-radius: 7px; margin-bottom: 6px;
+  }
+  ul.saved li span.n { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  ul.saved li span.d { color: var(--muted); font-size: .82rem; }
+  .empty { color: var(--muted); font-size: .86rem; }
 </style>
 
 <main>
   <h1>Mesh settings QR</h1>
-  <p class="sub">Generates a <code>meshcore://radio/set</code> code that MeshCore Hardened can
-  scan to join your area's mesh. Everything runs in this page — nothing is uploaded.</p>
+  <p class="sub">Generates a <code>meshcore://radio/set</code> code that
+  <a href="https://github.com/thatSFguy/meshcore-mobile-app">MeshCore Hardened</a> can scan to
+  join your area's mesh. Everything runs in this page — nothing is uploaded, and it works
+  offline once loaded.</p>
+
+  <fieldset>
+    <legend>Start from</legend>
+    <label for="preset">Preset</label>
+    <select id="preset"></select>
+    <div class="presetnote" id="presetnote"></div>
+  </fieldset>
 
   <fieldset>
     <legend>Mesh</legend>
     <label for="name">Name shown when scanning</label>
-    <input id="name" maxlength="31" placeholder="West Michigan" value="West Michigan">
+    <input id="name" maxlength="31" placeholder="West Michigan">
   </fieldset>
 
   <fieldset>
     <legend>Radio</legend>
     <div class="grid">
-      <div><label for="freq">Frequency (MHz)</label><input id="freq" value="906.375" inputmode="decimal"></div>
+      <div><label for="freq">Frequency (MHz)</label><input id="freq" inputmode="decimal"></div>
       <div><label for="bw">Bandwidth (kHz)</label>
         <select id="bw">
           <option>7.8</option><option>10.4</option><option>15.6</option><option>20.8</option>
           <option>31.25</option><option>62.5</option><option>125</option>
-          <option selected>250</option><option>500</option>
+          <option>250</option><option>500</option>
         </select>
       </div>
-      <div><label for="sf">Spreading factor</label>
-        <select id="sf"></select>
-      </div>
-      <div><label for="cr">Coding rate (4/x)</label>
-        <select id="cr"></select>
-      </div>
+      <div><label for="sf">Spreading factor</label><select id="sf"></select></div>
+      <div><label for="cr">Coding rate (4/x)</label><select id="cr"></select></div>
       <div><label for="hash">Path hash width</label>
         <select id="hash">
           <option value="0">1 byte</option>
-          <option value="1" selected>2 bytes</option>
+          <option value="1">2 bytes</option>
           <option value="2">3 bytes</option>
         </select>
       </div>
@@ -96,11 +112,22 @@
     <p class="rate" id="rate"></p>
   </fieldset>
 
-  <p class="note"><strong>Transmit power is deliberately not included.</strong> Every field above
-  is “match this or you are not on the mesh”. Power is not — it is the legal limit where the
-  scanner is standing and what their hardware can do. Nor are channel keys: this is a config
-  code, not a secret, so it is safe to print and post.</p>
-  <p class="note warn">These are the settings a community has agreed on, not legal advice.
+  <fieldset>
+    <legend>Your saved settings</legend>
+    <p class="note">Kept in this browser only (local storage) — handy while you are
+    experimenting. Nothing is sent anywhere, and clearing site data removes them.</p>
+    <div class="row">
+      <button id="save">Save current settings</button>
+      <button id="clear-saved">Forget all</button>
+    </div>
+    <ul class="saved" id="saved-list"></ul>
+  </fieldset>
+
+  <p class="note"><strong>Transmit power is deliberately not included.</strong> Every radio
+  field above is “match this or you are not on the mesh”. Power is not — it is the legal limit
+  where the scanner is standing and what their hardware can do. Nor are channel keys: this is a
+  config code, not a secret, so it is safe to print and post.</p>
+  <p class="note warn">These are settings a community has agreed on, not legal advice.
   Frequency and duty cycle are regulated where you are, and getting them wrong is an offence in
   most places.</p>
 
@@ -115,6 +142,8 @@
           <button id="dl-svg">Download SVG</button>
           <button id="copy">Copy link</button>
         </div>
+        <p class="note">The image carries the settings as readable text underneath, so a
+        printed code still says what it does.</p>
       </div>
     </div>
   </fieldset>
@@ -2431,20 +2460,153 @@ var qrcode = function() {
 }));
 
 /* ------------------------------------------------------------------ *
- * URI construction — must match ShareUri.encodeRadio exactly.
+ * Presets, URI construction, and the captioned image.
+ *
+ * The URI must match ShareUri.encodeRadio in the app exactly — the app
+ * re-parses this text, so the two formatters have to agree, including
+ * the trailing-zero trimming.
  * ------------------------------------------------------------------ */
 const LORA_BW = [7.8, 10.4, 15.6, 20.8, 31.25, 62.5, 125, 250, 500];
 const $ = id => document.getElementById(id);
+const STORE_KEY = "meshcore-hardened.settings-qr.saved";
 
-for (let sf = 5; sf <= 12; sf++) {
-  $("sf").add(new Option("SF" + sf, sf, false, sf === 11));
+/* The starting points. USA/Canada first because it is MeshCore's own
+ * default for North America; the other two are wide-bandwidth profiles
+ * whose SF and bandwidth match what Meshtastic calls LongFast and
+ * MediumFast, which is the shorthand most people already have. The
+ * Meshtastic names describe the AIR PROFILE only — the frequencies here
+ * are MeshCore's, and the two networks do not interoperate. */
+const PRESETS = [
+  {
+    id: "usa", label: "USA / Canada — MeshCore default",
+    name: "USA/Canada", freq: "910.525", bw: "62.5", sf: 7, cr: 5, hash: 1,
+    note: "MeshCore's default for North America: narrow (62.5 kHz) and fast at SF7. " +
+          "Short range per hop, very little airtime per message."
+  },
+  {
+    id: "rural", label: "Rural — air profile of Meshtastic LongFast",
+    name: "USA Rural", freq: "906.375", bw: "250", sf: 11, cr: 5, hash: 1,
+    note: "SF11 at 250 kHz — the same spreading factor and bandwidth Meshtastic calls " +
+          "LongFast. Long reach per hop, and slow: budget the airtime. Frequency is " +
+          "MeshCore's, so this does not talk to Meshtastic."
+  },
+  {
+    id: "suburban", label: "Suburban — air profile of Meshtastic MediumFast",
+    name: "USA Suburban", freq: "903.125", bw: "250", sf: 9, cr: 5, hash: 1,
+    note: "SF9 at 250 kHz — Meshtastic's MediumFast profile. About four times faster on " +
+          "air than SF11 for roughly half the link budget: the better bargain where nodes " +
+          "are closer together."
+  },
+];
+
+for (let sf = 5; sf <= 12; sf++) $("sf").add(new Option("SF" + sf, sf));
+for (let cr = 5; cr <= 8; cr++) $("cr").add(new Option("4/" + cr, cr));
+
+/* ---------- saved settings (local storage) ---------- */
+function loadSaved() {
+  try { return JSON.parse(localStorage.getItem(STORE_KEY)) || []; }
+  catch { return []; }
 }
-for (let cr = 5; cr <= 8; cr++) {
-  $("cr").add(new Option("4/" + cr, cr, false, cr === 5));
+function writeSaved(list) {
+  try { localStorage.setItem(STORE_KEY, JSON.stringify(list)); }
+  catch { /* private mode, quota — the page still works, it just forgets */ }
 }
 
-// Trailing zeros trimmed, matching RadioUnits.khzToMhzText — the app
-// re-parses this text, so the two formatters have to agree.
+function rebuildPresetList() {
+  const sel = $("preset"), prev = sel.value;
+  sel.innerHTML = "";
+  for (const p of PRESETS) sel.add(new Option(p.label, "b:" + p.id));
+  const saved = loadSaved();
+  if (saved.length) {
+    const g = document.createElement("optgroup");
+    g.label = "Saved in this browser";
+    saved.forEach((s, i) => g.appendChild(new Option(s.name || "(unnamed)", "s:" + i)));
+    sel.appendChild(g);
+  }
+  sel.add(new Option("Custom…", "custom"));
+  if ([...sel.options].some(o => o.value === prev)) sel.value = prev;
+}
+
+function renderSavedList() {
+  const list = loadSaved(), ul = $("saved-list");
+  ul.innerHTML = "";
+  if (!list.length) {
+    ul.innerHTML = '<li class="empty">Nothing saved yet.</li>';
+    return;
+  }
+  list.forEach((s, i) => {
+    const li = document.createElement("li");
+    const n = document.createElement("span");
+    n.className = "n"; n.textContent = s.name || "(unnamed)";
+    const d = document.createElement("span");
+    d.className = "d";
+    d.textContent = `${s.freq} MHz · ${s.bw} kHz · SF${s.sf} · 4/${s.cr}`;
+    const load = document.createElement("button");
+    load.className = "link"; load.textContent = "Load";
+    load.onclick = () => { applyConfig(s); $("preset").value = "s:" + i; render(); };
+    const del = document.createElement("button");
+    del.className = "link"; del.textContent = "Delete";
+    del.onclick = () => {
+      const next = loadSaved(); next.splice(i, 1); writeSaved(next);
+      rebuildPresetList(); renderSavedList();
+    };
+    li.append(n, d, load, del);
+    ul.appendChild(li);
+  });
+}
+
+function currentConfig() {
+  return {
+    name: $("name").value.trim(), freq: $("freq").value.trim(), bw: $("bw").value,
+    sf: +$("sf").value, cr: +$("cr").value, hash: +$("hash").value,
+    region: $("region").value.trim(),
+  };
+}
+function applyConfig(c) {
+  $("name").value = c.name || "";
+  $("freq").value = c.freq;
+  $("bw").value = String(c.bw);
+  $("sf").value = String(c.sf);
+  $("cr").value = String(c.cr);
+  $("hash").value = String(c.hash ?? 1);
+  $("region").value = c.region || "";
+}
+
+$("preset").onchange = () => {
+  const v = $("preset").value;
+  if (v.startsWith("b:")) {
+    const p = PRESETS.find(x => x.id === v.slice(2));
+    if (p) { applyConfig(p); $("presetnote").textContent = p.note; }
+  } else if (v.startsWith("s:")) {
+    const s = loadSaved()[+v.slice(2)];
+    if (s) { applyConfig(s); $("presetnote").textContent = "Saved in this browser."; }
+  } else {
+    $("presetnote").textContent = "Editing freely — use Save to keep these settings here.";
+  }
+  render();
+};
+
+$("save").onclick = () => {
+  const c = currentConfig();
+  if (!c.name) { $("err").textContent = "Give it a name before saving."; return; }
+  const list = loadSaved();
+  const at = list.findIndex(s => s.name === c.name);
+  if (at >= 0) list[at] = c; else list.push(c);
+  writeSaved(list);
+  rebuildPresetList(); renderSavedList();
+  $("preset").value = "s:" + (at >= 0 ? at : list.length - 1);
+  $("presetnote").textContent = "Saved in this browser.";
+};
+
+$("clear-saved").onclick = () => {
+  writeSaved([]);
+  rebuildPresetList(); renderSavedList();
+  if ($("preset").value.startsWith("s:")) $("preset").value = "custom";
+};
+
+/* ---------- URI ---------- */
+
+// Trailing zeros trimmed, matching RadioUnits.khzToMhzText.
 function thousandthsText(n) {
   const whole = Math.floor(Math.abs(n) / 1000), frac = Math.abs(n) % 1000;
   const s = frac === 0 ? String(whole)
@@ -2455,46 +2617,40 @@ const toThousandths = text => Math.round(parseFloat(text) * 1000);
 
 function currentUri() {
   const err = [];
-  const name = $("name").value.trim();
-  const freqK = toThousandths($("freq").value);
-  const bwHz = toThousandths($("bw").value);
-  const sf = +$("sf").value, cr = +$("cr").value, hash = +$("hash").value;
-  const region = $("region").value.trim();
-
+  const c = currentConfig();
+  const freqK = toThousandths(c.freq);
+  const bwHz = toThousandths(c.bw);
   if (!Number.isFinite(freqK) || freqK < 300000 || freqK > 2500000) {
     err.push("Frequency must be 300–2500 MHz.");
   }
-  if (!LORA_BW.includes(+$("bw").value)) err.push("Bandwidth must be a LoRa step.");
+  if (!LORA_BW.includes(parseFloat(c.bw))) err.push("Bandwidth must be a LoRa step.");
   $("err").textContent = err.join(" ");
   if (err.length) return null;
 
   let u = "meshcore://radio/set?v=1";
-  u += "&name=" + encodeURIComponent(name);
+  u += "&name=" + encodeURIComponent(c.name);
   u += "&freq=" + thousandthsText(freqK);
   u += "&bw=" + thousandthsText(bwHz);
-  u += "&sf=" + sf + "&cr=" + cr + "&hash=" + hash;
-  if (region) u += "&region=" + encodeURIComponent(region);
+  u += "&sf=" + c.sf + "&cr=" + c.cr + "&hash=" + c.hash;
+  if (c.region) u += "&region=" + encodeURIComponent(c.region);
   return u;
 }
 
-/* Nominal LoRa bit rate and the airtime of one typical packet.
- *
- * Rate alone flatters slow settings: SF11 looks like "1 kbps, fine".
+/* ---------- data rate ---------- */
+
+/* Rate alone flatters slow settings — SF11 reads as "1 kbps, fine".
  * Airtime is what a shared medium actually spends, and it is what makes
- * the trade legible — the same 100-byte message is 0.6s at SF7/62.5 and
- * 1.6s at SF11/250. The formula is the Semtech one, matching
- * Airtime.loRaAirtimeMs in the app so the two never disagree. */
+ * the trade legible. Semtech's formula. */
 function bitrate(sf, bwHz, cr) { return sf * (bwHz / Math.pow(2, sf)) * (4 / cr); }
 
 function airtimeMs(payload, sf, bwHz, cr) {
-  // Low-data-rate optimisation kicks in when a symbol lasts longer than
-  // 16ms — Semtech's rule, and it depends on BANDWIDTH as well as SF.
-  // SF11 at 250kHz is an 8.19ms symbol, so LDRO is OFF there; the common
-  // "sf >= 11" shortcut (which the app's own Airtime still uses, though
-  // only in tests) over-states that case by about a fifth.
+  // LDRO turns on when a symbol lasts longer than 16ms, which depends on
+  // BANDWIDTH as well as SF. SF11 at 250kHz is an 8.19ms symbol, so it
+  // is off there — the common "sf >= 11" shortcut over-states that case
+  // by about a fifth.
   const symbolMs = Math.pow(2, sf) / (bwHz / 1000);
   const de = symbolMs > 16 ? 1 : 0;
-  const sym = (1 << sf) / (bwHz / 1000);
+  const sym = symbolMs;
   const preamble = (8 + 4.25) * sym;
   const num = 8 * payload - 4 * sf + 28 + 16;
   const den = 4 * (sf - 2 * de);
@@ -2502,60 +2658,112 @@ function airtimeMs(payload, sf, bwHz, cr) {
   return Math.ceil(preamble + syms * sym);
 }
 
-function showRate(bwHz, sf, cr) {
+function rateText(bwHz, sf, cr) {
   const bps = bitrate(sf, bwHz, cr);
-  const ms = airtimeMs(100, sf, bwHz, cr);
-  const rate = bps >= 1000 ? (bps / 1000).toFixed(2) + " kbps" : bps.toFixed(0) + " bps";
-  $("rate").innerHTML =
-    `Data rate <b>${rate}</b> <span>·</span> a 100-byte message occupies the channel for ` +
-    `<b>${(ms / 1000).toFixed(2)} s</b> <span>(lower SF and wider bandwidth are faster and ` +
-    `shorter-range; slower settings reach further but crowd the air)</span>`;
+  return bps >= 1000 ? (bps / 1000).toFixed(2) + " kbps" : bps.toFixed(0) + " bps";
+}
+
+/* ---------- rendering ---------- */
+
+const HASH_LABEL = ["1B hash", "2B hash", "3B hash"];
+
+function captionLines() {
+  const c = currentConfig();
+  const bwHz = toThousandths(c.bw);
+  const l2 = `${c.freq} MHz · ${c.bw} kHz · SF${c.sf} · CR4/${c.cr} · ${HASH_LABEL[c.hash]}`
+           + (c.region ? ` · region ${c.region}` : "");
+  const l3 = `${rateText(bwHz, c.sf, c.cr)} · 100-byte message ≈ `
+           + (airtimeMs(100, c.sf, bwHz, c.cr) / 1000).toFixed(2) + " s airtime";
+  return [c.name || "(unnamed mesh)", l2, l3, "Scan with MeshCore Hardened"];
 }
 
 let lastUri = "", lastQr = null;
+
 function render() {
   const uri = currentUri();
   $("uri").textContent = uri || "—";
   $("qr").innerHTML = "";
   if (!uri) { lastUri = ""; lastQr = null; $("rate").textContent = ""; return; }
-  showRate(toThousandths($("bw").value), +$("sf").value, +$("cr").value);
   lastUri = uri;
+
+  const c = currentConfig(), bwHz = toThousandths(c.bw);
+  $("rate").innerHTML =
+    `Data rate <b>${rateText(bwHz, c.sf, c.cr)}</b> <span>·</span> a 100-byte message ` +
+    `occupies the channel for <b>${(airtimeMs(100, c.sf, bwHz, c.cr) / 1000).toFixed(2)} s</b> ` +
+    `<span>(lower SF and wider bandwidth are faster and shorter-range; slower settings ` +
+    `reach further but crowd the air)</span>`;
+
   try {
-    // typeNumber 0 = pick the smallest version that fits; "M" is the
-    // ECC level the app's scanner expects to cope with on a printed
-    // page that has been folded a few times.
     const qr = qrcode(0, "M");
     qr.addData(uri);
     qr.make();
     lastQr = qr;
-
-    const n = qr.getModuleCount(), scale = 6, quiet = 4;
-    const px = (n + quiet * 2) * scale;
-    const cv = document.createElement("canvas");
-    cv.width = cv.height = px;
-    const g = cv.getContext("2d");
-    g.fillStyle = "#fff"; g.fillRect(0, 0, px, px);
-    g.fillStyle = "#000";
-    for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) {
-      if (qr.isDark(r, c)) g.fillRect((c + quiet) * scale, (r + quiet) * scale, scale, scale);
-    }
-    $("qr").appendChild(cv);
+    $("qr").appendChild(drawCanvas(qr, 6));
   } catch (e) {
     $("err").textContent = "Could not encode: " + e.message;
     lastQr = null;
   }
 }
 
+/* The settings are drawn INTO the image, not just shown on the page.
+ * A printed code with no caption is a code nobody can sanity-check
+ * before scanning it — and these values decide whether a radio is on the
+ * mesh at all, so being able to read them off the paper matters. */
+function drawCanvas(qr, scale) {
+  const n = qr.getModuleCount(), quiet = 4;
+  const w = (n + quiet * 2) * scale;
+  const lines = captionLines();
+  const pad = 10, titleSize = 15, bodySize = 12, gap = 5;
+  const capH = pad + titleSize + gap + (lines.length - 1) * (bodySize + gap) + pad;
+
+  const cv = document.createElement("canvas");
+  cv.width = w;
+  cv.height = w + capH;
+  const g = cv.getContext("2d");
+  g.fillStyle = "#fff";
+  g.fillRect(0, 0, cv.width, cv.height);
+  g.fillStyle = "#000";
+  for (let r = 0; r < n; r++) for (let col = 0; col < n; col++) {
+    if (qr.isDark(r, col)) g.fillRect((col + quiet) * scale, (r + quiet) * scale, scale, scale);
+  }
+
+  let y = w + pad + titleSize;
+  g.textAlign = "center";
+  g.fillStyle = "#000";
+  g.font = `600 ${titleSize}px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif`;
+  g.fillText(lines[0], w / 2, y, w - 12);
+  g.font = `${bodySize}px ui-monospace, Menlo, Consolas, monospace`;
+  for (let i = 1; i < lines.length; i++) {
+    y += bodySize + gap;
+    g.fillStyle = i === lines.length - 1 ? "#666" : "#222";
+    g.fillText(lines[i], w / 2, y, w - 12);
+  }
+  return cv;
+}
+
 function svgText() {
   if (!lastQr) return null;
   const n = lastQr.getModuleCount(), quiet = 4, size = n + quiet * 2;
+  const lines = captionLines();
+  const capH = 6 + 5 + (lines.length - 1) * 4 + 5;
   let d = "";
   for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) {
     if (lastQr.isDark(r, c)) d += `M${c + quiet} ${r + quiet}h1v1h-1z`;
   }
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${size} ${size}" ` +
-         `shape-rendering="crispEdges"><rect width="${size}" height="${size}" fill="#fff"/>` +
-         `<path d="${d}" fill="#000"/></svg>`;
+  const esc = t => t.replace(/[<>&]/g, m => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;" }[m]));
+  let text = `<text x="${size / 2}" y="${size + 6}" text-anchor="middle" ` +
+             `font-family="system-ui,sans-serif" font-size="4" font-weight="600" ` +
+             `fill="#000">${esc(lines[0])}</text>`;
+  let y = size + 6;
+  for (let i = 1; i < lines.length; i++) {
+    y += 4.6;
+    text += `<text x="${size / 2}" y="${y}" text-anchor="middle" ` +
+            `font-family="ui-monospace,monospace" font-size="3.1" ` +
+            `fill="${i === lines.length - 1 ? "#666" : "#222"}">${esc(lines[i])}</text>`;
+  }
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${size} ${size + capH}" ` +
+         `shape-rendering="crispEdges"><rect width="${size}" height="${size + capH}" fill="#fff"/>` +
+         `<path d="${d}" fill="#000"/>${text}</svg>`;
 }
 
 const slug = () => ($("name").value.trim() || "mesh").replace(/[^\w.-]+/g, "-").toLowerCase();
@@ -2568,12 +2776,12 @@ function download(blob, ext) {
 }
 
 $("dl-png").onclick = () => {
-  const cv = $("qr").querySelector("canvas");
-  if (cv) cv.toBlob(b => download(b, "png"));
+  // Re-drawn at a larger scale so a printed code survives a photocopier.
+  if (lastQr) drawCanvas(lastQr, 10).toBlob(b => download(b, "png"));
 };
 $("dl-svg").onclick = () => {
   const s = svgText();
-  if (s) download(new Blob([s], {type: "image/svg+xml"}), "svg");
+  if (s) download(new Blob([s], { type: "image/svg+xml" }), "svg");
 };
 $("copy").onclick = async () => {
   if (!lastUri) return;
@@ -2583,8 +2791,23 @@ $("copy").onclick = async () => {
 };
 
 for (const el of document.querySelectorAll("input, select")) {
-  el.addEventListener("input", render);
-  el.addEventListener("change", render);
+  if (el.id === "preset") continue;
+  const onEdit = () => {
+    // Touching a field means you are no longer on a named preset.
+    if (!$("preset").value.startsWith("custom")) {
+      $("preset").value = "custom";
+      $("presetnote").textContent = "Editing freely — use Save to keep these settings here.";
+    }
+    render();
+  };
+  el.addEventListener("input", onEdit);
+  el.addEventListener("change", onEdit);
 }
+
+rebuildPresetList();
+renderSavedList();
+$("preset").value = "b:usa";
+applyConfig(PRESETS[0]);
+$("presetnote").textContent = PRESETS[0].note;
 render();
 </script>
