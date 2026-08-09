@@ -11,6 +11,20 @@ Every entry describes what is in **that tagged build**. A feature that landed af
 belongs in the next section, not this one — 0.3.0 was once credited with four features that
 shipped after it, which misled nobody so much as the author, three months later.
 
+## 0.7.8
+
+- **New preset: USA Rural** — 906.375 MHz, 250 kHz, SF9, CR4/5, 22 dBm. Wide bandwidth at
+  a higher spreading factor, for sparse coverage where hops are long and few. It is a
+  local addition, not from the reference table the other 47 came from, and the file says
+  which entries are which.
+- **Presets can now be applied to a repeater or room, not just the radio in your hand.**
+  "Use a regional preset…" is in the remote Radio panel, and the confirmation names the
+  node it is about to retune. It also warns what that means: the node changes the instant
+  the command lands, and this radio can no longer reach it to undo the mistake — you would
+  have to match the settings here, or go to the node.
+- Applying a preset remotely sends TX power **before** the retune, because everything
+  after the retune goes out on parameters the node has already left.
+
 ## 0.7.7
 
 - **Frequency is MHz and bandwidth is kHz everywhere.** The two screens disagreed because

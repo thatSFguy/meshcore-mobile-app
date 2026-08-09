@@ -61,6 +61,7 @@ fun RemoteSettingsForm(
     val values = remember { mutableStateMapOf<String, String>() }
     val dirty = remember { mutableStateMapOf<String, Boolean>() }
     var confirmAction by remember { mutableStateOf<Pair<String, String>?>(null) }
+    var presetSheet by remember { mutableStateOf(false) }
 
     // Seed from the cached contact record so the form is never empty.
     remember(contact?.keyHex) {
@@ -202,6 +203,14 @@ fun RemoteSettingsForm(
             },
         ) {
             HintText("Parameters must match your mesh or the node goes deaf.")
+            if (isAdmin) {
+                ButtonFlowRow {
+                    TextButton(
+                        enabled = isReady,
+                        onClick = { presetSheet = true },
+                    ) { Text("Use a regional preset…") }
+                }
+            }
             Row {
                 SettingsTextField(
                     "Freq (MHz)", values[CliFormFields.RADIO_FREQ].orEmpty(), Modifier.weight(1.2f),
@@ -535,6 +544,38 @@ fun RemoteSettingsForm(
         }
 
         Spacer(Modifier.height(32.dp))
+    }
+
+    if (presetSheet) {
+        RadioPresetSheet(
+            vm = vm,
+            onDismiss = { presetSheet = false },
+            targetName = contact?.name?.ifBlank { null } ?: keyHex.take(12),
+            onApply = { preset ->
+                scope.launch {
+                    // TX FIRST, then the retune. `set radio` takes effect
+                    // the moment it lands, so anything sent after it goes
+                    // out on parameters the node has already left — the
+                    // TX command would simply never arrive.
+                    vm.cliQuery(keyHex, "set ${CliIds.TX} ${preset.txPowerDbm}")
+                    vm.cliQuery(keyHex, "set ${CliIds.RADIO} ${preset.toRadioCsv()}")
+                    // Show what we just asked for. Re-reading is not an
+                    // option: the node is on the new parameters and this
+                    // radio is not, so a fetch would time out and leave
+                    // the form looking like the command failed.
+                    values[CliFormFields.RADIO_FREQ] =
+                        RadioUnits.khzToMhzText(preset.frequencyKhz)
+                    values[CliFormFields.RADIO_BW] = RadioUnits.hzToKhzText(preset.bandwidthHz)
+                    values[CliFormFields.RADIO_SF] = preset.spreadingFactor.toString()
+                    values[CliFormFields.RADIO_CR] = preset.codingRate.toString()
+                    values[CliIds.TX] = preset.txPowerDbm.toString()
+                    CliFormFields.RADIO_FIELDS.forEach { dirty[it] = false }
+                    dirty[CliIds.TX] = false
+                    vm.transientMessage.value =
+                        "Sent ${preset.name}. This radio must match to reach it again."
+                }
+            },
+        )
     }
 
     confirmAction?.let { (label, command) ->

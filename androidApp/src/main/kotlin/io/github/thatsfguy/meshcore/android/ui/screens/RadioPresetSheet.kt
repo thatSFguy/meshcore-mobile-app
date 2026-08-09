@@ -38,7 +38,23 @@ import io.github.thatsfguy.meshcore.protocol.RadioPresets
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun RadioPresetSheet(vm: MeshCoreViewModel, onDismiss: () -> Unit) {
+fun RadioPresetSheet(
+    vm: MeshCoreViewModel,
+    onDismiss: () -> Unit,
+    /**
+     * Which node this retunes. Null is the radio in your hand (companion
+     * frames); a name means a node across the mesh (its text CLI).
+     *
+     * The sheet takes the target rather than assuming the local radio
+     * because the consequence differs so much. Mis-tuning the radio in
+     * your pocket is a mistake you can undo over USB. Mis-tuning a
+     * repeater on a hill removes the only thing that could carry the
+     * correction — so the confirmation says which one you are about to
+     * change, by name.
+     */
+    targetName: String? = null,
+    onApply: ((RadioPresets.Preset) -> Unit)? = null,
+) {
     var query by remember { mutableStateOf("") }
     var confirming by remember { mutableStateOf<RadioPresets.Preset?>(null) }
 
@@ -99,7 +115,15 @@ fun RadioPresetSheet(vm: MeshCoreViewModel, onDismiss: () -> Unit) {
     confirming?.let { preset ->
         AlertDialog(
             onDismissRequest = { confirming = null },
-            title = { Text("Apply ${preset.name}?") },
+            title = {
+                Text(
+                    if (targetName == null) {
+                        "Apply ${preset.name}?"
+                    } else {
+                        "Apply ${preset.name} to $targetName?"
+                    },
+                )
+            },
             text = {
                 Column {
                     Text(preset.summary(), style = MaterialTheme.typography.bodyMedium)
@@ -109,6 +133,22 @@ fun RadioPresetSheet(vm: MeshCoreViewModel, onDismiss: () -> Unit) {
                             "they aren't, you won't see errors — you'll see an empty mesh.",
                         style = MaterialTheme.typography.bodySmall,
                     )
+                    if (targetName != null) {
+                        Spacer(Modifier.height(8.dp))
+                        // The one-way-door warning. A repeater retunes
+                        // the moment the command lands, and the reply
+                        // comes back on the OLD parameters if at all —
+                        // after that the only way to reach it is to
+                        // retune this radio to match, or to go to it.
+                        Text(
+                            "$targetName retunes as soon as this arrives. If it is wrong, " +
+                                "this radio can no longer reach $targetName to fix it — " +
+                                "you would have to match these settings here, or go to " +
+                                "the node.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
                     Spacer(Modifier.height(8.dp))
                     Text(
                         RadioPresets.REGULATORY_CAVEAT,
@@ -119,7 +159,7 @@ fun RadioPresetSheet(vm: MeshCoreViewModel, onDismiss: () -> Unit) {
             },
             confirmButton = {
                 TextButton(onClick = {
-                    vm.applyRadioPreset(preset)
+                    onApply?.invoke(preset) ?: vm.applyRadioPreset(preset)
                     confirming = null
                     onDismiss()
                 }) { Text("Apply") }

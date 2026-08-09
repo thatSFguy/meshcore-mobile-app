@@ -89,6 +89,16 @@ fun AboutSection(vm: MeshCoreViewModel) {
  * is a changelog you can't read in the field.
  */
 private val CHANGELOG: List<Pair<String, List<String>>> = listOf(
+    "0.7.8" to listOf(
+        "New preset: USA Rural — 906.375 MHz, 250 kHz, SF9, CR4/5, 22 dBm. Wide " +
+            "bandwidth at a higher spreading factor, for sparse coverage where hops are " +
+            "long and few.",
+        "Presets can be applied to a repeater or room, not just the radio in your hand. " +
+            "The confirmation names the node it will retune, and warns that this radio " +
+            "cannot reach it afterwards to undo a mistake.",
+        "Applying a preset remotely sends TX power before the retune — anything sent " +
+            "after it goes out on parameters the node has already left.",
+    ),
     "0.7.7" to listOf(
         "Frequency is MHz and bandwidth is kHz on both the local and the remote radio " +
             "screens. They disagreed because the transports do — the companion API takes " +
