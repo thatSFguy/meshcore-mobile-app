@@ -11,6 +11,19 @@ Every entry describes what is in **that tagged build**. A feature that landed af
 belongs in the next section, not this one — 0.3.0 was once credited with four features that
 shipped after it, which misled nobody so much as the author, three months later.
 
+## 0.7.7
+
+- **Frequency is MHz and bandwidth is kHz everywhere.** The two screens disagreed because
+  the two transports do: the companion API takes whole kHz and Hz, the text CLI takes MHz
+  and kHz, and each screen showed its own transport's units. The same radio read `910525` /
+  `62500` in Settings and `910.5250244` / `62.5` on a repeater one tap away. Both screens
+  now read and accept MHz and kHz; the wire is unchanged and conversion happens at the edge.
+- **The frequency no longer reads `910.5250244`.** That was not a bug so much as an honest
+  rendering of an ugly truth: the node stores frequency as a 32-bit float, `910.525` cannot
+  be represented exactly in one, and the CLI prints the nearest value at full precision.
+  The app now shortens it — but only when the shorter form is the *same number* to the
+  radio, so a frequency genuinely finer than a kHz is still shown exactly as reported.
+
 ## 0.7.6
 
 - **A delivered message can no longer be reported as a failure.** The retry loop opened a

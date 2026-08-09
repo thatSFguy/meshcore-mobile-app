@@ -32,6 +32,7 @@ import io.github.thatsfguy.meshcore.protocol.CliIds
 import io.github.thatsfguy.meshcore.protocol.CliValues
 import io.github.thatsfguy.meshcore.protocol.NodeRole
 import io.github.thatsfguy.meshcore.protocol.PathHashMode
+import io.github.thatsfguy.meshcore.protocol.RadioUnits
 import kotlinx.coroutines.launch
 
 /**
@@ -84,8 +85,14 @@ fun RemoteSettingsForm(
                 ?: continue
             if (id == CliIds.RADIO) {
                 CliReplies.parseRadioCsv(value)?.let { r ->
-                    values[CliFormFields.RADIO_FREQ] = r.freqMhz.toString()
-                    values[CliFormFields.RADIO_BW] = r.bwKhz.toString()
+                    // The node stores frequency as a 32-bit float and
+                    // prints it at full precision, so 910.525 comes back
+                    // as 910.5250244 — the nearest float32, rendered
+                    // honestly. tidyDecimal shortens it ONLY when the
+                    // shorter form is the same number to the radio, so
+                    // anything genuinely finer than a kHz survives.
+                    values[CliFormFields.RADIO_FREQ] = RadioUnits.tidyDecimal(r.freqMhz.toString())
+                    values[CliFormFields.RADIO_BW] = RadioUnits.tidyDecimal(r.bwKhz.toString())
                     values[CliFormFields.RADIO_SF] = r.sf.toString()
                     values[CliFormFields.RADIO_CR] = r.cr.toString()
                     CliFormFields.RADIO_FIELDS

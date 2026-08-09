@@ -37,6 +37,7 @@ import io.github.thatsfguy.meshcore.android.ui.MeshCoreViewModel
 import io.github.thatsfguy.meshcore.engine.EngineState
 import io.github.thatsfguy.meshcore.protocol.Codes
 import io.github.thatsfguy.meshcore.protocol.PathHashMode
+import io.github.thatsfguy.meshcore.protocol.RadioUnits
 import io.github.thatsfguy.meshcore.protocol.Regions
 import java.text.DateFormat
 import java.util.Date
@@ -198,8 +199,15 @@ internal fun RadioSection(vm: MeshCoreViewModel) {
         HintText("Connect to a radio to edit radio parameters.")
         return
     }
-    var freq by remember(info.freqKhz) { mutableStateOf(info.freqKhz.toString()) }
-    var bw by remember(info.bwHz) { mutableStateOf(info.bwHz.toString()) }
+    // MHz and kHz — what the label says and what the remote form shows.
+    // The WIRE stays kHz/Hz (CMD_SET_RADIO_PARAMS); RadioUnits converts
+    // at the edge. Showing the wire's own units here meant the same
+    // radio read 910525 on this screen and 910.5250244 on a repeater's,
+    // one tap apart.
+    var freq by remember(info.freqKhz) {
+        mutableStateOf(RadioUnits.khzToMhzText(info.freqKhz))
+    }
+    var bw by remember(info.bwHz) { mutableStateOf(RadioUnits.hzToKhzText(info.bwHz)) }
     var sf by remember(info.sf) { mutableStateOf(info.sf.toString()) }
     var cr by remember(info.cr) { mutableStateOf(info.cr.toString()) }
     var tx by remember(info.txPowerDbm) { mutableStateOf(info.txPowerDbm.toString()) }
@@ -233,16 +241,12 @@ internal fun RadioSection(vm: MeshCoreViewModel) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         OutlinedTextField(
             value = freq, onValueChange = { freq = it },
-            // kHz, NOT Hz — see RadioPresets.Preset.frequencyKhz. The
-            // label used to say Hz, and the range below accepted both
-            // readings, so a value 1000x wrong passed validation and was
-            // rejected by the radio with no explanation.
-            label = { Text("Freq (kHz)") }, singleLine = true, modifier = Modifier.weight(1.2f),
+            label = { Text("Freq (MHz)") }, singleLine = true, modifier = Modifier.weight(1.2f),
         )
         Spacer(Modifier.width(4.dp))
         OutlinedTextField(
             value = bw, onValueChange = { bw = it },
-            label = { Text("BW (Hz)") }, singleLine = true, modifier = Modifier.weight(1f),
+            label = { Text("BW (kHz)") }, singleLine = true, modifier = Modifier.weight(1f),
         )
         Spacer(Modifier.width(4.dp))
         OutlinedTextField(
@@ -256,21 +260,23 @@ internal fun RadioSection(vm: MeshCoreViewModel) {
         )
     }
     TextButton(onClick = {
-        val f = freq.toLongOrNull()
-        val b = bw.toLongOrNull()
+        // Typed in MHz/kHz, sent in kHz/Hz. The bounds stay in wire
+        // units so they keep meaning the same thing as the radio's:
+        // 300_000..2_500_000 kHz is 300..2500 MHz. An earlier upper
+        // bound of 2_500_000_000 was that range read as Hz, so BOTH
+        // interpretations passed and the check caught nothing.
+        val f = RadioUnits.mhzTextToKhz(freq)
+        val b = RadioUnits.khzTextToHz(bw)
         val s = sf.toIntOrNull()
         val c = cr.toIntOrNull()
-        // 300_000..2_500_000 kHz = 300..2500 MHz. The old upper bound of
-        // 2_500_000_000 was the same range read as Hz, which meant BOTH
-        // interpretations passed and the check caught nothing.
         if (f != null && f in 300_000..2_500_000 && b != null && b in 7_000..500_000 &&
             s != null && s in 5..12 && c != null && c in 5..8
         ) {
             vm.setRadioParams(f, b, s, c)
         } else {
             vm.transientMessage.value =
-                "Freq is kHz (300000–2500000, e.g. 910525 for 910.525 MHz), BW is Hz " +
-                    "(7000–500000), SF 5–12, CR 5–8"
+                "Freq is MHz (300–2500, e.g. 910.525), BW is kHz (7–500, e.g. 62.5), " +
+                    "SF 5–12, CR 5–8"
         }
     }) { Text("Apply radio params") }
 

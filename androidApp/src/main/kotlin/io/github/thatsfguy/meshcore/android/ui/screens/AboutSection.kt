@@ -89,6 +89,16 @@ fun AboutSection(vm: MeshCoreViewModel) {
  * is a changelog you can't read in the field.
  */
 private val CHANGELOG: List<Pair<String, List<String>>> = listOf(
+    "0.7.7" to listOf(
+        "Frequency is MHz and bandwidth is kHz on both the local and the remote radio " +
+            "screens. They disagreed because the transports do — the companion API takes " +
+            "kHz and Hz, the CLI takes MHz and kHz — and each screen showed its own. The " +
+            "wire is unchanged; conversion happens at the edge.",
+        "The frequency no longer reads 910.5250244. The node stores it as a 32-bit " +
+            "float, 910.525 has no exact representation in one, and the CLI printed the " +
+            "nearest value in full. It is shortened only when the shorter form is the " +
+            "same number to the radio.",
+    ),
     "0.7.6" to listOf(
         "A delivered message can no longer be reported as a failure. Each retry opened " +
             "its own listener, and the engine's event stream has no replay, so an ACK " +
