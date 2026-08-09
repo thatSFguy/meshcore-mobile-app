@@ -115,4 +115,27 @@ class PathRecoveryTest {
             assertFalse(lower.contains("logged out"), "claims a logout: $text")
         }
     }
+
+    @Test
+    fun aPinnedRouteIsNotRecovered() {
+        // Not politeness — impossibility. The repeater drops its stale
+        // return path only for a FLOODED login, and a contact with a
+        // pinned path never floods, so the ladder cannot win. It can
+        // only overwrite the pin on the way past.
+        assertFalse(PathRecovery.shouldAttempt(pinned = true))
+        assertTrue(PathRecovery.shouldAttempt(pinned = false))
+    }
+
+    @Test
+    fun thePinnedMessageNamesTheFix() {
+        // The failure the user can act on is the pin, so the message has
+        // to say so and say what to change. "No answer" alone sends them
+        // hunting the radio, which is where ninety seconds went before.
+        val text = PathRecovery.PINNED_MESSAGE
+        assertTrue(text.contains("pinned"), text)
+        assertTrue(text.contains("Auto"), text)
+        val lower = text.lowercase()
+        assertFalse(lower.contains("session"), "blames the session: $text")
+        assertFalse(lower.contains("logged out"), "claims a logout: $text")
+    }
 }

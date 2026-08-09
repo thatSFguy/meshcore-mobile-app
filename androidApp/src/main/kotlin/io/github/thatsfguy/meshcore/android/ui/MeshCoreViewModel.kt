@@ -812,6 +812,15 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
             if (ok && path != null && path.isNotEmpty()) {
                 svc.repository.rememberPath(selfKey.value, keyHex, path)
             }
+            if (ok) {
+                // Remember that this route was CHOSEN, which the radio's
+                // contact record cannot tell us later — a pinned path and
+                // a learned one look identical to it.
+                prefs.setRoutePinned(
+                    keyHex,
+                    mode == io.github.thatsfguy.meshcore.protocol.RoutingMode.Manual,
+                )
+            }
             transientMessage.value =
                 if (ok) "Routing set to ${mode.name.lowercase()}" else "Radio rejected the route"
         }
@@ -1303,6 +1312,17 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
         val attempt: suspend () -> T? = { runCatching { request() }.getOrNull() }
         if ((_adminSessions.value[keyHex] ?: AdminSession.None) == AdminSession.None) {
             return attempt()
+        }
+        // A route the user pinned cannot be repaired from here: the
+        // repeater only drops its stale return path for a FLOODED login,
+        // and a contact with a pinned path never floods. Recovery would
+        // overwrite the pin, fail anyway, and bill the user ninety
+        // seconds and a cleartext password for the privilege — measured,
+        // on hardware, not assumed.
+        if (!PathRecovery.shouldAttempt(pinned = prefs.isRoutePinned(keyHex))) {
+            return attempt().also {
+                if (it == null) transientMessage.value = PathRecovery.PINNED_MESSAGE
+            }
         }
         var repairedAnything = false
         val result = runCatching {

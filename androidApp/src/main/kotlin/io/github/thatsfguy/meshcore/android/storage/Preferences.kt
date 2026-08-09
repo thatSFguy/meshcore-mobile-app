@@ -57,6 +57,31 @@ class Preferences(context: Context) {
         get() = prefs.getBoolean("flood_fallback_last_retry", true)
         set(v) { prefs.edit().putBoolean("flood_fallback_last_retry", v).apply() }
 
+    /**
+     * Contacts whose route the USER pinned, by public-key hex.
+     *
+     * The radio's contact record cannot answer this. `routingMode()`
+     * reads Manual from "has a stored path", which is equally true of a
+     * route the radio learned by itself — so gating anything on that
+     * would catch every contact with a working route, which is most of
+     * them. Only the app knows the difference, and only because it
+     * watched the user do it.
+     *
+     * Used by path recovery, which must not spend a password trying to
+     * repair a route someone chose on purpose.
+     */
+    var pinnedRoutes: Set<String>
+        get() = prefs.getStringSet("pinned_routes", emptySet()) ?: emptySet()
+        set(v) { prefs.edit().putStringSet("pinned_routes", v).apply() }
+
+    fun setRoutePinned(keyHex: String, pinned: Boolean) {
+        val key = keyHex.lowercase()
+        val next = if (pinned) pinnedRoutes + key else pinnedRoutes - key
+        pinnedRoutes = next
+    }
+
+    fun isRoutePinned(keyHex: String): Boolean = keyHex.lowercase() in pinnedRoutes
+
     var lastKind: String?
         get() = prefs.getString("last_kind", null)
         set(v) { prefs.edit().putString("last_kind", v).apply() }

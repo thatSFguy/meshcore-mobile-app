@@ -131,4 +131,40 @@ object PathRecovery {
      */
     const val EXHAUSTED_MESSAGE: String =
         "No answer after re-routing. The node is out of reach, or off."
+
+    /**
+     * Whether recovery is worth attempting at all.
+     *
+     * ## A pinned route makes the repair impossible, not merely rude
+     *
+     * The repeater clears its stale return path only for a login that
+     * arrives as a **flood**, and `BaseChatMesh::sendLogin` floods only
+     * when the contact has no stored path. A pinned contact has one. So
+     * with a pin in place the login goes direct, the repeater never
+     * re-learns the way back, and the ladder cannot succeed — it can
+     * only overwrite the pin on the way past.
+     *
+     * Driven on hardware 2026-08-09 and that is exactly what happened:
+     * both repairs reported success, the pin was re-applied before each
+     * retry, and ninety seconds and one cleartext password later the
+     * screen said "The node has not answered yet."
+     *
+     * So for a pinned contact this reports the pin and stops. It fails
+     * in a third of the time, never spends the credential on a problem
+     * the credential cannot fix, and names the one thing the user can
+     * actually change.
+     *
+     * **[pinned] must mean the user chose it.** It cannot be derived
+     * from the contact record: `routingMode()` calls any stored path
+     * "Manual", which is equally true of a route the radio learned by
+     * itself. Deriving it there would switch recovery off for every
+     * contact that has a working route — that is, for the population
+     * this feature exists to serve.
+     */
+    fun shouldAttempt(pinned: Boolean): Boolean = !pinned
+
+    /** Said instead of recovering, when the route was pinned by hand. */
+    const val PINNED_MESSAGE: String =
+        "No answer, and this contact has a pinned route. " +
+            "Set routing back to Auto to let it re-route."
 }
