@@ -191,6 +191,10 @@ fun ChannelEditSheet(vm: MeshCoreViewModel, channel: ChannelEntity, onDismiss: (
         ChannelQrDialog(
             name = name.ifBlank { "Channel ${channel.idx}" },
             pskHex = pskHex.trim(),
+            // Share the scope along with the key: a code that omits it
+            // hands someone a channel that behaves differently from the
+            // one you are running, and neither of you can see why.
+            regionScope = vm.prefs.channelRegion(channel.idx).orEmpty(),
             onDismiss = { shareQr = false },
         )
     }
@@ -198,8 +202,15 @@ fun ChannelEditSheet(vm: MeshCoreViewModel, channel: ChannelEntity, onDismiss: (
 
 /** QR for `meshcore://channel/add?…` — the form other MeshCore apps scan. */
 @Composable
-private fun ChannelQrDialog(name: String, pskHex: String, onDismiss: () -> Unit) {
-    val uri = remember(name, pskHex) { ShareUri.encodeChannel(name, pskHex) }
+private fun ChannelQrDialog(
+    name: String,
+    pskHex: String,
+    regionScope: String,
+    onDismiss: () -> Unit,
+) {
+    val uri = remember(name, pskHex, regionScope) {
+        ShareUri.encodeChannel(name, pskHex, regionScope)
+    }
     val qr = remember(uri) { runCatching { Qr.encode(uri) }.getOrNull() }
     val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
     androidx.compose.material3.AlertDialog(

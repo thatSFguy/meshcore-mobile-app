@@ -1073,7 +1073,11 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
     /** Commit a scanned channel key the user has confirmed. */
     fun confirmChannelShare(share: ShareUri.Decoded.ChannelShare) {
         pendingChannelShare.value = null
-        addChannel(share.name.ifBlank { "Shared channel" }, share.pskHex)
+        addChannel(
+            share.name.ifBlank { "Shared channel" },
+            share.pskHex,
+            regionScope = share.regionScope,
+        )
     }
 
     fun dismissChannelShare() {
@@ -1084,8 +1088,16 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
     // Channels
     // ------------------------------------------------------------------
 
-    /** Add a channel with an explicit PSK (hex) or a derived hashtag key. */
-    fun addChannel(name: String, pskHexOrEmpty: String) {
+    /**
+     * Add a channel with an explicit PSK (hex) or a derived hashtag key.
+     *
+     * [regionScope] is the flood scope a shared code asked for. It is
+     * not cosmetic: it decides how far this channel's messages travel,
+     * so a code that carries one and an app that ignores it produce a
+     * channel that floods globally while its owner believes it is
+     * contained.
+     */
+    fun addChannel(name: String, pskHexOrEmpty: String, regionScope: String = "") {
         val svc = _service.value ?: return
         viewModelScope.launch {
             val crypto = io.github.thatsfguy.meshcore.platform.androidCryptoProvider()
@@ -1121,7 +1133,38 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
                 return@launch
             }
             val ok = runCatching { svc.engine.setChannel(idx, name, psk) }.getOrDefault(false)
-            transientMessage.value = if (ok) "Channel added" else "Channel write failed"
+            if (!ok) {
+                transientMessage.value = "Channel write failed"
+                return@launch
+            }
+            // The scope belongs to the slot, so it can only be recorded
+            // once the slot is known — and only if the write worked, or
+            // a failed join would leave a scope pointing at a channel
+            // that isn't there.
+            val region = Regions.canonical(regionScope)
+            if (region != null) {
+                prefs.setChannelRegion(idx, region)
+                // A scope the radio does not know aborts the send rather
+                // than widening it, so adding the region locally is what
+                // makes the channel usable. Doing it silently would be
+                // wrong the other way: this is a routing change the user
+                // did not ask for by name.
+                val known = prefs.regions.contains(region)
+                if (!known) prefs.addRegion(region)
+                transientMessage.value = if (known) {
+                    "Channel added, scoped to $region"
+                } else {
+                    "Channel added, scoped to $region — new region added"
+                }
+            } else {
+                transientMessage.value = if (regionScope.isBlank()) {
+                    "Channel added"
+                } else {
+                    // Present but unusable: say so rather than joining
+                    // quietly unscoped, which floods wider than intended.
+                    "Channel added, but its region \"$regionScope\" was not usable"
+                }
+            }
         }
     }
 

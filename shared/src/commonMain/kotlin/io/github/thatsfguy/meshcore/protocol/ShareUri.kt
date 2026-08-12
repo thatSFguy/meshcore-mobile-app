@@ -50,6 +50,9 @@ object ShareUri {
      */
     const val LEGACY_CHANNEL_SECRET_PARAM = "channel_secret"
 
+    /** Optional flood scope on a channel share (`docs/qr_codes.md`). */
+    const val CHANNEL_REGION_PARAM = "region_scope"
+
     /**
      * Path of the mesh-settings form — the radio parameters an area has
      * agreed on, so joining is a scan rather than four numbers typed
@@ -123,10 +126,14 @@ object ShareUri {
      * There is no revoking it short of changing the key everywhere. UI
      * that produces this must say so before it puts the code on screen.
      */
-    fun encodeChannel(name: String, pskHex: String): String =
+    fun encodeChannel(name: String, pskHex: String, regionScope: String = ""): String =
         SCHEME + CHANNEL_PATH +
             "?name=" + percentEncode(truncateToBytes(name, MAX_NAME_BYTES)) +
-            "&" + CHANNEL_SECRET_PARAM + "=" + pskHex.trim().uppercase()
+            "&" + CHANNEL_SECRET_PARAM + "=" + pskHex.trim().uppercase() +
+            // Omitted entirely when unscoped, rather than sent empty: a
+            // blank parameter is a claim about scope, and "no claim" is
+            // the accurate thing to say about a global channel.
+            (Regions.canonical(regionScope)?.let { "&$CHANNEL_REGION_PARAM=" + percentEncode(it) } ?: "")
 
     /**
      * Build a mesh-settings code. Units are the ones a person reads:
@@ -180,7 +187,23 @@ object ShareUri {
          * scanning one means trusting whoever showed it to you, and it
          * grants read access to everything on that channel.
          */
-        data class ChannelShare(val name: String, val pskHex: String) : Decoded
+        data class ChannelShare(
+            val name: String,
+            val pskHex: String,
+            /**
+             * Flood scope the sharer runs this channel under, canonical
+             * and possibly empty (`region_scope`, documented in
+             * `docs/qr_codes.md` and supported by the mainstream app
+             * from v1.47.0).
+             *
+             * Carried because it is not decoration: the scope decides
+             * how far a message on this channel propagates. Dropping it
+             * silently — which this did — joins the channel and then
+             * floods every message globally, wider than the person who
+             * shared it intended and with no sign anything was lost.
+             */
+            val regionScope: String = "",
+        ) : Decoded
 
         /**
          * Radio parameters for an area, off a QR nobody vouched for.
@@ -331,9 +354,16 @@ object ShareUri {
         // An all-zero key is what a broken generator emits; it would look
         // like a working channel while protecting nothing.
         if (bytes.all { it.toInt() == 0 }) return Decoded.Malformed
+        // Present-but-unusable is dropped rather than failing the whole
+        // code: a region name this build cannot canonicalise is most
+        // likely one a newer app understands, and refusing the channel
+        // outright would be a worse answer than joining it unscoped. The
+        // caller says so out loud — see the join path.
+        val region = Regions.canonical(params[CHANNEL_REGION_PARAM]).orEmpty()
         return Decoded.ChannelShare(
             name = sanitizeName(params["name"].orEmpty()),
             pskHex = psk,
+            regionScope = region,
         )
     }
 

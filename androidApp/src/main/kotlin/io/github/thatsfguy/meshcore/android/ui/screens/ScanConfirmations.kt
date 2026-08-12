@@ -41,6 +41,19 @@ fun ScanConfirmations(vm: MeshCoreViewModel) {
                         share.name.ifBlank { "(unnamed channel)" },
                         style = MaterialTheme.typography.titleMedium,
                     )
+                    // A scope is a routing decision, so it is stated
+                    // BEFORE the join rather than reported after it —
+                    // joining may add a region the user does not have,
+                    // and that is not something to discover in a
+                    // snackbar.
+                    if (share.regionScope.isNotBlank()) {
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            "Scoped to region ${share.regionScope} — messages here will " +
+                                "only be flooded within it.",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
                     Spacer(Modifier.height(12.dp))
                     Text(
                         "This code carries the channel's secret key, so joining lets you " +
