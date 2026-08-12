@@ -11,6 +11,21 @@ Every entry describes what is in **that tagged build**. A feature that landed af
 belongs in the next section, not this one — 0.3.0 was once credited with four features that
 shipped after it, which misled nobody so much as the author, three months later.
 
+## 0.7.14
+
+- **Contact QR codes from other MeshCore clients import.** The `meshcore://<hex>` form —
+  a shared raw advert, as Liam Cottle's client exports — was rejected every time with
+  "Import failed (bad signature?)". The blob a radio exports is a whole packet, and this
+  app was checking the signature as though it were the advert alone, so it read the
+  packet's header byte as the first byte of the public key. It could never have matched.
+  Reported as a regression; it was not one. That code has never imported, because nothing
+  this app *emits* takes that form, so the only codes reaching the path came from
+  elsewhere.
+- **Spaces in a scanned name are no longer turned into `+`.** A contact shared as
+  `name=Example+Contact` — the encoding in MeshCore's own QR documentation — arrived
+  called "Example+Contact". A literal plus still survives if the sharing app escapes it,
+  which conforming ones do.
+
 ## 0.7.13
 
 - **Blocking a repeater no longer breaks its console.** It never could block a repeater —

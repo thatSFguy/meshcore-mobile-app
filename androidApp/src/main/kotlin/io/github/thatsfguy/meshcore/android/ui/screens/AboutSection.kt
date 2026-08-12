@@ -89,6 +89,18 @@ fun AboutSection(vm: MeshCoreViewModel) {
  * is a changelog you can't read in the field.
  */
 private val CHANGELOG: List<Pair<String, List<String>>> = listOf(
+    "0.7.14" to listOf(
+        "Contact QR codes from other MeshCore clients import. The meshcore://<hex> form " +
+            "— a shared raw advert — was rejected every time with \"Import failed (bad " +
+            "signature?)\". A radio exports a whole packet, and this app checked the " +
+            "signature as though it were the advert alone, reading the packet header as " +
+            "the first byte of the public key.",
+        "That code had never imported: nothing this app emits takes that form, so the " +
+            "only codes reaching the path came from elsewhere.",
+        "Spaces in a scanned name are no longer turned into \"+\". A contact shared as " +
+            "name=Example+Contact — the encoding in MeshCore's own QR documentation — " +
+            "arrived called \"Example+Contact\".",
+    ),
     "0.7.13" to listOf(
         "Blocking a repeater no longer breaks its console. It never could block a " +
             "repeater — traffic through one carries the original sender's key, so there " +

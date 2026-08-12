@@ -260,7 +260,21 @@ object ShareUri {
             val key = pair.substringBefore('=').lowercase()
             val raw = pair.substringAfter('=', "")
             if (key.isNotEmpty() && key !in params) {
-                params[key] = percentDecode(raw) ?: return null
+                // `+` is a space HERE and only here. A query string is
+                // x-www-form-urlencoded, and the firmware's own
+                // docs/qr_codes.md shows it that way:
+                //   meshcore://contact/add?name=Example+Contact&…
+                // Leaving it literal — which this did, on a comment
+                // asserting the mainstream app always uses %20 — imports
+                // that contact as "Example+Contact".
+                //
+                // The cost is a node genuinely named "A+B", which
+                // arrives as "A B". That is the trade the encoding
+                // makes, not one this app gets to opt out of: a decoder
+                // cannot tell the two apart, and the published example
+                // settles which reading is meant. Our own encoder still
+                // emits %20, which every decoder reads correctly.
+                params[key] = percentDecode(raw.replace('+', ' ')) ?: return null
             }
         }
         return params
@@ -413,8 +427,12 @@ object ShareUri {
 
     /**
      * Percent-decode to UTF-8. Returns null on a truncated or non-hex
-     * escape. `+` is left literal: the mainstream app encodes spaces as
-     * `%20`, so a `+` in a scanned name is a real plus sign.
+     * escape.
+     *
+     * Strictly RFC 3986: `+` is left alone here, because this decodes
+     * whole URI components and a `+` is only a space inside a *query*.
+     * [parseQuery] substitutes before calling this — see the note there
+     * for why, and for what it costs.
      */
     fun percentDecode(text: String): String? {
         val out = ArrayList<Byte>(text.length)
