@@ -89,6 +89,18 @@ fun AboutSection(vm: MeshCoreViewModel) {
  * is a changelog you can't read in the field.
  */
 private val CHANGELOG: List<Pair<String, List<String>>> = listOf(
+    "0.7.13" to listOf(
+        "Blocking a repeater no longer breaks its console. It never could block a " +
+            "repeater — traffic through one carries the original sender's key, so there " +
+            "is nothing on the repeater's key to block. What it did do was swallow the " +
+            "node's CLI replies silently, so the Console went quiet while the Settings " +
+            "form carried on working.",
+        "A block now never applies to a reply you asked for by name.",
+        "The Block action is gone from repeaters and sensors, which send no messages of " +
+            "their own. Rooms keep it — a room's chat really does arrive as direct " +
+            "messages from the server. It also stays visible on anything currently " +
+            "blocked, so nothing can be blocked with no way back.",
+    ),
     "0.7.12" to listOf(
         "A repeater that goes quiet now repairs itself. The app clears the route, " +
             "re-establishes it and retries — what you were doing by hand with Sign out / " +

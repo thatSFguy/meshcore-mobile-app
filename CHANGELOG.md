@@ -11,6 +11,21 @@ Every entry describes what is in **that tagged build**. A feature that landed af
 belongs in the next section, not this one — 0.3.0 was once credited with four features that
 shipped after it, which misled nobody so much as the author, three months later.
 
+## 0.7.13
+
+- **Blocking a repeater no longer breaks its console.** It never could block a repeater —
+  traffic through one carries the *original* sender's key, so there is nothing on the
+  repeater's key to block, and that is a property of the mesh rather than something an app
+  can change. What it did do was swallow the node's CLI replies before they were written
+  down, silently, so the Console went quiet while the Settings form carried on working.
+  Same node, same command, two screens, two answers. A block now never applies to a reply
+  you asked for by name.
+- **The Block action is gone from repeaters and sensors**, which send no messages of their
+  own and so had nothing to block. Rooms keep it: a room's chat really does arrive as
+  direct messages from the server, so hiding one has a real effect. It also stays visible
+  on anything currently blocked, so a repeater blocked by an older build can still be
+  unblocked.
+
 ## 0.7.12
 
 - **A repeater that goes quiet now repairs itself.** When a node you are signed into stops
