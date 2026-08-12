@@ -101,6 +101,30 @@ object ChannelList {
     }
 
     /** The same rule over a full sweep of slots. */
+    /**
+     * The channel already carrying [pskHex], or null.
+     *
+     * **The key is the channel.** A name is a local label — two people
+     * can call the same key different things, and the radio will happily
+     * store the same key twice in two slots. Nothing good comes of that:
+     * slots are a scarce resource (eight on most hardware), and inbound
+     * traffic matching two slots at once is a message that arrives twice
+     * or in the wrong thread.
+     *
+     * So joining is idempotent, and it is keyed on the secret rather
+     * than the name. Scanning a code you already hold should tell you
+     * so, not silently spend another slot.
+     *
+     * Comparison is case-insensitive because hex is, and empty slots are
+     * skipped: an unused slot is all-zero, and "already have the all-zero
+     * key" would match every empty slot at once.
+     */
+    fun findByPsk(channels: List<Channel>, pskHex: String): Channel? {
+        val want = pskHex.trim().lowercase()
+        if (want.isEmpty()) return null
+        return channels.firstOrNull { !it.isEmpty && it.pskHex.lowercase() == want }
+    }
+
     fun fromSlots(slots: List<Channel>): List<Channel> =
         slots.fold(emptyList()) { acc, s -> applySlot(acc, s) }
 }

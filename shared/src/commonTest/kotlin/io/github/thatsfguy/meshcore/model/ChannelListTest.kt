@@ -2,6 +2,8 @@ package io.github.thatsfguy.meshcore.model
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -103,5 +105,62 @@ class ChannelListTest {
         val once = ChannelList.fromSlots(slots)
         val twice = slots.fold(once) { acc, s -> ChannelList.applySlot(acc, s) }
         assertEquals(once, twice)
+    }
+    // ------------------------------------------------------------------
+    // findByPsk — joining is idempotent, and keyed on the secret
+    // ------------------------------------------------------------------
+
+    private fun ch(index: Int, name: String, pskHex: String) =
+        Channel(index, name, pskHex.chunked(2).map { it.toInt(16).toByte() }.toByteArray())
+
+    @Test
+    fun anAlreadyHeldKeyIsFoundWhateverItIsCalled() {
+        // The bug: scanning a code you already hold spent another of the
+        // radio's eight slots on a duplicate. The key IS the channel; the
+        // name is a local label, and two people will call the same key
+        // different things.
+        val psk = "98b6a0616fecd19801d949bde368f87e"
+        val mine = listOf(ch(0, "Public", "00".repeat(15) + "01"), ch(1, "kcest-local", psk))
+        assertEquals(1, ChannelList.findByPsk(mine, psk)?.index)
+        assertEquals("kcest-local", ChannelList.findByPsk(mine, psk)?.name)
+    }
+
+    @Test
+    fun hexCaseDoesNotHideADuplicate() {
+        // Codes in circulation are not consistent about case — the
+        // captured contact QR used uppercase hex. Matching case
+        // sensitively would let the same channel in twice.
+        val psk = "98b6a0616fecd19801d949bde368f87e"
+        val mine = listOf(ch(0, "x", psk))
+        assertNotNull(ChannelList.findByPsk(mine, psk.uppercase()))
+        assertNotNull(ChannelList.findByPsk(mine, "  $psk  "))
+    }
+
+    @Test
+    fun aNewKeyIsNotADuplicate() {
+        val mine = listOf(ch(0, "x", "98b6a0616fecd19801d949bde368f87e"))
+        assertNull(ChannelList.findByPsk(mine, "70f9ebe00687ed427f7cc0345d82af70"))
+        assertNull(ChannelList.findByPsk(emptyList(), "70f9ebe00687ed427f7cc0345d82af70"))
+    }
+
+    @Test
+    fun emptySlotsNeverMatch() {
+        // An unused slot is all-zero. Without skipping them, an all-zero
+        // key would "already exist" in every free slot at once — and a
+        // blank query would match the first empty slot and refuse a
+        // perfectly good join.
+        val withEmpty = listOf(ch(0, "", "00".repeat(16)), ch(1, "real", "ab".repeat(16)))
+        assertNull(ChannelList.findByPsk(withEmpty, "00".repeat(16)))
+        assertNull(ChannelList.findByPsk(withEmpty, ""))
+        assertNotNull(ChannelList.findByPsk(withEmpty, "ab".repeat(16)))
+    }
+
+    @Test
+    fun theSameNameWithADifferentKeyIsADifferentChannel() {
+        // The other half of "the key is the channel": matching on name
+        // would refuse a genuine second channel that happens to share a
+        // label, which is how someone ends up unable to join.
+        val mine = listOf(ch(0, "Public", "ab".repeat(16)))
+        assertNull(ChannelList.findByPsk(mine, "cd".repeat(16)))
     }
 }

@@ -1,6 +1,7 @@
 package io.github.thatsfguy.meshcore.android.ui
 
 import io.github.thatsfguy.meshcore.presentation.Inbox
+import io.github.thatsfguy.meshcore.model.ChannelList
 import io.github.thatsfguy.meshcore.presentation.AdminSession
 import io.github.thatsfguy.meshcore.protocol.PathRecovery
 import android.app.Application
@@ -1095,6 +1096,23 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
             }
             if (psk == null || psk.size != 16) {
                 transientMessage.value = "PSK must be 32 hex characters"
+                return@launch
+            }
+            // Joining is idempotent, and keyed on the SECRET rather than
+            // the name — the key is the channel; the name is a local
+            // label. Without this, scanning a code you already hold
+            // spends another of the radio's eight slots on a duplicate,
+            // and inbound traffic then matches two slots at once.
+            val existing = ChannelList.findByPsk(svc.engine.channels.value, psk.toHex())
+            if (existing != null) {
+                transientMessage.value = if (existing.name.equals(name, ignoreCase = true)) {
+                    "Already in \"${existing.name}\""
+                } else {
+                    // Say the local name. Someone who called it something
+                    // else needs to know WHICH channel they already have,
+                    // or the message reads as a mistake.
+                    "Already in this channel — you call it \"${existing.name}\""
+                }
                 return@launch
             }
             val idx = svc.engine.nextFreeChannelIndex()
