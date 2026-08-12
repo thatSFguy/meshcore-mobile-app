@@ -14,6 +14,8 @@ import io.github.thatsfguy.meshcore.android.ui.screens.CONVERSATION_ROUTE
 import io.github.thatsfguy.meshcore.android.ui.screens.conversationRoute
 import io.github.thatsfguy.meshcore.engine.EngineState
 import io.github.thatsfguy.meshcore.protocol.RadioPresets
+import com.google.zxing.client.android.Intents
+import io.github.thatsfguy.meshcore.android.ui.screens.meshScanOptions
 import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -153,21 +155,34 @@ class SettingsHubModelTest {
     }
 
     @Test
-    fun `the scan options factory carries portrait and the inverted hint`() {
-        // The factory is the only place these are set now, so this is
-        // the one assertion standing between the app and a scanner that
-        // silently ignores half the QR codes it is shown.
+    fun `the scan options ask for a mixed normal and inverted scan`() {
+        // This test used to assert that PortraitCaptureActivity.kt
+        // CONTAINED the string "ALSO_INVERTED". It did, for months, and
+        // the scanner still could not read a single inverted code: the
+        // decoder factory that hint was set on is replaced during the
+        // same onCreate, by
+        // DecoratedBarcodeView.initializeFromIntent() building a fresh
+        // DefaultDecoderFactory from the intent extras. A grep for a
+        // constant is not a test of behaviour, and here it actively
+        // certified a feature that had never once worked.
+        //
+        // So this asserts the value that actually reaches the library:
+        // an intent extra, on the object we hand to ScanContract.
+        val extras = meshScanOptions("x").moreExtras
+        assertEquals(
+            "SCAN_TYPE must ask for MIXED_SCAN (normal + inverted frames)",
+            Intents.Scan.MIXED_SCAN,
+            extras[Intents.Scan.SCAN_TYPE],
+        )
+        // Portrait is a separate concern and still comes from the
+        // capture activity.
         val factory = File(
             "src/main/kotlin/io/github/thatsfguy/meshcore/android/ui/screens/ScanOptionsFactory.kt",
         ).readText()
         assertTrue(
-            "meshScanOptions must use PortraitCaptureActivity (portrait + inverted hints)",
+            "meshScanOptions must use PortraitCaptureActivity for the portrait lock",
             factory.contains("PortraitCaptureActivity::class.java"),
         )
-        val capture = File(
-            "src/main/kotlin/io/github/thatsfguy/meshcore/android/platform/PortraitCaptureActivity.kt",
-        ).readText()
-        assertTrue("ALSO_INVERTED hint was dropped", capture.contains("ALSO_INVERTED"))
     }
 
     @Test
