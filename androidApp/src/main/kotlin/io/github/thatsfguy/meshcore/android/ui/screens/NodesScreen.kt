@@ -78,6 +78,7 @@ fun NodesScreen(vm: MeshCoreViewModel, nav: NavController) {
     }
     var showSelfQr by remember { mutableStateOf(false) }
     var discovering by remember { mutableStateOf(false) }
+    val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
 
     Scaffold(
         topBar = {
@@ -89,6 +90,13 @@ fun NodesScreen(vm: MeshCoreViewModel, nav: NavController) {
                         scanLauncher.launch(
                             meshScanOptions("Scan a MeshCore QR — contact, channel or community"),
                         )
+                    },
+                    // The camera is not the only way a code arrives, and
+                    // for contacts shared between clients it is not even
+                    // the usual one — they get copied as a link. Same
+                    // decoder, same confirmations; only the way in is new.
+                    MenuAction("Paste a code") {
+                        vm.importPastedText(clipboard.getText()?.text)
                     },
                     MenuAction("Share my node QR…") { showSelfQr = true },
                     MenuAction("Sync contacts") { vm.syncContactsNow() },

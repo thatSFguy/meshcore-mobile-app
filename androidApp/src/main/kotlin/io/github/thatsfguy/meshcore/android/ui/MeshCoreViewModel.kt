@@ -984,6 +984,30 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
      * a problem with the code. Which decoder to use is something the
      * app can work out ([ScannedCode]).
      */
+    /**
+     * Import a code from pasted text — the clipboard, a chat message,
+     * anywhere that isn't a camera.
+     *
+     * The app could only ever import by scanning, which assumes the code
+     * exists as an image and that a camera can resolve it. Neither holds
+     * for the commonest case: other clients share a contact by copying a
+     * `meshcore://` link, and a code photographed off a screen is dense
+     * enough that focus and moiré decide whether it reads at all.
+     */
+    fun importPastedText(raw: String?) {
+        val code = ScannedCode.extract(raw.orEmpty())
+        if (code == null) {
+            transientMessage.value =
+                if (raw.isNullOrBlank()) {
+                    "Nothing on the clipboard"
+                } else {
+                    "No MeshCore code on the clipboard"
+                }
+            return
+        }
+        importScannedCode(code)
+    }
+
     fun importScannedCode(text: String) {
         when (ScannedCode.classify(text)) {
             ScannedCode.Community -> joinCommunity(text)

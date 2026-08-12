@@ -2,6 +2,9 @@ package io.github.thatsfguy.meshcore.protocol
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotEquals
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 
 /**
  * Working out what a scanned QR is, so the user does not have to.
@@ -65,5 +68,80 @@ class ScannedCodeTest {
     @Test
     fun `a JSON blob without the marker is not treated as a community`() {
         assertEquals(ScannedCode.Unknown, ScannedCode.classify("""{"v":1,"name":"GR"}"""))
+    }
+    // ------------------------------------------------------------------
+    // extract() — pasted text, which is never just the code
+    // ------------------------------------------------------------------
+
+    @Test
+    fun aBareCodeComesBackUnchanged() {
+        val uri = "meshcore://channel/add?name=KCEST&secret=98b6a0616fecd19801d949bde368f87e"
+        assertEquals(uri, ScannedCode.extract(uri))
+        assertEquals(uri, ScannedCode.extract("  $uri\n"))
+    }
+
+    @Test
+    fun aLinkIsFoundInsideASentence() {
+        // The case this exists for. Liam Cottle's client shares a
+        // contact by copying a meshcore:// link to the clipboard — it
+        // renders no QR at all — and by the time it reaches someone it
+        // is usually inside a message.
+        val uri = "meshcore://contact/add?name=Blue&public_key=" + "9c".repeat(32) + "&type=1"
+        assertEquals(uri, ScannedCode.extract("here you go $uri thanks"))
+        assertEquals(uri, ScannedCode.extract("Join us:\n$uri\n\nsee you there"))
+    }
+
+    @Test
+    fun theSchemeIsMatchedCaseInsensitively() {
+        val uri = "MESHCORE://channel/add?name=x&secret=" + "ab".repeat(16)
+        assertEquals(uri, ScannedCode.extract("try $uri"))
+    }
+
+    @Test
+    fun textWithNoCodeIsNull() {
+        for (junk in listOf("", "   ", "hello", "https://example.com", "meshcore", "mesh://x")) {
+            assertNull(ScannedCode.extract(junk), "found a code in \"$junk\"")
+        }
+    }
+
+    @Test
+    fun onlyWhitespaceEndsTheLink() {
+        // Deliberately NOT trimming trailing punctuation. A
+        // percent-encoded name can end in almost anything, so stripping
+        // a "." or ")" to be helpful would corrupt codes that were fine.
+        // A link pasted with the sentence's full stop attached fails
+        // visibly, which is the better failure.
+        val uri = "meshcore://channel/add?name=x&secret=" + "ab".repeat(16)
+        assertEquals("$uri.", ScannedCode.extract("$uri."))
+        assertEquals(uri, ScannedCode.extract("$uri "))
+    }
+
+    @Test
+    fun aCommunityBlobStillPassesThrough() {
+        // extract() must not break the other code shape: community JSON
+        // is not a URI and has no scheme to search for.
+        val blob = "{\"kind\":\"meshcore_community\",\"name\":\"x\"}"
+        assertEquals(blob, ScannedCode.extract(blob))
+        assertEquals(ScannedCode.Community, ScannedCode.classify(blob))
+    }
+
+    @Test
+    fun whatExtractReturnsIsAlwaysSomethingClassifyAccepts() {
+        // The contract the caller relies on: extract hands its result
+        // straight to the same dispatcher a scan uses.
+        val samples = listOf(
+            "meshcore://contact/add?name=A&public_key=" + "9c".repeat(32) + "&type=1",
+            "look: meshcore://channel/add?name=x&secret=" + "ab".repeat(16),
+            "{\"kind\":\"meshcore_community\"}",
+        )
+        for (sample in samples) {
+            val code = ScannedCode.extract(sample)
+            assertNotNull(code, "nothing extracted from $sample")
+            assertNotEquals(
+                ScannedCode.Unknown,
+                ScannedCode.classify(code),
+                "extract returned something classify rejects: $code",
+            )
+        }
     }
 }

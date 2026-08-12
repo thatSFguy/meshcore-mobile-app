@@ -38,6 +38,19 @@ object ShareUri {
     const val CHANNEL_PATH = "channel/add"
 
     /**
+     * The channel key's parameter name, as `docs/qr_codes.md` publishes
+     * it and as every other client emits it.
+     */
+    const val CHANNEL_SECRET_PARAM = "secret"
+
+    /**
+     * What this app used to send and expect. Kept on the READ side only,
+     * so codes already printed or pasted keep working; nothing emits it
+     * any more.
+     */
+    const val LEGACY_CHANNEL_SECRET_PARAM = "channel_secret"
+
+    /**
      * Path of the mesh-settings form — the radio parameters an area has
      * agreed on, so joining is a scan rather than four numbers typed
      * correctly.
@@ -113,7 +126,7 @@ object ShareUri {
     fun encodeChannel(name: String, pskHex: String): String =
         SCHEME + CHANNEL_PATH +
             "?name=" + percentEncode(truncateToBytes(name, MAX_NAME_BYTES)) +
-            "&channel_secret=" + pskHex.trim().uppercase()
+            "&" + CHANNEL_SECRET_PARAM + "=" + pskHex.trim().uppercase()
 
     /**
      * Build a mesh-settings code. Units are the ones a person reads:
@@ -301,7 +314,18 @@ object ShareUri {
     private fun decodeChannelShare(query: String): Decoded {
         if (query.isEmpty()) return Decoded.Malformed
         val params = parseQuery(query) ?: return Decoded.Malformed
-        val psk = params["channel_secret"]?.trim()?.lowercase() ?: return Decoded.Malformed
+        // `secret` is the name in the firmware's own docs/qr_codes.md and
+        // in every code actually in circulation. We asked for
+        // `channel_secret` and emitted it too — self-consistent, and
+        // readable by nobody else. Every channel QR from every other
+        // client came back "Malformed contact code", which reads as
+        // *their* code being broken.
+        //
+        // LEGACY_CHANNEL_SECRET_PARAM is still accepted: codes this app
+        // has already put on paper and in chat threads should not stop
+        // working on the day it starts speaking the documented format.
+        val psk = (params[CHANNEL_SECRET_PARAM] ?: params[LEGACY_CHANNEL_SECRET_PARAM])
+            ?.trim()?.lowercase() ?: return Decoded.Malformed
         val bytes = hexToBytesOrNull(psk) ?: return Decoded.Malformed
         if (bytes.size != CHANNEL_PSK_BYTES) return Decoded.Malformed
         // An all-zero key is what a broken generator emits; it would look

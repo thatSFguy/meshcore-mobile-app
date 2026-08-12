@@ -44,5 +44,34 @@ enum class ScannedCode {
             if (trimmed.startsWith("{") && trimmed.contains(COMMUNITY_MARKER)) return Community
             return Unknown
         }
+
+        /**
+         * Pull a usable code out of [text], or null if there isn't one.
+         *
+         * A scanned QR is exactly a code and nothing else. Pasted text
+         * is not: the commonest way a MeshCore contact travels between
+         * clients is a `meshcore://` link on the clipboard — Liam
+         * Cottle's client shares contacts by copying one, and does not
+         * render a QR at all — and by the time it reaches someone it is
+         * usually inside a sentence.
+         *
+         * So this finds the link within surrounding prose. It stops at
+         * whitespace and nothing else: a percent-encoded name can end
+         * in almost any punctuation, so trimming a trailing `.` or `)`
+         * to be helpful would corrupt codes that were fine. A link
+         * pasted mid-sentence with the full stop attached is the price,
+         * and it fails visibly rather than silently importing the wrong
+         * thing.
+         */
+        fun extract(text: String): String? {
+            val trimmed = text.trim()
+            if (trimmed.isEmpty()) return null
+            if (classify(trimmed) != Unknown) return trimmed
+            val start = trimmed.indexOf(ShareUri.SCHEME, ignoreCase = true)
+            if (start < 0) return null
+            val rest = trimmed.substring(start)
+            val end = rest.indexOfFirst { it.isWhitespace() }
+            return if (end < 0) rest else rest.substring(0, end)
+        }
     }
 }
