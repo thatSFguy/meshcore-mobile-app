@@ -11,6 +11,29 @@ Every entry describes what is in **that tagged build**. A feature that landed af
 belongs in the next section, not this one — 0.3.0 was once credited with four features that
 shipped after it, which misled nobody so much as the author, three months later.
 
+## 0.7.15
+
+- **The QR scanner can read inverted codes — for the first time.** MeshCore apps in dark
+  mode render white codes on near-black, and this app could not see them at all: it would
+  sit on a live viewfinder indefinitely while every other scanner on the phone read the
+  same code instantly. 0.7.11 claimed to have fixed this and did not. The hints were being
+  set on a decoder the scanning library replaced a moment later, during the same startup,
+  so they never reached a single frame. The scan type is now passed the way the library
+  reads it.
+- **Channel QR codes from other MeshCore apps work.** The channel key is called `secret`;
+  this app asked for `channel_secret`, a name it had invented and also emitted — so its own
+  codes were readable only by itself, and every channel share from anywhere else came back
+  "Malformed contact code". Codes this app produced earlier still scan.
+- **Spaces in a scanned name stay spaces.** A channel shared as `West+Michigan+GMRS`
+  arrived under that name, plus signs and all.
+- **Paste a code** — Nodes → ⋮. Other clients share contacts by copying a `meshcore://`
+  link rather than showing a QR, and until now there was no way to give one to this app.
+  It finds the link inside a pasted message, and everything after that is the ordinary
+  scan flow, confirmations included.
+- **Joining a channel you are already in no longer adds a second copy of it.** It matches
+  on the key rather than the name, because the key is what a channel *is*. Duplicates cost
+  one of the radio's eight slots and put inbound messages in an ambiguous thread.
+
 ## 0.7.14
 
 - **Contact QR codes from other MeshCore clients import.** The `meshcore://<hex>` form —

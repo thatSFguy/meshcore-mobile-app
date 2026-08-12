@@ -89,6 +89,23 @@ fun AboutSection(vm: MeshCoreViewModel) {
  * is a changelog you can't read in the field.
  */
 private val CHANGELOG: List<Pair<String, List<String>>> = listOf(
+    "0.7.15" to listOf(
+        "The QR scanner can read inverted codes — for the first time. Apps in dark mode " +
+            "render white codes on near-black, and this app could not see them at all. " +
+            "0.7.11 claimed to fix this and did not: the hints were set on a decoder the " +
+            "scanning library replaced a moment later, so they never reached a frame.",
+        "Channel QR codes from other MeshCore apps work. The channel key is called " +
+            "\"secret\"; this app asked for \"channel_secret\", a name it invented and " +
+            "also emitted, so its codes were readable only by itself. Older codes from " +
+            "this app still scan.",
+        "Spaces in a scanned name stay spaces — a channel shared as West+Michigan+GMRS " +
+            "arrived with the plus signs in its name.",
+        "Paste a code, under Nodes → ⋮. Other clients share contacts by copying a " +
+            "meshcore:// link rather than showing a QR, and there was no way to give one " +
+            "to this app.",
+        "Joining a channel you are already in no longer adds a second copy. It matches on " +
+            "the key, not the name, because the key is what a channel is.",
+    ),
     "0.7.14" to listOf(
         "Contact QR codes from other MeshCore clients import. The meshcore://<hex> form " +
             "— a shared raw advert — was rejected every time with \"Import failed (bad " +
