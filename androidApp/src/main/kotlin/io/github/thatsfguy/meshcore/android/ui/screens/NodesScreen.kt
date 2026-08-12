@@ -55,6 +55,7 @@ import io.github.thatsfguy.meshcore.android.ui.MeshCoreViewModel
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import io.github.thatsfguy.meshcore.util.RelativeTime
+import io.github.thatsfguy.meshcore.protocol.BlockList
 import io.github.thatsfguy.meshcore.protocol.PathCodec
 import io.github.thatsfguy.meshcore.protocol.Codes
 import java.text.DateFormat
@@ -507,16 +508,28 @@ fun ContactDetailSheet(
             // messages before they are written down. Removing the
             // contact does NOT block them — the radio would happily
             // re-add them on the next advert.
+            //
+            // Offered only where there is something to block. It used to
+            // appear on every node, including repeaters, where it could
+            // not do the thing its name promised (relayed traffic
+            // carries the original sender's key) and did do one thing
+            // nobody wanted: swallow the node's console replies.
+            // ...but never hidden while a block is in force, or a
+            // repeater blocked by an older build would have no way back.
+            // Hiding the only "Unblock" is how a setting becomes
+            // permanent by accident.
             val blocked = vm.isBlocked(contact.keyHex)
-            TextButton(onClick = { vm.setBlocked(contact.keyHex, !blocked) }) {
-                Text(
-                    if (blocked) "Unblock" else "Block",
-                    color = if (blocked) {
-                        MaterialTheme.colorScheme.primary
-                    } else {
-                        MaterialTheme.colorScheme.error
-                    },
-                )
+            if (BlockList.isBlockableNodeType(contact.type) || blocked) {
+                TextButton(onClick = { vm.setBlocked(contact.keyHex, !blocked) }) {
+                    Text(
+                        if (blocked) "Unblock" else "Block",
+                        color = if (blocked) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.error
+                        },
+                    )
+                }
             }
             TextButton(onClick = { removeConfirm = true }) {
                 Text("Remove contact", color = MaterialTheme.colorScheme.error)

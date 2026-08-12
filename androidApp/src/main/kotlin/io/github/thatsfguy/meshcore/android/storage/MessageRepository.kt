@@ -191,7 +191,16 @@ class MessageRepository(
                 // blocked — a 6-byte prefix is 48 bits, and blocking on
                 // one would silently discard messages from whoever
                 // collides with it.
-                if (BlockList.isBlockedSender(event.senderKeyHex, blockedKeys)) return
+                // ...and only for traffic a block is ABOUT. A CLI reply
+                // is the answer to a command we sent seconds ago; a
+                // block that eats it silently breaks the console while
+                // the settings form — which awaits the engine event and
+                // never comes through here — carries on working.
+                if (BlockList.isBlockableMessage(event.txtType) &&
+                    BlockList.isBlockedSender(event.senderKeyHex, blockedKeys)
+                ) {
+                    return
+                }
                 // CLI replies can echo secrets (`get guest.password`,
                 // `get prv.key`); redact before they become durable rows.
                 val storedText = if (event.txtType == 1) {

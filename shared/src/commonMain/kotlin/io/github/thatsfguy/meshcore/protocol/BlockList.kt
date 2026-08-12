@@ -65,6 +65,59 @@ object BlockList {
     }
 
     // ------------------------------------------------------------------
+    // What a block is ABOUT — scope, not mechanism
+    // ------------------------------------------------------------------
+
+    /**
+     * True when a message of [txtType] is the kind a block is for.
+     *
+     * A block suppresses **unsolicited** traffic. A CLI reply
+     * ([Codes.TXT_TYPE_CLI_DATA]) is not unsolicited: it is the answer
+     * to a command this app sent seconds earlier, by name, from the
+     * console the user is looking at. Dropping it is not blocking
+     * anyone, it is breaking your own tool.
+     *
+     * That is not hypothetical. Blocking a repeater used to swallow its
+     * console replies before they became rows, with no error — and the
+     * form-based settings screens kept working throughout, because they
+     * await the engine event directly and never reach the repository.
+     * One node, one command, two screens, two answers.
+     */
+    fun isBlockableMessage(txtType: Int): Boolean = txtType != Codes.TXT_TYPE_CLI_DATA
+
+    /**
+     * True when a node of advert type [advType] has anything a block can
+     * act on — i.e. whether to offer the action at all.
+     *
+     * Repeaters and sensors do not send chat. Everything they say is
+     * either a CLI reply (never blockable, above) or a binary response
+     * that never passes through this check at all, so blocking one is a
+     * button that appears to do something and does nothing. And it
+     * cannot do the thing its name suggests: a repeater relays traffic
+     * that carries the ORIGINAL sender's key, so nothing about a block
+     * touches what passes through it. That is a property of the mesh,
+     * not a gap in the implementation.
+     *
+     * Room servers keep it. A room's chat arrives as direct messages
+     * from the server's key, so "stop showing me this room" is a real
+     * want with a real effect.
+     *
+     * Unknown types default to blockable: a node we cannot classify may
+     * well be sending chat, and failing open on an unknown talker is the
+     * wrong way round for a safety control.
+     */
+    fun isBlockableNodeType(advType: Int): Boolean = when (advType) {
+        Codes.ADV_TYPE_REPEATER, Codes.ADV_TYPE_SENSOR -> false
+        else -> true
+    }
+
+    /** Why the action is absent, for anyone who goes looking for it. */
+    const val NOT_BLOCKABLE_NOTE: String =
+        "Blocking does not apply here: this node sends no messages of its own, and it " +
+            "cannot be stopped from relaying — traffic through it carries the original " +
+            "sender's key, not this node's."
+
+    // ------------------------------------------------------------------
     // Channels — a noise filter, on an unauthenticated name
     // ------------------------------------------------------------------
 
