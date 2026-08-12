@@ -341,6 +341,34 @@ class Preferences(context: Context) {
         }.apply()
     }
 
+    /**
+     * Forget everything keyed by channel slot [idx].
+     *
+     * The radio hands a freed slot straight back to the next join, so
+     * anything left here is inherited by an unrelated channel — a
+     * region left behind quietly scopes the new channel's traffic to a
+     * mesh the user thought they had left.
+     *
+     * One function on purpose: the region was cleared and the retention
+     * policy was not, and the next slot-keyed preference would have
+     * been forgotten the same way. Add new ones HERE.
+     */
+    fun forgetChannelSlot(idx: Int) {
+        setChannelRegion(idx, null)
+        setChannelRetention(idx, null)
+    }
+
+    /**
+     * Every stored preference key belonging to channel slot [idx].
+     *
+     * A suffix scan rather than a list of the ones we know about — the
+     * point is to notice a slot-keyed preference that
+     * [forgetChannelSlot] does NOT clear. Testing against a hard-coded
+     * list would be the same assumption twice.
+     */
+    fun slotKeyedPreferenceKeys(idx: Int): Set<String> =
+        prefs.all.keys.filter { it.endsWith("_$idx") }.toSet()
+
     /** Every channel slot that carries a region, as slot → region. */
     fun channelRegions(): Map<Int, String> =
         prefs.all.keys.filter { it.startsWith("channel_region_") }

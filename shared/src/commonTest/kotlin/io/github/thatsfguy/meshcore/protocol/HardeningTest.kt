@@ -1,6 +1,7 @@
 package io.github.thatsfguy.meshcore.protocol
 
 import io.github.thatsfguy.meshcore.crypto.CryptoProvider
+import io.github.thatsfguy.meshcore.util.MAX_DISPLAY_NAME_BYTES
 import io.github.thatsfguy.meshcore.util.sanitizeDisplayName
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -32,8 +33,29 @@ class HardeningTest {
         assertEquals("ab", sanitizeDisplayName("a" + LRM + RLM + ISOLATE + POP_ISOLATE + "b"))
         // Legitimate names (accents, emoji) survive untouched.
         assertEquals("Kaylee K8KAY", sanitizeDisplayName("Kaylee K8KAY"))
-        // Length is bounded.
-        assertEquals(32, sanitizeDisplayName("x".repeat(200)).length)
+        // Bounded in BYTES, not characters — the firmware's field is a
+        // 32-byte C string, so 31 bytes are usable. It used to cap at
+        // "32 characters", which is a different and larger limit for
+        // every name that isn't ASCII: a 32-character emoji name passed
+        // here and was silently cut again by ShareUri's 31-byte rule.
+        assertEquals(31, sanitizeDisplayName("x".repeat(200)).length)
+        assertEquals(
+            MAX_DISPLAY_NAME_BYTES,
+            sanitizeDisplayName("x".repeat(200)).encodeToByteArray().size,
+        )
+    }
+
+    @Test
+    fun aLongMultiByteNameIsCutOnACharacterBoundary() {
+        // The bound is bytes, so the cut must not land inside a
+        // sequence: 15 four-byte emoji are 60 bytes, and 31 bytes is
+        // seven of them plus three bytes of an eighth.
+        val name = "😀".repeat(15)
+        val cut = sanitizeDisplayName(name)
+        assertTrue(cut.encodeToByteArray().size <= MAX_DISPLAY_NAME_BYTES)
+        assertEquals("😀".repeat(7), cut)
+        // Round-trips: a cut through a code point would not.
+        assertEquals(cut, cut.encodeToByteArray().decodeToString())
     }
 
     @Test

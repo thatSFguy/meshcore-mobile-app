@@ -131,6 +131,31 @@ object ConfigBackup {
         val hasSecrets: Boolean get() = sealed != null
     }
 
+    /**
+     * Whether a backup's channel regions can be applied to the radio
+     * that is attached now.
+     *
+     * Channel regions are keyed by SLOT NUMBER, and a slot number only
+     * identifies a channel on the radio the backup came from. Restoring
+     * them anywhere else scopes whatever happens to occupy slot 2 — the
+     * same slot-as-identity mistake that let a deleted channel hand its
+     * region to the next one written to the freed slot.
+     *
+     * Two cases are safe: the same radio, or a restore that is also
+     * rewriting the channel slots from this backup in the same pass.
+     * An unknown current key is NOT safe — "we don't know which radio
+     * this is" is not the same as "it's the right one".
+     */
+    fun channelRegionsApplyTo(
+        backupSelfKeyHex: String,
+        currentSelfKeyHex: String,
+        restoringChannels: Boolean,
+    ): Boolean {
+        if (restoringChannels) return true
+        if (currentSelfKeyHex.isEmpty() || backupSelfKeyHex.isEmpty()) return false
+        return currentSelfKeyHex.equals(backupSelfKeyHex, ignoreCase = true)
+    }
+
     // ------------------------------------------------------------------
     // Encode
     // ------------------------------------------------------------------

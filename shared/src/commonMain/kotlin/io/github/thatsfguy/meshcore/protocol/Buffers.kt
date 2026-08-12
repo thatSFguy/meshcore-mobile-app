@@ -1,5 +1,7 @@
 package io.github.thatsfguy.meshcore.protocol
 
+import io.github.thatsfguy.meshcore.util.truncateUtf8
+
 /**
  * Bounds-checked sequential reader over a frame. Every read throws
  * [TruncatedFrameException] on short input — parsers catch it at the
@@ -150,24 +152,10 @@ class BufferWriter {
     /** Write [s] into a fixed [width]-byte NUL-padded field (last byte
      *  always NUL, matching the reference client's writeCString). */
     fun writeFixedCString(s: String, width: Int) {
-        // Truncate on a character boundary: names carry emoji, and a cut
-        // through a multi-byte sequence would leave the radio (and every
-        // node that renders the contact) holding invalid UTF-8.
         val encoded = truncateUtf8(s, width - 1)
         for (i in 0 until width) {
             bytes.add(if (i < encoded.size) encoded[i] else 0)
         }
-    }
-
-    private fun truncateUtf8(s: String, maxBytes: Int): ByteArray {
-        if (maxBytes <= 0) return ByteArray(0)
-        val full = s.encodeToByteArray()
-        if (full.size <= maxBytes) return full
-        // Back off to the start of the last whole UTF-8 sequence: any
-        // byte of the form 10xxxxxx is a continuation, never a start.
-        var end = maxBytes
-        while (end > 0 && (full[end].toInt() and 0xC0) == 0x80) end--
-        return full.copyOf(end)
     }
 
     /** Write [data] zero-padded (or truncated) to exactly [totalLength] bytes. */

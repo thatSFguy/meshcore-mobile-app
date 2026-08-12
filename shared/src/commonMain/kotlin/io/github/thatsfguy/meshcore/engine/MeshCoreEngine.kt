@@ -375,6 +375,9 @@ class MeshCoreEngine(
         _plaintextLink.value = false
         syncingContacts = null
         drainingQueue = false
+        // The next radio's slots are unknown until we read them, even
+        // if the last one's are still sitting in _channels.
+        channelsEverSynced = false
     }
 
     private fun launchHandshake() = scope.launch {
@@ -861,6 +864,24 @@ class MeshCoreEngine(
         sendAndAwait(Frames.getContacts(), timeoutMs = 30_000) { it is DeviceEvent.EndOfContacts }
     }
 
+    /**
+     * Read every channel slot the radio has.
+     *
+     * **A sweep that did not finish is not published.** `Err` and a
+     * timeout used to share one `break`, and the truncated list was
+     * written to [channels] regardless — so one dropped answer erased
+     * every slot after it. That is not a display problem: it is what
+     * [nextFreeChannelIndex] reads, so the next join would be handed a
+     * slot that is actually in use and [setChannel] would overwrite a
+     * live channel, whose PSK the radio cannot give back. The duplicate
+     * guard in the join path reads the same list, so it went quiet at
+     * the same moment.
+     *
+     * `Err` still ends the sweep normally: firmware answers it for a
+     * slot index past the end. A timeout does not — it says the radio
+     * stopped answering, which tells us nothing about the slots we had
+     * not reached yet.
+     */
     suspend fun syncChannels() {
         val max = _deviceInfo.value?.maxChannels?.takeIf { it > 0 } ?: DEFAULT_MAX_CHANNELS
         val found = ArrayList<Channel>()
@@ -873,13 +894,31 @@ class MeshCoreEngine(
                 // applies the same empty-slot rule the event handler
                 // does, so the sweep and the handler cannot disagree.
                 is DeviceEvent.ChannelInfoReceived -> found.add(ev.channel)
-                is DeviceEvent.Err, null -> break // past the last slot / firmware balked
+                // Past the last slot the firmware supports.
+                is DeviceEvent.Err -> break
+                // No answer. Keep whatever we already knew rather than
+                // publishing a list that claims slots are free.
+                null -> {
+                    log("Channel sweep timed out at slot $idx — keeping the previous list")
+                    return
+                }
                 else -> Unit
             }
         }
         _channels.value = ChannelList.fromSlots(found)
+        channelsEverSynced = true
         _meshEvents.tryEmit(MeshEvent.ChannelsSynced)
     }
+
+    /**
+     * Whether a channel sweep has ever completed on this session.
+     *
+     * An empty [channels] list means one of two things — "the radio has
+     * no channels" and "we have not looked yet" — and only one of them
+     * makes slot 0 free.
+     */
+    @kotlin.concurrent.Volatile
+    private var channelsEverSynced = false
 
     private fun drainMessageQueue() {
         if (drainingQueue) return
@@ -1373,7 +1412,9 @@ class MeshCoreEngine(
                 pathLen = c.pathLen,
                 path = c.path,
                 name = c.name,
-                timestampSeconds = nowSeconds(),
+                // The contact's OWN advert timestamp, not ours — see
+                // addUpdateContact's KDoc.
+                timestampSeconds = c.timestamp,
                 lat = c.latitude,
                 lon = c.longitude,
             ),
@@ -1420,7 +1461,10 @@ class MeshCoreEngine(
                 pathLen = pathLen,
                 path = if (mode == RoutingMode.Manual) manualPath else ByteArray(0),
                 name = contact?.name ?: "",
-                timestampSeconds = nowSeconds(),
+                // Preserve the node's advert timestamp: a route change
+                // is not an advert, and claiming it is stops the real
+                // ones landing. See addUpdateContact's KDoc.
+                timestampSeconds = contact?.timestamp ?: 0L,
                 lat = contact?.latitude,
                 lon = contact?.longitude,
             ),
@@ -1429,12 +1473,23 @@ class MeshCoreEngine(
         return ok
     }
 
-    /** Current routing mode implied by the radio's contact record. */
+    /**
+     * Current routing mode implied by the radio's contact record.
+     *
+     * Decoded, never compared raw. `path_len` packs the hash-width mode
+     * into its top two bits, so on a width-2 mesh — the common case
+     * here — a contact with a zero-hop (direct) path encodes as 0x40,
+     * and `pathLen > 0` called that "Manual". The same contact on a
+     * width-1 mesh read "Auto". This is the hop-hash-width defect the
+     * project notes warn about: a width-dependent value read as though
+     * the width were 1.
+     */
     fun routingMode(pubKeyHex: String): RoutingMode {
         val c = _contacts.value[pubKeyHex] ?: return RoutingMode.Auto
+        val info = PathCodec.decodePathLen(c.pathLen)
         return when {
-            c.pathLen == PathCodec.PATH_LEN_FLOOD || c.pathLen < 0 -> RoutingMode.Flood
-            c.pathLen > 0 -> RoutingMode.Manual
+            info.isFlood -> RoutingMode.Flood
+            info.hops > 0 -> RoutingMode.Manual
             else -> RoutingMode.Auto
         }
     }
@@ -1584,6 +1639,12 @@ class MeshCoreEngine(
      *
      * No path is known for an out-of-band contact, so it starts in flood
      * mode until the mesh teaches us a route.
+     *
+     * The advert timestamp is **0**, because no advert has been heard.
+     * Stamping it with the phone's clock — which this did — tells the
+     * firmware we saw an advert at this instant, and its replay guard
+     * then drops every real advert from that node until its own clock
+     * passes ours. See [Frames.addUpdateContact].
      */
     suspend fun addContactFromCard(pubKey: ByteArray, name: String, type: Int): Boolean {
         if (pubKey.size != Codes.PUB_KEY_SIZE) return false
@@ -1595,7 +1656,7 @@ class MeshCoreEngine(
                 pathLen = PathCodec.PATH_LEN_FLOOD,
                 path = ByteArray(0),
                 name = name,
-                timestampSeconds = nowSeconds(),
+                timestampSeconds = 0L,
             ),
         )
         if (ok) syncContacts()
@@ -1617,12 +1678,25 @@ class MeshCoreEngine(
 
     suspend fun clearChannel(index: Int): Boolean = setChannel(index, "", ByteArray(16))
 
-    /** First free channel slot, or null when the radio is full. */
+    /**
+     * First free channel slot — or null when the radio is full, **or
+     * when we have not successfully read its slots yet**.
+     *
+     * The second case matters as much as the first. Before any sweep
+     * completes the list is empty, which is indistinguishable from a
+     * radio with no channels; answering 0 there hands the caller a slot
+     * that probably holds Public, and writing it destroys a key the
+     * radio will not give back.
+     */
     fun nextFreeChannelIndex(): Int? {
+        if (!channelsEverSynced) return null
         val max = _deviceInfo.value?.maxChannels?.takeIf { it > 0 } ?: DEFAULT_MAX_CHANNELS
         val used = _channels.value.map { it.index }.toSet()
         return (0 until max).firstOrNull { it !in used }
     }
+
+    /** True once a channel sweep has completed — see [nextFreeChannelIndex]. */
+    val channelsKnown: Boolean get() = channelsEverSynced
 
     // ------------------------------------------------------------------
     // Device settings

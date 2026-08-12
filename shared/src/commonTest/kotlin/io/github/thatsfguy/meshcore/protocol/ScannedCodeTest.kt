@@ -5,6 +5,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 /**
  * Working out what a scanned QR is, so the user does not have to.
@@ -114,6 +115,24 @@ class ScannedCodeTest {
         val uri = "meshcore://channel/add?name=x&secret=" + "ab".repeat(16)
         assertEquals("$uri.", ScannedCode.extract("$uri."))
         assertEquals(uri, ScannedCode.extract("$uri "))
+    }
+
+    @Test
+    fun proseAfterALinkThatCameFirstIsStillTrimmed() {
+        // The commonest paste there is: the link, then the sentence.
+        // extract() used to return the whole string the moment it
+        // STARTED with the scheme, so the link-in-prose logic never ran
+        // for this shape — the trailing words landed in the last
+        // parameter's value and the decoder reported "Malformed contact
+        // code", which reads as the sender's code being broken.
+        val uri = "meshcore://contact/add?name=Blue&public_key=" + "9c".repeat(32) + "&type=1"
+        assertEquals(uri, ScannedCode.extract("$uri — join us"))
+        assertEquals(uri, ScannedCode.extract("$uri\nsee you there"))
+
+        // And the whole point: what comes back decodes.
+        val decoded = ShareUri.decode(ScannedCode.extract("$uri — join us")!!)
+        assertTrue(decoded is ShareUri.Decoded.Contact, "decoded as $decoded")
+        assertEquals(1, decoded.type)
     }
 
     @Test

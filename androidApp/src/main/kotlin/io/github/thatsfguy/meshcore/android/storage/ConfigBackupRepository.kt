@@ -140,6 +140,7 @@ class ConfigBackupRepository(
         parsed: ConfigBackup.Parsed,
         options: ApplyOptions,
         passphrase: String? = null,
+        currentSelfKeyHex: String = "",
     ): ApplyResult {
         val skipped = ArrayList<String>()
         var settingsRestored = 0
@@ -159,9 +160,29 @@ class ConfigBackupRepository(
             for (region in parsed.plain.regions) {
                 if (prefs.addRegion(region) != null) regionsRestored++
             }
-            for ((idx, region) in parsed.plain.channelRegions) {
-                prefs.setChannelRegion(idx, region)
-                channelRegionsRestored++
+            // A channel region is keyed by SLOT NUMBER, which only means
+            // anything if the slots are the ones the backup was taken
+            // from. Two cases satisfy that: the same radio, or a restore
+            // that is also rewriting the channel slots in this pass.
+            //
+            // Otherwise slot 2 on this radio is some other channel, and
+            // restoring the region silently scopes it — the same
+            // slot-as-identity mistake that let a deleted channel hand
+            // its region to the next one written to the freed slot.
+            val slotsAreTheBackups = ConfigBackup.channelRegionsApplyTo(
+                backupSelfKeyHex = parsed.plain.selfKeyHex,
+                currentSelfKeyHex = currentSelfKeyHex,
+                restoringChannels = options.channels,
+            )
+            if (slotsAreTheBackups) {
+                for ((idx, region) in parsed.plain.channelRegions) {
+                    prefs.setChannelRegion(idx, region)
+                    channelRegionsRestored++
+                }
+            } else if (parsed.plain.channelRegions.isNotEmpty()) {
+                skipped += "${parsed.plain.channelRegions.size} channel region(s) — this " +
+                    "backup is from a different radio, so its slot numbers don't match " +
+                    "yours. Restore channels too, or set them by hand."
             }
         }
 

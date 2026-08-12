@@ -53,6 +53,20 @@ fun ScanConfirmations(vm: MeshCoreViewModel) {
                                 "only be flooded within it.",
                             style = MaterialTheme.typography.bodySmall,
                         )
+                    } else if (share.rawRegionScope.isNotBlank()) {
+                        // The code asked for a scope this build can't
+                        // use. Saying nothing here is what made the
+                        // dropped scope invisible: the dialog looked
+                        // exactly like an unscoped channel's, and the
+                        // join reported plain success.
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            "This code asks for region \"${share.rawRegionScope}\", which this " +
+                                "app can't use. Joining anyway means messages here flood the " +
+                                "whole mesh — wider than the person sharing it intended.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
                     }
                     Spacer(Modifier.height(12.dp))
                     Text(

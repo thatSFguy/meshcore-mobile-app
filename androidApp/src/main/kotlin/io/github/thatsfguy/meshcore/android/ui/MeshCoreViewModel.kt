@@ -3,6 +3,7 @@ package io.github.thatsfguy.meshcore.android.ui
 import io.github.thatsfguy.meshcore.presentation.Inbox
 import io.github.thatsfguy.meshcore.model.ChannelList
 import io.github.thatsfguy.meshcore.presentation.AdminSession
+import io.github.thatsfguy.meshcore.presentation.ChannelScopeJoin
 import io.github.thatsfguy.meshcore.protocol.PathRecovery
 import android.app.Application
 import android.content.ComponentName
@@ -1076,7 +1077,12 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
         addChannel(
             share.name.ifBlank { "Shared channel" },
             share.pskHex,
-            regionScope = share.regionScope,
+            // The RAW scope, not the canonical one. Handing over the
+            // decoder's answer meant an unusable region arrived here as
+            // "" — indistinguishable from a code that carried no scope
+            // at all — and the join reported "Channel added" for a
+            // channel that will now flood globally.
+            regionScope = share.rawRegionScope,
         )
     }
 
@@ -1117,19 +1123,31 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
             // and inbound traffic then matches two slots at once.
             val existing = ChannelList.findByPsk(svc.engine.channels.value, psk.toHex())
             if (existing != null) {
-                transientMessage.value = if (existing.name.equals(name, ignoreCase = true)) {
-                    "Already in \"${existing.name}\""
+                val label = if (existing.name.equals(name, ignoreCase = true)) {
+                    "\"${existing.name}\""
                 } else {
                     // Say the local name. Someone who called it something
                     // else needs to know WHICH channel they already have,
                     // or the message reads as a mistake.
-                    "Already in this channel — you call it \"${existing.name}\""
+                    "this channel — you call it \"${existing.name}\""
                 }
+                // Refusing the extra slot is right; refusing the SCOPE
+                // with it was not. Re-sharing the same key with a region
+                // added is exactly how a community rolls one out, and
+                // every existing member used to get "Already in this
+                // channel" and carry on flooding globally.
+                transientMessage.value = "Already in $label" + applyChannelScope(existing.index, regionScope)
                 return@launch
             }
             val idx = svc.engine.nextFreeChannelIndex()
             if (idx == null) {
-                transientMessage.value = "No free channel slots on the radio"
+                transientMessage.value = if (!svc.engine.channelsKnown) {
+                    // Not the same fact as "full", and the difference
+                    // decides whether trying again helps.
+                    "Still reading the radio's channels — try again in a moment"
+                } else {
+                    "No free channel slots on the radio"
+                }
                 return@launch
             }
             val ok = runCatching { svc.engine.setChannel(idx, name, psk) }.getOrDefault(false)
@@ -1141,31 +1159,46 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
             // once the slot is known — and only if the write worked, or
             // a failed join would leave a scope pointing at a channel
             // that isn't there.
-            val region = Regions.canonical(regionScope)
-            if (region != null) {
-                prefs.setChannelRegion(idx, region)
-                // A scope the radio does not know aborts the send rather
-                // than widening it, so adding the region locally is what
-                // makes the channel usable. Doing it silently would be
-                // wrong the other way: this is a routing change the user
-                // did not ask for by name.
-                val known = prefs.regions.contains(region)
-                if (!known) prefs.addRegion(region)
-                transientMessage.value = if (known) {
-                    "Channel added, scoped to $region"
-                } else {
-                    "Channel added, scoped to $region — new region added"
-                }
-            } else {
-                transientMessage.value = if (regionScope.isBlank()) {
-                    "Channel added"
-                } else {
-                    // Present but unusable: say so rather than joining
-                    // quietly unscoped, which floods wider than intended.
-                    "Channel added, but its region \"$regionScope\" was not usable"
-                }
-            }
+            transientMessage.value = "Channel added" + applyChannelScope(idx, regionScope)
         }
+    }
+
+    /**
+     * Record the flood scope a shared code asked for against channel
+     * slot [index], and return the clause to append to the join
+     * message. Empty when the code carried no scope.
+     *
+     * [rawScope] is the code's own spelling, NOT a canonical name: this
+     * is the only place that can tell "no scope" from "a scope this
+     * build can't use", and the second has to be said out loud —
+     * joining unscoped floods wider than the person sharing intended.
+     *
+     * An existing, *different* local scope is reported rather than
+     * overwritten. A narrower scope the user chose by hand is a
+     * deliberate routing decision, and a QR is not authority to undo it.
+     */
+    private fun applyChannelScope(index: Int, rawScope: String): String {
+        val outcome = ChannelScopeJoin.decide(
+            rawScope = rawScope,
+            currentRegion = prefs.channelRegion(index),
+            knownRegions = prefs.regions,
+        )
+        if (outcome is ChannelScopeJoin.Outcome.Applied) {
+            // A scope the radio does not know aborts the send rather
+            // than widening it, so adding the region locally is what
+            // makes the channel usable. Doing it silently would be
+            // wrong the other way: this is a routing change the user
+            // did not ask for by name — hence the message.
+            prefs.setChannelRegion(index, outcome.region)
+            if (outcome.newRegion) prefs.addRegion(outcome.region)
+            // Both writes go through prefs directly, so nothing else
+            // bumps the revision the region UI is built on — without
+            // this the channel editor reports "Unscoped: messages flood
+            // the whole mesh" for a channel whose sends are
+            // demonstrably scoped.
+            regionRevision.value++
+        }
+        return ChannelScopeJoin.describe(outcome)
     }
 
     fun editChannel(index: Int, name: String, pskHex: String) {
@@ -1185,7 +1218,15 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
         val svc = _service.value ?: return
         viewModelScope.launch {
             val ok = runCatching { svc.engine.clearChannel(index) }.getOrDefault(false)
-            if (ok) db.channels().delete(selfKey.value, index)
+            if (ok) {
+                db.channels().delete(selfKey.value, index)
+                // Everything keyed by SLOT goes with the slot — the
+                // radio hands it straight back to the next join. See
+                // Preferences.forgetChannelSlot for why that is one
+                // function rather than a line per preference.
+                prefs.forgetChannelSlot(index)
+                regionRevision.value++
+            }
             transientMessage.value = if (ok) "Channel removed" else "Channel clear failed"
         }
     }
@@ -1195,6 +1236,7 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
         val svc = _service.value ?: return null
         // Prefer live engine state; fall back to unsealing the DB row.
         svc.engine.channels.value.firstOrNull { it.index == channel.idx }?.let { return it.pskHex }
+        if (channel.pskSealed.isEmpty()) return null // never sealed — see persistChannel
         return svc.secrets.unsealPsk(channel.pskSealed)?.toHex()
     }
 
@@ -1220,12 +1262,25 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
 
                 val crypto = io.github.thatsfguy.meshcore.platform.androidCryptoProvider()
                 val communityId = ChannelCrypto.communityId(crypto, secret).toHex()
-                svc.secrets.storeCommunitySecret(communityId, secret)
+                // Stop here if the secret cannot be kept. K derives every
+                // channel key in the community; without it this join
+                // writes one channel slot and throws away the only thing
+                // that could ever produce the others — and the QR is
+                // usually gone by the time anyone notices.
+                if (!svc.secrets.storeCommunitySecret(communityId, secret)) {
+                    transientMessage.value = "This device's keystore refused to store the " +
+                        "community secret, so the community was not joined"
+                    return@launch
+                }
 
                 val psk = ChannelCrypto.communityPublicPsk(crypto, secret)
                 val idx = svc.engine.nextFreeChannelIndex()
                 if (idx == null) {
-                    transientMessage.value = "No free channel slots on the radio"
+                    transientMessage.value = if (!svc.engine.channelsKnown) {
+                        "Still reading the radio's channels — try again in a moment"
+                    } else {
+                        "No free channel slots on the radio"
+                    }
                     return@launch
                 }
                 val ok = runCatching { svc.engine.setChannel(idx, name, psk) }.getOrDefault(false)
@@ -1304,8 +1359,16 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
                 _loginInFlight.value = _loginInFlight.value - keyHex
             }
             // Only seal a credential the node actually accepted.
+            //
+            // The result is not optional. On a device whose Keystore
+            // rejects every key spec — which KeystoreSecretVault
+            // documents as real, on shipped Samsung firmware — this
+            // returns false and stores nothing, and dropping that
+            // meant the dialog offered "Save password", said nothing,
+            // and asked again next session.
+            var sealFailed = false
             if (outcome.accepted && savePassword) {
-                svc.secrets.storeLoginPassword(keyHex, password)
+                sealFailed = !svc.secrets.storeLoginPassword(keyHex, password)
             }
             // What the NODE granted, straight from its reply byte.
             val granted = when {
@@ -1325,11 +1388,17 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
                     }
                     )
             }
+            val sealNote = if (sealFailed) {
+                " — but this device's keystore refused to store the password, " +
+                    "so you'll need to type it again next time"
+            } else {
+                ""
+            }
             transientMessage.value = when {
-                granted == AdminSession.Admin -> "Logged in as admin"
+                granted == AdminSession.Admin -> "Logged in as admin$sealNote"
                 // Say what was GRANTED, not what was asked for. A guest
                 // grant is a successful login, not a failure.
-                granted == AdminSession.Guest -> "Logged in as guest — read-only"
+                granted == AdminSession.Guest -> "Logged in as guest — read-only$sealNote"
                 outcome.answered -> "Password rejected"
                 else -> "No answer from the node"
             }
@@ -1827,8 +1896,9 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
         options: io.github.thatsfguy.meshcore.android.storage.ConfigBackupRepository.ApplyOptions,
         passphrase: String?,
     ): String {
-        val result = runCatching { backupRepo.apply(parsed, options, passphrase) }
-            .getOrElse { return "Restore failed: ${it.message}" }
+        val result = runCatching {
+            backupRepo.apply(parsed, options, passphrase, currentSelfKeyHex = selfKey.value)
+        }.getOrElse { return "Restore failed: ${it.message}" }
 
         // Radio-side writes happen here, one at a time, because they go
         // through the same serialised command queue as everything else.

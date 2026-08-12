@@ -168,8 +168,16 @@ class MessageRepository(
     private fun resolveSelfKey(engine: MeshCoreEngine): String =
         engine.selfInfo.value?.publicKeyHex ?: selfKey
 
-    private suspend fun persistChannel(self: String, ch: Channel) {
-        val sealed = secrets.sealPsk(ch.psk) ?: return // no keystore → no PSK at rest
+    /** Internal for tests: the vault-failure path has no other seam. */
+    internal suspend fun persistChannel(self: String, ch: Channel) {
+        // No keystore → no PSK at rest. That is the right call for the
+        // key; it was the wrong call for the ROW, which used to be
+        // dropped with it — so on a device whose Keystore is unusable
+        // the channel vanished from Chats entirely rather than losing
+        // only its cached key. An empty sealed blob keeps the channel
+        // visible; channelPskHex already prefers live engine state and
+        // returns null rather than unsealing nothing.
+        val sealed = secrets.sealPsk(ch.psk) ?: ByteArray(0)
         val prev = db.channels().byIdx(self, ch.index)
         db.channels().upsert(
             ChannelEntity(
@@ -180,8 +188,16 @@ class MessageRepository(
         )
     }
 
-    private suspend fun handle(engine: MeshCoreEngine, event: MeshEvent) {
-        val self = selfKey
+    /** Internal for tests: the self-key guard has no other seam. */
+    internal suspend fun handle(engine: MeshCoreEngine, event: MeshEvent) {
+        // Through resolveSelfKey, not the raw field: [selfKey] is
+        // assigned by the service from a different coroutine collecting
+        // the same flow, so reading it here raced — and on this path
+        // losing the race does not mean a stale row, it means an
+        // inbound message is dropped and never stored. The engine's own
+        // SELF_INFO is authoritative and is already set by the time any
+        // message event can exist.
+        val self = resolveSelfKey(engine)
         if (self.isEmpty()) return
         when (event) {
             is MeshEvent.DirectMessageReceived -> {
@@ -940,7 +956,10 @@ class MessageRepository(
      * count on the wrong message looks exactly like a right one.
      */
     suspend fun noteDirectRepeat(destHash: Int, pathHex: String, width: Int) {
-        val self = selfKey ?: return
+        // `selfKey ?: return` was elvis on a non-null String — the guard
+        // never fired, and the query below ran against "".
+        val self = selfKey
+        if (self.isEmpty()) return
         val now = System.currentTimeMillis()
         val recent = db.messages().recentOutgoingDms(self, now - DM_REPEAT_WINDOW_MS)
         val credited = MessageRepeats.creditDirect(

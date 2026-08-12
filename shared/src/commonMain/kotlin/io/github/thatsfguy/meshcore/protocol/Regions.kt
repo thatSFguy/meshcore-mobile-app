@@ -19,8 +19,20 @@ package io.github.thatsfguy.meshcore.protocol
  */
 object Regions {
 
-    /** Longest region name the reference client will accept or emit. */
-    const val MAX_NAME_LENGTH = 30
+    /**
+     * Longest region name the firmware will accept: **29 bytes of
+     * UTF-8**, per MeshCore's own region-filtering documentation
+     * ("maximum 29 _bytes_ (UTF-8)"; "Only _lower case_ alpha-numeric
+     * chars, and - (hyphen)").
+     *
+     * This was 30. One character over is not a cosmetic difference: a
+     * 30-character name canonicalises here, gets hashed into a flood
+     * scope, and gets pasted into a `region put` the repeater refuses —
+     * so the scope looks set on the phone and routes nothing on the air.
+     * Because the charset is ASCII-only, bytes and characters are the
+     * same count here.
+     */
+    const val MAX_NAME_LENGTH = 29
 
     /**
      * Cap on names taken from one mesh reply. A repeater can answer with
@@ -36,13 +48,12 @@ object Regions {
     const val NULL_SELECTOR = "<null>"
 
     /**
-     * Canonical region names are lowercase `[a-z0-9-]`, 1–30 chars. The
-     * ecosystem writes them that way (the reference client's text field
-     * literally cannot type anything else), and the flood-scope hash is
-     * over the exact bytes — so a name that differs only in case is a
-     * *different* region on the air.
+     * Canonical region names are lowercase `[a-z0-9-]`, 1–[MAX_NAME_LENGTH]
+     * chars. The ecosystem writes them that way, and the flood-scope
+     * hash is over the exact bytes — so a name that differs only in
+     * case is a *different* region on the air.
      */
-    private val VALID = Regex("^[a-z0-9-]{1,30}$")
+    private val VALID = Regex("^[a-z0-9-]{1,$MAX_NAME_LENGTH}$")
 
     /**
      * Normalise [raw] to a canonical region name, or null if it can't be
@@ -148,7 +159,8 @@ object Regions {
      * is not a region.
      */
     private val LISTING_LINE = Regex(
-        """^->\s*([a-z0-9-]{1,30})(?:\s+\(\s*([a-z0-9-]{1,30}|\*)\s*\))?(?:\s+'([A-Za-z]*)')?$""",
+        """^->\s*([a-z0-9-]{1,$MAX_NAME_LENGTH})""" +
+            """(?:\s+\(\s*([a-z0-9-]{1,$MAX_NAME_LENGTH}|\*)\s*\))?(?:\s+'([A-Za-z]*)')?$""",
     )
 
     /**

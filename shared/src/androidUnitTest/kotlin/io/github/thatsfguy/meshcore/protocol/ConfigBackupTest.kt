@@ -4,6 +4,7 @@ import io.github.thatsfguy.meshcore.platform.AndroidCryptoProvider
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -277,6 +278,32 @@ class ConfigBackupTest {
             // Never throws; either parses what it can or returns null.
             ConfigBackup.decode(text.substring(0, n))
         }
+    }
+
+    @Test
+    fun channelRegionsOnlyApplyWhenTheSlotNumbersMeanTheSameThing() {
+        val a = "aa".repeat(32)
+        val b = "bb".repeat(32)
+
+        // Same radio: slot 2 is the same channel it was.
+        assertTrue(ConfigBackup.channelRegionsApplyTo(a, a, restoringChannels = false))
+        // Case is not identity — hex is case-insensitive.
+        assertTrue(ConfigBackup.channelRegionsApplyTo(a.uppercase(), a, false))
+
+        // Different radio, regions only: slot 2 is somebody else's
+        // channel, and scoping it is a routing change nobody asked for.
+        assertFalse(ConfigBackup.channelRegionsApplyTo(a, b, restoringChannels = false))
+
+        // Different radio, but the channels are being rewritten from
+        // this same backup in the same pass — so the slots WILL be the
+        // backup's by the time the regions matter.
+        assertTrue(ConfigBackup.channelRegionsApplyTo(a, b, restoringChannels = true))
+
+        // "We don't know which radio this is" is not "it's the right
+        // one". Restoring on a hunch is how the scope lands on the
+        // wrong channel.
+        assertFalse(ConfigBackup.channelRegionsApplyTo(a, "", restoringChannels = false))
+        assertFalse(ConfigBackup.channelRegionsApplyTo("", a, restoringChannels = false))
     }
 
     @Test

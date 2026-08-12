@@ -6,6 +6,7 @@ import io.github.thatsfguy.meshcore.protocol.Codes.MAX_NAME_SIZE
 import io.github.thatsfguy.meshcore.protocol.Codes.MAX_PATH_SIZE
 import io.github.thatsfguy.meshcore.protocol.Codes.MAX_TEXT_PAYLOAD_BYTES
 import io.github.thatsfguy.meshcore.protocol.Codes.PUB_KEY_SIZE
+import io.github.thatsfguy.meshcore.util.truncateUtf8
 
 /**
  * Companion command-frame builders (client → radio).
@@ -131,13 +132,19 @@ object Frames {
     fun sendSelfAdvert(flood: Boolean = false): ByteArray =
         byteArrayOf(Codes.CMD_SEND_SELF_ADVERT.toByte(), if (flood) 1 else 0)
 
-    /** CMD_SET_ADVERT_NAME: [cmd][name ≤31 bytes] */
+    /**
+     * CMD_SET_ADVERT_NAME: `[cmd][name ≤31 bytes]`.
+     *
+     * Cut on a character boundary, like every other name this app
+     * writes. It used to cut at 31 raw bytes with a `copyOfRange`,
+     * which is the one thing [truncateUtf8] exists to prevent: a name
+     * ending in an emoji lost half a code point, and the invalid UTF-8
+     * went out in every advert this node sent from then on.
+     */
     fun setAdvertName(name: String): ByteArray {
-        val encoded = name.encodeToByteArray()
-        val len = minOf(encoded.size, MAX_NAME_SIZE - 1)
         val w = BufferWriter()
         w.writeByte(Codes.CMD_SET_ADVERT_NAME)
-        w.writeBytes(encoded.copyOfRange(0, len))
+        w.writeBytes(truncateUtf8(name, MAX_NAME_SIZE - 1))
         return w.toBytes()
     }
 
@@ -150,7 +157,14 @@ object Frames {
         return w.toBytes()
     }
 
-    /** CMD_SET_RADIO_PARAMS: [cmd][freq_hz x4][bw_hz x4][sf][cr][client_repeat?] */
+    /**
+     * CMD_SET_RADIO_PARAMS: `[cmd][freq_KHZ x4][bw_HZ x4][sf][cr][client_repeat?]`.
+     *
+     * The units really are asymmetric, and the KDoc used to say
+     * `freq_hz` for a field this function correctly fills with kHz —
+     * an invitation to "fix" the working half. The firmware divides the
+     * frequency word by 1000 and takes the bandwidth word as-is.
+     */
     fun setRadioParams(
         freqKhz: Long,
         bwHz: Long,
@@ -224,8 +238,34 @@ object Frames {
 
     /**
      * CMD_ADD_UPDATE_CONTACT:
-     * [cmd][pubkey x32][type][flags][path_len][path x64][name cstr32]
-     * [timestamp x4][lat i32, lon i32]?[lastmod x4]?
+     * `[cmd][pubkey x32][type][flags][path_len][path x64][name cstr32]`
+     * `[timestamp x4][lat i32, lon i32]?[lastmod x4]?`
+     *
+     * ## [timestampSeconds] is the CONTACT's advert timestamp, not now
+     *
+     * The firmware copies this field straight into
+     * `contact.last_advert_timestamp` (`companion_radio/MyMesh.cpp`,
+     * `updateContactFromFrame`), and that field is the replay guard:
+     *
+     * ```c
+     * if (timestamp <= from->last_advert_timestamp) {  // check for replay attacks!!
+     *   return;
+     * }
+     * ```
+     * (`helpers/BaseChatMesh.cpp`.)
+     *
+     * So passing the phone's clock here — which every caller used to do
+     * — future-stamps the record, and the node's own adverts are then
+     * discarded as replays until its clock overtakes ours. Nothing
+     * reports it: the contact simply stops updating its name, location
+     * and route. Radios lose their RTC without GPS (this app corrects
+     * the attached radio's skew at handshake for that reason), so a
+     * lagging peer clock is the normal case.
+     *
+     * Rewriting a contact to change a flag or a route must therefore
+     * carry the contact's EXISTING timestamp, and a contact created
+     * from an unsigned card — where no advert has been heard — must
+     * carry 0.
      */
     fun addUpdateContact(
         pubKey: ByteArray,
@@ -493,6 +533,20 @@ object Airtime {
         return kotlin.math.ceil(preambleTime + payloadTime).toInt()
     }
 
+    /**
+     * True when the radio turns on low-data-rate optimisation: the
+     * symbol time exceeds 16 ms.
+     *
+     * It is a property of SF *and* bandwidth, not of SF alone. The old
+     * `sf >= 11` test claimed LDRO at SF11/500 kHz (4 ms symbols, where
+     * the radio does not use it) and missed it at SF10/7.8 kHz (131 ms
+     * symbols, where it does.)
+     */
+    fun lowDataRateOptimized(spreadingFactor: Int, bandwidthHz: Int): Boolean {
+        if (bandwidthHz <= 0) return false
+        return (1 shl spreadingFactor) * 1000.0 / bandwidthHz > 16.0
+    }
+
     /** ACK timeout: flood = 500 + 16×airtime; direct = 500 + (6×airtime+250)×(hops+1). */
     fun messageTimeoutMs(
         bwHz: Int,
@@ -506,7 +560,7 @@ object Airtime {
             spreadingFactor = sf,
             bandwidthHz = bwHz,
             codingRate = cr,
-            lowDataRateOptimize = sf >= 11,
+            lowDataRateOptimize = lowDataRateOptimized(sf, bwHz),
         )
         return if (pathLength < 0) {
             500 + 16 * airtime

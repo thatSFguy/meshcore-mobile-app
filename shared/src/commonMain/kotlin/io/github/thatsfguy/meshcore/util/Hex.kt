@@ -54,13 +54,49 @@ fun hexToBytes(hex: String): ByteArray =
     hexToBytesOrNull(hex) ?: throw IllegalArgumentException("Invalid hex string")
 
 /**
+ * Encode [s] as UTF-8, cut to at most [maxBytes] **on a character
+ * boundary**.
+ *
+ * Every name this app writes to the radio, or reads back off it, goes
+ * through here. Names carry emoji and accented letters, and a cut
+ * through a multi-byte sequence leaves the radio — and every node that
+ * renders the contact — holding invalid UTF-8, which no later read can
+ * repair.
+ *
+ * One implementation on purpose: there were three, and the one in
+ * `Frames.setAdvertName` cut with a plain `copyOfRange`. Same shape as
+ * the four inline hex validators [isHexString] replaced.
+ */
+fun truncateUtf8(s: String, maxBytes: Int): ByteArray {
+    if (maxBytes <= 0) return ByteArray(0)
+    val full = s.encodeToByteArray()
+    if (full.size <= maxBytes) return full
+    // Back off to the start of the last whole UTF-8 sequence: any byte
+    // of the form 10xxxxxx is a continuation, never a start.
+    var end = maxBytes
+    while (end > 0 && (full[end].toInt() and 0xC0) == 0x80) end--
+    return full.copyOf(end)
+}
+
+/**
+ * Usable bytes in a node/channel name.
+ *
+ * The firmware stores a 32-byte C string, so 31 bytes plus the NUL.
+ * This is the bound everything should express — it used to be "32
+ * characters" here and "31 bytes" in ShareUri, which differ for every
+ * name that isn't ASCII: a 32-character emoji name passed one and was
+ * silently cut by the other.
+ */
+const val MAX_DISPLAY_NAME_BYTES = 31
+
+/**
  * Strip control and bidi-format characters from an attacker-supplied
  * display name before it reaches a list row, notification, or map
  * label. Newlines and RTL overrides (U+202A–202E, U+2066–2069) let a
  * hostile node impersonate another contact visually; nothing legitimate
  * needs them in a 31-byte node name.
  */
-fun sanitizeDisplayName(raw: String, maxChars: Int = 32): String =
+fun sanitizeDisplayName(raw: String, maxBytes: Int = MAX_DISPLAY_NAME_BYTES): String =
     raw.filter { c ->
         val code = c.code
         // Drop C0 (incl. \n, \r, \t), DEL + C1, and bidi controls.
@@ -68,4 +104,4 @@ fun sanitizeDisplayName(raw: String, maxChars: Int = 32): String =
             code != 0x200E && code != 0x200F &&
             (code < 0x202A || code > 0x202E) &&
             (code < 0x2066 || code > 0x2069)
-    }.trim().take(maxChars)
+    }.trim().let { truncateUtf8(it, maxBytes).decodeToString() }

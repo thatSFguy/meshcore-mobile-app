@@ -75,6 +75,23 @@ class RegionsTest {
     }
 
     @Test
+    fun theMaximumIsTheFirmwaresTwentyNineBytes() {
+        // Pinned to the number, not to our own constant: MeshCore's
+        // region-filtering documentation says "maximum 29 _bytes_
+        // (UTF-8)". This was 30, and one over is not cosmetic — a
+        // 30-character name canonicalises, gets hashed into a flood
+        // scope, and is then refused by `region put`, so the scope
+        // looks set on the phone and routes nothing on the air.
+        assertEquals(29, Regions.MAX_NAME_LENGTH)
+        assertEquals("b".repeat(29), Regions.canonical("b".repeat(29)))
+        assertNull(Regions.canonical("b".repeat(30)))
+        // The charset is ASCII-only, so the byte bound and the
+        // character bound are the same count — that is what makes
+        // expressing it in characters safe here and nowhere else.
+        assertEquals(29, "b".repeat(29).encodeToByteArray().size)
+    }
+
+    @Test
     fun selectorAllowsTheGlobalWildcardAndNothingElseExotic() {
         assertEquals("*", Regions.canonicalSelector("*"))
         assertEquals("*", Regions.canonicalSelector("  *  "))

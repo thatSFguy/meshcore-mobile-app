@@ -2,6 +2,7 @@ package io.github.thatsfguy.meshcore.android.storage
 
 import androidx.test.core.app.ApplicationProvider
 import io.github.thatsfguy.meshcore.protocol.Regions
+import io.github.thatsfguy.meshcore.protocol.Retention
 import org.junit.Before
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -105,6 +106,57 @@ class RegionPreferencesTest {
         prefs.removeRegion("bay area")
         assertEquals(listOf("bayarea"), prefs.regions)
         assertEquals("bayarea", prefs.channelRegion(0))
+    }
+
+    @Test
+    fun forgettingASlotClearsEverythingKeyedByIt() {
+        // A deleted channel frees its slot, and the radio hands that
+        // slot to the very next join — so anything left here is
+        // inherited by an unrelated channel. A region left behind
+        // scopes the new channel's traffic to a mesh the user thought
+        // they had left, with nothing on screen to say so.
+        prefs.addRegion("bayarea")
+        prefs.setChannelRegion(2, "bayarea")
+        prefs.setChannelRetention(2, Retention.Policy(Retention.Mode.Days, 7))
+
+        prefs.forgetChannelSlot(2)
+
+        assertNull(prefs.channelRegion(2))
+        assertNull(prefs.channelRetentions()[2])
+        // The REGION itself survives — it belongs to the mesh, not to
+        // the channel that happened to use it.
+        assertEquals(listOf("bayarea"), prefs.regions)
+    }
+
+    @Test
+    fun forgettingASlotLeavesTheOtherSlotsAlone() {
+        prefs.addRegion("bayarea")
+        prefs.addRegion("socal")
+        prefs.setChannelRegion(0, "bayarea")
+        prefs.setChannelRegion(2, "socal")
+        prefs.setChannelRetention(0, Retention.Policy(Retention.Mode.Days, 30))
+
+        prefs.forgetChannelSlot(2)
+
+        assertEquals("bayarea", prefs.channelRegion(0))
+        assertEquals(Retention.Policy(Retention.Mode.Days, 30), prefs.channelRetentions()[0])
+    }
+
+    @Test
+    fun everySlotKeyedPreferenceIsClearedByForgetChannelSlot() {
+        // The property, not the list: whatever is keyed by slot must go
+        // when the slot does. This fails the day someone adds a third
+        // slot-keyed preference and clears only two — which is exactly
+        // how the retention policy was missed the first time.
+        prefs.addRegion("bayarea")
+        prefs.setChannelRegion(5, "bayarea")
+        prefs.setChannelRetention(5, Retention.Policy(Retention.Mode.Days, 1))
+        val before = prefs.slotKeyedPreferenceKeys(5)
+        assertEquals(2, before.size, "expected the known slot-keyed prefs, got $before")
+
+        prefs.forgetChannelSlot(5)
+
+        assertEquals(emptySet(), prefs.slotKeyedPreferenceKeys(5))
     }
 
     @Test

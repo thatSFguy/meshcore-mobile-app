@@ -66,7 +66,14 @@ enum class ScannedCode {
         fun extract(text: String): String? {
             val trimmed = text.trim()
             if (trimmed.isEmpty()) return null
-            if (classify(trimmed) != Unknown) return trimmed
+            // A community blob is JSON and has to arrive whole; a
+            // `meshcore://` link is delimited by whitespace wherever it
+            // sits. Returning early for anything that merely CLASSIFIED
+            // meant the link-in-prose logic below never ran for the
+            // commonest paste of all — the link first, the sentence
+            // after it — so "meshcore://…&type=1 join us" reached the
+            // decoder whole and came back "Malformed contact code".
+            if (classify(trimmed) == Community) return trimmed
             val start = trimmed.indexOf(ShareUri.SCHEME, ignoreCase = true)
             if (start < 0) return null
             val rest = trimmed.substring(start)

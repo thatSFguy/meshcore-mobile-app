@@ -2,6 +2,7 @@ package io.github.thatsfguy.meshcore.protocol
 
 import io.github.thatsfguy.meshcore.util.hexToBytesOrNull
 import io.github.thatsfguy.meshcore.util.toHex
+import io.github.thatsfguy.meshcore.util.truncateUtf8
 
 /**
  * The `meshcore://` contact-share encoding used by QR codes and pasted
@@ -203,6 +204,20 @@ object ShareUri {
              * shared it intended and with no sign anything was lost.
              */
             val regionScope: String = "",
+            /**
+             * The scope exactly as the code spelled it, before
+             * canonicalisation — empty when the code carried none.
+             *
+             * Kept because [regionScope] alone cannot tell "no scope"
+             * apart from "a scope this build could not use", and those
+             * lead somewhere different: the first joins a global
+             * channel, the second joins one that will flood wider than
+             * its owner intended. Canonicalising in the decoder and
+             * then reading only the result is how the join path came to
+             * report "Channel added" for a code that asked for a scope
+             * and did not get one.
+             */
+            val rawRegionScope: String = "",
         ) : Decoded
 
         /**
@@ -274,7 +289,18 @@ object ShareUri {
         // Case-insensitive: some generators upper-case the scheme.
         if (!trimmed.lowercase().startsWith(SCHEME)) return Decoded.NotAContactCode
         if (trimmed.length > MAX_URI_LENGTH) return Decoded.TooLarge
-        val body = trimmed.substring(SCHEME.length)
+        // A '#' starts a fragment, and a fragment is not part of the
+        // query. Without this the fragment lands inside the LAST
+        // parameter's value — so a code with anything appended after a
+        // '#' failed as "Malformed", blaming the sender for a component
+        // no URI parser would have given us.
+        //
+        // The cost is a literal '#' inside a value, which is not legal
+        // there anyway: every other parser in the ecosystem (Flutter's
+        // Uri.parse, Android's) cuts at the same place, so a code that
+        // relied on our old leniency was already broken everywhere else.
+        // `region_scope=%23bayarea` — the encoded form — is unaffected.
+        val body = trimmed.substring(SCHEME.length).substringBefore('#')
         val path = body.substringBefore('?').lowercase()
         return when (path) {
             CONTACT_PATH -> decodeContactCard(body.substringAfter('?', ""))
@@ -357,13 +383,20 @@ object ShareUri {
         // Present-but-unusable is dropped rather than failing the whole
         // code: a region name this build cannot canonicalise is most
         // likely one a newer app understands, and refusing the channel
-        // outright would be a worse answer than joining it unscoped. The
-        // caller says so out loud — see the join path.
-        val region = Regions.canonical(params[CHANNEL_REGION_PARAM]).orEmpty()
+        // outright would be a worse answer than joining it unscoped.
+        //
+        // But the raw value travels with it. Reporting that the scope
+        // was dropped needs the name that was dropped, and a decoder
+        // that keeps only its own canonical answer leaves the caller
+        // unable to tell "unscoped" from "unusable" — which is exactly
+        // how this shipped silent.
+        val rawRegion = sanitizeName(params[CHANNEL_REGION_PARAM].orEmpty())
+        val region = Regions.canonical(rawRegion).orEmpty()
         return Decoded.ChannelShare(
             name = sanitizeName(params["name"].orEmpty()),
             pskHex = psk,
             regionScope = region,
+            rawRegionScope = rawRegion,
         )
     }
 
@@ -445,22 +478,14 @@ object ShareUri {
             MAX_NAME_BYTES,
         )
 
-    /** Truncate on a code-point boundary so UTF-8 never splits mid-char. */
-    fun truncateToBytes(text: String, maxBytes: Int): String {
-        if (text.encodeToByteArray().size <= maxBytes) return text
-        var end = text.length
-        while (end > 0) {
-            // Don't cut between a surrogate pair.
-            if (end < text.length && text[end - 1].isHighSurrogate()) {
-                end--
-                continue
-            }
-            val candidate = text.substring(0, end)
-            if (candidate.encodeToByteArray().size <= maxBytes) return candidate
-            end--
-        }
-        return ""
-    }
+    /**
+     * Truncate on a code-point boundary so UTF-8 never splits mid-char.
+     *
+     * One implementation, shared with the frame builders — this was the
+     * third copy of the idea.
+     */
+    fun truncateToBytes(text: String, maxBytes: Int): String =
+        truncateUtf8(text, maxBytes).decodeToString()
 
     private const val UNRESERVED =
         "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_.~"

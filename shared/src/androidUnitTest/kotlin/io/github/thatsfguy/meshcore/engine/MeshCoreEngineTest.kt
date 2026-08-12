@@ -11,6 +11,7 @@ import io.github.thatsfguy.meshcore.protocol.Codes
 import io.github.thatsfguy.meshcore.protocol.HeardRepeats
 import io.github.thatsfguy.meshcore.protocol.ShareUri
 import io.github.thatsfguy.meshcore.protocol.MeshIdentity
+import io.github.thatsfguy.meshcore.protocol.RoutingMode
 import io.github.thatsfguy.meshcore.transport.IncomingFrame
 import io.github.thatsfguy.meshcore.transport.Transport
 import io.github.thatsfguy.meshcore.transport.TransportState
@@ -1629,4 +1630,206 @@ class MeshCoreEngineTest {
         assertNotNull(extracted)
         assertFalse(Advert.verifySignature(crypto, extracted))
     }
+
+    // ------------------------------------------------------------------
+    // The channel sweep decides which slot a join overwrites
+    // ------------------------------------------------------------------
+
+    @Test
+    fun aChannelSweepThatTimesOutKeepsWhatWeAlreadyKnew() = runTest {
+        // The consequence, not the mechanism: a truncated sweep used to
+        // be published, so an unanswered slot read erased Public from
+        // the list, nextFreeChannelIndex answered 0, and the next join
+        // wrote over a key the radio cannot give back.
+        val radio = FakeRadio()
+        radio.responder = standardResponder(radio)
+        val engine = readyEngine(radio)
+        assertEquals(1, engine.channels.value.size, "Public should be in slot 0")
+        assertEquals(1, engine.nextFreeChannelIndex(), "slot 0 is taken")
+
+        // Now the radio stops answering channel reads.
+        val base = standardResponder(radio)
+        radio.responder = { frame ->
+            if ((frame[0].toInt() and 0xFF) == Codes.CMD_GET_CHANNEL) emptyList() else base(frame)
+        }
+        engine.syncChannels()
+
+        assertEquals(
+            listOf(0),
+            engine.channels.value.map { it.index },
+            "an unfinished sweep must not be published",
+        )
+        assertEquals(1, engine.nextFreeChannelIndex(), "and slot 0 is still not free")
+    }
+
+    @Test
+    fun anErrEndsTheSweepNormally() = runTest {
+        // The other half: the firmware answers Err for a slot index past
+        // the end, and that IS a complete sweep. Treating it like a
+        // timeout would leave the list permanently unknown on any radio
+        // reporting more slots than it has.
+        val radio = FakeRadio()
+        val base = standardResponder(radio)
+        radio.responder = { frame ->
+            if ((frame[0].toInt() and 0xFF) == Codes.CMD_GET_CHANNEL && frame[1].toInt() >= 2) {
+                listOf(byteArrayOf(Codes.RESP_CODE_ERR.toByte(), 1))
+            } else {
+                base(frame)
+            }
+        }
+        val engine = readyEngine(radio)
+        assertTrue(engine.channelsKnown)
+        assertEquals(1, engine.nextFreeChannelIndex())
+    }
+
+    @Test
+    fun noSlotIsFreeUntilTheRadioHasBeenAsked() = runTest {
+        // An empty channel list means two different things — "this
+        // radio has no channels" and "we have not looked yet" — and
+        // only one of them makes slot 0 free.
+        val engine = MeshCoreEngine(backgroundScope, crypto, { now })
+        assertFalse(engine.channelsKnown)
+        assertNull(engine.nextFreeChannelIndex())
+    }
+
+    // ------------------------------------------------------------------
+    // path_len is packed; routingMode must decode it
+    // ------------------------------------------------------------------
+
+    /** A contact record carrying an explicit PACKED path_len byte. */
+    private fun contactFrameWithPackedPathLen(
+        pubKey: ByteArray,
+        packed: Int,
+        path: ByteArray = ByteArray(0),
+    ): ByteArray {
+        val w = BufferWriter()
+        w.writeByte(Codes.RESP_CODE_CONTACT)
+        w.writeBytes(pubKey)
+        w.writeByte(Codes.ADV_TYPE_CHAT)
+        w.writeByte(0)
+        w.writeByte(packed)
+        w.writeBytesPadded(path, 64)
+        w.writeFixedCString("packed", 32)
+        w.writeUInt32LE(1L)
+        w.writeInt32LE(0); w.writeInt32LE(0)
+        w.writeUInt32LE(1L)
+        return w.toBytes()
+    }
+
+    @Test
+    fun aZeroHopPathAtTwoByteHashesIsAutoNotManual() = runTest {
+        // 0x40 is "0 hops, 2-byte hashes" — a direct contact on the
+        // author's mesh. Compared raw it is 64, which `pathLen > 0`
+        // called Manual, so every direct contact on a width-2 mesh
+        // reported a pinned route it never had. The same record on a
+        // width-1 mesh read Auto: the answer depended on the mesh, not
+        // on the contact.
+        val radio = FakeRadio()
+        radio.responder = standardResponder(radio)
+        val engine = readyEngine(radio)
+
+        val key = ByteArray(32) { (it + 90).toByte() }
+        radio.push(contactFrameWithPackedPathLen(key, 0x40))
+        yield()
+
+        assertEquals(RoutingMode.Auto, engine.routingMode(key.toHexString()))
+    }
+
+    @Test
+    fun aRealTwoHopPathAtTwoByteHashesIsStillManual() = runTest {
+        // The positive control. 0x42 is "2 hops, 2-byte hashes", which
+        // IS a route — a decoder that answered Auto for everything
+        // would pass the test above and break routing.
+        val radio = FakeRadio()
+        radio.responder = standardResponder(radio)
+        val engine = readyEngine(radio)
+
+        val key = ByteArray(32) { (it + 91).toByte() }
+        radio.push(contactFrameWithPackedPathLen(key, 0x42, byteArrayOf(0xB3.toByte(), 0x89.toByte(), 0xC9.toByte(), 0x85.toByte())))
+        yield()
+
+        assertEquals(RoutingMode.Manual, engine.routingMode(key.toHexString()))
+    }
+
+    @Test
+    fun theFloodSentinelIsStillFlood() = runTest {
+        val radio = FakeRadio()
+        radio.responder = standardResponder(radio)
+        val engine = readyEngine(radio)
+
+        val key = ByteArray(32) { (it + 92).toByte() }
+        radio.push(contactFrameWithPackedPathLen(key, 0xFF))
+        yield()
+
+        assertEquals(RoutingMode.Flood, engine.routingMode(key.toHexString()))
+    }
+
+    // ------------------------------------------------------------------
+    // last_advert_timestamp is the firmware's replay guard
+    // ------------------------------------------------------------------
+
+    /** The `timestamp` field of a CMD_ADD_UPDATE_CONTACT frame. */
+    private fun advertTimestampOf(frame: ByteArray): Long {
+        // [0] cmd | [1..32] pubkey | type | flags | path_len | path x64 |
+        // name cstr32 | timestamp u32
+        val at = 1 + 32 + 3 + 64 + 32
+        return (frame[at].toLong() and 0xFF) or
+            ((frame[at + 1].toLong() and 0xFF) shl 8) or
+            ((frame[at + 2].toLong() and 0xFF) shl 16) or
+            ((frame[at + 3].toLong() and 0xFF) shl 24)
+    }
+
+    @Test
+    fun favouritingAContactDoesNotRestampItsLastAdvert() = runTest {
+        // The firmware copies this field into last_advert_timestamp and
+        // then drops any advert with `timestamp <= last_advert_timestamp`
+        // as a replay (BaseChatMesh.cpp). Writing the phone's clock here
+        // future-stamps the record, and the node's real adverts stop
+        // landing — silently, until its own clock overtakes ours.
+        val radio = FakeRadio()
+        radio.responder = standardResponder(radio)
+        val engine = readyEngine(radio)
+
+        assertTrue(engine.setFavourite(peerKey, true))
+
+        val sent = radio.sentFrames.last { (it[0].toInt() and 0xFF) == Codes.CMD_ADD_UPDATE_CONTACT }
+        assertEquals(
+            1L,
+            advertTimestampOf(sent),
+            "must carry the contact's own advert timestamp, not now()",
+        )
+        assertTrue(advertTimestampOf(sent) < now, "and certainly not the phone's clock")
+    }
+
+    @Test
+    fun pinningARouteDoesNotRestampItsLastAdvert() = runTest {
+        val radio = FakeRadio()
+        radio.responder = standardResponder(radio)
+        val engine = readyEngine(radio)
+
+        assertTrue(engine.setRouting(peerKey, RoutingMode.Manual, byteArrayOf(0x1F)))
+
+        val sent = radio.sentFrames.last { (it[0].toInt() and 0xFF) == Codes.CMD_ADD_UPDATE_CONTACT }
+        assertEquals(1L, advertTimestampOf(sent))
+    }
+
+    @Test
+    fun aContactFromAnUnsignedCardClaimsNoAdvertAtAll() = runTest {
+        // Nothing has been heard from this node, so 0 is the honest
+        // value — and it is also the only one that lets the node's very
+        // first advert through the replay guard.
+        val radio = FakeRadio()
+        radio.responder = standardResponder(radio)
+        val engine = readyEngine(radio)
+
+        val key = ByteArray(32) { (it + 70).toByte() }
+        assertTrue(engine.addContactFromCard(key, "Scanned", Codes.ADV_TYPE_CHAT))
+
+        val sent = radio.sentFrames.last { (it[0].toInt() and 0xFF) == Codes.CMD_ADD_UPDATE_CONTACT }
+        assertEquals(0L, advertTimestampOf(sent))
+    }
 }
+
+/** Lowercase hex, local to the tests. */
+private fun ByteArray.toHexString(): String =
+    joinToString("") { ((it.toInt() and 0xFF) + 0x100).toString(16).substring(1) }

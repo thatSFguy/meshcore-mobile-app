@@ -11,7 +11,7 @@ import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
 /**
- * Android Keystore-backed [IdentityVault]. Wraps the MeshCore
+ * Android Keystore-backed [SecretVault]. Wraps the MeshCore
  * identity private keys with an AES-256-GCM key that lives in the
  * TEE (or StrongBox where available); the key bytes never leave
  * secure hardware and cannot be cloned to another device.
@@ -36,9 +36,10 @@ import javax.crypto.spec.GCMParameterSpec
  *   is identical to pre-vault behaviour.
  * - **Invalidation**: on biometric enrollment changes the Keystore
  *   may invalidate this key (see `setInvalidatedByBiometricEnrollment`
- *   default behaviour). When that happens [unseal] throws — the
- *   repository surfaces a clear error so the user can re-import
- *   their `.rmid` backup instead of silently losing their identity.
+ *   default behaviour). When that happens [unseal] throws — callers
+ *   surface it rather than silently losing the secret, and a config
+ *   backup (`ConfigBackupRepository`, passphrase-sealed) is the way
+ *   back.
  *
  * ## Wire format (output of [seal])
  *
@@ -57,8 +58,8 @@ import javax.crypto.spec.GCMParameterSpec
  * signature matches (Android Keystore keys are scoped to the
  * package + signing key). A fresh install with a different signing
  * key cannot decrypt rows sealed by a previous install — same
- * shape as the .rmid passphrase: if you lose the key, you lose
- * the identity.
+ * shape as a backup passphrase: if you lose the key, you lose
+ * what it sealed.
  */
 class KeystoreSecretVault : SecretVault {
 
@@ -93,8 +94,8 @@ class KeystoreSecretVault : SecretVault {
         val key = getKeyOrNull()
             ?: error(
                 "Android Keystore alias '$KEY_ALIAS' missing — was the key " +
-                "invalidated (biometric enrollment, device wipe)? Identity " +
-                "is unrecoverable from this vault; re-import a .rmid backup."
+                "invalidated (biometric enrollment, device wipe)? Anything " +
+                "sealed with it is unrecoverable; restore a config backup."
             )
         val cipher = Cipher.getInstance(TRANSFORM)
         cipher.init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(GCM_TAG_LEN, iv))
@@ -206,14 +207,21 @@ class KeystoreSecretVault : SecretVault {
                 // below with the accumulated lastError as cause.
             }
         }
-        // Tier 4: all Keystore-backed tiers exhausted. Surface a
-        // typed error the Repository recognises and degrades on.
+        // Tier 4: all Keystore-backed tiers exhausted.
+        //
+        // This message used to promise a fallback to "plaintext-column
+        // storage". There is none, and there must not be:
+        // SecretsRepository returns false and stores NOTHING, so a
+        // password or PSK that cannot be sealed is not kept at all.
+        // (The message database is the one place with a plaintext
+        // fallback — see DatabaseKey — because losing message history
+        // is worse than storing it unencrypted, and that degradation is
+        // shown in Settings.)
         throw KeystoreUnavailableException(
             "Android Keystore rejected every key-spec tier on this device " +
-                "(StrongBox / unlocked-device-required / minimal). The repository " +
-                "will fall back to plaintext-column storage so the app stays " +
-                "usable. Threat model degrades to pre-1.1.27 (FBE + app-private " +
-                "storage + Auto Backup off, but no per-app key isolation).",
+                "(StrongBox / unlocked-device-required / minimal). Secrets will NOT " +
+                "be stored: passwords must be re-entered each session, and channel " +
+                "PSKs are held only by the radio. Nothing is written in the clear.",
             lastError,
         )
     }
@@ -242,11 +250,17 @@ class KeystoreSecretVault : SecretVault {
 
 /**
  * Typed marker for "the AndroidKeystore-backed vault could not be
- * brought up on this device at all." Distinct from a per-seal /
- * per-unseal failure because the caller (the
- * [IdentityRepoImpl]) wants to silently degrade to legacy
- * plaintext-column storage rather than crashing the app. Audit
- * reference: 2026-05-13 HIGH-1 follow-up.
+ * brought up on this device at all", as distinct from a per-seal /
+ * per-unseal failure.
+ *
+ * Two callers treat it differently, on purpose:
+ *  - [SecretsRepository] does not store the secret. Passwords, PSKs
+ *    and community secrets are never written in the clear.
+ *  - [DatabaseKey] falls back to an unencrypted message database and
+ *    says so in Settings, because losing the user's history outright
+ *    is worse — and pretending to be encrypted would be worse still.
+ *
+ * Audit reference: 2026-05-13 HIGH-1 follow-up.
  */
 class KeystoreUnavailableException(
     message: String,

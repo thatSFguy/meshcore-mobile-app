@@ -5,6 +5,7 @@ import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class FramesTest {
@@ -165,6 +166,49 @@ class FramesTest {
     fun messageSizeLimits() {
         assertTrue(Frames.maxContactMessageBytes() in 1..Codes.MAX_TEXT_PAYLOAD_BYTES)
         assertTrue(Frames.maxChannelMessageBytes("Al") > Frames.maxChannelMessageBytes(null))
+    }
+
+    @Test
+    fun theAdvertNameIsCutOnACharacterBoundary() {
+        // 31 usable bytes, and the cut must not land inside a UTF-8
+        // sequence. This was the one name-writing path that used a
+        // plain copyOfRange instead of truncateUtf8, so a long name
+        // ending in an emoji went out as invalid UTF-8 in every advert
+        // the node sent from then on.
+        val f = Frames.setAdvertName("😀".repeat(10))
+        assertEquals(Codes.CMD_SET_ADVERT_NAME, f[0].toInt())
+        val name = f.copyOfRange(1, f.size)
+        assertTrue(name.size <= Codes.MAX_NAME_SIZE - 1, "wrote ${name.size} bytes")
+        assertEquals("😀".repeat(7), name.decodeToString())
+        // Round-trips, which a mid-sequence cut would not.
+        assertContentEquals(name, name.decodeToString().encodeToByteArray())
+    }
+
+    @Test
+    fun aShortAdvertNameIsWrittenWhole() {
+        // Positive control: the truncation must not be doing anything
+        // to names that fit.
+        val f = Frames.setAdvertName("MeshCore-Blue")
+        assertEquals("MeshCore-Blue", f.copyOfRange(1, f.size).decodeToString())
+    }
+
+    @Test
+    fun lowDataRateOptimisationFollowsSymbolTimeNotSpreadingFactor() {
+        // LDRO applies when the symbol time exceeds 16 ms, which is a
+        // property of SF *and* bandwidth. `sf >= 11` claimed it where
+        // the radio would not use it and missed it where it would.
+        //  SF11 @ 500 kHz  -> 2048/500000 s  =  4.1 ms  -> off
+        //  SF11 @ 62.5 kHz -> 2048/62500 s   = 32.8 ms  -> on
+        //  SF10 @ 7.8 kHz  -> 1024/7800 s    = 131 ms   -> on  (sf < 11)
+        assertFalse(Airtime.lowDataRateOptimized(11, 500_000))
+        assertTrue(Airtime.lowDataRateOptimized(11, 62_500))
+        assertTrue(Airtime.lowDataRateOptimized(10, 7_800))
+        assertFalse(Airtime.lowDataRateOptimized(7, 250_000))
+        // The author's mesh: SF9 @ 62.5 kHz is 8.2 ms — under the line.
+        assertFalse(Airtime.lowDataRateOptimized(9, 62_500))
+        // Exactly at the boundary is not "exceeds": SF10 @ 62.5 kHz is
+        // 16.384 ms, just over, so it IS optimised.
+        assertTrue(Airtime.lowDataRateOptimized(10, 62_500))
     }
 
     @Test
