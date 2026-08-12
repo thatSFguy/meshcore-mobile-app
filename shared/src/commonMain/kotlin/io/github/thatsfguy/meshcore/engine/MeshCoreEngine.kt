@@ -2012,12 +2012,46 @@ class MeshCoreEngine(
         )
         private const val DEFAULT_MAX_CHANNELS = 8
 
+        /** pubkey(32) + timestamp(4) + signature(64), before app_data. */
+        const val ADVERT_MIN_PAYLOAD_BYTES = 100
+
         /**
-         * An exported-contact blob is the advert payload itself (≥98
-         * bytes: pubkey+timestamp+signature+app_data). Kept as a hook in
-         * case future firmware prepends a header.
+         * The advert payload inside an exported-contact blob.
+         *
+         * ## The blob is a PACKET, not a payload
+         *
+         * This used to return the blob unchanged, on a comment claiming
+         * an exported contact "is the advert payload itself". It is not,
+         * and never was. `CMD_EXPORT_CONTACT` writes a whole packet:
+         * self-export calls `pkt->writeTo()` and contact-export returns
+         * `getBlobByKey()`, commented in the firmware as "retrieve last
+         * raw advert packet". Both are
+         * `[header][transport?][path_len][path][payload]`. The firmware
+         * agrees on the way back in — its own `importContact()` does
+         * `pkt->readFrom(src_buf, len)` and requires
+         * `PAYLOAD_TYPE_ADVERT`, which only parses if a packet is what
+         * you sent it.
+         *
+         * Handing that to [Advert.verifySignature], which reads the
+         * public key from offset 0, means verifying with the header byte
+         * as the first byte of the key. It cannot succeed. Every
+         * `meshcore://<hex>` advert QR was rejected as "Import failed
+         * (bad signature?)" — which reads as *their* code being forged
+         * rather than ours being misparsed.
+         *
+         * It went unnoticed because nothing we emit takes this form: our
+         * own sharing uses the `contact/add` card, so the only codes
+         * that reach here come from other clients. `ShareUri.encodeAdvert`
+         * exists and has no callers. A decoder with no encoder pointed at
+         * it is a decoder nothing tests end to end.
+         *
+         * The packet is still what gets SENT to the radio — only the
+         * verification needed the payload. See [importContact].
          */
-        fun extractAdvertPayload(blob: ByteArray): ByteArray? =
-            if (blob.size >= 98) blob else null
+        fun extractAdvertPayload(blob: ByteArray): ByteArray? {
+            val packet = RawPacket.parse(blob) ?: return null
+            if (packet.payloadType != Codes.PAYLOAD_TYPE_ADVERT) return null
+            return packet.payload.takeIf { it.size >= ADVERT_MIN_PAYLOAD_BYTES }
+        }
     }
 }

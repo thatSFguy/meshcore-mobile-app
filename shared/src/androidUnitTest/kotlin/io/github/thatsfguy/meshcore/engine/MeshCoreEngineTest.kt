@@ -9,6 +9,7 @@ import io.github.thatsfguy.meshcore.protocol.PathRecovery
 import io.github.thatsfguy.meshcore.protocol.Advert
 import io.github.thatsfguy.meshcore.protocol.Codes
 import io.github.thatsfguy.meshcore.protocol.HeardRepeats
+import io.github.thatsfguy.meshcore.protocol.ShareUri
 import io.github.thatsfguy.meshcore.protocol.MeshIdentity
 import io.github.thatsfguy.meshcore.transport.IncomingFrame
 import io.github.thatsfguy.meshcore.transport.Transport
@@ -1517,5 +1518,115 @@ class MeshCoreEngineTest {
         val table = engine.requestNeighbours(peerKey)
         assertNotNull(table)
         assertTrue(table.entries.isEmpty())
+    }
+
+    // ------------------------------------------------------------------
+    // Advert-QR import — the `meshcore://<hex>` form other clients emit
+    // ------------------------------------------------------------------
+
+    @Test
+    fun anExportedContactBlobIsAPacketAndItsPayloadIsWhatGetsVerified() {
+        // The defect. CMD_EXPORT_CONTACT returns a whole packet —
+        // self-export is pkt->writeTo(), contact-export is
+        // getBlobByKey(), commented "retrieve last raw advert packet" —
+        // so the payload starts after the header, path_len and path.
+        // Verifying the blob itself reads the HEADER byte as the first
+        // byte of the public key, which can never verify.
+        val them = MeshIdentity.generate(crypto)
+        val payload = signedAdvert(them, "Someone")
+        val blob = advertPacket(payload)
+
+        val extracted = MeshCoreEngine.extractAdvertPayload(blob)
+        assertNotNull(extracted)
+        assertContentEquals(payload, extracted, "must return the payload, not the packet")
+        assertTrue(Advert.verifySignature(crypto, extracted))
+
+        // And the guard: the old behaviour, pinned as broken so it
+        // cannot come back looking reasonable.
+        assertFalse(
+            Advert.verifySignature(crypto, blob),
+            "the packet must NOT verify as a payload — if it does, this test proves nothing",
+        )
+    }
+
+    @Test
+    fun aZeroHopAdvertPacketWorksToo() {
+        // The self-export case: no path at all, so the payload starts at
+        // offset 2. An off-by-one here would pass the two-hop test above
+        // and fail on the commonest code in circulation.
+        val them = MeshIdentity.generate(crypto)
+        val payload = signedAdvert(them, "Direct")
+        val extracted = MeshCoreEngine.extractAdvertPayload(
+            advertPacket(payload, path = ByteArray(0), width = 2),
+        )
+        assertContentEquals(payload, extracted)
+    }
+
+    @Test
+    fun aNonAdvertPacketIsRefused() {
+        // The firmware's own importContact() requires PAYLOAD_TYPE_ADVERT
+        // and we should not hand it anything else — a text-message packet
+        // whose bytes happen to be long enough is not a contact.
+        val them = MeshIdentity.generate(crypto)
+        val payload = signedAdvert(them, "Someone")
+        val header = (Codes.PAYLOAD_TYPE_TXT_MSG shl 2) or 0x01
+        val notAnAdvert = byteArrayOf(header.toByte(), 0) + payload
+        assertNull(MeshCoreEngine.extractAdvertPayload(notAnAdvert))
+    }
+
+    @Test
+    fun truncatedAndUndersizedBlobsAreRefusedNotThrown() {
+        // Scanned QR data is attacker-controlled; every one of these
+        // must produce null rather than an exception or a short read.
+        assertNull(MeshCoreEngine.extractAdvertPayload(ByteArray(0)))
+        assertNull(MeshCoreEngine.extractAdvertPayload(byteArrayOf(0x11)))
+        // Well-formed header, payload one byte short of a signature.
+        val header = (Codes.PAYLOAD_TYPE_ADVERT shl 2) or 0x01
+        assertNull(
+            MeshCoreEngine.extractAdvertPayload(
+                byteArrayOf(header.toByte(), 0) + ByteArray(99),
+            ),
+        )
+        // Claims more hops than it carries.
+        assertNull(
+            MeshCoreEngine.extractAdvertPayload(byteArrayOf(header.toByte(), 0x3F) + ByteArray(8)),
+        )
+    }
+
+    @Test
+    fun scanningAnAdvertUriImportsTheContact() = runTest {
+        // End to end, the way another client's QR arrives: hex of a raw
+        // advert packet behind the bare `meshcore://` scheme. This is
+        // the path that had no encoder pointed at it and so was never
+        // exercised — ShareUri.encodeAdvert has no callers.
+        val radio = FakeRadio()
+        radio.responder = standardResponder(radio)
+        val engine = readyEngine(radio)
+
+        val them = MeshIdentity.generate(crypto)
+        val blob = advertPacket(signedAdvert(them, "Someone"))
+        val decoded = ShareUri.decode(ShareUri.encodeAdvert(blob))
+        assertTrue(decoded is ShareUri.Decoded.Advert, "decoded as $decoded")
+
+        assertTrue(engine.importContact((decoded as ShareUri.Decoded.Advert).blob))
+
+        // The RADIO must receive the packet, not the payload: the
+        // firmware's importContact() parses it with readFrom().
+        val sent = radio.sentFrames.last { (it[0].toInt() and 0xFF) == Codes.CMD_IMPORT_CONTACT }
+        assertContentEquals(blob, sent.copyOfRange(1, sent.size))
+    }
+
+    @Test
+    fun aForgedAdvertUriIsStillRejected() {
+        // The verification this fix moved must still bite. Flip a byte
+        // in the signed region: extraction succeeds, verification does
+        // not, and importContact refuses before anything reaches the
+        // radio.
+        val them = MeshIdentity.generate(crypto)
+        val payload = signedAdvert(them, "Someone").copyOf()
+        payload[35] = (payload[35] + 1).toByte()   // last byte of the timestamp
+        val extracted = MeshCoreEngine.extractAdvertPayload(advertPacket(payload))
+        assertNotNull(extracted)
+        assertFalse(Advert.verifySignature(crypto, extracted))
     }
 }
