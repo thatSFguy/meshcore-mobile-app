@@ -11,6 +11,49 @@ Every entry describes what is in **that tagged build**. A feature that landed af
 belongs in the next section, not this one — 0.3.0 was once credited with four features that
 shipped after it, which misled nobody so much as the author, three months later.
 
+## 0.7.16
+
+An audit release. One feature landed (channel codes now carry their region), and the rest
+is nineteen defects found by reading the code against the MeshCore firmware rather than
+against our own assumptions. Several were silent in the direction that matters — they made
+something look like it had worked.
+
+- **A shared channel code carries its flood scope, end to end.** `region_scope` is
+  documented and the mainstream app has emitted it since v1.47.0; this app parsed the key
+  and the name and dropped the scope, so joining flooded every message across the whole
+  mesh while its owner believed it was contained. The scope is now shown **before** you
+  join, applied to the slot afterwards, and included on the codes you share.
+- **A code whose region this app can't use says so.** Previously identical to a code with
+  no region at all: same dialog, same "Channel added". You now get told, in the join
+  dialog, that the channel will flood the whole mesh.
+- **Re-sharing a scoped code to someone who already has the channel now applies the
+  scope.** This is how a community rolls a region out, and every existing member used to
+  get "Already in this channel" and carry on flooding globally.
+- **Deleting a channel forgets its region.** The radio hands the freed slot straight to
+  the next join, which inherited the scope of a channel you had deleted.
+- **Favouriting a contact, or pinning its route, no longer stops its adverts.** The
+  firmware treats that field as the contact's last advert timestamp and drops anything
+  older as a replay, so writing the phone's clock into it silently froze the contact's
+  name, location and route until the node's own clock caught up. Radios without GPS lose
+  their clock, so this was not a rare case.
+- **A contact scanned from a QR starts with no advert timestamp**, so the node's very
+  first advert is accepted rather than discarded.
+- **A channel can no longer be overwritten by a failed channel read.** One unanswered slot
+  read used to erase the rest of the list, after which the next join was handed a slot
+  that was actually in use — and a channel's key cannot be recovered from the radio.
+- **Direct contacts stop reporting a pinned route they never had.** On a mesh with 2-byte
+  hop hashes — the common case — a zero-hop path read as "Manual" routing.
+- **Inbound messages are no longer dropped in the first moment after connecting.**
+- **A `meshcore://` link pasted with a sentence after it works.** Previously "Malformed
+  contact code", which blamed whoever sent it.
+- **A link with anything after a `#` works** — every other client's parser cuts there too.
+- **On a device whose keystore refuses to store secrets, the app says so** instead of
+  silently not saving a password, and a channel whose key can't be cached stays in your
+  chat list rather than disappearing from it.
+- **Node names ending in an emoji are no longer cut in half** when written to the radio.
+- Region names are capped at the firmware's 29 bytes rather than 30 — one over was a scope
+  that looked set on the phone and routed nothing on the air.
+
 ## 0.7.15
 
 - **The QR scanner can read inverted codes — for the first time.** MeshCore apps in dark

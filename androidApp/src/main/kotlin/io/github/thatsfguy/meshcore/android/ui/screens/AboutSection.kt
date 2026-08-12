@@ -89,6 +89,33 @@ fun AboutSection(vm: MeshCoreViewModel) {
  * is a changelog you can't read in the field.
  */
 private val CHANGELOG: List<Pair<String, List<String>>> = listOf(
+    "0.7.16" to listOf(
+        "Channel codes carry their flood scope. region_scope is documented and the " +
+            "mainstream app has emitted it since v1.47.0; this app dropped it, so joining " +
+            "a scoped channel flooded the whole mesh while its owner believed it was " +
+            "contained. Now shown before you join, applied after, and shared on your codes.",
+        "A code whose region this app can't use now says so in the join dialog. It used " +
+            "to be indistinguishable from a code with no region at all.",
+        "Re-sharing a scoped code to someone who already has the channel applies the " +
+            "scope — that is how a community rolls a region out, and it used to be a no-op.",
+        "Deleting a channel forgets its region. The radio hands the freed slot to the " +
+            "next join, which inherited the scope of a channel you had deleted.",
+        "Favouriting a contact, or pinning its route, no longer stops its adverts. The " +
+            "firmware reads that field as the contact's last advert and drops anything " +
+            "older as a replay, so writing the phone's clock into it froze the contact's " +
+            "name, location and route until the node's own clock caught up.",
+        "A channel can no longer be overwritten by a failed channel read — and a " +
+            "channel's key cannot be recovered from the radio once it is gone.",
+        "Direct contacts stop reporting a pinned route they never had, on a mesh with " +
+            "2-byte hop hashes.",
+        "Inbound messages are no longer dropped in the first moment after connecting.",
+        "A meshcore:// link pasted with a sentence after it works, and so does one with " +
+            "anything after a #.",
+        "On a device whose keystore refuses to store secrets, the app says so instead of " +
+            "silently not saving a password — and a channel whose key can't be cached " +
+            "stays in your chat list.",
+        "Node names ending in an emoji are no longer cut in half when written to the radio.",
+    ),
     "0.7.15" to listOf(
         "The QR scanner can read inverted codes — for the first time. Apps in dark mode " +
             "render white codes on near-black, and this app could not see them at all. " +
