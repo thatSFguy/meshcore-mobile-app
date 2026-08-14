@@ -89,6 +89,112 @@ fun AboutSection(vm: MeshCoreViewModel) {
  * is a changelog you can't read in the field.
  */
 private val CHANGELOG: List<Pair<String, List<String>>> = listOf(
+    "0.8.0" to listOf(
+        "Firmware updates over Bluetooth. An nRF52 radio can be updated from Settings → " +
+            "Firmware: pick a build, confirm the board, watch it flash. Needs companion " +
+            "firmware v1.15 or newer, which is when MeshCore started exposing the update " +
+            "service; the screen says so plainly when a radio does not have it.",
+        "Repeaters and room servers have a Firmware tile too, for admins. `start ota` " +
+            "goes over the mesh; the firmware itself does not and cannot — you have to be " +
+            "within Bluetooth range of the node to finish it. The node keeps repeating " +
+            "with its Bluetooth on, and only reboots when the transfer starts.",
+        "The radio reports what it is running. Board name, firmware version and build " +
+            "date were always in the DEVICE_INFO frame and were being skipped.",
+        "Firmware can be fetched in the app or opened from storage. Checking reads the " +
+            "MeshCore release list from GitHub — the second outbound request this app " +
+            "makes, after map tiles, and only when you ask. Downloads are verified " +
+            "against the checksum the release published and refused on a mismatch.",
+        "The board is confirmed by name before anything is written. A DFU package cannot " +
+            "say which board it is for — every nRF52 board declares the same device type " +
+            "— so the filename is the only evidence and a human reads it.",
+        "ESP32 boards are told the truth: their over-the-air path is a WiFi hotspot and a " +
+            "browser, which this app does not offer and does not pretend to.",
+        "You choose the version, not just the latest. Every published version is listed " +
+            "and the installed one is marked — MeshCore releases often, and the version " +
+            "worth putting on a hard-to-reach node is usually one already running " +
+            "somewhere you can reach. Going backwards is allowed.",
+        "A node stuck in update mode can be recovered by long-pressing it in the node " +
+            "list. The address it announced is remembered, so it can be restarted or " +
+            "flashed again without the mesh — which is what it no longer has.",
+        "A transfer is refused over a link too weak to finish it. The node erases its " +
+            "firmware before writing the new copy, so a transfer that stops half way costs " +
+            "a visit; below -95 dBm the app says so and offers to try anyway.",
+        "A failed update says what state the node is left in. Interrupted means waiting in " +
+            "update mode, not bricked — the difference between a retry and a trip up a mast.",
+        "The update link asks for the fastest connection interval it can get. Android's " +
+            "default packs several packets into each connection event, so the bootloader " +
+            "gets a whole window in two or three bursts — faster than it writes to flash, " +
+            "and it answers \"operation failed\" a few hundred bytes in. A node that still " +
+            "cannot keep up is retried more slowly automatically.",
+        "A finished update is no longer reported as a failure on its last write — the node " +
+            "reboots while handling it, so it can never be acknowledged. Packets are also " +
+            "sized from the link now rather than fixed at 20 bytes, which is twelve times " +
+            "quicker on a bootloader that negotiates a larger one.",
+        "\"Retry more slowly\" was a dead button. It was offered on the failure screen and " +
+            "did nothing, at the one moment the node is sitting with its firmware erased.",
+        "A node is asked for its version before it is asked to enter update mode. `start " +
+            "ota` cannot be taken back without walking to the node, so sending it to one " +
+            "that has stopped listening does not fail — it just leaves the app believing " +
+            "something. `ver` goes first: free if unanswered, proof the firmware is " +
+            "running if it is answered, and the version recorded at the last moment " +
+            "anything can ask for it. Only the node's own reply puts it in update mode.",
+        "Signing in to a node takes it out of update mode. A bootloader has no LoRa stack, " +
+            "so any answer to a login — even a rejected password — proves otherwise.",
+        "A node's `start ota` reply is read once rather than for ever. The admin console " +
+            "is stored, so that reply was being re-read as a present-tense fact on every " +
+            "visit, and no correction could survive it.",
+        "A node's board and firmware version are no longer swapped. They were asked for at " +
+            "the same moment and their replies could be filed under the other command, so " +
+            "a version was stored as the board name — which is what the firmware picker " +
+            "and the search for a node in update mode both work from.",
+        "Packet flow control follows the MeshCore FAQ's per-board figures, and the board " +
+            "name now reaches the flash step for a node that has left the mesh.",
+        "A transfer can no longer hang inside a single packet. Every step was bounded " +
+            "except the one that sends data: each write waits for the Bluetooth stack to " +
+            "confirm it, and nothing bounded that wait, so a confirmation that never came " +
+            "left the transfer frozen at its last byte count with no error and no way out " +
+            "but killing the app.",
+        "The short connection interval is re-requested as the transfer runs. It is " +
+            "advisory, stacks let it lapse, and nothing can read it back — so asking once " +
+            "at the start covered the part that was never in doubt.",
+        "A node that announced its update address is found by it. The search applied the " +
+            "bootloader's +1 to an address the node had not jumped to yet, leaving its " +
+            "`_OTA` name — which every node in update mode wears — as the only thing to " +
+            "match on. An announced address now means that node in either state.",
+        "The radio in your pocket is released before another node is flashed, instead of " +
+            "holding a second live Bluetooth link beside the transfer.",
+        "The packets are paced, which is what made an over-the-air update finish. The " +
+            "bootloader buffers each packet and flushes it to flash in the background, and " +
+            "answers \"operation failed\" when that buffer fills — its receipt " +
+            "notifications cannot prevent it, because one means a packet was received, not " +
+            "that it reached flash. Sending as fast as the Bluetooth stack allowed died at " +
+            "5-15 KB every time. A 20 ms pause between packets, used only on a link that " +
+            "never raised its MTU, moves a 404 KB image in about eight minutes.",
+        "A node's board and firmware version are no longer filled in by an unrelated " +
+            "reply. `OK - mac: …` was refused as a board name and accepted as a version, " +
+            "so a repeater read as \"ProMicro DIY · OK - mac: FF:5C:…\" — and that string " +
+            "was stored and compared against release tags.",
+        "A node whose firmware has already been erased is never restarted. Abandoning a " +
+            "transfer used to reset the node so its bootloader would forget the " +
+            "half-finished session — right until the start step is accepted, which is " +
+            "when the node erases its application. A bootloader restarted with nothing " +
+            "to boot comes back in USB mass-storage mode and stops advertising over " +
+            "Bluetooth, so the reset meant to rescue the node was what put it out of " +
+            "reach. It is now left advertising and retryable.",
+        "Packet writes no longer wait for a confirmation that may never come. Android " +
+            "reports a no-response write as done when it frees the buffer, and that is a " +
+            "courtesy rather than a guarantee — waiting on it deadlocked the transfer on " +
+            "real hardware while every control-point write completed instantly. Flow " +
+            "control is the node's own receipt notification instead.",
+        "A node's board, firmware version and update address survive reconnecting to the " +
+            "radio. The radio owns the contact list and it is re-read on every " +
+            "connection, which wiped everything the app had learned and the radio had " +
+            "not — the very fields that exist because the node cannot be asked again.",
+        "The update log no longer erases itself. Progress was written on every " +
+            "acknowledgement — about 1,860 lines against a 500-line buffer — so a failed " +
+            "flash left a log holding nothing but its own progress bar. Progress is now " +
+            "sampled and carries the transfer rate.",
+    ),
     "0.7.16" to listOf(
         "Channel codes carry their flood scope. region_scope is documented and the " +
             "mainstream app has emitted it since v1.47.0; this app dropped it, so joining " +

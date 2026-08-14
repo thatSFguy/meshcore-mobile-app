@@ -877,13 +877,36 @@ class MeshCoreEngine(
      * guard in the join path reads the same list, so it went quiet at
      * the same moment.
      *
-     * `Err` still ends the sweep normally: firmware answers it for a
-     * slot index past the end. A timeout does not — it says the radio
-     * stopped answering, which tells us nothing about the slots we had
-     * not reached yet.
+     * `Err` ends the sweep normally ONLY where the firmware could have
+     * meant it. A timeout never does — it says the radio stopped
+     * answering, which tells us nothing about the slots we had not
+     * reached yet.
+     *
+     * **What `Err` can and cannot mean here** (`BaseChatMesh.cpp`,
+     * `getChannel`): the firmware answers `RESP_CODE_CHANNEL_INFO` for
+     * *every* index in `0 .. MAX_GROUP_CHANNELS-1`, configured or not —
+     * an unused slot comes back with a blank name and an all-zero
+     * secret, which is what [ChannelList] filters. `false`, and so
+     * `ERR_CODE_NOT_FOUND`, comes back for one reason: an index past
+     * the end.
+     *
+     * So an `Err` at slot 0 is not an answer to this command, and
+     * neither is one below the `maxChannels` the radio itself reported
+     * in `DEVICE_INFO` (`MyMesh.cpp` sends `MAX_GROUP_CHANNELS`
+     * verbatim). [sendAndAwait] resolves on ANY `Err` — it cannot tell
+     * whose it is — so a refusal belonging to something else, arriving
+     * while a sweep is in flight, used to be read as "this radio has no
+     * channels" and published as truth.
+     *
+     * That is what emptied a live channel list after a flood advert:
+     * every channel vanished from Chats (threads fell back to
+     * "Channel 0", "Channel 1"), and — because the sweep also set
+     * [channelsEverSynced] — [nextFreeChannelIndex] then answered 0, the
+     * slot holding Public, whose key the radio cannot give back.
      */
     suspend fun syncChannels() {
-        val max = _deviceInfo.value?.maxChannels?.takeIf { it > 0 } ?: DEFAULT_MAX_CHANNELS
+        val reportedMax = _deviceInfo.value?.maxChannels?.takeIf { it > 0 }
+        val max = reportedMax ?: DEFAULT_MAX_CHANNELS
         val found = ArrayList<Channel>()
         for (idx in 0 until max) {
             val ev = sendAndAwait(Frames.getChannel(idx)) {
@@ -894,8 +917,21 @@ class MeshCoreEngine(
                 // applies the same empty-slot rule the event handler
                 // does, so the sweep and the handler cannot disagree.
                 is DeviceEvent.ChannelInfoReceived -> found.add(ev.channel)
-                // Past the last slot the firmware supports.
-                is DeviceEvent.Err -> break
+
+                is DeviceEvent.Err -> {
+                    // Past the last slot the firmware supports — but
+                    // only where that is a thing the firmware could be
+                    // saying. Where it is not, this is somebody else's
+                    // refusal and the sweep has learned nothing.
+                    if (idx > 0 && reportedMax == null) break
+                    log(
+                        "Channel sweep refused at slot $idx of $max " +
+                            "(${if (reportedMax != null) "radio-reported" else "assumed"} " +
+                            "maximum) — not an answer this command can give, so the " +
+                            "previous list is kept",
+                    )
+                    return
+                }
                 // No answer. Keep whatever we already knew rather than
                 // publishing a list that claims slots are free.
                 null -> {

@@ -121,6 +121,14 @@ fun RepeaterStatusScreen(vm: MeshCoreViewModel, nav: NavController, keyHex: Stri
 }
 
 @Composable
+fun RepeaterFirmwareScreen(vm: MeshCoreViewModel, nav: NavController, keyHex: String) {
+    val ctx = rememberSpokeContext(vm, keyHex)
+    SpokeScaffold(title = "Firmware", vm = vm, nav = nav, nodeName = ctx.name) { modifier ->
+        Box(modifier) { RepeaterFirmwarePanel(vm, nav, keyHex, ctx.role) }
+    }
+}
+
+@Composable
 fun RepeaterSettingsScreen(vm: MeshCoreViewModel, nav: NavController, keyHex: String) {
     val ctx = rememberSpokeContext(vm, keyHex)
     val contacts by vm.dbContacts.collectAsState()

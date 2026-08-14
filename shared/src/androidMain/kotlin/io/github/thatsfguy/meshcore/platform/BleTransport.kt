@@ -9,6 +9,8 @@ import android.bluetooth.BluetoothGattDescriptor
 import android.bluetooth.BluetoothManager
 import android.bluetooth.BluetoothProfile
 import android.content.Context
+import io.github.thatsfguy.meshcore.firmware.BootloaderCapableTransport
+import io.github.thatsfguy.meshcore.firmware.LegacyDfu
 import io.github.thatsfguy.meshcore.transport.IncomingFrame
 import io.github.thatsfguy.meshcore.transport.Transport
 import io.github.thatsfguy.meshcore.transport.TransportState
@@ -47,7 +49,7 @@ class BleTransport(
     private val context: Context,
     private val device: BluetoothDevice,
     private val scope: CoroutineScope,
-) : Transport {
+) : Transport, BootloaderCapableTransport {
 
     private val _state = MutableStateFlow(TransportState.Disconnected)
     override val state: StateFlow<TransportState> = _state
@@ -67,6 +69,13 @@ class BleTransport(
     private var mtuContinuation: kotlinx.coroutines.CancellableContinuation<Int>? = null
     private var descWriteContinuation: kotlinx.coroutines.CancellableContinuation<Unit>? = null
 
+    /**
+     * Only the firmware-update jump waits on a write. Ordinary frames go
+     * out no-response and do not await the callback, so this stays null
+     * for them and the resume below is a no-op.
+     */
+    private var charWriteContinuation: kotlinx.coroutines.CancellableContinuation<Unit>? = null
+
     private val callback = object : BluetoothGattCallback() {
         override fun onConnectionStateChange(g: BluetoothGatt, status: Int, newState: Int) {
             when (newState) {
@@ -80,6 +89,11 @@ class BleTransport(
                         IllegalStateException("BLE disconnected before ready (status=$status)"),
                     )
                     servicesContinuation = null
+                    // The radio disconnects as a direct result of the
+                    // firmware-update jump. That is the acknowledgement,
+                    // not a failure.
+                    charWriteContinuation?.resume(Unit)
+                    charWriteContinuation = null
                 }
             }
         }
@@ -132,6 +146,83 @@ class BleTransport(
             val data = characteristic.value ?: return
             if (data.isNotEmpty()) _incoming.tryEmit(IncomingFrame(data))
         }
+
+        override fun onCharacteristicWrite(
+            g: BluetoothGatt,
+            characteristic: BluetoothGattCharacteristic,
+            status: Int,
+        ) {
+            if (status == BluetoothGatt.GATT_SUCCESS) {
+                charWriteContinuation?.resume(Unit)
+            } else {
+                charWriteContinuation?.resumeWithException(
+                    AndroidDfuGattClient.gattWriteError(status),
+                )
+            }
+            charWriteContinuation = null
+        }
+    }
+
+    /**
+     * Ask the radio to reboot into its bootloader for a firmware update.
+     *
+     * MeshCore companion v1.15+ on nRF52 registers Adafruit's `BLEDfu`
+     * service beside the NUS (`SerialBLEInterface.cpp`). Its control
+     * point takes one byte — [LegacyDfu.ENTER_BOOTLOADER] — and only
+     * from a client that has subscribed first: `BLEDfu.cpp` answers an
+     * unsubscribed write with `ATTERR_CPS_CCCD_CONFIG_ERROR` before it
+     * even looks at the payload.
+     *
+     * The radio then saves our bond keys, disconnects and resets. The
+     * disconnect is the acknowledgement.
+     */
+    override fun offersFirmwareUpdates(): Boolean =
+        gatt?.getService(DFU_APP_SERVICE_UUID) != null
+
+    override suspend fun requestBootloaderReboot() {
+        val g = gatt ?: throw IllegalStateException("Not connected to a radio.")
+        val service = g.getService(DFU_APP_SERVICE_UUID)
+            ?: throw io.github.thatsfguy.meshcore.firmware.NoDfuServiceException(
+                "This radio does not offer over-the-air updates: it has no DFU service.",
+            )
+        val control = service.getCharacteristic(DFU_APP_CONTROL_UUID)
+            ?: throw IllegalStateException("The radio's DFU service has no control point.")
+
+        if (!g.setCharacteristicNotification(control, true)) {
+            throw IllegalStateException("Could not subscribe to the radio's DFU control point.")
+        }
+        val cccd = control.getDescriptor(CCCD_UUID)
+            ?: throw IllegalStateException("The radio's DFU control point has no CCCD.")
+        cccd.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+        suspendCancellableCoroutine<Unit> { cont ->
+            descWriteContinuation = cont
+            if (!g.writeDescriptor(cccd)) {
+                descWriteContinuation = null
+                cont.resumeWithException(
+                    IllegalStateException("Could not subscribe to the DFU control point."),
+                )
+            }
+        }
+
+        // The radio cannot answer this write: handling it disables the
+        // SoftDevice and jumps to the bootloader, so the link dies
+        // first. A failure here is the expected shape of success, and
+        // the caller proves it by finding the bootloader afterwards.
+        runCatching {
+            writeLock.withLock {
+                suspendCancellableCoroutine<Unit> { cont ->
+                    charWriteContinuation = cont
+                    control.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+                    control.value = LegacyDfu.ENTER_BOOTLOADER
+                    if (!g.writeCharacteristic(control)) {
+                        charWriteContinuation = null
+                        cont.resumeWithException(
+                            IllegalStateException("The update request could not be sent."),
+                        )
+                    }
+                }
+            }
+        }.onFailure { if (it is io.github.thatsfguy.meshcore.firmware.StaleBondException) throw it }
     }
 
     override suspend fun connect() {
@@ -250,6 +341,14 @@ class BleTransport(
         val NUS_NOTIFY_UUID: UUID = UUID.fromString("6e400003-b5a3-f393-e0a9-e50e24dcca9e")
 
         val CCCD_UUID: UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
+
+        /**
+         * The app-mode DFU service — same UUIDs as the bootloader's, on
+         * a radio that is still running MeshCore. Present only on nRF52
+         * companions from v1.15.
+         */
+        val DFU_APP_SERVICE_UUID: UUID = UUID.fromString(LegacyDfu.SERVICE_UUID)
+        val DFU_APP_CONTROL_UUID: UUID = UUID.fromString(LegacyDfu.CONTROL_POINT_UUID)
 
         /** Resolve a BLE [BluetoothDevice] by MAC address. Caller holds BLUETOOTH_CONNECT. */
         @SuppressLint("MissingPermission")

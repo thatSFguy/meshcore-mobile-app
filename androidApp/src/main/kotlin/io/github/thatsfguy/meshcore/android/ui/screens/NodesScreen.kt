@@ -52,6 +52,7 @@ import io.github.thatsfguy.meshcore.android.platform.Qr
 import io.github.thatsfguy.meshcore.android.storage.ContactEntity
 import io.github.thatsfguy.meshcore.android.storage.MessageRepository
 import io.github.thatsfguy.meshcore.android.ui.MeshCoreViewModel
+import io.github.thatsfguy.meshcore.presentation.encodePrefill
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import io.github.thatsfguy.meshcore.util.RelativeTime
@@ -259,6 +260,23 @@ fun NodesScreen(vm: MeshCoreViewModel, nav: NavController) {
                 detail = null
                 nav.navigate("repeater/${contact.keyHex}")
             },
+            // Straight to the transfer, using the address the node
+            // announced. A node stuck in update mode cannot be reached
+            // through its admin session — that route needs the mesh,
+            // and it left the mesh.
+            onFlashFirmware = {
+                detail = null
+                val role = if (contact.type == Codes.ADV_TYPE_ROOM) "room" else "repeater"
+                // Everything known about the node travels with the
+                // route; what is not known is scanned for. The node key
+                // is always present, so the screen can read the board
+                // and address from the contact record as they arrive.
+                nav.navigate(
+                    "firmware/node?role=$role&node=${contact.keyHex}" +
+                        (contact.otaAddress?.let { "&mac=$it" } ?: "") +
+                        (contact.boardName?.let { "&board=${encodePrefill(it)}" } ?: ""),
+                )
+            },
         )
     }
 }
@@ -365,11 +383,15 @@ fun ContactDetailSheet(
     onDismiss: () -> Unit,
     onOpenChat: () -> Unit,
     onOpenAdmin: () -> Unit,
+    onFlashFirmware: () -> Unit = {},
 ) {
     var renameOpen by remember { mutableStateOf(false) }
     var routingOpen by remember { mutableStateOf(false) }
     var removeConfirm by remember { mutableStateOf(false) }
     var shareQrOpen by remember { mutableStateOf(false) }
+    var updateModeOpen by remember { mutableStateOf(false) }
+    var updateModeNote by remember { mutableStateOf<String?>(null) }
+    var updateModeBusy by remember { mutableStateOf(false) }
     var permissionsOpen by remember { mutableStateOf(false) }
     var telemetryOpen by remember { mutableStateOf(false) }
     // Sensors run the same CLI (PARITY §7): login, settings, telemetry.
@@ -497,6 +519,25 @@ fun ContactDetailSheet(
             if (isAdminable) {
                 TextButton(onClick = onOpenAdmin) { Text("Administer this node") }
             }
+            // Recovery lives here, on the node, because this is where
+            // someone looks for it — and because everything else that
+            // reaches a repeater goes through the mesh, which is the one
+            // thing a node in update mode no longer has.
+            //
+            // Offered whether or not an address was recorded: a node can
+            // enter update mode from a session this app never saw, and
+            // "no address stored" is the case that most needs a way in,
+            // not the case to withhold one from.
+            if (isAdminable) {
+                // Labelled for what it is. "Update-mode address" read as
+                // a statement about the node's current state; it is the
+                // node's Bluetooth address, learned in update mode and
+                // true whatever the node is doing now.
+                contact.otaAddress?.let { DetailRow("Bluetooth address", it) }
+                TextButton(onClick = { updateModeOpen = true }) {
+                    Text("Recover / firmware…")
+                }
+            }
             val isFav = contact.flags and Codes.CONTACT_FLAG_FAVORITE != 0
             TextButton(onClick = {
                 vm.setFavourite(contact.keyHex, !isFav)
@@ -543,6 +584,67 @@ fun ContactDetailSheet(
                 Text("Remove contact", color = MaterialTheme.colorScheme.error)
             }
         }
+    }
+
+    if (updateModeOpen) {
+        val otaAddress = contact.otaAddress
+        AlertDialog(
+            onDismissRequest = { if (!updateModeBusy) updateModeOpen = false },
+            title = { Text("Recover ${contact.name.ifBlank { "this node" }}") },
+            text = {
+                Column {
+                    Text(
+                        if (otaAddress != null) {
+                            "This node announced $otaAddress when it was told to update, so " +
+                                "it can be identified exactly."
+                        } else {
+                            "No update-mode address was recorded for this node, so it will " +
+                                "be identified by what it advertises — and named before " +
+                                "anything is written to it."
+                        } +
+                            "\n\nA node in update mode is off the mesh and can only be " +
+                            "reached over Bluetooth, from within range of it.\n\n" +
+                            "\"Restart it\" asks its bootloader to boot the firmware it " +
+                            "already has. That works when the transfer never got as far as " +
+                            "erasing anything — the usual case for an update that failed " +
+                            "early. If the firmware was already erased it will stay in " +
+                            "update mode, which is not a failure of this button: the node " +
+                            "then needs flashing rather than restarting.",
+                    )
+                    updateModeNote?.let {
+                        Spacer(Modifier.height(8.dp))
+                        Text(it, style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = !updateModeBusy,
+                    onClick = {
+                        updateModeBusy = true
+                        updateModeNote = "Looking for the node…"
+                        vm.exitUpdateMode(contact.keyHex) { result ->
+                            updateModeNote = result
+                            updateModeBusy = false
+                        }
+                    },
+                ) { Text(if (updateModeBusy) "Working…" else "Restart it") }
+            },
+            dismissButton = {
+                Row {
+                    TextButton(
+                        enabled = !updateModeBusy,
+                        onClick = {
+                            updateModeOpen = false
+                            onFlashFirmware()
+                        },
+                    ) { Text("Flash it…") }
+                    TextButton(enabled = !updateModeBusy, onClick = { updateModeOpen = false }) {
+                        Text("Close")
+                    }
+                }
+            },
+        )
     }
 
     if (shareQrOpen) {

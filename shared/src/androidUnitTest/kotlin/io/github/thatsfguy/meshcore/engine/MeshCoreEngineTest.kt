@@ -1663,23 +1663,103 @@ class MeshCoreEngineTest {
     }
 
     @Test
-    fun anErrEndsTheSweepNormally() = runTest {
-        // The other half: the firmware answers Err for a slot index past
-        // the end, and that IS a complete sweep. Treating it like a
-        // timeout would leave the list permanently unknown on any radio
-        // reporting more slots than it has.
+    fun anErrEndsTheSweepNormallyWhenTheSlotCountIsOnlyGuessed() = runTest {
+        // The other half: where we are GUESSING how many slots the radio
+        // has — pre-v3 firmware reports 0 and this app assumes 8 — an Err
+        // is the firmware saying "past the end", and that IS a complete
+        // sweep. Treating it like a timeout would leave the list
+        // permanently unknown on any radio with fewer slots than we
+        // assumed.
         val radio = FakeRadio()
         val base = standardResponder(radio)
         radio.responder = { frame ->
-            if ((frame[0].toInt() and 0xFF) == Codes.CMD_GET_CHANNEL && frame[1].toInt() >= 2) {
+            when {
+                // No slot count reported: the sweep has to discover the
+                // end for itself.
+                (frame[0].toInt() and 0xFF) == Codes.CMD_DEVICE_QUERY ->
+                    listOf(deviceInfoFrame(maxChannels = 0))
+
+                (frame[0].toInt() and 0xFF) == Codes.CMD_GET_CHANNEL && frame[1].toInt() >= 2 ->
+                    listOf(byteArrayOf(Codes.RESP_CODE_ERR.toByte(), 1))
+
+                else -> base(frame)
+            }
+        }
+        val engine = readyEngine(radio)
+        assertTrue(engine.channelsKnown)
+        assertEquals(1, engine.nextFreeChannelIndex())
+    }
+
+    @Test
+    fun anErrAtTheFirstSlotIsNotARadioWithNoChannels() = runTest {
+        // Reported from the field: a flood advert, and every channel
+        // vanished from Chats until the app was restarted — the threads
+        // that had messages fell back to "Channel 0" and "Channel 1", the
+        // rest disappeared.
+        //
+        // sendAndAwait resolves on ANY Err, because the protocol gives it
+        // no way to tell whose an Err is. One belonging to something else,
+        // arriving while a sweep was in flight, was read as "past the last
+        // slot" at index 0 and published as an empty channel list.
+        //
+        // The firmware cannot mean that. BaseChatMesh::getChannel answers
+        // RESP_CODE_CHANNEL_INFO for every index in 0..MAX_GROUP_CHANNELS-1
+        // whether the slot is configured or not — an unused one comes back
+        // blank and all-zero — and returns false, so ERR_CODE_NOT_FOUND,
+        // only for an index past the end.
+        val radio = FakeRadio()
+        radio.responder = standardResponder(radio)
+        val engine = readyEngine(radio)
+        assertEquals(1, engine.channels.value.size, "Public should be in slot 0")
+
+        val base = standardResponder(radio)
+        radio.responder = { frame ->
+            if ((frame[0].toInt() and 0xFF) == Codes.CMD_GET_CHANNEL) {
+                listOf(byteArrayOf(Codes.RESP_CODE_ERR.toByte(), 1))
+            } else {
+                base(frame)
+            }
+        }
+        engine.syncChannels()
+
+        assertEquals(
+            listOf(0),
+            engine.channels.value.map { it.index },
+            "a stray Err emptied the channel list",
+        )
+        // The part that costs a key rather than a display: an empty list
+        // plus channelsEverSynced means slot 0 reads as free, and the
+        // next join overwrites Public with a PSK the radio cannot give
+        // back.
+        assertEquals(1, engine.nextFreeChannelIndex(), "slot 0 was offered to the next join")
+    }
+
+    @Test
+    fun anErrBelowTheRadiosOwnMaximumIsNotTheEndOfTheSlots() = runTest {
+        // Same defect, one slot along. A radio that reports 4 in
+        // DEVICE_INFO answers all four — MyMesh.cpp sends
+        // MAX_GROUP_CHANNELS verbatim, and getChannel covers exactly that
+        // range — so an Err at slot 2 of 4 is not this command's answer
+        // either, and truncating there would hand out slots 2 and 3 as
+        // free while they are in use.
+        val radio = FakeRadio()
+        val base = standardResponder(radio)
+        radio.responder = { frame ->
+            if ((frame[0].toInt() and 0xFF) == Codes.CMD_GET_CHANNEL && frame[1].toInt() == 0) {
+                listOf(channelInfoFrame(0, "Public", psk))
+            } else if ((frame[0].toInt() and 0xFF) == Codes.CMD_GET_CHANNEL) {
                 listOf(byteArrayOf(Codes.RESP_CODE_ERR.toByte(), 1))
             } else {
                 base(frame)
             }
         }
         val engine = readyEngine(radio)
-        assertTrue(engine.channelsKnown)
-        assertEquals(1, engine.nextFreeChannelIndex())
+
+        assertFalse(
+            engine.channelsKnown,
+            "a sweep the radio refused part-way was published as complete",
+        )
+        assertNull(engine.nextFreeChannelIndex(), "slots were offered on an unfinished sweep")
     }
 
     @Test

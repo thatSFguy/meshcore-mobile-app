@@ -27,6 +27,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -35,6 +36,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
@@ -253,4 +255,22 @@ fun SettingsTextField(
         else VisualTransformation.None,
         modifier = modifier.fillMaxWidth().padding(vertical = 2.dp),
     )
+}
+
+/**
+ * Holds the screen awake while this composable is on screen.
+ *
+ * Used by the firmware update, which is a two-minute Bluetooth transfer
+ * that must not be interrupted. The alternative is a WAKE_LOCK
+ * permission, and this app asks for none it can avoid — keeping the
+ * screen on is both weaker and honest, since the user has to stay near
+ * the node anyway.
+ */
+@Composable
+fun KeepScreenOn() {
+    val view = LocalView.current
+    DisposableEffect(view) {
+        view.keepScreenOn = true
+        onDispose { view.keepScreenOn = false }
+    }
 }

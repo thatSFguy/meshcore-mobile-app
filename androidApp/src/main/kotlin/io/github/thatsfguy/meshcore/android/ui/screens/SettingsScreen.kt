@@ -4,6 +4,7 @@ import io.github.thatsfguy.meshcore.presentation.appSubtitle
 import io.github.thatsfguy.meshcore.presentation.blockingSubtitle
 import io.github.thatsfguy.meshcore.presentation.channelsSubtitle
 import io.github.thatsfguy.meshcore.presentation.connectionSubtitle
+import io.github.thatsfguy.meshcore.presentation.firmwareSubtitle
 import io.github.thatsfguy.meshcore.presentation.identitySubtitle
 import io.github.thatsfguy.meshcore.presentation.radioSubtitle
 import io.github.thatsfguy.meshcore.presentation.settingsGroups
@@ -82,6 +83,12 @@ fun SettingsScreen(vm: MeshCoreViewModel, nav: NavController) {
         ),
         "identity" to if (isReady) identitySubtitle(self?.name) else "Connect to a radio",
         "radio" to radioSubtitle(self?.freqKhz, self?.sf, self?.txPowerDbm),
+        "firmware" to firmwareSubtitle(
+            currentVersion = vm.deviceInfo.collectAsState().value?.firmwareVersion,
+            latestVersion = vm.firmware.latestVersion.collectAsState().value,
+            updateCapable = vm.firmwareUpdatesSupported(),
+            connected = isReady,
+        ),
         "channels" to channelsSubtitle(channels.size),
         "blocking" to blockingSubtitle(blocked.size),
         "app" to appSubtitle(
@@ -159,8 +166,9 @@ private fun GroupLabel(text: String) {
     )
 }
 
+/** Also used by the firmware picker, which is a list of the same shape. */
 @Composable
-private fun SettingsTileRow(
+internal fun SettingsTileRow(
     title: String,
     subtitle: String,
     dimmed: Boolean,

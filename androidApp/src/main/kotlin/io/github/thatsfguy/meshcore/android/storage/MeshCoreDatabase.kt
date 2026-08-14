@@ -16,7 +16,7 @@ import java.io.File
         MessageEntity::class, ContactEntity::class, ChannelEntity::class,
         PathHistoryEntity::class, DiscoveredEntity::class,
     ],
-    version = 9,
+    version = 16,
     exportSchema = true,
 )
 abstract class MeshCoreDatabase : RoomDatabase() {
@@ -131,6 +131,146 @@ abstract class MeshCoreDatabase : RoomDatabase() {
         }
 
         /**
+         * A node's BLE address, learned when it entered update mode.
+         *
+         * Without it a node that goes into update mode and stays there
+         * is unreachable by both routes at once: off the mesh, and with
+         * an address the app never recorded.
+         */
+        private val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `contacts` ADD COLUMN `otaAddress` TEXT")
+                db.execSQL(
+                    "ALTER TABLE `contacts` ADD COLUMN `otaAnnouncedAt` INTEGER NOT NULL DEFAULT 0",
+                )
+            }
+        }
+
+        /**
+         * What a node said it was, kept for when it can no longer say.
+         */
+        private val MIGRATION_10_11 = object : Migration(10, 11) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `contacts` ADD COLUMN `boardName` TEXT")
+                db.execSQL("ALTER TABLE `contacts` ADD COLUMN `firmwareVersion` TEXT")
+            }
+        }
+
+        /**
+         * Update mode as its own column.
+         *
+         * It used to be read off `otaAddress` being non-null, which
+         * conflated a durable property of the hardware with something
+         * the node is doing this afternoon. Existing rows start at 0 —
+         * not in update mode — which is the right default: a node that
+         * really is waiting will be re-flagged the moment it answers,
+         * and the alternative would resurrect the stale claim this
+         * column exists to end.
+         */
+        private val MIGRATION_11_12 = object : Migration(11, 12) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE `contacts` ADD COLUMN `updateModeSince` " +
+                        "INTEGER NOT NULL DEFAULT 0",
+                )
+            }
+        }
+
+        /**
+         * The watermark that turns a persisted `start ota` reply back
+         * into an event.
+         *
+         * Separate from v12 because v12 had already been applied when
+         * this was found. Adding a column to a version that has shipped
+         * — even only to one phone — changes its identity hash, and Room
+         * then refuses to open a database it has no migration for. A new
+         * version costs nothing and is the only safe way.
+         */
+        private val MIGRATION_12_13 = object : Migration(12, 13) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE `contacts` ADD COLUMN `otaReplyHandledAt` " +
+                        "INTEGER NOT NULL DEFAULT 0",
+                )
+            }
+        }
+
+        /**
+         * Declare everything already in the console log accounted for.
+         *
+         * v13 gave the `start ota` reply a watermark, but left it at 0 on
+         * existing rows — so the first time a node's firmware panel was
+         * opened after upgrading, a reply from days ago was consumed as
+         * though it had just arrived and the node was announced as being
+         * in update mode. Seen on 13 Mile immediately after the upgrade:
+         * "Recorded just now", from a reply that was nothing of the kind.
+         *
+         * Stamping the watermark to the upgrade moment says the only
+         * true thing available — this app has seen all of that history
+         * already — and any flag set by it goes with it. A node that
+         * really is waiting re-announces itself the moment it answers
+         * again, which is the same rule every other transition follows.
+         */
+        private val MIGRATION_13_14 = object : Migration(13, 14) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "UPDATE `contacts` SET `otaReplyHandledAt` = " +
+                        "CAST(strftime('%s','now') AS INTEGER) * 1000, " +
+                        "`updateModeSince` = 0",
+                )
+            }
+        }
+
+        /**
+         * Clear board names that are firmware versions.
+         *
+         * The Firmware panel asked a node `board` and `ver` as two
+         * separate coroutines, so their console rows could be written in
+         * the opposite order to the sends — and since a CLI reply is
+         * matched to its command by position, each answer was filed
+         * under the other one. The version was then stored here as the
+         * node's board, which is what the firmware picker narrows on and
+         * what the bootloader scan matches names against.
+         *
+         * The sends are sequential now and `NodeIdentityReplies` refuses
+         * an answer of the wrong shape, so nothing new is written. This
+         * clears what already was: null means "ask again", which is the
+         * correct state, and no real `getManufacturerName()` looks like
+         * a version.
+         */
+        private val MIGRATION_14_15 = object : Migration(14, 15) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "UPDATE `contacts` SET `boardName` = NULL WHERE `boardName` LIKE " +
+                        "'%(Build:%' OR `boardName` GLOB 'v[0-9]*' OR `boardName` GLOB '[0-9]*.[0-9]*'",
+                )
+            }
+        }
+
+        /**
+         * Clear board names that are a node's `start ota` reply.
+         *
+         * The same defect as v15, with a different intruder: an
+         * unanswered `board` leaves the reply queue holding an
+         * expectation, and `OK - mac: …` satisfied it. On a live
+         * repeater this was stored and shown as the board — and it is
+         * what the build picker narrows on, so it offered all
+         * thirty-one boards in the release instead of the one.
+         *
+         * `NodeIdentityReplies` now refuses an answer of that shape, so
+         * nothing new is written; this clears what already was. Null
+         * means "ask again", which is correct and cheap.
+         */
+        private val MIGRATION_15_16 = object : Migration(15, 16) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "UPDATE `contacts` SET `boardName` = NULL WHERE `boardName` LIKE '%mac:%' " +
+                        "OR `boardName` LIKE 'OK%'",
+                )
+            }
+        }
+
+        /**
          * Open the database, encrypted with [passphrase] when one is
          * available (see [DatabaseKey]). A pre-existing PLAINTEXT
          * database is converted in place first, so turning encryption on
@@ -175,7 +315,8 @@ abstract class MeshCoreDatabase : RoomDatabase() {
                     .addMigrations(
                         MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4,
                         MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8,
-                        MIGRATION_8_9,
+                        MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14,
+                        MIGRATION_14_15, MIGRATION_15_16,
                     )
 
             if (key == null) {

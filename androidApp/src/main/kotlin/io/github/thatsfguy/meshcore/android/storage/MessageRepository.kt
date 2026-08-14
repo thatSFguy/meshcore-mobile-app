@@ -129,11 +129,15 @@ class MessageRepository(
                     db.discovered().deleteKnown(self, contacts.keys.toList())
                     db.contacts().upsertAll(
                         contacts.values.map { c ->
-                            val prev = existing[c.publicKeyHex]
-                            c.toEntity(self).copy(
-                                unread = prev?.unread ?: 0,
-                                lastMessageAt = prev?.lastMessageAt ?: 0,
-                            )
+                            // Everything the radio does not know about
+                            // this contact has to survive the radio
+                            // telling us about it. See
+                            // [keepingLocalFacts] — listing the fields
+                            // to preserve inline is how the announced
+                            // update address, the board name and the
+                            // firmware version came to be thrown away
+                            // on every reconnection.
+                            c.toEntity(self).keepingLocalFacts(existing[c.publicKeyHex])
                         },
                     )
                 }

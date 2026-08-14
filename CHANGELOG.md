@@ -11,6 +11,234 @@ Every entry describes what is in **that tagged build**. A feature that landed af
 belongs in the next section, not this one — 0.3.0 was once credited with four features that
 shipped after it, which misled nobody so much as the author, three months later.
 
+## 0.8.0
+
+**Your channels can no longer be emptied by an unrelated error.** A refusal from the radio —
+one belonging to some other request entirely, seen in the field right after a flood advert —
+could arrive while the app was reading the channel slots, and was taken to mean "this radio
+has no channels". Every channel vanished until the app was restarted; threads that had
+messages showed as "Channel 0" and "Channel 1", and the rest were simply not there. Nothing
+was actually lost, but the next slot the app would have handed a new channel was slot 0 —
+the one holding Public, whose key the radio cannot give back. The radio cannot mean that: it
+answers for every slot it has, configured or not, and only refuses an index past the end. So
+a refusal where the radio has no such answer to give now keeps the list the app already had.
+
+**Firmware updates over Bluetooth.** An nRF52 radio can be updated from inside the app —
+pick a build, confirm the board, watch it flash — instead of running `start ota` here and
+finishing the job in Nordic's DFU app with the right packet-receipt settings.
+
+- **Update the connected radio.** Settings → Firmware. The app asks the radio to reboot
+  into its bootloader, finds it again under its update-mode name, and sends the image. Needs
+  an nRF52 board on companion firmware v1.15 or newer — that is when MeshCore started
+  exposing the DFU service — and the screen says so plainly when the radio does not have it,
+  rather than leading you into a flow that can only end in "not supported".
+- **Update a repeater or room server.** The repeater hub gets a Firmware tile (admin only).
+  `start ota` goes over the mesh; the firmware itself does not, and cannot — you have to be
+  within Bluetooth range of the node to finish. That is stated before the button, not after.
+  The command is also gentler than it sounds: the node switches its Bluetooth on and carries
+  on repeating, and only reboots into its bootloader when something connects and starts the
+  transfer. The address it reports back is used to pick it out from anything else nearby
+  that is also advertising for an update.
+- **The radio now reports what it is running.** Board name, firmware version and build date
+  were always in the `DEVICE_INFO` frame and were being skipped. They are on the connection
+  screen and drive the Firmware row's subtitle.
+- **Firmware can be fetched in the app or opened from storage.** "Check for firmware" reads
+  the MeshCore release list from GitHub — the second outbound request this app makes, after
+  map tiles, and only when you ask for it. Downloads are checked against the SHA-256 the
+  release published and refused outright on a mismatch; a package opened from storage is
+  hashed and shown as unverified, because it is.
+- **The board is confirmed by name before anything is written.** A DFU package cannot tell
+  you which board it is for — every nRF52 board declares the same device type — so the
+  filename is the only evidence and a human reads it. Where a board ships more than one
+  build (T114 with and without a display), both are offered and neither is chosen.
+- **ESP32 boards are told the truth.** Their over-the-air path is a WiFi hotspot and a
+  browser upload. This app does not use WiFi and does not pretend to offer it.
+- **You choose the version, not just "the latest".** MeshCore releases often and a release
+  is sometimes withdrawn or quickly followed by a fix, so the version worth putting on a node
+  you have to climb to is usually one already running somewhere you can reach. Every
+  published version is listed, the installed one is marked, and going backwards is allowed —
+  the bootloader does not check that a version is newer.
+- **A node that is stuck can be recovered from the node list.** Long-press it: the address it
+  announced when it entered update mode is remembered, so it can be told to restart (DFU
+  system reset, which boots the firmware it still has) or flashed again — neither of which
+  needs the mesh, which is exactly what a node in update mode has left.
+- **A transfer is refused over a link too weak to finish it.** The node erases its firmware
+  before writing the replacement, so a transfer that stops half way costs a visit. Below
+  −95 dBm the app says so and offers to try anyway rather than starting and hoping. The
+  floor is deliberately close to the noise floor: nodes on masts cannot be approached, and a
+  guard that refuses every attempt on the ones that most need updating is not a safety
+  feature.
+- **A node left part-way through an update is now unstuck automatically.** The bootloader
+  keeps the state of an interrupted transfer until it restarts — a disconnection does not
+  clear it — so one attempt that got as far as the start step made every attempt afterwards
+  fail with "invalid state", including the "retry more slowly" this app itself recommends.
+  Worse, it was reported as the node refusing the package, which sends you off to re-check a
+  file that was never the problem. Every abandoned transfer now resets the node on its way
+  out, and a node found already stuck is reset, waited for, and flashed.
+- **"Restart it" no longer reports a successful restart as a failure.** The node reboots
+  while handling the write, so the write can never be acknowledged; that was being read as
+  a refusal, exactly as the reboot-into-bootloader write once was.
+- **A node's update-mode address is only recorded when it is the node's own.** A bootloader
+  advertises on that address plus one, so recording *its* address made every later search
+  look one address too high — and made the app offer the reboot request to a node already
+  in its bootloader, which reads it as a malformed start command.
+- **Update mode is now a flag of its own, not a guess made from a node's Bluetooth address.**
+  A node's BLE address, board and firmware version are properties of the hardware: the app
+  learns them when it can and keeps them, because the moment they are needed — choosing a
+  build for a node sitting in its bootloader — is the moment the node can no longer be asked.
+  "Is in update mode" is not that kind of thing, and it was being read off whether an address
+  had ever been recorded. Nothing cleared the address, because nothing should, so a node that
+  entered update mode once was described as being in it for ever: after a reboot, after a
+  finished update, and after being reflashed over USB and put back into service. The screen
+  then hid "Send `start ota`", which was the button that would have helped. There is now a
+  stored flag with named transitions — set when the node answers `start ota`, cleared when a
+  transfer to it finishes and when it accepts a restart out of its bootloader — and a
+  node reflashed over USB, which nothing on this side can see, can be corrected with one tap.
+  The address is untouched by all of it.
+- **The update link now asks for the fastest connection interval it can get.** Android's
+  default is 30–50 ms, and at that spacing the Bluetooth stack packs several packets into
+  each connection event — so the bootloader receives a whole receipt window in two or three
+  bursts, faster than it can move them into flash, and answers "operation failed" a few
+  hundred bytes in. Nordic's own updater requests the short interval and so does
+  Meshtastic's; this app did not, and a live ProMicro managed 200 bytes in 17 seconds before
+  failing.
+- **A node that cannot keep up is retried more slowly by itself.** "Operation failed" during
+  the image step is the one failure with a documented remedy — send fewer packets between
+  acknowledgements — so the app now does that rather than printing advice. Each attempt
+  still hands the node back able to start another, and it is tried once, not forever.
+- **A finished update is no longer reported as a failure on its last write.** The node
+  reboots while handling activate-and-reset, so that write can never be acknowledged — the
+  third time this codebase has read a node obeying as a node refusing, after the jump into
+  the bootloader and "restart it". All three are now one rule in one place.
+- **Packets are sized from the link instead of being fixed at 20 bytes.** The size comes
+  from the negotiated MTU, capped at 244 and floored to a whole word (the bootloader rejects
+  anything else) — twelve times the throughput on the same link. The Adafruit bootloader
+  negotiates properly and rounds its own reply to a whole word, so 20 bytes a packet is not
+  what a stock one gives you; it is what a link whose MTU exchange did not happen gives you,
+  and the log now says which of the two is in front of you.
+- **"Retry more slowly" was a dead button.** It was offered on the failure screen and did
+  nothing at all: the retry read the package out of the state it had just been replaced by.
+  Nothing appeared in the log, because nothing ran — at the one moment the node is sitting
+  with its firmware already erased.
+- **A node is asked for its version before it is asked to enter update mode.** `start ota`
+  is not a question — the node switches its Bluetooth on and there is no taking it back
+  without walking to it — so sending it to a node that has stopped listening does not fail,
+  it just leaves the app believing something it has no evidence for. `ver` goes first
+  instead: a round trip that costs nothing if it goes unanswered, whose reply proves the
+  firmware is running, and which records the version at the last moment anything can still
+  ask for it. Only on that answer is `start ota` sent, and only the node's own
+  `OK - mac: …` reply puts it into update mode. If it never answers, nothing was sent and
+  the screen says so.
+- **Signing in to a node takes it out of update mode.** A node in its bootloader has no LoRa
+  stack at all, so any reply to a login — including a rejected password — proves the
+  firmware is running. It was the cheapest evidence available and the app was ignoring it,
+  which is how a node reflashed over USB and signed straight back into was still being
+  described as advertising for an update.
+- **A node's own `start ota` reply is read once, not for ever.** The admin console is
+  stored, so `OK - mac: …` is a row that never goes away and was being re-read as a
+  present-tense fact on every visit — the same mistake as the address, one table along, and
+  just as immune to correction. Each reply is now consumed once, against a watermark, and a
+  correction cannot be undone by history.
+- **A node's firmware version is no longer filled in by an unrelated reply.** `OK - mac: …`
+  was refused as a board name and accepted as a version — only half the guard was there — so
+  a repeater read as "ProMicro DIY · OK - mac: FF:5C:EF:28:2A:92", and that string was stored
+  against the contact and compared against release tags. It is reachable from the app's own
+  update sequence rather than anything unusual: `ver` is sent, then `start ota`, and if the
+  first goes unanswered the second's reply satisfies it.
+- **A node's board and firmware version are no longer swapped.** The Firmware screen asked
+  a node `board` and `ver` at the same moment, as two separate jobs, and their console rows
+  could be written in the opposite order to the sends — so each answer was filed under the
+  other command. A live repeater read as "v1.15.0-dee3e26 (Build: 19-Apr-2026) · ProMicro
+  DIY", and the version was stored against the contact as its board name, which is what the
+  firmware picker narrows on and what the search for a node in update mode matches names
+  against. The two commands now go one at a time, an answer of the wrong shape is refused,
+  and board names already stored as versions are cleared so they get asked again.
+- **The board name reaches the flash step for a node in update mode.** It was passed as
+  nothing on that one path, which is the path where it matters most: the node is off the
+  mesh and cannot be asked, so the scanner had no name to match on and the version picker
+  offered every board's build instead of the one.
+- **Packet flow control follows the MeshCore FAQ's own per-board figures.** Eight packets
+  between receipt notifications on a T114, ten elsewhere — the setting §7.1 tells you to
+  change by hand in Nordic's DFU app before every flash, applied here from the board the
+  node reported. Where the FAQ names a board that has an OTAFIX bootloader, the screen
+  names it too, with the link, since it can only be installed over USB and so is only
+  useful advice before the node goes up.
+- **The answer to the start step can no longer be missed.** The radio replies while the app
+  is still sending the writes that provoked it, and the reply was being dropped when it
+  arrived a moment early — which showed up as the node going silent part-way through.
+- **The packets are paced, and that is what made an over-the-air update finish.** The
+  bootloader takes each packet into a small buffer and flushes it to flash in the background;
+  when that buffer fills it answers "operation failed" and the transfer is over. Its receipt
+  notifications cannot prevent it, because one says a packet was *received*, not that it
+  reached flash — so the backlog grows across batches however small the batch is. This app
+  sent as fast as the Bluetooth stack would take it, about 150 packets a second, and a live
+  ProMicro refused the image step at 5 KB, 15 KB and 15 KB again; halving the receipt
+  interval, which is what the reference implementation does on a retry, changed nothing
+  because it does not change the rate. A 20 ms pause between packets does, and the pause is
+  derived from the link rather than a board name: a peer still at the default 23-byte MTU is
+  a stock bootloader with small buffers, one that negotiated to 244 is not and gets no pause.
+  **A 404 KB image now transfers in about eight minutes and boots** — first proven end to
+  end on 2026-08-14, flashing v1.16.0 onto a repeater running v1.17.0 and reading the new
+  version back from the node.
+- **A node whose firmware has already been erased is never restarted.** Abandoning a
+  transfer used to send the node a system reset, so the bootloader would forget the
+  half-finished session and accept a new one. That is right up until the moment the start
+  step is accepted — because that is when the node erases its application, and a bootloader
+  restarted with no application to boot comes back in **USB mass-storage mode and stops
+  advertising over Bluetooth altogether**. The reset written to rescue the node is what put
+  it out of reach: on hardware, a transfer that failed around 15 KB was followed by a reset,
+  and the node then appeared in no scan at all and had to be recovered over a cable. It is
+  now left alone once its bank is gone — still advertising, still retryable from the phone —
+  and reset only while it still has firmware to go back to.
+- **Packet writes no longer wait for a confirmation that may never come.** Android reports a
+  no-response write as complete when it frees the buffer, and that report is a courtesy, not
+  a guarantee. Waiting on it deadlocked the transfer: on a live ProMicro every control-point
+  write completed instantly while the very first packet write after them never did. Packets
+  now pause briefly for the buffer and carry on — flow control for the image is the node's
+  own receipt notification, which is a fact about what the node received rather than about a
+  local buffer — and the number of unconfirmed writes is logged. This is what got the first
+  bytes of an over-the-air image onto a node.
+- **A transfer can no longer hang inside a single packet.** Every step had a time limit
+  except the one that actually sends data: each write waits for the Bluetooth stack to
+  confirm it, and nothing bounded that wait. A confirmation that never arrived left the
+  transfer suspended behind a progress bar frozen at its last byte count — no error, no
+  disconnect, nothing to do but kill the app, which is precisely what a live ProMicro looked
+  like at 14,800 of 372,044 bytes. Writes are now bounded too, and a lost one is reported as
+  what it is: a link that is up but not moving data.
+- **The short connection interval is asked for again as the transfer runs.** It is an
+  advisory request that stacks are known to let lapse, there is no way to read the interval
+  back, and a 400 KB image takes minutes — so asking once at the start was a bet on the part
+  of the transfer that was never in doubt.
+- **A node that announced its update address is now found by it.** `start ota` answers with
+  the node's own address, and the search applied the bootloader's +1 to it — an address
+  nothing was using yet. The node was still found, but by its `_OTA` NAME, which every other
+  node in update mode also wears: with two of them nearby neither could be told from the
+  other and the one whose address we had been given was reported as not advertising. An
+  announced address now means that node in either state, its own or its bootloader's.
+- **The radio in your pocket is let go of before another node is flashed.** It was kept
+  connected throughout, so a sustained 400 KB transfer ran alongside a second live Bluetooth
+  link carrying mesh traffic, sharing one controller — while the transfer was asking for the
+  fastest connection interval it could get. It is not part of the transfer and is now
+  released before it starts, and reconnected afterwards as before.
+- **A node's board, firmware version and update address survive reconnecting to the radio.**
+  The radio owns the contact list and the app re-reads it on every connection, keeping only
+  the unread count and the last message time — so everything the app had learned about a node
+  and the radio had not was wiped each time. That is the opposite of what those fields are
+  for: they exist because the moment they are needed is the moment the node can no longer be
+  asked. The failure it produced was as bad as it sounds — a repeater announced its update
+  address, the app stored it and showed it, the transfer failed, the radio reconnected, and
+  the recovery dialog for a node now sitting in its bootloader said no address had ever been
+  recorded.
+- **The update log no longer erases itself.** Progress was written down on every
+  acknowledgement — about 1,860 lines for one image, against a 500-line buffer — so by the
+  time a flash failed, its log held nothing but the progress bar. Everything a failure has
+  to be read against, including the failure's own context, had been pushed out by it.
+  Progress is now sampled and carries the transfer rate, which is the number that separates
+  a link that slowed down from a node that stopped dead.
+- Failures say what state the node is left in. A node that loses the transfer part-way is
+  waiting in update mode, not bricked — which is the difference between a retry and a trip
+  up a mast. The OTAFIX bootloader is recommended where it matters.
+
 ## 0.7.16
 
 An audit release. One feature landed (channel codes now carry their region), and the rest

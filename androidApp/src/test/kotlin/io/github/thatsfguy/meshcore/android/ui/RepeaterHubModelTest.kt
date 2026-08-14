@@ -34,7 +34,7 @@ class RepeaterHubModelTest {
     @Test
     fun `an admin on a repeater is offered every tool`() {
         assertEquals(
-            listOf("status", "settings", "regions", "identity", "console", "help"),
+            listOf("status", "settings", "regions", "identity", "console", "firmware", "help"),
             routes(NodeRole.Repeater, AdminSession.Admin),
         )
     }
@@ -57,6 +57,9 @@ class RepeaterHubModelTest {
         // a control that exists only to fail (PLAYBOOK §6.1).
         assertFalse("identity" in guest)
         assertFalse("console" in guest)
+        // Firmware sends `start ota`, which takes the node off the mesh
+        // until someone stands next to it. A guest cannot run it.
+        assertFalse("firmware" in guest)
     }
 
     @Test

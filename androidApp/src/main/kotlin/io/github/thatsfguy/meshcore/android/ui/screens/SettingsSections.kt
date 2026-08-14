@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.dp
 import io.github.thatsfguy.meshcore.android.storage.ChannelEntity
 import io.github.thatsfguy.meshcore.android.ui.MeshCoreViewModel
 import io.github.thatsfguy.meshcore.engine.EngineState
+import io.github.thatsfguy.meshcore.firmware.deviceIdentityLine
 import io.github.thatsfguy.meshcore.protocol.Codes
 import io.github.thatsfguy.meshcore.protocol.PathHashMode
 import io.github.thatsfguy.meshcore.protocol.RadioUnits
@@ -57,6 +58,7 @@ internal fun ConnectionSection(vm: MeshCoreViewModel, onAddNode: () -> Unit) {
     val plaintext by vm.plaintextLink.collectAsState()
     val lastError by vm.lastError.collectAsState()
     val battery by vm.battery.collectAsState()
+    val deviceInfo by vm.deviceInfo.collectAsState()
     var autoReconnect by remember { mutableStateOf(vm.prefs.autoReconnect) }
 
     Text(
@@ -78,6 +80,7 @@ internal fun ConnectionSection(vm: MeshCoreViewModel, onAddNode: () -> Unit) {
     battery?.let {
         HintText("Battery: %.2f V".format(it.batteryMillivolts / 1000.0))
     }
+    deviceIdentityLine(deviceInfo)?.let { HintText(it) }
     lastError?.let {
         Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
     }

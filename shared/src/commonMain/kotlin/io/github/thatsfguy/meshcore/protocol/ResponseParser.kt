@@ -250,13 +250,17 @@ object ResponseParser {
         // with memcpy(&out_frame[i], &_prefs.ble_pin, 4). It was being
         // skipped, which is why this app claimed the PIN could not be
         // read back.
-        val blePin = if (frame.size >= 8) {
-            val r = BufferReader(frame)
-            r.skipBytes(4)
-            r.readUInt32LE()
-        } else {
-            null
-        }
+        val r = BufferReader(frame)
+        r.skipBytes(4)
+        val blePin = if (frame.size >= 8) r.readUInt32LE() else null
+        // Bytes 8..79 identify the build. MyMesh.cpp writes them right
+        // after the pin and unconditionally: a 12-byte FIRMWARE_BUILD_DATE,
+        // the board's getManufacturerName() in 40, then FIRMWARE_VERSION
+        // in 20. Each is NUL-padded, and a value that exactly fills its
+        // field has no terminator — readFixedCString handles both.
+        val buildDate = if (frame.size >= 20) r.readFixedCString(12).ifEmpty { null } else null
+        val boardName = if (frame.size >= 60) r.readFixedCString(40).ifEmpty { null } else null
+        val fwVersion = if (frame.size >= 80) r.readFixedCString(20).ifEmpty { null } else null
         val clientRepeat = if (frame.size >= 81) frame[80].toInt() != 0 else null
         val pathHashWidth = if (frame.size >= 82) {
             ((frame[81].toInt() and 0xFF).coerceIn(0, 3)) + 1
@@ -271,6 +275,9 @@ object ResponseParser {
                 clientRepeat = clientRepeat,
                 pathHashByteWidth = pathHashWidth,
                 blePin = blePin,
+                firmwareBuildDate = buildDate,
+                boardName = boardName,
+                firmwareVersion = fwVersion,
             ),
         )
     }

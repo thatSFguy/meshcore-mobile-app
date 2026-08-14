@@ -2,6 +2,7 @@ package io.github.thatsfguy.meshcore.presentation
 
 import io.github.thatsfguy.meshcore.util.fixed
 import io.github.thatsfguy.meshcore.engine.EngineState
+import io.github.thatsfguy.meshcore.firmware.VersionOrder
 
 /**
  * One row on the Settings hub. [route] is the sub-route appended to
@@ -69,6 +70,7 @@ fun settingsGroups(): List<SettingsGroup> = listOf(
             SettingsTile("policies", "Mesh policies", "Adverts, telemetry access, regions", needsRadio = true),
             SettingsTile("autoadd", "Auto-add contacts", "Which adverts become contacts", needsRadio = true),
             SettingsTile("customvars", "Custom variables", "GPS and other firmware variables", needsRadio = true),
+            SettingsTile("firmware", "Firmware", "Update this radio over Bluetooth", needsRadio = true),
         ),
     ),
     SettingsGroup(
@@ -153,6 +155,39 @@ fun radioSubtitle(freqKhz: Long?, sf: Int?, txPowerDbm: Int?): String {
         if (sf != null && sf > 0) append(" · SF$sf")
         if (txPowerDbm != null && txPowerDbm > 0) append(" · ${txPowerDbm}dBm")
     }
+}
+
+/**
+ * The Firmware row.
+ *
+ * It reports the version the radio is running, and says plainly when
+ * this radio cannot be updated over the air at all rather than leading
+ * someone into a screen that ends in "not supported". Only nRF52 boards
+ * on companion v1.15+ carry the DFU service, and [updateCapable] is the
+ * honest answer to that: whether the service is actually there on the
+ * link we have, not a guess from the board name.
+ *
+ * An available update is stated but never as an instruction. Firmware
+ * on a repeater at the top of a mast is not something to nudge someone
+ * into on a Tuesday.
+ */
+fun firmwareSubtitle(
+    currentVersion: String?,
+    latestVersion: String?,
+    updateCapable: Boolean,
+    connected: Boolean,
+): String {
+    if (!connected) return "Connect to a radio"
+    val current = currentVersion?.takeIf { it.isNotBlank() }
+    if (!updateCapable) {
+        val prefix = current?.let { "$it · " } ?: ""
+        return "${prefix}This radio has no over-the-air update service"
+    }
+    if (current == null) return "This radio does not report its firmware version"
+    if (latestVersion != null && VersionOrder.isNewer(latestVersion, current)) {
+        return "$current · $latestVersion is available"
+    }
+    return if (latestVersion == null) current else "$current · up to date"
 }
 
 fun channelsSubtitle(count: Int): String = when (count) {

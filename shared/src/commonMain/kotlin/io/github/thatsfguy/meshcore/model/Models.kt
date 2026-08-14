@@ -185,6 +185,20 @@ data class DeviceInfo(
      * stored at the last boot.
      */
     val blePin: Long?,
+    /**
+     * `FIRMWARE_BUILD_DATE`, e.g. `13 Aug 2026`. Null on firmware that
+     * stops after the BLE pin.
+     */
+    val firmwareBuildDate: String?,
+    /**
+     * The board's `getManufacturerName()`, e.g. `Heltec T114`. This is a
+     * human string chosen per variant, NOT the PlatformIO environment
+     * name that firmware release assets are named after — mapping one to
+     * the other is a lookup, not a transformation.
+     */
+    val boardName: String?,
+    /** `FIRMWARE_VERSION`, e.g. `v1.17.0`. */
+    val firmwareVersion: String?,
 )
 
 /** RESP_CODE_BATT_AND_STORAGE. */

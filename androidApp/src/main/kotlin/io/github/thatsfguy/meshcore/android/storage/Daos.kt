@@ -297,6 +297,57 @@ interface ContactDao {
     @Query("UPDATE contacts SET unread = 0 WHERE selfKey = :selfKey AND keyHex = :keyHex")
     suspend fun clearUnread(selfKey: String, keyHex: String)
 
+    /**
+     * Remember the BLE address a node announced when it entered update
+     * mode. Written straight to the row rather than through an upsert:
+     * the contact's other fields belong to the radio's own contact list
+     * and must not be written back from here.
+     */
+    @Query(
+        "UPDATE contacts SET otaAddress = :address, otaAnnouncedAt = :at " +
+            "WHERE selfKey = :selfKey AND keyHex = :keyHex",
+    )
+    suspend fun rememberOtaAddress(selfKey: String, keyHex: String, address: String, at: Long)
+
+    /**
+     * Forget a node's BLE address.
+     *
+     * Rarely the right call: the address is a property of the hardware
+     * and does not change when the node reboots, updates, or is
+     * reflashed. Use [setUpdateMode] to record that the node has left
+     * update mode — clearing the address to say that throws away the one
+     * thing that makes the node reachable next time.
+     */
+    @Query(
+        "UPDATE contacts SET otaAddress = NULL, otaAnnouncedAt = 0 " +
+            "WHERE selfKey = :selfKey AND keyHex = :keyHex",
+    )
+    suspend fun forgetOtaAddress(selfKey: String, keyHex: String)
+
+    /**
+     * Record that a node has entered update mode ([since] > 0) or left
+     * it ([since] = 0). Touches nothing else — the address, the board
+     * and the firmware version all outlive this state.
+     */
+    @Query(
+        "UPDATE contacts SET updateModeSince = :since, otaReplyHandledAt = :handledAt " +
+            "WHERE selfKey = :selfKey AND keyHex = :keyHex",
+    )
+    suspend fun setUpdateMode(selfKey: String, keyHex: String, since: Long, handledAt: Long)
+
+    /** What the node reported for itself, kept for when it cannot. */
+    @Query(
+        "UPDATE contacts SET boardName = COALESCE(:board, boardName), " +
+            "firmwareVersion = COALESCE(:firmware, firmwareVersion) " +
+            "WHERE selfKey = :selfKey AND keyHex = :keyHex",
+    )
+    suspend fun rememberHardware(
+        selfKey: String,
+        keyHex: String,
+        board: String?,
+        firmware: String?,
+    )
+
     @Query("UPDATE contacts SET lastMessageAt = :at WHERE selfKey = :selfKey AND keyHex = :keyHex")
     suspend fun touchLastMessage(selfKey: String, keyHex: String, at: Long)
 }

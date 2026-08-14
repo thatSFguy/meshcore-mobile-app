@@ -119,6 +119,17 @@ fun repeaterHubTiles(role: NodeRole, session: AdminSession): List<HubTile> = bui
                 subtitle = "Send CLI commands and read the replies",
             ),
         )
+        // Admin-only for the same reason as the console: `start ota`
+        // takes the node off the mesh until someone stands next to it
+        // with a phone. A guest session cannot run it, and a tile that
+        // exists only to fail is worse than no tile.
+        add(
+            HubTile(
+                route = "firmware",
+                title = "Firmware",
+                subtitle = "Update this node — you must be within Bluetooth range",
+            ),
+        )
     }
     add(
         HubTile(
@@ -178,4 +189,54 @@ fun decodePrefill(encoded: String): String {
         bytes[i] = ((hi shl 4) or lo).toByte()
     }
     return bytes.decodeToString()
+}
+
+/**
+ * What the firmware panel may claim about a node's update mode.
+ *
+ * Two inputs, and they are different kinds of thing. Keeping them apart
+ * is the whole point, because merging them is what made the screen lie.
+ *
+ * - [flaggedInUpdateMode] — **recorded state**, and the only thing that
+ *   may be asserted. Set when the node answers `start ota`; cleared by
+ *   the events that end it — a finished transfer, an accepted restart,
+ *   or the operator saying so. A flag with named transitions.
+ * - [knownAddress] — **a durable fact about the hardware**, like the
+ *   board name. A radio's BLE address does not change across a reboot, a
+ *   firmware update, or a reflash over USB. It is kept for good, it is
+ *   what lets a flash pick this node out of everything else nearby
+ *   advertising for an update, and it says nothing whatever about what
+ *   the node is doing.
+ *
+ * The defect this replaces: `inUpdateMode` was `knownAddress != null`.
+ * Nothing cleared the address — correctly, since nothing should — so a
+ * node that entered update mode once was described as being in it for
+ * ever, and the screen hid `Send start ota`, the control that would have
+ * helped.
+ *
+ * The same trap waits one table along. The console thread is persisted,
+ * so `OK - mac: …` is a row that sits in the database indefinitely and
+ * is re-read on every render; asserting the state from *that* would be
+ * just as permanent. The reply is consumed once, against a watermark
+ * (`ContactEntity.otaReplyHandledAt`), and what it produces is this
+ * flag.
+ *
+ * Nothing here can observe the state directly, and no signal from the
+ * mesh could: `start ota` leaves the node running and repeating, so a
+ * node still answering proves nothing either way, and a node reflashed
+ * over USB looks exactly like one still waiting. So the state is
+ * tracked, and it is correctable by hand.
+ */
+data class UpdateModeView(
+    val inUpdateMode: Boolean,
+    /** Best address to hand the flash route; kept whatever the state. */
+    val flashAddress: String?,
+) {
+    companion object {
+        fun of(flaggedInUpdateMode: Boolean, knownAddress: String?): UpdateModeView =
+            UpdateModeView(
+                inUpdateMode = flaggedInUpdateMode,
+                flashAddress = knownAddress,
+            )
+    }
 }

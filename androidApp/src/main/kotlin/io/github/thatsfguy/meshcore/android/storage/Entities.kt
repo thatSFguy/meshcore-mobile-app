@@ -111,7 +111,121 @@ data class ContactEntity(
     val lastModified: Long,
     val unread: Int = 0,
     val lastMessageAt: Long = 0,
+    /**
+     * The BLE address this node reported when it last took `start ota`.
+     *
+     * A repeater is reached over the mesh, so the app never otherwise
+     * learns its BLE address — and the moment it enters update mode is
+     * the moment the mesh stops being a way to reach it. Keeping the
+     * address it announced (`"OK - mac: …"`) is what makes a stuck node
+     * recoverable later, from a different screen, on a different day.
+     *
+     * **A durable fact about the hardware, like [boardName].** A radio's
+     * BLE address does not change — not across a reboot, a firmware
+     * update, or a reflash over USB — so this is only ever added to, and
+     * is never cleared to express that something has happened to the
+     * node. What the node is *doing* lives in [updateModeSince].
+     */
+    val otaAddress: String? = null,
+    /** When [otaAddress] was reported, epoch seconds. */
+    val otaAnnouncedAt: Long = 0,
+    /**
+     * When this node last told us it had entered update mode, epoch
+     * seconds; 0 when it is not believed to be in update mode.
+     *
+     * A state, kept deliberately separate from [otaAddress] — which is a
+     * fact about the hardware and outlives every state it was learned
+     * in. Deriving the state from the address instead made the claim
+     * permanent: nothing cleared the address, because nothing should, so
+     * a node that entered update mode once was described as being in it
+     * for ever — through a reboot, a completed update, and a reflash
+     * over USB.
+     *
+     * Set and cleared by named events, never inferred:
+     *
+     * - **set** when the node answers `start ota` with `"OK - mac: …"`;
+     * - **cleared** when a transfer to it finishes, when it accepts a
+     *   restart out of its bootloader, and when the operator says so —
+     *   a node reflashed over USB is invisible from here, and that is
+     *   the one case only a human can report.
+     *
+     * There is deliberately no timeout. `start ota` leaves the node
+     * running and repeating, so it can sit advertising for days quite
+     * legitimately, and ageing the flag out would be a guess wearing the
+     * clothes of a fact.
+     */
+    val updateModeSince: Long = 0,
+    /**
+     * The `receivedAt` of the newest `start ota` reply this app has
+     * acted on, epoch millis.
+     *
+     * The console thread is PERSISTED, so "the node said `OK - mac: …`"
+     * is not a thing that happens once — it is a row that sits in the
+     * database for ever and is re-read on every render. Setting the flag
+     * from the presence of that row would be the same defect as setting
+     * it from the presence of an address, one table along: permanent,
+     * and immune to being corrected.
+     *
+     * This is the watermark that turns the row back into an event. A
+     * reply only sets [updateModeSince] if it is newer than this, and
+     * anything that clears the flag stamps this to now — so a correction
+     * cannot be undone by history.
+     *
+     * `receivedAt` rather than `timestamp` deliberately: the latter is
+     * sender-claimed, and a node with a wrong clock could otherwise
+     * write a reply that is permanently "newer" than any correction.
+     */
+    val otaReplyHandledAt: Long = 0,
+    /**
+     * What the node last said it was: `getManufacturerName()` from its
+     * `board` reply, and its `ver` reply.
+     *
+     * Remembered rather than asked for on demand, because the one time
+     * this is needed most — choosing firmware for a node stuck in update
+     * mode — the node is in its bootloader and cannot answer anything.
+     */
+    val boardName: String? = null,
+    val firmwareVersion: String? = null,
 )
+
+/**
+ * Carry the app's own knowledge across a radio-authoritative refresh.
+ *
+ * The radio owns a contact's name, type, flags, path and position, and
+ * its list is re-read on every connection. Everything else on this row
+ * was learned **here** — from a console reply, from a transfer, from
+ * the operator — and the radio has no idea any of it exists. Rebuilding
+ * the row from the radio alone therefore does not lose incidental data;
+ * it loses precisely the fields that are stored because they cannot be
+ * fetched again.
+ *
+ * That is not hypothetical. The refresh preserved `unread` and
+ * `lastMessageAt` and nothing else, so every reconnection silently
+ * cleared the announced update address, the update-mode flag and its
+ * watermark, the board name and the firmware version. The failure it
+ * produced is the worst-shaped one available: a repeater announced
+ * `OK - mac: FF:5C:EF:28:2A:92`, the app stored it and showed it, the
+ * transfer failed, the companion radio reconnected — and the recovery
+ * dialog for a node now sitting in its bootloader, unable to answer
+ * anything, said no address had ever been recorded.
+ *
+ * Newer wins on both sides: this runs against a row read a moment
+ * earlier, and the console watcher can write between the read and the
+ * upsert.
+ */
+fun ContactEntity.keepingLocalFacts(previous: ContactEntity?): ContactEntity {
+    if (previous == null) return this
+    return copy(
+        unread = if (unread != 0) unread else previous.unread,
+        lastMessageAt = maxOf(lastMessageAt, previous.lastMessageAt),
+        otaAddress = otaAddress ?: previous.otaAddress,
+        otaAnnouncedAt = maxOf(otaAnnouncedAt, previous.otaAnnouncedAt),
+        updateModeSince = maxOf(updateModeSince, previous.updateModeSince),
+        otaReplyHandledAt = maxOf(otaReplyHandledAt, previous.otaReplyHandledAt),
+        boardName = boardName ?: previous.boardName,
+        firmwareVersion = firmwareVersion ?: previous.firmwareVersion,
+    )
+}
 
 /**
  * Cached channel slot. The PSK is SEALED through [SecretVault] before

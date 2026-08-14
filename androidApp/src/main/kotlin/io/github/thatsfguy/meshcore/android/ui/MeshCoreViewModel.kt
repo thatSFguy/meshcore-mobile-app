@@ -35,6 +35,7 @@ import io.github.thatsfguy.meshcore.protocol.ConfigBackup
 import io.github.thatsfguy.meshcore.protocol.NodeDiscovery
 import io.github.thatsfguy.meshcore.protocol.Quoting
 import io.github.thatsfguy.meshcore.protocol.Reactions
+import io.github.thatsfguy.meshcore.firmware.writeExpectingAReboot
 import io.github.thatsfguy.meshcore.protocol.Regions
 import io.github.thatsfguy.meshcore.protocol.ScannedCode
 import io.github.thatsfguy.meshcore.protocol.SendRetry
@@ -124,6 +125,213 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
     val deviceInfo: StateFlow<DeviceInfo?> = _service.flatMapLatest {
         it?.engine?.deviceInfo ?: flowOf(null)
     }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    /**
+     * Firmware updates. Its own state machine and its own class: the
+     * sequence has seven states of its own and nothing else in this
+     * ViewModel touches it.
+     */
+    val firmware = FirmwareUpdateController(
+        context = app,
+        scope = viewModelScope,
+        crypto = io.github.thatsfguy.meshcore.platform.androidCryptoProvider(),
+        serviceProvider = { _service.value },
+    )
+
+    /**
+     * Whether the connected radio exposes the app-mode DFU service.
+     * Read from the live link rather than inferred from the board name —
+     * see `BootloaderCapableTransport.offersFirmwareUpdates`.
+     */
+    fun firmwareUpdatesSupported(): Boolean = _service.value?.offersFirmwareUpdates() == true
+
+    /**
+     * Remember the BLE address a node announced when it took
+     * `start ota`.
+     *
+     * This is the only moment the app ever learns a repeater's BLE
+     * address — it is reached over the mesh, and the mesh is precisely
+     * what it stops answering once it enters update mode. Recording it
+     * is what makes a node that gets stuck recoverable afterwards,
+     * without standing over it with a serial cable.
+     */
+    fun rememberOtaAddress(keyHex: String, address: String) {
+        val self = selfKey.value
+        if (self.isEmpty()) return
+        viewModelScope.launch {
+            db.contacts().rememberOtaAddress(
+                self,
+                keyHex,
+                address,
+                System.currentTimeMillis() / 1000,
+            )
+        }
+    }
+
+    /**
+     * Remember what a node said it is.
+     *
+     * Kept on the contact because the moment this matters most — picking
+     * firmware for a node stuck in update mode — the node is sitting in
+     * its bootloader and can no longer answer `board`. Asking it live is
+     * exactly the thing that stops working when it is needed.
+     */
+    fun rememberHardware(keyHex: String, board: String?, firmware: String?) {
+        if (board == null && firmware == null) return
+        val self = selfKey.value
+        if (self.isEmpty()) return
+        viewModelScope.launch {
+            db.contacts().rememberHardware(self, keyHex, board, firmware)
+        }
+    }
+
+    fun forgetOtaAddress(keyHex: String) {
+        val self = selfKey.value
+        if (self.isEmpty()) return
+        viewModelScope.launch { db.contacts().forgetOtaAddress(self, keyHex) }
+    }
+
+    /**
+     * Record whether a node is in update mode.
+     *
+     * The flag and the node's BLE address are separate on purpose: the
+     * address is hardware and survives everything, the flag is what the
+     * node is doing. See [ContactEntity.updateModeSince].
+     *
+     * [handledAt] carries the `receivedAt` of the `start ota` reply this
+     * is acting on, so the same persisted reply cannot set the flag
+     * twice. Clearing stamps the watermark to now, which is what makes a
+     * correction stick against a console thread that still holds the
+     * reply. See [ContactEntity.otaReplyHandledAt].
+     */
+    fun setUpdateMode(keyHex: String, inUpdateMode: Boolean, handledAt: Long? = null) {
+        val self = selfKey.value
+        if (self.isEmpty()) return
+        viewModelScope.launch {
+            db.contacts().setUpdateMode(
+                selfKey = self,
+                keyHex = keyHex,
+                since = if (inUpdateMode) nowSeconds() else 0L,
+                handledAt = handledAt ?: System.currentTimeMillis(),
+            )
+        }
+    }
+
+    /**
+     * Take a node out of update mode over BLE.
+     *
+     * DFU op code 6 is the bootloader's "system reset"
+     * (`dfu_transport_ble.c`: `BLE_DFU_SYS_RESET` closes the transport
+     * and calls `dfu_reset()`), which boots the application image when
+     * there is a valid one. That is the common stuck case: a node that
+     * took the jump and then lost the transfer before anything was
+     * erased.
+     *
+     * It cannot rescue a node whose application was already erased — a
+     * reset there simply re-enters the bootloader, which is the correct
+     * behaviour and the reason the OTAFIX bootloader exists.
+     */
+    fun exitUpdateMode(keyHex: String, onResult: (String) -> Unit) {
+        val svc = _service.value ?: return onResult("The radio service is not running.")
+        val contact = dbContacts.value.firstOrNull { it.keyHex == keyHex }
+        val announced = contact?.otaAddress
+        viewModelScope.launch {
+            svc.withRadioHandedOver {
+                val scanner = io.github.thatsfguy.meshcore.platform.AndroidDfuScanner(
+                    getApplication(),
+                ) { svc.diagnostics.log("Firmware", it) }
+                // With a recorded address the node is identified exactly:
+                // it is advertising either on that address or on the +1
+                // its bootloader uses. Without one, fall back to whatever
+                // is advertising for an update — `choose` declines when
+                // more than one candidate is indistinguishable, so this
+                // never picks between two nodes.
+                val peer = if (announced != null) {
+                    scanner.findBootloader(
+                        io.github.thatsfguy.meshcore.firmware.BootloaderExpectation(
+                            companionAddress = announced,
+                            nameHint = contact.boardName,
+                        ),
+                        20_000,
+                    ) ?: scanner.findBootloader(
+                        io.github.thatsfguy.meshcore.firmware.BootloaderExpectation(
+                            exactAddress = announced,
+                        ),
+                        10_000,
+                    )
+                } else {
+                    scanner.findBootloader(
+                        io.github.thatsfguy.meshcore.firmware.BootloaderExpectation(
+                            nameHint = contact?.boardName,
+                        ),
+                        20_000,
+                    )
+                }
+                if (peer == null) {
+                    onResult(
+                        "Nothing in update mode was found nearby. The node has to be within " +
+                            "Bluetooth range, and if two are in update mode at once neither " +
+                            "is picked — power one down and try again.",
+                    )
+                    return@withRadioHandedOver
+                }
+                // Remember it, so the next attempt identifies this node
+                // by address rather than by what happened to answer —
+                // but only when the address is the NODE's.
+                //
+                // `otaAddress` means the address the node itself
+                // advertises on; everything downstream derives the
+                // bootloader's from it by adding one. A peer calling
+                // itself AdaDFU is already the bootloader, so recording
+                // its address here poisons that arithmetic: the next
+                // scan looks one address too high, and the
+                // already-in-the-bootloader test says no for a node that
+                // plainly is.
+                if (!io.github.thatsfguy.meshcore.firmware.BootloaderPeer
+                        .isCertainlyBootloader(peer.name)
+                ) {
+                    rememberOtaAddress(keyHex, peer.address)
+                }
+                val client = io.github.thatsfguy.meshcore.platform.AndroidDfuGattClient(
+                    context = getApplication(),
+                    peer = peer,
+                    scanned = scanner.deviceFor(peer.address),
+                    log = { svc.diagnostics.log("Firmware", it) },
+                )
+                // Reaching the node is the part that can fail and be
+                // reported. The reset write itself cannot be
+                // acknowledged — `BLE_DFU_SYS_RESET` closes the
+                // transport and reboots inside the handler — so its
+                // write callback failing with status 133 is the node
+                // OBEYING. Reporting that as "it did not accept the
+                // restart" is the same mistake the jump write made, and
+                // it printed a failure for every successful restart.
+                val result = runCatching {
+                    client.connect()
+                    client.subscribeToControlPoint()
+                    client.writeExpectingAReboot(
+                        io.github.thatsfguy.meshcore.firmware.LegacyDfu.SYSTEM_RESET,
+                    )
+                }
+                runCatching { client.close() }
+                // It took the reset, so it is on its way out of update
+                // mode. The address stays — that is hardware.
+                if (result.isSuccess) setUpdateMode(keyHex, false)
+                onResult(
+                    if (result.isSuccess) {
+                        "Told ${peer.name ?: peer.address} (${peer.address}) to restart. If " +
+                            "its firmware is intact it will rejoin the mesh shortly; if it " +
+                            "was already erased it comes back in update mode, ready to be " +
+                            "flashed."
+                    } else {
+                        "Reached ${peer.name ?: peer.address} (${peer.address}) but it " +
+                            "refused the restart: " +
+                            (result.exceptionOrNull()?.message ?: "no reason given") + "."
+                    },
+                )
+            }
+        }
+    }
 
     /**
      * Copies of our own signed advert that came back off the mesh — the
@@ -1377,6 +1585,17 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
                 else -> AdminSession.Guest
             }
             _adminSessions.value = _adminSessions.value + (keyHex to granted)
+            // A node that answered at all is not in update mode.
+            //
+            // The Nordic bootloader is a BLE-only image — it has no LoRa
+            // stack, and MeshCore's firmware is not running underneath
+            // it to receive anything. So any reply to a login, including
+            // "wrong password", is proof the application is up, and it
+            // is the cheapest evidence this app ever gets. Not using it
+            // is what left a node that had been reflashed over USB and
+            // signed straight back into still described as advertising
+            // for an update.
+            if (outcome.answered) setUpdateMode(keyHex, false)
             if (granted == AdminSession.None) {
                 // A refusal and a silence are different problems with
                 // different fixes — check the password, or get closer.

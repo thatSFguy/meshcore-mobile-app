@@ -21,8 +21,10 @@ the smallest attack surface I can keep secure and reason about.
 
 **No external dependencies.** No accounts, no API keys, no central server, no analytics, no Google
 Play Services, no Firebase. All crypto runs locally; secrets live in the Android Keystore;
-persistence is Room (SQLite). The **only** outbound HTTP the app ever makes is OpenStreetMap tile
-fetches on the Map tab — everything else is MeshCore frames over the transport you attach
+persistence is Room (SQLite). The app makes outbound HTTP in exactly **two** places, both of them
+to a public host and neither to any service of mine: OpenStreetMap tile fetches on the Map tab,
+and — only when you press the button — the MeshCore firmware release list and the firmware file
+itself from GitHub. Everything else is MeshCore frames over the transport you attach
 (BLE / USB, or TCP if you deliberately turn it on).
 
 [![Latest release](https://img.shields.io/github/v/release/thatSFguy/meshcore-mobile-app?label=latest&sort=semver&color=blue)](https://github.com/thatSFguy/meshcore-mobile-app/releases/latest)
@@ -171,8 +173,18 @@ relayed you onward without a copy returning cannot appear at all. "Node", not "r
 servers relay, and so do companions with client-repeat enabled.
 
 **Map** — every node advertising GPS, with type-specific markers and always-visible name labels.
-Filter by node type, export nodes as GPX, clear the tile cache. Tiles are the only HTTP the app
-makes; they cache in app-private storage.
+Filter by node type, export nodes as GPX, clear the tile cache. Tiles cache in app-private
+storage, and they and firmware downloads are the only HTTP the app makes.
+
+**Firmware updates over Bluetooth** — for nRF52 radios on companion firmware v1.15 or newer,
+which is when MeshCore began exposing Nordic's DFU service. Settings → Firmware updates the
+radio you are connected to; the repeater hub has the same tile for a node you can stand next
+to, since `start ota` travels over the mesh but the image cannot. Builds are fetched from the
+MeshCore releases on GitHub and checked against the checksum published with them, or opened
+from storage if you would rather download them yourself. The board is confirmed by name before
+anything is written — a DFU package cannot say which board it is for, because every nRF52 board
+declares the same device type. ESP32 boards are told plainly that their path is USB or their own
+WiFi hotspot, which a browser does better than this app would.
 
 **Repeater / room administration** — a **hub** with one screen per tool. You sign in with a
 password (sealed in the Keystore if you ask); the node decides what that unlocks and reports it,
@@ -211,7 +223,7 @@ follows is the summary.
 | Their surface | Why it isn't here |
 |---|---|
 | In-app purchases, Pro features, offline product activation, `BillingService` | There is no commercial layer, so there is no Play Billing dependency to link against. |
-| Crash and bug reporting (`BugsnagManager`, bug-reporting settings) | The app makes exactly one kind of outbound connection — OpenStreetMap tiles. That is a checkable promise, and a crash reporter would end it. |
+| Crash and bug reporting (`BugsnagManager`, bug-reporting settings) | The app's outbound connections are two, both to public hosts and both something you asked for: map tiles and firmware downloads. That is a checkable promise, and a crash reporter — which phones home about you, unasked — would end it. |
 | Internet Map, "Add Contact from Internet", "Add me to the Map" | All three are server-mediated: they query or publish node positions and identities through their backend. No servers, no accounts. |
 | `AppInfoService`, `DeviceIdService` | Device identifiers exist to be correlated. Nothing here needs one. |
 | RF **coverage** and **line-of-sight** map tools | Cut by decision, not effort. Terrain propagation is a solved problem with better tools than a phone app can be — and a phone-sized approximation would be confidently wrong in exactly the situations you'd rely on it. |
@@ -263,7 +275,7 @@ and where new MeshCore features land first. MCH is one person's app, explicitly
 [closed to feature requests](#project-scope--personal-app-shared-in-the-open), and its entire
 design goal is to stop growing. If you want the fullest MeshCore client, theirs is the honest
 recommendation. Use this one if the trade you want is the other one — fewer features, no
-telemetry, no billing, one outbound connection, and secrets in the Keystore.
+telemetry, no billing, two outbound connections you have to ask for, and secrets in the Keystore.
 
 ## Security posture
 

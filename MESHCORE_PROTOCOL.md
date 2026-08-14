@@ -682,6 +682,118 @@ half the codes in circulation won't scan.
 
 ---
 
+## 11a. Firmware update over BLE (nRF52) — _read from firmware + bootloader source_
+
+Not a MeshCore protocol at all: it is Nordic's **legacy (nRF5 SDK 11) DFU**, spoken by the
+Adafruit nRF52 bootloader, which MeshCore nRF boards ship. Documented here because the
+companion exposes it on the same BLE connection as the NUS, so a client meets it whether or
+not it implements it. **ESP32 boards have no BLE path** — their `start ota` raises a WiFi
+hotspot and serves an upload form at `http://192.168.4.1/update`.
+
+Sources: [`ble_dfu.c`/`ble_dfu.h`](https://github.com/adafruit/Adafruit_nRF52_Bootloader/tree/master/lib/sdk11/components/ble/ble_services/ble_dfu)
+and `bootloader_dfu/dfu_transport_ble.c` in the bootloader; `BLEDfu.cpp` in
+Adafruit_nRF52_Arduino; `src/helpers/nrf52/SerialBLEInterface.cpp` in MeshCore
+([PR #2323](https://github.com/meshcore-dev/MeshCore/pull/2323), companion v1.15+).
+
+### 11a.1 The two peers
+
+| | Service | Address | Name |
+|---|---|---|---|
+| **App mode** (MeshCore running) | `00001530-1212-EFDE-1523-785FEABCD123` | the radio's own | its MeshCore name |
+| **Bootloader** (after the jump) | same UUID | **LSB + 1**, wrapping (`addr.addr[0] += 1`) | `AdaDFU`, or `<board>_OTA` on MeshCore/OTAFIX builds |
+
+Characteristics: control point `…1531` (write + notify), packet `…1532` (write without
+response), revision `…1534`. Both are registered with `SECMODE_ENC_WITH_MITM`, so the link
+must be **bonded and authenticated** — the same requirement the NUS already has.
+
+### 11a.1a `start ota` does not reboot anything
+
+On a repeater, room server or sensor the CLI's `start ota`
+(`CommonCLI.cpp` → `NRF52Board::startOTAUpdate`) **starts a BLE stack inside the running
+firmware**. It does not reset, and the node keeps repeating:
+
+```cpp
+Bluefruit.begin(1, 0);
+Bluefruit.setName(ota_name);       // "RAK4631_OTA", "T114_OTA", "Meshtiny OTA" …
+bledfu.begin();                    // the app-mode DFU service
+Bluefruit.Advertising.start(0);    // forever
+sprintf(reply, "OK - mac: %02X:%02X:…", mac_addr[5], …, mac_addr[0]);
+```
+
+Three consequences for a client:
+
+1. **The node is in app mode, not the bootloader.** It has to be sent the jump of §11a.2
+   before there is anything to flash. It reboots at that point and not before, so a
+   command sent and never acted on costs nothing.
+2. **The reply carries the address it is advertising on**, printed most-significant octet
+   first — the same order a phone shows. Use it as-is; the bootloader's +1 has not
+   happened yet.
+3. **No bond is needed.** Unlike the companion's, this `bledfu` is registered without
+   `setPermission(SECMODE_ENC_WITH_MITM)`.
+
+The advertised name is the same shape in both modes, so a name match alone cannot tell an
+advertising repeater from a bootloader. Note also that the app-mode jump (`0x01`) and the
+bootloader's start-DFU (`0x01 0x04`) share their first byte — `BLEDfu.cpp` tests only
+`data[0] == 1` — so a client that mistakes one peer for the other will trigger the reboot
+by accident and then lose the connection mid-sequence.
+
+### 11a.1b Asking a node what it is
+
+A companion reports its board and firmware in `RESP_CODE_DEVICE_INFO`. A repeater does not,
+and the CLI is the only way to ask (`CommonCLI.cpp`):
+
+| command | reply |
+|---|---|
+| `board` | `getManufacturerName()`, e.g. `ProMicro DIY` — the **same string** a companion reports |
+| `ver` | `"%s (Build: %s)"`, e.g. `v1.16.0-07a3ca9 (Build: 06-Jun-2026)` |
+
+Worth asking **before** the node enters update mode, and worth keeping: from the moment it
+does, it is off the mesh and can no longer answer. A client that resolves the board only on
+demand cannot pick firmware for the one node that most needs it.
+
+### 11a.2 App mode: the buttonless jump
+
+Enable notifications on the control point **first** — `BLEDfu.cpp` rejects an unsubscribed
+write with `ATTERR_CPS_CCCD_CONFIG_ERROR` (0xFD) before looking at the payload, and a bond
+made before the node carried this service produces the same error. Then write `0x01`. The
+radio saves the bond keys for the bootloader, disconnects, sets GPREGRET `0xB1` and resets.
+The disconnect is the acknowledgement; there is no reply.
+
+### 11a.3 Bootloader: the transfer
+
+Control-point op codes (`ble_dfu.c`), each answered by a `[0x10, procedure, result]`
+notification where result `1` is success (`2` invalid state, `3` not supported, `4` data
+size, `5` CRC, `6` failed):
+
+| Op | Meaning | Written to the packet characteristic |
+|----|---------|--------------------------------------|
+| `1` + image type (`4` = app) | Start DFU | **exactly** 12 bytes: SoftDevice, bootloader and application sizes, u32 LE. Anything else is answered `NOT_SUPPORTED`. |
+| `2` `0x00` / `2` `0x01` | Receive init params / done | the `.dat` init packet |
+| `8` + u16 LE | Request packet-receipt notifications | — |
+| `3` | Receive firmware | the `.bin`, chunked (20 bytes fits the 23-byte ATT default; OTAFIX negotiates larger) |
+| `4` | Validate | — |
+| `5` | Activate and reset | — |
+| `6` | System reset — abandon and boot the existing image | — |
+
+Every N packets the peer notifies `[0x11, u32 LE bytes received]`. That count is the only
+in-band check that both sides agree about how much arrived, and it is worth enforcing: the
+image hash is not checked until the end, by which time a stock bootloader has already
+erased the application.
+
+### 11a.4 The package
+
+An `adafruit-nrfutil` zip: `manifest.json` naming a `.dat` and a `.bin`. The init packet
+(`dfu_types.h`, `dfu_init_packet_t`) is device type u16, device revision u16, application
+version u32, a u16 count of accepted SoftDevice IDs and that many u16s, then the extended
+block — a CRC-16 on unsigned builds, or length/SHA-256/ECDSA-P256 on signed ones.
+
+**The package does not identify the board.** `src/dfu_init.c` compares the device type
+against a single `ADAFRUIT_DEVICE_TYPE` (`0x0052`) for every nRF52832/nRF52840 alike, so a
+RAK 4631 image and a T114 image are indistinguishable to the bootloader and to any client.
+Only the filename says. A client must make a human confirm the board rather than infer it.
+
+---
+
 ## 12. Identity & security notes for the client
 
 **Identity.** Ed25519. Public key 32 bytes. MeshCore uses an **expanded 64-byte private

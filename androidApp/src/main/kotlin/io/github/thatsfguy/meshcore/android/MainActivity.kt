@@ -33,7 +33,10 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import io.github.thatsfguy.meshcore.android.platform.BlePermissions
+import io.github.thatsfguy.meshcore.android.ui.FirmwareTargetKind
 import io.github.thatsfguy.meshcore.android.ui.MeshCoreViewModel
+import io.github.thatsfguy.meshcore.android.ui.screens.FirmwareScreen
+import io.github.thatsfguy.meshcore.firmware.FirmwareRole
 import io.github.thatsfguy.meshcore.android.ui.screens.HEARD_REPEATS_ROUTE
 import io.github.thatsfguy.meshcore.android.ui.screens.HeardRepeatsScreen
 import io.github.thatsfguy.meshcore.android.ui.screens.CONVERSATION_ROUTE
@@ -45,6 +48,7 @@ import io.github.thatsfguy.meshcore.android.ui.screens.NodesScreen
 import io.github.thatsfguy.meshcore.android.ui.screens.OsmdroidSetup
 import io.github.thatsfguy.meshcore.android.ui.screens.RepeaterConsoleScreen
 import io.github.thatsfguy.meshcore.android.ui.screens.ScanConfirmations
+import io.github.thatsfguy.meshcore.android.ui.screens.RepeaterFirmwareScreen
 import io.github.thatsfguy.meshcore.android.ui.screens.RepeaterHelpScreen
 import io.github.thatsfguy.meshcore.android.ui.screens.RepeaterHubScreen
 import io.github.thatsfguy.meshcore.android.ui.screens.RepeaterIdentityScreen
@@ -230,6 +234,43 @@ private fun AppShell(
             composable("settings/policies") { SettingsPoliciesScreen(vm, nav) }
             composable("settings/autoadd") { SettingsAutoAddScreen(vm, nav) }
             composable("settings/customvars") { SettingsCustomVarsScreen(vm, nav) }
+            composable("settings/firmware") { FirmwareScreen(vm, nav) }
+            // The repeater path reaches the same screen with a different
+            // target: that node is already in update mode, so nothing
+            // here may reboot the phone's own radio.
+            composable(
+                "firmware/node?role={role}&mac={mac}&board={board}&fw={fw}&node={node}",
+                arguments = listOf(
+                    navArgument("role") { defaultValue = "repeater" },
+                    navArgument("mac") { defaultValue = "" },
+                    // Hex-encoded like the console prefill: a board name
+                    // has spaces and brackets in it.
+                    navArgument("board") { defaultValue = "" },
+                    navArgument("fw") { defaultValue = "" },
+                    navArgument("node") { defaultValue = "" },
+                ),
+            ) { entry ->
+                FirmwareScreen(
+                    vm,
+                    nav,
+                    FirmwareTargetKind.NodeInUpdateMode,
+                    // The address the node reported in its own reply to
+                    // `start ota`, when we caught it.
+                    otaAddress = entry.arguments?.getString("mac")?.ifBlank { null },
+                    nodeBoard = decodePrefill(entry.arguments?.getString("board") ?: "")
+                        .ifBlank { null },
+                    nodeVersion = decodePrefill(entry.arguments?.getString("fw") ?: "")
+                        .ifBlank { null },
+                    nodeKey = entry.arguments?.getString("node")?.ifBlank { null },
+                    // A repeater and a room server run different builds
+                    // on identical hardware, so the role travels with
+                    // the route rather than being inferred.
+                    role = when (entry.arguments?.getString("role")) {
+                        "room" -> FirmwareRole.RoomServer
+                        else -> FirmwareRole.Repeater
+                    },
+                )
+            }
             composable("settings/channels") { SettingsChannelsScreen(vm, nav) }
             composable("settings/blocking") { SettingsBlockingScreen(vm, nav) }
             composable("settings/app") { SettingsAppScreen(vm, nav) }
@@ -266,6 +307,9 @@ private fun AppShell(
             }
             composable("repeater/{key}/help") { entry ->
                 RepeaterHelpScreen(vm, nav, entry.arguments?.getString("key") ?: "")
+            }
+            composable("repeater/{key}/firmware") { entry ->
+                RepeaterFirmwareScreen(vm, nav, entry.arguments?.getString("key") ?: "")
             }
             composable(
                 "repeater/{key}/console?prefill={prefill}",

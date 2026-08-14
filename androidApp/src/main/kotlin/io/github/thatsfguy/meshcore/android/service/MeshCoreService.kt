@@ -33,6 +33,7 @@ import io.github.thatsfguy.meshcore.engine.MeshCoreEngine
 import io.github.thatsfguy.meshcore.platform.BleTransport
 import io.github.thatsfguy.meshcore.platform.UsbSerialTransport
 import io.github.thatsfguy.meshcore.platform.androidCryptoProvider
+import io.github.thatsfguy.meshcore.firmware.BootloaderCapableTransport
 import io.github.thatsfguy.meshcore.transport.ConnectionMemory
 import io.github.thatsfguy.meshcore.transport.SavedNode
 import io.github.thatsfguy.meshcore.transport.TcpInterface
@@ -313,6 +314,126 @@ class MeshCoreService : Service() {
     }
 
     private class LinkDownException : Exception()
+
+    // ------------------------------------------------------------------
+    // Firmware updates
+    // ------------------------------------------------------------------
+
+    private val _firmwareUpdateRunning = MutableStateFlow(false)
+
+    /** True while a firmware update owns the radio. */
+    val firmwareUpdateRunning: StateFlow<Boolean> = _firmwareUpdateRunning
+
+    /**
+     * What an update needs from the service: a way to send the connected
+     * radio into its bootloader, and the address it will come back on.
+     * Both are null when the current link is not BLE.
+     */
+    data class UpdateHandover(
+        val transport: BootloaderCapableTransport?,
+        val address: String?,
+        val boardName: String?,
+        /**
+         * Drop the companion link now, rather than when the update ends.
+         *
+         * For an update aimed at ANOTHER node — one reached over the air
+         * after `start ota` — the radio in the user's pocket is not part
+         * of the transfer at all, and leaving it connected means a
+         * second active BLE link carrying live mesh traffic alongside a
+         * sustained 400 KB stream. The two share one controller and one
+         * set of connection events, and the DFU link is the one that has
+         * asked for a 7.5 ms interval it cannot be given while the other
+         * is chattering.
+         *
+         * Idempotent, and safe to skip: the update always releases the
+         * radio at the end whether this was called or not.
+         */
+        val releaseRadio: suspend () -> Unit,
+    )
+
+    /**
+     * Run a firmware update with the radio link handed over.
+     *
+     * The reconnect supervisor has to stand down for the duration: the
+     * node reboots twice, disappears from its own address, and comes
+     * back as a bootloader. A supervisor racing to reconnect through
+     * that would fight the update for the Bluetooth stack and, worse,
+     * hold a GATT connection to an address the bootloader is about to
+     * reuse.
+     *
+     * No wake lock is taken — deliberately. The app asks for no
+     * WAKE_LOCK permission, and the update screen keeps itself awake
+     * instead, which is honest about what it needs: the user watching a
+     * two-minute progress bar.
+     */
+    suspend fun <T> withRadioHandedOver(block: suspend (UpdateHandover) -> T): T {
+        val memory = currentMemory
+        supervisorJob?.cancel()
+        supervisorJob = null
+        _firmwareUpdateRunning.value = true
+        diagnostics.log("Firmware", "Radio handed over for a firmware update")
+
+        val transport = _activeTransport.value
+        var released = false
+        val release: suspend () -> Unit = {
+            if (!released) {
+                released = true
+                diagnostics.log("Firmware", "Releasing the companion link for the transfer")
+                engine.detach()
+                runCatching { transport?.disconnect() }
+                _activeTransport.value = null
+            }
+        }
+        val handover = UpdateHandover(
+            transport = (transport as? BootloaderCapableTransport)?.let { capable ->
+                BootloaderJump(capable, transport)
+            },
+            address = (memory as? ConnectionMemory.Ble)?.address,
+            boardName = engine.deviceInfo.value?.boardName,
+            releaseRadio = release,
+        )
+
+        return try {
+            block(handover)
+        } finally {
+            _firmwareUpdateRunning.value = false
+            release()
+            // Come back on the same connection the user had. The node
+            // may still be rebooting, which is what the supervisor's
+            // backoff is for.
+            if (memory != null) {
+                currentMemory = memory
+                diagnostics.log("Firmware", "Reconnecting after the firmware update")
+                startSupervisor { buildTransport(memory) }
+            }
+        }
+    }
+
+    /**
+     * Sends the jump, then drops our side of the link immediately. The
+     * radio is already rebooting; leaving a GATT open to its address
+     * only gets in the way of the bootloader connection that follows.
+     */
+    /**
+     * Whether the radio on the current link can be updated over the air
+     * at all. False for USB and TCP links, for ESP32 boards, and for
+     * companion firmware older than v1.15 — none of which carry the
+     * app-mode DFU service.
+     */
+    fun offersFirmwareUpdates(): Boolean =
+        (_activeTransport.value as? BootloaderCapableTransport)?.offersFirmwareUpdates() == true
+
+    private class BootloaderJump(
+        private val capable: BootloaderCapableTransport,
+        private val transport: Transport,
+    ) : BootloaderCapableTransport {
+        override fun offersFirmwareUpdates(): Boolean = capable.offersFirmwareUpdates()
+
+        override suspend fun requestBootloaderReboot() {
+            capable.requestBootloaderReboot()
+            runCatching { transport.disconnect() }
+        }
+    }
 
     // ------------------------------------------------------------------
     // Foreground notification

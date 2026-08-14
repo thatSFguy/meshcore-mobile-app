@@ -44,7 +44,11 @@ Layout:
   RawPacket, Advert w/ Ed25519 verify, ChannelCrypto, MeshIdentity), `engine/MeshCoreEngine`
   (handshake, serialized command queue, contact/channel sync, queue drain, RX-log decrypt,
   repeater admin), `transport/` (Transport iface, SerialFraming — **`<`/`>` + u16LE length,
-  NOT COBS**; BLE = frame-per-write, no framing), androidMain (BLE/USB/TCP + BC crypto),
+  NOT COBS**; BLE = frame-per-write, no framing), `firmware/` (Nordic **legacy** DFU —
+  `LegacyDfuSession` state machine, `DfuPackage`, `BootloaderPeer`, `FirmwareUpdater`,
+  `FirmwareCatalog`/`BoardAssets`; see MESHCORE_PROTOCOL §11a, and note the bootloader
+  advertises on the radio's MAC **+1** under a different name), androidMain (BLE/USB/TCP
+  + BC crypto),
   iosMain (TCP + CommonCrypto; Ed25519 bridged to CryptoKit 2026-08-06 via
   `shared/iosCryptoBridge/` + cinterop — written but NOT yet proven by a green
   iOS CI run, which is the only thing that compiles it).
@@ -88,7 +92,12 @@ Layout:
 - **Partly validated against a real radio.** Navigation, connection, Settings, the
   repeater hub, login and Status were driven on hardware 2026-08-05 (see above).
   Still never run against a radio: backup/restore, retention, blocking, regional
-  presets, sensors and identity-key management.
+  presets, sensors and identity-key management — and, as of 2026-08-13, **firmware
+  updates over BLE**, which is the one that costs hardware if it is wrong. The
+  protocol half is pinned against the bootloader's own source and tested against a
+  fake bootloader; nothing has yet met a real one. Do the recoverable steps first on a
+  spare node: jump to the bootloader and come back with opcode `6` (system reset)
+  without flashing, then re-flash the version it is already running.
 
 Reference docs:
 - **`MESHCORE_PROTOCOL.md`** — the MeshCore companion + over-the-air wire spec (transports,

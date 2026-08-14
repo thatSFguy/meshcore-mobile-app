@@ -5,6 +5,7 @@ import io.github.thatsfguy.meshcore.presentation.appearanceSubtitle
 import io.github.thatsfguy.meshcore.presentation.blockingSubtitle
 import io.github.thatsfguy.meshcore.presentation.channelsSubtitle
 import io.github.thatsfguy.meshcore.presentation.connectionSubtitle
+import io.github.thatsfguy.meshcore.presentation.firmwareSubtitle
 import io.github.thatsfguy.meshcore.presentation.identitySubtitle
 import io.github.thatsfguy.meshcore.presentation.radioSubtitle
 import io.github.thatsfguy.meshcore.presentation.settingsGroups
@@ -62,7 +63,7 @@ class SettingsHubModelTest {
         val nav = File("src/main/kotlin/io/github/thatsfguy/meshcore/android/MainActivity.kt")
         val source = nav.readText()
         // The console takes a query argument, so it is matched loosely.
-        for (route in listOf("status", "settings", "regions", "identity", "help")) {
+        for (route in listOf("status", "settings", "regions", "identity", "help", "firmware")) {
             assertTrue(
                 "repeater/{key}/$route has no composable() in the NavHost",
                 source.contains("composable(\"repeater/{key}/$route\")"),
@@ -206,7 +207,12 @@ class SettingsHubModelTest {
             // "pin" needs one too: the pairing PIN is a property of the
             // radio, not of the app, and there is nothing to change
             // without a node attached.
-            listOf("pin", "identity", "radio", "clock", "policies", "autoadd", "customvars"),
+            listOf(
+                "pin", "identity", "radio", "clock", "policies", "autoadd", "customvars",
+                // Firmware reads the board and version off the node and
+                // writes an image to it; there is nothing to do offline.
+                "firmware",
+            ),
             needs,
         )
         // App and messaging settings are local and must work offline.
@@ -334,5 +340,53 @@ class SettingsHubModelTest {
         assertEquals("Follow the system", appearanceSubtitle("anything unrecognised"))
         assertEquals("Light", appearanceSubtitle("light"))
         assertEquals("Dark", appearanceSubtitle("dark"))
+    }
+
+    // --- firmware ---------------------------------------------------------
+
+    @Test
+    fun `the firmware row reports the version and whether there is a newer one`() {
+        assertEquals(
+            "v1.16.0 · v1.17.0 is available",
+            firmwareSubtitle("v1.16.0", "v1.17.0", updateCapable = true, connected = true),
+        )
+        assertEquals(
+            "v1.17.0 · up to date",
+            firmwareSubtitle("v1.17.0", "v1.17.0", updateCapable = true, connected = true),
+        )
+        // Nothing has been checked yet: state the version, claim nothing.
+        assertEquals(
+            "v1.17.0",
+            firmwareSubtitle("v1.17.0", null, updateCapable = true, connected = true),
+        )
+    }
+
+    @Test
+    fun `a radio that cannot be updated says so instead of offering a version check`() {
+        // ESP32 boards, USB and TCP links, and companion firmware older
+        // than v1.15 all land here. Leading someone into a screen whose
+        // only outcome is "not supported" is a wasted trip.
+        val subtitle = firmwareSubtitle("v1.17.0", "v1.17.0", updateCapable = false, connected = true)
+        assertTrue(subtitle.contains("no over-the-air update service"))
+        assertTrue("the version is still worth stating", subtitle.startsWith("v1.17.0"))
+    }
+
+    @Test
+    fun `an update is never announced on a version we cannot read`() {
+        // Firmware too old to report its version, or a tag in an
+        // unfamiliar shape, must not light up "available" — the row
+        // would be inviting someone to flash on a guess.
+        assertFalse(
+            firmwareSubtitle(null, "v1.17.0", updateCapable = true, connected = true)
+                .contains("available"),
+        )
+        assertFalse(
+            firmwareSubtitle("nightly", "v1.17.0", updateCapable = true, connected = true)
+                .contains("available"),
+        )
+        assertEquals(
+            "Connect to a radio",
+            firmwareSubtitle("v1.16.0", "v1.17.0", updateCapable = true, connected = false),
+        )
     }
 }
