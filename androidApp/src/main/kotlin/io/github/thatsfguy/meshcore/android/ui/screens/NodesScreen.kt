@@ -5,6 +5,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -16,8 +17,14 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
@@ -52,6 +59,7 @@ import io.github.thatsfguy.meshcore.android.platform.Qr
 import io.github.thatsfguy.meshcore.android.storage.ContactEntity
 import io.github.thatsfguy.meshcore.android.storage.MessageRepository
 import io.github.thatsfguy.meshcore.android.ui.MeshCoreViewModel
+import io.github.thatsfguy.meshcore.presentation.NodeListModel
 import io.github.thatsfguy.meshcore.presentation.encodePrefill
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -126,8 +134,13 @@ fun NodesScreen(vm: MeshCoreViewModel, nav: NavController) {
             var tab by remember { mutableIntStateOf(vm.prefs.nodesTab.coerceIn(0, 4)) }
             val discovered by vm.discovered.collectAsState()
             var query by remember { mutableStateOf("") }
+            // Order and narrowing survive tab switches and restarts, the
+            // same as the tab itself: a list you had to arrange once is
+            // one you should not have to arrange again.
+            var sort by remember { mutableStateOf(vm.prefs.nodesSort) }
+            var filters by remember { mutableStateOf(vm.prefs.nodesFilters) }
             // Contacts tab folds in sensors/unknown types.
-            val tabContacts = when (tab) {
+            val ofThisType = when (tab) {
                 1 -> contacts.filter { it.type == Codes.ADV_TYPE_REPEATER }
                 2 -> contacts.filter { it.type == Codes.ADV_TYPE_ROOM }
                 3 -> contacts.filter { it.type == Codes.ADV_TYPE_SENSOR }
@@ -135,19 +148,16 @@ fun NodesScreen(vm: MeshCoreViewModel, nav: NavController) {
                     it.type != Codes.ADV_TYPE_REPEATER && it.type != Codes.ADV_TYPE_ROOM &&
                         it.type != Codes.ADV_TYPE_SENSOR
                 }
-            }.filter { c ->
-                query.isBlank() ||
-                    c.name.contains(query, ignoreCase = true) ||
-                    c.keyHex.startsWith(query.lowercase())
-            }.sortedWith(
-                // Favourites first, then nodes you've interacted with
-                // (messaged / administered) by recency, then the rest A-Z.
-                compareByDescending<ContactEntity> {
-                    it.flags and Codes.CONTACT_FLAG_FAVORITE != 0
-                }
-                    .thenByDescending { it.lastMessageAt > 0 }
-                    .thenByDescending { it.lastMessageAt }
-                    .thenBy { it.name.ifBlank { it.keyHex }.lowercase() },
+            }
+            // Searching, narrowing and ordering are all NodeListModel's,
+            // so the rules are pinned by tests rather than by driving a
+            // phone (CLAUDE.md — logic that carries decisions is pure).
+            val tabContacts = NodeListModel.arrange(
+                items = ofThisType,
+                query = query,
+                sort = sort,
+                filters = filters,
+                nowSeconds = vm.nowSeconds(),
             )
 
             // ScrollableTabRow, not TabRow: a fixed row divides the width
@@ -173,12 +183,23 @@ fun NodesScreen(vm: MeshCoreViewModel, nav: NavController) {
             }
 
             if (tab != 4) {
-                OutlinedTextField(
-                    value = query,
-                    onValueChange = { query = it },
-                    label = { Text("Search name or key") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+                NodeListControls(
+                    query = query,
+                    onQueryChange = { query = it },
+                    sort = sort,
+                    filters = filters,
+                    onSortChange = {
+                        sort = it
+                        vm.prefs.nodesSort = it
+                    },
+                    onToggleFilter = { f ->
+                        filters = if (f in filters) filters - f else filters + f
+                        vm.prefs.nodesFilters = filters
+                    },
+                    onClearFilters = {
+                        filters = emptySet()
+                        vm.prefs.nodesFilters = filters
+                    },
                 )
             }
 
@@ -207,9 +228,18 @@ fun NodesScreen(vm: MeshCoreViewModel, nav: NavController) {
                 }
             } else if (tabContacts.isEmpty()) {
                 EmptyHint(
-                    text = when (tab) {
-                        1 -> "No repeaters heard yet."
-                        2 -> "No room servers heard yet."
+                    // An empty list with an active filter is the app
+                    // working, and it looks exactly like the app being
+                    // broken. Say which it is, and say what to undo.
+                    text = when {
+                        filters.isNotEmpty() && ofThisType.isNotEmpty() ->
+                            "Nothing here matches " +
+                                filters.joinToString(" and ") { it.label.lowercase() } +
+                                ".\nClear the filters from the list menu beside the search box."
+                        query.isNotBlank() && ofThisType.isNotEmpty() ->
+                            "Nothing here matches \"$query\"."
+                        tab == 1 -> "No repeaters heard yet."
+                        tab == 2 -> "No room servers heard yet."
                         else -> "No contacts yet.\nContacts appear when nearby nodes advertise, or scan a contact QR with +."
                     },
                 )
@@ -279,6 +309,117 @@ fun NodesScreen(vm: MeshCoreViewModel, nav: NavController) {
             },
         )
     }
+}
+
+/**
+ * Search box plus the list menu that orders and narrows what is below.
+ *
+ * The menu sits beside the search field rather than in the top bar's
+ * overflow because it acts on this list, and the overflow already holds
+ * seven actions that act on the mesh — importing, sharing, syncing,
+ * discovering. Mixing "what do I see" into "what do I do" is how that
+ * menu became a place nobody reads.
+ *
+ * Active filters are named in a line under the box. A filter is a piece
+ * of hidden state that changes what the app appears to contain, and one
+ * left on from a previous session, invisible behind an icon, is
+ * indistinguishable from missing contacts.
+ */
+@Composable
+private fun NodeListControls(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    sort: NodeListModel.Sort,
+    filters: Set<NodeListModel.Filter>,
+    onSortChange: (NodeListModel.Sort) -> Unit,
+    onToggleFilter: (NodeListModel.Filter) -> Unit,
+    onClearFilters: () -> Unit,
+) {
+    var open by remember { mutableStateOf(false) }
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        OutlinedTextField(
+            value = query,
+            onValueChange = onQueryChange,
+            label = { Text("Search name or key") },
+            singleLine = true,
+            modifier = Modifier.weight(1f),
+        )
+        Box {
+            IconButton(onClick = { open = true }) {
+                Icon(
+                    Icons.AutoMirrored.Filled.List,
+                    contentDescription = "Sort and filter — " +
+                        sort.label.lowercase() +
+                        if (filters.isEmpty()) "" else ", ${filters.size} filter on",
+                    // Tinted when something is hidden, so the state is
+                    // visible without opening the menu.
+                    tint = if (filters.isEmpty()) MaterialTheme.colorScheme.onSurfaceVariant
+                    else MaterialTheme.colorScheme.primary,
+                )
+            }
+            DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+                MenuHeading("Sort by")
+                for (option in NodeListModel.Sort.entries) {
+                    DropdownMenuItem(
+                        text = { Text(option.label) },
+                        onClick = {
+                            onSortChange(option)
+                            open = false
+                        },
+                        trailingIcon = { if (option == sort) SelectedTick() },
+                    )
+                }
+                HorizontalDivider()
+                MenuHeading("Show only")
+                for (option in NodeListModel.Filter.entries) {
+                    DropdownMenuItem(
+                        text = { Text(option.label) },
+                        // Filters stack, so the menu stays open — closing
+                        // it after each one turns "favourites, heard
+                        // today" into three trips.
+                        onClick = { onToggleFilter(option) },
+                        trailingIcon = { if (option in filters) SelectedTick() },
+                    )
+                }
+                if (filters.isNotEmpty()) {
+                    HorizontalDivider()
+                    DropdownMenuItem(
+                        text = { Text("Clear filters") },
+                        onClick = {
+                            onClearFilters()
+                            open = false
+                        },
+                    )
+                }
+            }
+        }
+    }
+    if (filters.isNotEmpty()) {
+        Text(
+            "Showing " + filters.joinToString(" and ") { it.label.lowercase() },
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.padding(horizontal = 16.dp).padding(bottom = 4.dp),
+        )
+    }
+}
+
+@Composable
+private fun MenuHeading(text: String) {
+    Text(
+        text,
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+    )
+}
+
+@Composable
+private fun SelectedTick() {
+    Icon(Icons.Filled.Check, contentDescription = "Selected", modifier = Modifier.size(18.dp))
 }
 
 @Composable
@@ -366,10 +507,17 @@ private fun ContactRow(
             )
         }
         if (c.lastSeen > 0) {
+            // "14 min ago", not "8/19/26". A date answers a question
+            // nobody asks of a mesh node: what matters is whether it was
+            // heard recently enough to be worth sending to, and a date
+            // makes the reader do that subtraction. Today's adverts all
+            // rendered as the same date, which is the case where the
+            // column said nothing at all.
             Text(
-                DateFormat.getDateInstance(DateFormat.SHORT).format(Date(c.lastSeen * 1000)),
+                relativeAge(c.lastSeen),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = androidx.compose.ui.text.style.TextAlign.End,
             )
         }
     }

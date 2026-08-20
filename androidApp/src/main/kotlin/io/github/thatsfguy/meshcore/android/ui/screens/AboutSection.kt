@@ -90,6 +90,15 @@ fun AboutSection(vm: MeshCoreViewModel) {
  * is a changelog you can't read in the field.
  */
 private val CHANGELOG: List<Pair<String, List<String>>> = listOf(
+    "0.8.2" to listOf(
+        "The node list has a sort and filter menu beside the search box. Order by recent " +
+            "activity, last heard, name or fewest hops; show only favourites, only unread, " +
+            "or only nodes heard in the last 24 hours. The choice is remembered, and a " +
+            "list emptied by a filter says so rather than looking empty.",
+        "Node rows say how long ago a node was heard — \"14 min ago\" — instead of a date " +
+            "that made you do the subtraction and read the same for everything heard today. " +
+            "The detail sheet still shows the exact timestamp.",
+    ),
     "0.8.1" to listOf(
         "A radio that goes out of range comes back on its own. A connect attempt that " +
             "began while the radio was walking away used to hang forever, with the " +

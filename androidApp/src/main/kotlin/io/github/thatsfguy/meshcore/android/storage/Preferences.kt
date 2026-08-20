@@ -9,6 +9,7 @@ import io.github.thatsfguy.meshcore.transport.ConnectionMemory
 import io.github.thatsfguy.meshcore.transport.SavedNode
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import io.github.thatsfguy.meshcore.presentation.NodeListModel
 
 /**
  * Non-secret app preferences over SharedPreferences. Anything sensitive
@@ -205,6 +206,33 @@ class Preferences(context: Context) {
     var nodesTab: Int
         get() = prefs.getInt("nodes_tab", 0)
         set(v) { prefs.edit().putInt("nodes_tab", v).apply() }
+
+    /**
+     * Nodes-list ordering, stored by enum NAME rather than ordinal.
+     *
+     * An ordinal would silently re-point at a different order the next
+     * time someone inserts a case into [NodeListModel.Sort]; a name that
+     * no longer exists falls back to the default, which is the right
+     * answer for a view preference.
+     */
+    var nodesSort: NodeListModel.Sort
+        get() = prefs.getString("nodes_sort", null)
+            ?.let { name -> NodeListModel.Sort.entries.firstOrNull { it.name == name } }
+            ?: NodeListModel.Sort.Activity
+        set(v) { prefs.edit().putString("nodes_sort", v.name).apply() }
+
+    /** Active nodes-list filters, by enum name; unknown names ignored. */
+    var nodesFilters: Set<NodeListModel.Filter>
+        get() {
+            val stored = prefs.getStringSet("nodes_filters", emptySet()).orEmpty()
+            return NodeListModel.Filter.entries.filter { it.name in stored }.toSet()
+        }
+        set(v) {
+            // A fresh set: SharedPreferences hands back its own instance
+            // from getStringSet and mutating it is documented as
+            // undefined, so never round-trip one straight back in.
+            prefs.edit().putStringSet("nodes_filters", v.map { it.name }.toSet()).apply()
+        }
 
     /** Last map camera (lat, lon, zoom); null when never set. Doubles
      *  are stored as raw bits so map precision isn't truncated. */

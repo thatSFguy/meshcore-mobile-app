@@ -113,7 +113,12 @@ class SharedIsPlatformNeutralTest {
         // The point of the move is that SwiftUI can reach them. If they
         // drift back into androidApp/ui/screens, iOS loses the app's
         // information architecture and its live subtitles all over again.
-        val moved = listOf("SettingsHubModel.kt", "RepeaterHubModel.kt", "HeardRepeatsModel.kt")
+        val moved = listOf(
+            "SettingsHubModel.kt",
+            "RepeaterHubModel.kt",
+            "HeardRepeatsModel.kt",
+            "NodeListModel.kt",
+        )
         for (name in moved) {
             assertTrue(
                 File("../shared/src/commonMain/kotlin/io/github/thatsfguy/meshcore/presentation/$name").isFile,

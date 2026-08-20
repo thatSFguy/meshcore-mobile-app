@@ -86,6 +86,17 @@ Layout:
     (SettingsComponents) is the one-line-plus-"More" control for §6.3. Splitting
     can go too far: Appearance/Notifications/Privacy/Diagnostics were four screens
     holding one control each and are one `settings/app` screen again.
+  - **The Nodes list is arranged by a pure model** (2026-08-20). Search, the sort menu
+    (recent activity / last heard / name / fewest hops) and the filters (favourites,
+    unread, heard in last 24 h) are all `NodeListModel.arrange` in
+    `shared/presentation`, over a `NodeListItem` interface that `ContactEntity`
+    implements — so the rules are pinned by tests instead of driven on a phone, and iOS
+    inherits them. Rows state an age (`RelativeTime.ago`), not a date. Note what the
+    anti-vacuity pass found: a `lastSeen > 0` key ahead of the descending sort *looked*
+    like a guard against a hostile advert timestamp and was unreachable — plain
+    descending already sinks 0 and negatives — and the test written to pin it passed
+    with the key deleted. Deliberately regressing the model before trusting the suite is
+    what caught it.
   - **Repeater admin is hub-and-spoke** (2026-08-05, REBUILD-PLAYBOOK §1.4a/§6.2).
     `repeater/{key}` is `RepeaterHubScreen` — identity card, the grant the node
     reported as an ADMIN/GUEST chip, and tiles into

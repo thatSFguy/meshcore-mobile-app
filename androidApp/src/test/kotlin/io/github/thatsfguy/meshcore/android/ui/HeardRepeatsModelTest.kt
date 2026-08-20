@@ -148,6 +148,36 @@ class HeardRepeatsModelTest {
     }
 
     @Test
+    fun `one of something is singular`() {
+        // It read "1 hours ago" for the whole hour after every advert,
+        // and "1 days ago" for a whole day — the two spans a node list
+        // spends most of its time showing, now that the row states an
+        // age rather than a date.
+        assertEquals("1 hour ago", RelativeTime.ago(3_600))
+        assertEquals("1 hour ago", RelativeTime.ago(7_199))
+        assertEquals("1 day ago", RelativeTime.ago(86_400))
+        assertEquals("1 day ago", RelativeTime.ago(2 * 86_400 - 1))
+    }
+
+    @Test
+    fun `every unit crosses over at the right second`() {
+        assertEquals("just now", RelativeTime.ago(59))
+        assertEquals("1 min ago", RelativeTime.ago(60))
+        assertEquals("59 min ago", RelativeTime.ago(3_599))
+        assertEquals("1 hour ago", RelativeTime.ago(3_600))
+        assertEquals("23 hours ago", RelativeTime.ago(86_399))
+        assertEquals("1 day ago", RelativeTime.ago(86_400))
+    }
+
+    @Test
+    fun `an age never runs out of words, however old the node`() {
+        // A contact imported from a QR and never heard again is aged
+        // against a timestamp of 0, which is 56 years of seconds.
+        assertEquals("20000 days ago", RelativeTime.ago(20_000L * 86_400))
+        assertTrue(RelativeTime.ago(Long.MAX_VALUE / 2).endsWith("days ago"))
+    }
+
+    @Test
     fun `a clock that runs backwards reads as now, not as the future`() {
         assertEquals("just now", RelativeTime.ago(-5))
         assertEquals("just now", RelativeTime.agoMillis(-5_000))

@@ -3,6 +3,7 @@ package io.github.thatsfguy.meshcore.android.storage
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
+import io.github.thatsfguy.meshcore.presentation.NodeListItem
 import io.github.thatsfguy.meshcore.protocol.PathHistoryHygiene
 
 /**
@@ -100,17 +101,17 @@ enum class MessageStatus { Pending, Sent, Delivered, Failed }
 )
 data class ContactEntity(
     val selfKey: String,
-    val keyHex: String,
-    val name: String,
+    override val keyHex: String,
+    override val name: String,
     val type: Int,
-    val flags: Int,
-    val pathLen: Int,
+    override val flags: Int,
+    override val pathLen: Int,
     val latitude: Double?,
     val longitude: Double?,
-    val lastSeen: Long,       // advert timestamp, epoch seconds
+    override val lastSeen: Long,       // advert timestamp, epoch seconds
     val lastModified: Long,
-    val unread: Int = 0,
-    val lastMessageAt: Long = 0,
+    override val unread: Int = 0,
+    override val lastMessageAt: Long = 0,
     /**
      * The BLE address this node reported when it last took `start ota`.
      *
@@ -186,7 +187,7 @@ data class ContactEntity(
      */
     val boardName: String? = null,
     val firmwareVersion: String? = null,
-)
+) : NodeListItem
 
 /**
  * Carry the app's own knowledge across a radio-authoritative refresh.

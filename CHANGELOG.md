@@ -11,6 +11,32 @@ Every entry describes what is in **that tagged build**. A feature that landed af
 belongs in the next section, not this one — 0.3.0 was once credited with four features that
 shipped after it, which misled nobody so much as the author, three months later.
 
+## 0.8.2
+
+**The node list can be ordered and narrowed.** A mesh accumulates nodes — every repeater
+whose advert reaches the radio becomes a row — and the list had exactly one order and no way
+to hide anything. There is now a menu beside the search box.
+
+- **Sort by recent activity, last heard, name, or fewest hops.** "Fewest hops" is a
+  reachability order rather than a distance one: it answers which nodes can be reached
+  cheaply right now, which is the question worth asking before sending anything large.
+  Flood-routed nodes come last, because that is what having no path means.
+- **Show only favourites, only nodes with unread messages, or only nodes heard in the last
+  24 hours.** They stack. The last one is the answer to a list full of nodes that were heard
+  once, months ago, and never again.
+- **The order and the filters are remembered**, like the selected tab already was. A list you
+  had to arrange once should not need arranging again.
+- **An active filter says so.** The icon changes colour, the filters are named under the
+  search box, and a list emptied by a filter says which filter emptied it and where to turn
+  it off — an empty list is otherwise indistinguishable from the app having lost your
+  contacts.
+
+**A node's row says "14 min ago" instead of a date.** A date makes the reader do the
+subtraction, and every node heard today rendered as the same date, which told you nothing at
+all. The detail sheet still carries the exact timestamp alongside the age, for when the
+precise moment is what you want. Ages also read "1 hour ago" rather than "1 hours ago", which
+was the wording for the whole first hour after every advert.
+
 ## 0.8.1
 
 **A radio that goes out of range now comes back on its own.** Walk out of Bluetooth range and
