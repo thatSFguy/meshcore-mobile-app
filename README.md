@@ -1,6 +1,6 @@
 # MeshCore Hardened (MCH)
 
-*A hardened, minimal [MeshCore](https://meshcore.co.uk/) client for Android — off-grid
+*A hardened, self-contained [MeshCore](https://meshcore.co.uk/) client for Android — off-grid
 encrypted messaging over LoRa, with no servers, no accounts, and no app-store lock-in.*
 
 **Not affiliated with the official MeshCore app.** This is an independent third-party client;
@@ -18,6 +18,12 @@ MCH is a native Kotlin Multiplatform client for the MeshCore mesh, built in the 
 [reticulum-mobile-app](https://github.com/thatSFguy/reticulum-mobile-app): a real native app —
 foreground service for a persistent radio link, system notifications on incoming messages — with
 the smallest attack surface I can keep secure and reason about.
+
+**"Self-contained" is not "small".** MCH is a full client — messaging, channels, a map, repeater
+administration, firmware updates — and matching the mainstream app's feature set is a deliberate
+goal, not drift. What is kept small is everything *around* the features: no servers, no accounts,
+no third-party SDKs, no telemetry, and outbound traffic only to the two public hosts named below.
+That is the claim; a small codebase is not.
 
 **No external dependencies.** No accounts, no API keys, no central server, no analytics, no Google
 Play Services, no Firebase. All crypto runs locally; secrets live in the Android Keystore;

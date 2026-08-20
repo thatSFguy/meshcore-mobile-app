@@ -40,8 +40,9 @@ fun AboutSection(vm: MeshCoreViewModel) {
     HintText("Version $version")
     Spacer(Modifier.height(8.dp))
     HintText(
-        "A minimal MeshCore client for off-grid encrypted LoRa messaging. No servers, no " +
-            "accounts, no Google Play Services, no analytics, no crash reporting.",
+        "A self-contained MeshCore client for off-grid encrypted LoRa messaging. No " +
+            "servers, no accounts, no Google Play Services, no analytics, no crash " +
+            "reporting.",
     )
     Spacer(Modifier.height(8.dp))
     Text("What this app does and doesn't do", style = MaterialTheme.typography.labelLarge)

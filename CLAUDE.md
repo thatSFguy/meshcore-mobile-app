@@ -1,9 +1,18 @@
 # MeshCore Hardened (repo: meshcore-mobile-app) — project context
 
-A hardened, minimal **MeshCore** client for off-grid encrypted LoRa messaging, built in the
-mold of the sibling `../reticulum-mobile-app`: no servers, no accounts, no Google Play
-Services, no analytics, smallest attack surface possible. This file orients a fresh agent;
-the detailed specs are the three docs below.
+A hardened, self-contained **MeshCore** client for off-grid encrypted LoRa messaging, built
+in the mold of the sibling `../reticulum-mobile-app`: no servers, no accounts, no Google Play
+Services, no analytics, no third-party SDKs. This file orients a fresh agent; the detailed
+specs are the three docs below.
+
+**"Minimal" was retired from the prose on 2026-08-20 — do not put it back.** It described the
+SCOPE.md-era v1 and stopped being true when PARITY.md made the mainstream app the *feature
+floor*: ~38k lines of production Kotlin, 40 screen files, a 20 MB APK, a tile-downloading map,
+a QR scanner, a repeater CLI, and firmware flashing — which downloads a binary and writes it
+into a device's flash, about the least minimal thing a mesh client can do. What is small, and
+what the docs should say, is the surface *around* the features: twelve mainstream Android
+dependencies, no SDKs, no telemetry, and exactly two outbound hosts. Same discipline the name
+decision applied to *Hardened* — a word carrying a claim gets qualified or it gets dropped.
 
 **Naming (2026-07-31, short form added 2026-08-06):** display name **MeshCore Hardened**,
 short form **MCH** — introduced in the README header and usable in prose and conversation, but
@@ -129,7 +138,7 @@ Reference docs:
   screens (Messages/Conversation/Nodes/Settings/DetailSheet/QrScanner/Theme) come across.
   **Drop** its Reticulum-specific parts (NomadNet/Micron browser, RRC Rooms, Graph, LXST
   voice/opus). Prefer **copy-the-pieces-into-this-repo** over fork-and-delete (forking drags
-  in the whole Reticulum stack — the opposite of minimal).
+  in the whole Reticulum stack — the opposite of a lean dependency surface).
 
 **There is no second sibling.** Early protocol work leaned on a third-party Flutter client
 in a neighbouring directory. That is over: it is not consulted, not cited in prose, and not
