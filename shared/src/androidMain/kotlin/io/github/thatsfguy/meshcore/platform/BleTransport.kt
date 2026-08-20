@@ -20,12 +20,10 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
-import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeoutOrNull
 import java.util.UUID
-import kotlin.coroutines.resume
-import kotlin.coroutines.resumeWithException
 
 /**
  * Nordic UART Service (NUS) BLE transport for a MeshCore radio.
@@ -43,12 +41,32 @@ import kotlin.coroutines.resumeWithException
  *
  * Permissions are not requested here — the Activity/Service layer must
  * hold BLUETOOTH_CONNECT before constructing this transport.
+ *
+ * [autoConnect] picks WHICH of Android's two connect modes to use, and
+ * it is the difference between a radio that comes back when the user
+ * walks back into range and one that does not:
+ *
+ *  - `false` is a *direct* connect. The controller initiates now and
+ *    gives up (status 133) after its own timeout. Fast when the radio
+ *    is there; useless when it is not.
+ *  - `true` is a *background* connect. The address goes on the
+ *    controller's allow-list and the connection completes by itself the
+ *    moment the radio advertises again — minutes or hours later,
+ *    without the app having to poll. Slower to establish, so it is what
+ *    the reconnect supervisor asks for once a direct attempt has
+ *    already failed.
+ *
+ * Either way [connect] is bounded (see [DIRECT_CONNECT_TIMEOUT_MS] /
+ * [BACKGROUND_CONNECT_TIMEOUT_MS]) so a wedged attempt is torn down and
+ * re-armed rather than parking the supervisor behind it forever.
  */
 @SuppressLint("MissingPermission")
 class BleTransport(
     private val context: Context,
     private val device: BluetoothDevice,
     private val scope: CoroutineScope,
+    private val autoConnect: Boolean = false,
+    private val log: (String) -> Unit = {},
 ) : Transport, BootloaderCapableTransport {
 
     private val _state = MutableStateFlow(TransportState.Disconnected)
@@ -64,17 +82,13 @@ class BleTransport(
 
     private val writeLock = Mutex()
 
-    // Each callback completion resumes the corresponding suspending operation.
-    private var servicesContinuation: kotlinx.coroutines.CancellableContinuation<Unit>? = null
-    private var mtuContinuation: kotlinx.coroutines.CancellableContinuation<Int>? = null
-    private var descWriteContinuation: kotlinx.coroutines.CancellableContinuation<Unit>? = null
-
     /**
-     * Only the firmware-update jump waits on a write. Ordinary frames go
-     * out no-response and do not await the callback, so this stays null
-     * for them and the resume below is a no-op.
+     * Every suspending GATT step registers here so the disconnect
+     * callback can fail the lot in one place — see [PendingGattOps].
+     * Only the firmware-update jump ever awaits a characteristic write;
+     * ordinary frames go out no-response and never register.
      */
-    private var charWriteContinuation: kotlinx.coroutines.CancellableContinuation<Unit>? = null
+    private val pending = PendingGattOps()
 
     private val callback = object : BluetoothGattCallback() {
         override fun onConnectionStateChange(g: BluetoothGatt, status: Int, newState: Int) {
@@ -84,50 +98,50 @@ class BleTransport(
                     g.discoverServices()
                 }
                 BluetoothProfile.STATE_DISCONNECTED -> {
+                    log("Disconnected (status=$status)")
                     _state.value = TransportState.Disconnected
-                    servicesContinuation?.resumeWithException(
-                        IllegalStateException("BLE disconnected before ready (status=$status)"),
-                    )
-                    servicesContinuation = null
                     // The radio disconnects as a direct result of the
                     // firmware-update jump. That is the acknowledgement,
-                    // not a failure.
-                    charWriteContinuation?.resume(Unit)
-                    charWriteContinuation = null
+                    // not a failure — so this slot succeeds before the
+                    // sweep below fails whatever else was in flight.
+                    pending.succeed(PendingGattOps.Slot.CharacteristicWrite, Unit)
+                    // Every other step is waiting on a callback that is
+                    // never coming now. Failing them is what lets
+                    // connect() return so the supervisor can try again.
+                    pending.failAll(
+                        IllegalStateException("BLE disconnected before ready (status=$status)"),
+                    )
                 }
             }
         }
 
         override fun onServicesDiscovered(g: BluetoothGatt, status: Int) {
             if (status != BluetoothGatt.GATT_SUCCESS) {
-                servicesContinuation?.resumeWithException(
+                pending.fail(
+                    PendingGattOps.Slot.Services,
                     IllegalStateException("Service discovery failed: $status"),
                 )
             } else {
-                servicesContinuation?.resume(Unit)
+                pending.succeed(PendingGattOps.Slot.Services, Unit)
             }
-            servicesContinuation = null
         }
 
         override fun onMtuChanged(g: BluetoothGatt, mtu: Int, status: Int) {
-            if (status == BluetoothGatt.GATT_SUCCESS) {
-                negotiatedMtu = mtu
-                mtuContinuation?.resume(mtu)
-            } else {
-                mtuContinuation?.resume(negotiatedMtu) // proceed with default
-            }
-            mtuContinuation = null
+            if (status == BluetoothGatt.GATT_SUCCESS) negotiatedMtu = mtu
+            // A refused MTU is not fatal — carry on at the negotiated
+            // (or default) size.
+            pending.succeed(PendingGattOps.Slot.Mtu, negotiatedMtu)
         }
 
         override fun onDescriptorWrite(g: BluetoothGatt, descriptor: BluetoothGattDescriptor, status: Int) {
             if (status == BluetoothGatt.GATT_SUCCESS) {
-                descWriteContinuation?.resume(Unit)
+                pending.succeed(PendingGattOps.Slot.Descriptor, Unit)
             } else {
-                descWriteContinuation?.resumeWithException(
+                pending.fail(
+                    PendingGattOps.Slot.Descriptor,
                     IllegalStateException("CCCD write failed: $status"),
                 )
             }
-            descWriteContinuation = null
         }
 
         // API 33+ delivers notification bytes via this 3-arg callback; the
@@ -153,13 +167,13 @@ class BleTransport(
             status: Int,
         ) {
             if (status == BluetoothGatt.GATT_SUCCESS) {
-                charWriteContinuation?.resume(Unit)
+                pending.succeed(PendingGattOps.Slot.CharacteristicWrite, Unit)
             } else {
-                charWriteContinuation?.resumeWithException(
+                pending.fail(
+                    PendingGattOps.Slot.CharacteristicWrite,
                     AndroidDfuGattClient.gattWriteError(status),
                 )
             }
-            charWriteContinuation = null
         }
     }
 
@@ -194,13 +208,9 @@ class BleTransport(
         val cccd = control.getDescriptor(CCCD_UUID)
             ?: throw IllegalStateException("The radio's DFU control point has no CCCD.")
         cccd.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
-        suspendCancellableCoroutine<Unit> { cont ->
-            descWriteContinuation = cont
+        pending.await<Unit>(PendingGattOps.Slot.Descriptor) {
             if (!g.writeDescriptor(cccd)) {
-                descWriteContinuation = null
-                cont.resumeWithException(
-                    IllegalStateException("Could not subscribe to the DFU control point."),
-                )
+                throw IllegalStateException("Could not subscribe to the DFU control point.")
             }
         }
 
@@ -210,15 +220,11 @@ class BleTransport(
         // the caller proves it by finding the bootloader afterwards.
         runCatching {
             writeLock.withLock {
-                suspendCancellableCoroutine<Unit> { cont ->
-                    charWriteContinuation = cont
+                pending.await<Unit>(PendingGattOps.Slot.CharacteristicWrite) {
                     control.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
                     control.value = LegacyDfu.ENTER_BOOTLOADER
                     if (!g.writeCharacteristic(control)) {
-                        charWriteContinuation = null
-                        cont.resumeWithException(
-                            IllegalStateException("The update request could not be sent."),
-                        )
+                        throw IllegalStateException("The update request could not be sent.")
                     }
                 }
             }
@@ -228,11 +234,34 @@ class BleTransport(
     override suspend fun connect() {
         if (_state.value == TransportState.Connected) return
         _state.value = TransportState.Connecting
+        val budget = if (autoConnect) BACKGROUND_CONNECT_TIMEOUT_MS else DIRECT_CONNECT_TIMEOUT_MS
+        log(
+            if (autoConnect) "Arming a background connect to ${device.address}"
+            else "Connecting to ${device.address}",
+        )
         try {
-            connectAndDiscover()
-            requestMtu(247)
-            findNusCharacteristics()
-            enableNotifications()
+            // Bounded on purpose. Android will happily leave a connect
+            // attempt outstanding indefinitely, and an attempt that
+            // began while the radio was walking away is exactly the one
+            // that never completes — so without this the supervisor
+            // parks inside connect() and never retries once the radio
+            // is back. withTimeoutOrNull, not withTimeout: a
+            // TimeoutCancellationException is a CancellationException,
+            // which the supervisor is right to treat as "we are being
+            // shut down" rather than as a failed attempt.
+            val reached = withTimeoutOrNull(budget) {
+                connectAndDiscover()
+                requestMtu(247)
+                findNusCharacteristics()
+                enableNotifications()
+                true
+            }
+            if (reached != true) {
+                throw IllegalStateException(
+                    "The radio did not answer within ${budget / 1_000}s.",
+                )
+            }
+            log("Connected (MTU $negotiatedMtu)")
             _state.value = TransportState.Connected
         } catch (t: Throwable) {
             _state.value = TransportState.Error
@@ -242,23 +271,23 @@ class BleTransport(
     }
 
     private suspend fun connectAndDiscover() {
-        val g = device.connectGatt(context, false, callback)
+        // TRANSPORT_LE explicitly: left to choose, the stack can pick
+        // BR/EDR for a dual-mode-looking address and fail with the
+        // status-133 that gets misread as "the radio is gone".
+        val g = device.connectGatt(context, autoConnect, callback, BluetoothDevice.TRANSPORT_LE)
+            ?: throw IllegalStateException("Bluetooth is unavailable.")
         gatt = g
         // The connect callback chains into service discovery; suspend on
         // the services callback rather than the raw connection.
-        suspendCancellableCoroutine<Unit> { cont ->
-            servicesContinuation = cont
-            cont.invokeOnCancellation { disconnectInternal() }
-        }
+        pending.await<Unit>(PendingGattOps.Slot.Services) {}
     }
 
     private suspend fun requestMtu(target: Int): Int =
-        suspendCancellableCoroutine { cont ->
-            mtuContinuation = cont
-            val ok = gatt?.requestMtu(target) ?: false
-            if (!ok) {
-                mtuContinuation = null
-                cont.resume(negotiatedMtu)
+        pending.await(PendingGattOps.Slot.Mtu) {
+            // A refused request never produces a callback, so resolve it
+            // here rather than leaving the slot parked.
+            if (gatt?.requestMtu(target) != true) {
+                pending.succeed(PendingGattOps.Slot.Mtu, negotiatedMtu)
             }
         }
 
@@ -280,11 +309,9 @@ class BleTransport(
         val cccd = rx.getDescriptor(CCCD_UUID)
             ?: throw IllegalStateException("notify char has no CCCD")
         cccd.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
-        suspendCancellableCoroutine<Unit> { cont ->
-            descWriteContinuation = cont
+        pending.await<Unit>(PendingGattOps.Slot.Descriptor) {
             if (!g.writeDescriptor(cccd)) {
-                descWriteContinuation = null
-                cont.resumeWithException(IllegalStateException("writeDescriptor returned false"))
+                throw IllegalStateException("writeDescriptor returned false")
             }
         }
     }
@@ -293,7 +320,19 @@ class BleTransport(
         disconnectInternal()
     }
 
+    /**
+     * Tear the link down and release the GATT client.
+     *
+     * close() is not optional and not deferrable: Android hands out a
+     * bounded number of GATT client interfaces per app, and a transport
+     * that is rebuilt on every reconnect attempt will exhaust them
+     * within an afternoon of a radio going in and out of range — after
+     * which every further connectGatt fails with status 133 until the
+     * user toggles Bluetooth. Failing the pending ops first means
+     * nothing is left waiting on callbacks from a client we just closed.
+     */
     private fun disconnectInternal() {
+        pending.failAll(IllegalStateException("BLE link torn down"))
         try { gatt?.disconnect() } catch (_: Throwable) {}
         try { gatt?.close() } catch (_: Throwable) {}
         gatt = null
@@ -332,6 +371,22 @@ class BleTransport(
     }
 
     companion object {
+        /**
+         * How long a direct (autoConnect=false) attempt is given. The
+         * controller's own giving-up point is around 30s, so this is the
+         * backstop for the case where it never reports one.
+         */
+        const val DIRECT_CONNECT_TIMEOUT_MS = 40_000L
+
+        /**
+         * How long a background (autoConnect=true) attempt is left armed
+         * before it is torn down and re-armed. Long, because waiting is
+         * the entire point — the radio may be a walk away — but finite,
+         * so a pending connection the stack has quietly dropped is
+         * refreshed instead of waited on forever.
+         */
+        const val BACKGROUND_CONNECT_TIMEOUT_MS = 300_000L
+
         val NUS_SERVICE_UUID: UUID = UUID.fromString("6e400001-b5a3-f393-e0a9-e50e24dcca9e")
 
         /** Client → radio (write). */

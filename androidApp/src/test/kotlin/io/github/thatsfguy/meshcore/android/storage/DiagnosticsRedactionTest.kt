@@ -39,6 +39,20 @@ class DiagnosticsRedactionTest {
     }
 
     @Test
+    fun trimsBleMacsToTheirLastTwoOctets() {
+        val line = DiagnosticsLog.redact("BLE: Connecting to C4:DE:E2:9A:1B:7F")
+        assertFalse("C4:DE:E2:9A" in line, "the OUI half of a MAC must not survive")
+        assertTrue(line.endsWith("1B:7F"), "enough must survive to tell two radios apart: $line")
+    }
+
+    @Test
+    fun twoRadiosStayDistinguishableAfterRedaction() {
+        val a = DiagnosticsLog.redact("BLE: Disconnected from C4:DE:E2:9A:1B:7F")
+        val b = DiagnosticsLog.redact("BLE: Disconnected from C4:DE:E2:9A:20:01")
+        assertFalse(a == b)
+    }
+
+    @Test
     fun shortHexUntouched() {
         // 12-char prefixes (pubkey short forms) are fine to log.
         val line = "contact a1b2c3d4e5f6 updated"

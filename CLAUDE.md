@@ -44,7 +44,9 @@ Layout:
   RawPacket, Advert w/ Ed25519 verify, ChannelCrypto, MeshIdentity), `engine/MeshCoreEngine`
   (handshake, serialized command queue, contact/channel sync, queue drain, RX-log decrypt,
   repeater admin), `transport/` (Transport iface, SerialFraming — **`<`/`>` + u16LE length,
-  NOT COBS**; BLE = frame-per-write, no framing), `firmware/` (Nordic **legacy** DFU —
+  NOT COBS**; BLE = frame-per-write, no framing; `ReconnectSupervisor` — the
+  build→connect→run→backoff loop, lifted out of MeshCoreService so it is testable
+  against fake transports), `firmware/` (Nordic **legacy** DFU —
   `LegacyDfuSession` state machine, `DfuPackage`, `BootloaderPeer`, `FirmwareUpdater`,
   `FirmwareCatalog`/`BoardAssets`; see MESHCORE_PROTOCOL §11a, and note the bootloader
   advertises on the radio's MAC **+1** under a different name), androidMain (BLE/USB/TCP

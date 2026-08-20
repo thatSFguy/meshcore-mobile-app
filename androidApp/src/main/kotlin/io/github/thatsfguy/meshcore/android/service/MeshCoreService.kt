@@ -35,16 +35,16 @@ import io.github.thatsfguy.meshcore.platform.UsbSerialTransport
 import io.github.thatsfguy.meshcore.platform.androidCryptoProvider
 import io.github.thatsfguy.meshcore.firmware.BootloaderCapableTransport
 import io.github.thatsfguy.meshcore.transport.ConnectionMemory
+import io.github.thatsfguy.meshcore.transport.ReconnectAttempt
+import io.github.thatsfguy.meshcore.transport.ReconnectSupervisor
 import io.github.thatsfguy.meshcore.transport.SavedNode
 import io.github.thatsfguy.meshcore.transport.TcpInterface
 import io.github.thatsfguy.meshcore.transport.Transport
 import io.github.thatsfguy.meshcore.transport.TransportState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -89,7 +89,7 @@ class MeshCoreService : Service() {
     private val _lastError = MutableStateFlow<String?>(null)
     val lastError: StateFlow<String?> = _lastError
 
-    private var supervisorJob: Job? = null
+    private var supervisor: ReconnectSupervisor? = null
     private var currentMemory: ConnectionMemory? = null
     private var usbDeviceName: String? = null
 
@@ -196,7 +196,7 @@ class MeshCoreService : Service() {
 
     override fun onDestroy() {
         runCatching { unregisterReceiver(usbDetachReceiver) }
-        supervisorJob?.cancel()
+        supervisor?.stop()
         scope.cancel()
         super.onDestroy()
     }
@@ -225,7 +225,7 @@ class MeshCoreService : Service() {
         // list, so a radio could be connected and missing from Saved
         // nodes at once.
         prefs.saveNode(SavedNode.of(memory))
-        startSupervisor { buildTransport(memory) }
+        startSupervisor { attempt -> buildTransport(memory, attempt) }
     }
 
     fun connectUsb(device: UsbDevice) {
@@ -244,8 +244,8 @@ class MeshCoreService : Service() {
     }
 
     fun disconnect() {
-        supervisorJob?.cancel()
-        supervisorJob = null
+        supervisor?.stop()
+        supervisor = null
         currentMemory = null
         usbDeviceName = null
         val t = _activeTransport.value
@@ -256,10 +256,25 @@ class MeshCoreService : Service() {
         updateNotification(EngineState.Detached)
     }
 
-    private fun buildTransport(memory: ConnectionMemory): Transport = when (memory) {
+    private fun buildTransport(
+        memory: ConnectionMemory,
+        attempt: ReconnectAttempt,
+    ): Transport = when (memory) {
         is ConnectionMemory.Ble -> {
             _connectionLabel.value = memory.name ?: memory.address
-            BleTransport(this, BleTransport.deviceByAddress(this, memory.address), scope)
+            BleTransport(
+                context = this,
+                device = BleTransport.deviceByAddress(this, memory.address),
+                scope = scope,
+                // One fast direct attempt, then hand the waiting to the
+                // controller. This is what makes a radio come back when
+                // the user walks back into range: a background connect
+                // completes by itself the moment it advertises again,
+                // where a direct one only ever samples the instant it
+                // happened to fire.
+                autoConnect = attempt.patient,
+                log = { diagnostics.log("BLE", it) },
+            )
         }
         is ConnectionMemory.Tcp -> {
             // The UI keeps flagging this link as unencrypted while up.
@@ -270,50 +285,25 @@ class MeshCoreService : Service() {
 
     /**
      * Event-driven reconnect: build → connect → attach → wait for the
-     * transport to die → backoff → rebuild. Backoff 1s → 2s → 4s … 60s,
-     * reset on a connection that held for 30s+.
+     * transport to die → backoff → rebuild. The loop itself lives in
+     * [ReconnectSupervisor] in `shared`, where it is tested against
+     * fake transports without a radio or an emulator.
      */
-    private fun startSupervisor(factory: () -> Transport) {
-        supervisorJob?.cancel()
+    private fun startSupervisor(factory: (ReconnectAttempt) -> Transport) {
+        supervisor?.stop()
         engine.detach()
-        supervisorJob = scope.launch {
-            var backoffMs = 1_000L
-            while (true) {
-                val transport = try {
-                    factory()
-                } catch (t: Throwable) {
-                    _lastError.value = t.message
-                    diagnostics.log("Service", "Transport build failed: ${t.message}")
-                    delay(backoffMs)
-                    backoffMs = (backoffMs * 2).coerceAtMost(60_000)
-                    continue
-                }
+        supervisor = ReconnectSupervisor(
+            scope = scope,
+            build = factory,
+            onTransport = { transport ->
                 _activeTransport.value = transport
                 engine.attach(transport)
-                val connectedAt = System.currentTimeMillis()
-                try {
-                    transport.connect()
-                    _lastError.value = null
-                    // Park until the link drops.
-                    transport.state.collect { st ->
-                        if (st == TransportState.Disconnected || st == TransportState.Error) {
-                            throw LinkDownException()
-                        }
-                    }
-                } catch (t: Throwable) {
-                    if (t !is LinkDownException) _lastError.value = t.message
-                    diagnostics.log("Service", "Link down: ${t.message ?: "disconnected"}")
-                } finally {
-                    runCatching { transport.disconnect() }
-                }
-                val heldMs = System.currentTimeMillis() - connectedAt
-                backoffMs = if (heldMs > 30_000) 1_000L else (backoffMs * 2).coerceAtMost(60_000)
-                delay(backoffMs)
-            }
-        }
+            },
+            onError = { _lastError.value = it },
+            log = { diagnostics.log("Service", it) },
+            now = { System.currentTimeMillis() },
+        ).also { it.start() }
     }
-
-    private class LinkDownException : Exception()
 
     // ------------------------------------------------------------------
     // Firmware updates
@@ -368,8 +358,8 @@ class MeshCoreService : Service() {
      */
     suspend fun <T> withRadioHandedOver(block: suspend (UpdateHandover) -> T): T {
         val memory = currentMemory
-        supervisorJob?.cancel()
-        supervisorJob = null
+        supervisor?.stop()
+        supervisor = null
         _firmwareUpdateRunning.value = true
         diagnostics.log("Firmware", "Radio handed over for a firmware update")
 
@@ -404,7 +394,7 @@ class MeshCoreService : Service() {
             if (memory != null) {
                 currentMemory = memory
                 diagnostics.log("Firmware", "Reconnecting after the firmware update")
-                startSupervisor { buildTransport(memory) }
+                startSupervisor { attempt -> buildTransport(memory, attempt) }
             }
         }
     }

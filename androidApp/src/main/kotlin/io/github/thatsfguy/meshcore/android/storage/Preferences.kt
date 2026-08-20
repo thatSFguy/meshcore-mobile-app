@@ -624,10 +624,21 @@ class DiagnosticsLog(private val prefs: Preferences) {
         private val PASSWORD_CLI = Regex("""(password\s+)\S+""", RegexOption.IGNORE_CASE)
         private val LONG_HEX = Regex("""\b[0-9a-fA-F]{32,}\b""")
 
+        /**
+         * A BLE MAC. The connection log names the radio it is talking
+         * to, which is useful when several are saved and unhelpful in a
+         * log the user has pasted somewhere: a MAC is a permanent
+         * hardware identifier. The last two octets are kept so lines
+         * about different radios stay distinguishable.
+         */
+        private val BLE_MAC =
+            Regex("""\b(?:[0-9A-Fa-f]{2}:){4}([0-9A-Fa-f]{2}:[0-9A-Fa-f]{2})\b""")
+
         /** Strip anything secret-shaped before it can reach the log. */
         fun redact(message: String): String = message
             .replace(PRV_KEY) { "${it.groupValues[1]}[REDACTED]" }
             .replace(PASSWORD_CLI) { "${it.groupValues[1]}[REDACTED]" }
             .replace(LONG_HEX, "[HEX-REDACTED]")
+            .replace(BLE_MAC) { "··:··:··:··:${it.groupValues[1]}" }
     }
 }

@@ -89,6 +89,18 @@ fun AboutSection(vm: MeshCoreViewModel) {
  * is a changelog you can't read in the field.
  */
 private val CHANGELOG: List<Pair<String, List<String>>> = listOf(
+    "0.8.1" to listOf(
+        "A radio that goes out of range comes back on its own. A connect attempt that " +
+            "began while the radio was walking away used to hang forever, with the " +
+            "reconnect loop stuck behind it — so returning to range did nothing. " +
+            "Attempts now have a deadline, and after the first try the app asks Bluetooth " +
+            "to complete the link by itself whenever the radio next appears.",
+        "Reconnect backoff no longer counts time spent failing as time connected, so an " +
+            "absent radio is retried at a widening interval instead of every second.",
+        "The Bluetooth link writes to the diagnostics log. Radio addresses are trimmed to " +
+            "their last two octets, so the log stays shareable and two radios stay " +
+            "distinguishable.",
+    ),
     "0.8.0" to listOf(
         "Firmware updates over Bluetooth. An nRF52 radio can be updated from Settings → " +
             "Firmware: pick a build, confirm the board, watch it flash. Needs companion " +

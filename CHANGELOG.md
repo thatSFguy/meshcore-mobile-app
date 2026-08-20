@@ -11,6 +11,34 @@ Every entry describes what is in **that tagged build**. A feature that landed af
 belongs in the next section, not this one — 0.3.0 was once credited with four features that
 shipped after it, which misled nobody so much as the author, three months later.
 
+## 0.8.1
+
+**A radio that goes out of range now comes back on its own.** Walk out of Bluetooth range and
+back, and the app reconnected only by luck. Three things were wrong at once, and each of them
+alone was enough to leave a radio sitting on the table, in range, disconnected.
+
+- **A connect attempt could hang for ever.** The sequence parked on Android callbacks that a
+  dropped link never delivers — the MTU exchange and the notification subscription each waited
+  on a success that was no longer coming — so an attempt begun while the radio was walking
+  away never finished and never failed, and the reconnect loop sat behind it indefinitely.
+  Every step of the connection is now registered in one place and released together when the
+  link drops, so no step can be forgotten, and the attempt has an outright deadline behind
+  that.
+- **Every retry was a *direct* connect**, which only samples the instant it happens to fire —
+  so reconnecting meant one of those attempts landing in the same second the radio came back.
+  After the first try the app now hands the waiting to the Bluetooth controller, which
+  completes the link by itself the moment the radio advertises again, minutes or hours later.
+- **The backoff measured from when an attempt started, not from when the link came up**, so
+  forty seconds of failing to connect counted as forty seconds of a healthy connection. The
+  interval kept resetting and the app hammered an absent radio at full speed instead of
+  easing off.
+
+The Bluetooth handle is now always released as well. Android hands out a limited number of
+them, and a transport rebuilt on every retry could exhaust them over an afternoon of a radio
+coming and going — after which nothing would connect until Bluetooth was switched off and on.
+The link also writes to the diagnostics log now, with radio addresses trimmed to their last
+two octets so a log stays shareable and two radios stay apart.
+
 ## 0.8.0
 
 **Your channels can no longer be emptied by an unrelated error.** A refusal from the radio —
