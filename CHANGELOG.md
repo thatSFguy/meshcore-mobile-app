@@ -11,6 +11,47 @@ Every entry describes what is in **that tagged build**. A feature that landed af
 belongs in the next section, not this one — 0.3.0 was once credited with four features that
 shipped after it, which misled nobody so much as the author, three months later.
 
+## 0.8.3
+
+**Generating a repeater identity key produced a key no node would accept.** MeshCore stores
+a 64-byte private key and `set prv.key` reads exactly 128 hex characters; the app was
+sending the 32-byte Ed25519 seed as 64, which the firmware rejects on length alone with
+"Error, bad key". The same mistake made "Read key…" useless in the other direction — a
+node's reply is 128 characters, and the app only recognised 64, so a successful read was
+reported as a refusal. Both directions now speak the length the firmware reads, and the box
+accepts either form: paste the 64-character seed you wrote down and it is expanded before it
+is sent.
+
+**"Generate a new one" now generates a key whose leading bytes are this node's alone.** That
+is the reason to rekey a repeater in the first place. A node is never named on air by its
+whole public key — a routed path carries one to three leading bytes of it, and two repeaters
+sharing those bytes are one node as far as a stored route is concerned. The generator asks
+the node how wide its path hash is, checks candidates against every node this phone knows
+about, and says what it found: which bytes the node would answer to, and whether it also
+managed to keep clear of everyone's single-byte destination hash. On a mesh with no room
+left it says so, with the count, because a wider path hash is then the only real fix.
+
+- **When there is no clean key left, the clash is chosen rather than accepted.** At one byte
+  per hop there are only 254 usable names and a busy mesh does run out. The search scores
+  every candidate by the worst node it would collide with and keeps the best it saw: a
+  repeater 90 km away that has never been in one of your paths, not the one on the next hill.
+  Distance comes from the contact database — great-circle metres where both ends have
+  advertised a position, hops from the stored route otherwise — and a node with neither is
+  ranked as if it were next door, because a node that cannot be placed is not one that can be
+  called distant. An ordinary chat node always beats a repeater, since only repeaters put
+  themselves into a path at all. Whatever it settles for is named on screen, with how far away
+  it is.
+- **Keys the node would refuse are never offered.** MeshCore rejects any private key whose
+  public key begins `00` or `ff`, which is about one key in 128 — enough that a rekey would
+  occasionally fail at the confirmation dialog for no visible reason.
+- **A key typed by hand is checked the same way**, and named if its leading bytes are already
+  in use.
+- **Reading a key says why a remote read cannot work.** A node answers `get prv.key` over its
+  USB serial console only, never from an admin session over the mesh, so the failure was
+  indistinguishable from a bad link.
+- **The consequences list now mentions the reboot.** The node keeps its old identity until it
+  restarts, which is not obvious and changes what you do next.
+
 ## 0.8.2
 
 **The node list can be ordered and narrowed.** A mesh accumulates nodes — every repeater

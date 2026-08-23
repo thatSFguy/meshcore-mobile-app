@@ -4,6 +4,7 @@ import io.github.thatsfguy.meshcore.presentation.Inbox
 import io.github.thatsfguy.meshcore.model.ChannelList
 import io.github.thatsfguy.meshcore.presentation.AdminSession
 import io.github.thatsfguy.meshcore.presentation.ChannelScopeJoin
+import io.github.thatsfguy.meshcore.protocol.PathCodec
 import io.github.thatsfguy.meshcore.protocol.PathRecovery
 import android.app.Application
 import android.content.ComponentName
@@ -29,6 +30,8 @@ import io.github.thatsfguy.meshcore.model.Contact
 import io.github.thatsfguy.meshcore.model.DeviceInfo
 import io.github.thatsfguy.meshcore.model.SelfInfo
 import io.github.thatsfguy.meshcore.protocol.HeardRepeats
+import io.github.thatsfguy.meshcore.protocol.CliIds
+import io.github.thatsfguy.meshcore.protocol.IdentityKeygen
 import io.github.thatsfguy.meshcore.protocol.ChannelCrypto
 import io.github.thatsfguy.meshcore.protocol.Codes
 import io.github.thatsfguy.meshcore.protocol.ConfigBackup
@@ -43,7 +46,10 @@ import io.github.thatsfguy.meshcore.protocol.ShareUri
 import io.github.thatsfguy.meshcore.transport.ConnectionMemory
 import io.github.thatsfguy.meshcore.transport.SavedNode
 import io.github.thatsfguy.meshcore.util.hexToBytesOrNull
+import io.github.thatsfguy.meshcore.util.haversineMetres
+import io.github.thatsfguy.meshcore.util.isPlausiblePosition
 import io.github.thatsfguy.meshcore.util.toHex
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -1891,11 +1897,129 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
 
     // --- Repeater identity key (PARITY §6) ---
 
-    fun generateIdentityKey(): String =
-        io.github.thatsfguy.meshcore.protocol.IdentityKey.generate(crypto)
+    /**
+     * The bytes of a public key that name a node on air, for the node at
+     * [repeaterKeyHex].
+     *
+     * Asked of that node rather than assumed, because the width is a
+     * property of the MESH and this phone's radio is only one member of
+     * it — a repeater configured differently is exactly the case where a
+     * generated key would come out useless. Its own radio's
+     * `DEVICE_INFO` is the fallback when the node does not answer, and 1
+     * byte the fallback for that (the firmware default,
+     * `path_hash_mode` = 0).
+     */
+    suspend fun repeaterPathHashWidth(repeaterKeyHex: String): Int {
+        val reply = cliQuery(repeaterKeyHex, "get ${CliIds.PATH_HASH_MODE}")
+        val mode = reply
+            ?.let { io.github.thatsfguy.meshcore.protocol.CliReplies.extractGetValue(it) }
+            ?.trim()?.toIntOrNull()
+            ?.takeIf { io.github.thatsfguy.meshcore.protocol.PathHashMode.isValid(it) }
+        if (mode != null) {
+            return io.github.thatsfguy.meshcore.protocol.PathHashMode.bytesFor(mode)
+        }
+        return deviceInfo.value?.pathHashByteWidth?.takeIf { it in 1..4 } ?: 1
+    }
+
+    /**
+     * Every node this phone knows, ranked by how bad it would be to
+     * share leading bytes with — its own radio included.
+     *
+     * The node being rekeyed is in here too, via its contact record, and
+     * that is deliberate: a new key that lands on the node's OWN old
+     * prefix is the worst outcome of the lot, because every stale route
+     * on the mesh would keep matching it and every packet arriving that
+     * way would then fail to decrypt.
+     *
+     * Two things rank a node, and both come out of the contact database
+     * rather than out of a guess: what it is (only repeaters and room
+     * servers appear in a packet's path at all) and how far away it is —
+     * great-circle metres from this radio where both have advertised a
+     * position, hops from the stored route otherwise. A node with
+     * neither is ranked as if it were next door, because a node we
+     * cannot place is not one we may call distant.
+     */
+    fun knownNodes(): List<IdentityKeygen.KnownNode> {
+        val self = selfInfo.value
+        val selfLat = self?.latitude
+        val selfLon = self?.longitude
+        val selfPlaced = isPlausiblePosition(selfLat, selfLon)
+
+        return buildList {
+            // Our own radio, ranked worst on purpose: nothing on the
+            // mesh is closer than the thing in your hand, and a repeater
+            // that answers to our own destination hash is the one clash
+            // guaranteed to be in every path we care about.
+            self?.let {
+                add(
+                    IdentityKeygen.KnownNode(
+                        publicKeyHex = it.publicKeyHex,
+                        label = (it.name.ifBlank { "this radio" }) + " (this radio)",
+                        remoteness = IdentityKeygen.Remoteness.UNKNOWN,
+                    ),
+                )
+            }
+            for (contact in dbContacts.value) {
+                val distance = if (selfPlaced &&
+                    isPlausiblePosition(contact.latitude, contact.longitude)
+                ) {
+                    haversineMetres(
+                        selfLat!!, selfLon!!, contact.latitude!!, contact.longitude!!,
+                    )
+                } else {
+                    null
+                }
+                val hops = PathCodec.decodePathLen(contact.pathLen)
+                    .takeIf { !it.isFlood }?.hops
+                val isInfrastructure = contact.type == Codes.ADV_TYPE_REPEATER ||
+                    contact.type == Codes.ADV_TYPE_ROOM
+                add(
+                    IdentityKeygen.KnownNode(
+                        publicKeyHex = contact.keyHex,
+                        label = (contact.name.ifBlank { contact.keyHex.take(12) }) + ", " +
+                            IdentityKeygen.Remoteness.describe(distance, hops),
+                        remoteness = IdentityKeygen.Remoteness.of(
+                            distance, hops, isInfrastructure,
+                        ),
+                    ),
+                )
+            }
+        }
+    }
+
+    /**
+     * A replacement identity whose leading [widthBytes] bytes are nobody
+     * else's — see [IdentityKeygen] for why that is the thing that
+     * matters and not the key as a whole. [widthBytes] comes from
+     * [repeaterPathHashWidth], which asks the node itself.
+     *
+     * The search runs on [Dispatchers.Default]: it is thousands of
+     * SHA-512s and scalar multiplications in the worst case, and the one
+     * thing this screen must not do is stall while it decides.
+     */
+    suspend fun generateIdentityKey(widthBytes: Int): IdentityKeygen.Outcome? {
+        val known = knownNodes()
+        return withContext(Dispatchers.Default) {
+            IdentityKeygen.generate(crypto, widthBytes, known)
+        }
+    }
 
     fun publicKeyFor(seedHex: String): String? =
         io.github.thatsfguy.meshcore.protocol.IdentityKey.publicKeyHex(crypto, seedHex)
+
+    /**
+     * Nodes already answering to the leading [widthBytes] bytes of
+     * [publicKeyHex] — so a hand-typed key can be checked against the
+     * same rule the generator applies.
+     */
+    fun nodesSharingPrefix(publicKeyHex: String, widthBytes: Int): List<String> {
+        val width = IdentityKeygen.clampWidth(widthBytes)
+        val prefix = publicKeyHex.trim().lowercase().take(width * 2)
+        if (prefix.length < width * 2) return emptyList()
+        return dbContacts.value
+            .filter { it.keyHex.lowercase().startsWith(prefix) }
+            .map { it.name.ifBlank { it.keyHex.take(12) } }
+    }
 
     /**
      * Read a repeater's private key. The reply is returned to the caller
@@ -1917,13 +2041,18 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
     /** Replace a repeater's identity key. Not undoable; see IdentityKey. */
     suspend fun replaceIdentityKey(repeaterKeyHex: String, newKeyHex: String): String {
         val command = runCatching {
-            io.github.thatsfguy.meshcore.protocol.IdentityKey.setCommand(newKeyHex)
+            io.github.thatsfguy.meshcore.protocol.IdentityKey.setCommand(crypto, newKeyHex)
         }.getOrElse { return "Refused: ${it.message}" }
 
         val reply = cliQuery(repeaterKeyHex, command)
-            ?: return "No reply — the change may or may not have applied. Check with `get prv.key`."
-        return "Node replied: ${reply.trim()}. Its identity has changed; contacts must " +
-            "re-add it."
+            ?: return "No reply — the change may or may not have applied. The node keeps " +
+                "its old key until it reboots, so `get public.key` only answers that " +
+                "after a restart."
+        // The firmware answers "OK, reboot to apply! New pubkey: <hex>"
+        // (CommonCLI.cpp:517-519) — pass it through verbatim: that hex
+        // is the node's new identity and the only copy of it we get.
+        return "Node replied: ${reply.trim()}. Its identity has changed; it keeps the old " +
+            "key until it reboots, and contacts must re-add it."
     }
 
     // --- Blocking and filtering (PARITY §3) ---

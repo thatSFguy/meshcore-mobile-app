@@ -802,6 +802,52 @@ scalar in the large subgroup; required by firmware repeater key validation). Gen
 seed with a CSPRNG. A vanity-prefix search (regenerate until `pubkey` matches a hex
 prefix) is supported.
 
+**`prv.key` over the CLI — the 64 bytes are not optional (added 2026-08-23).** This
+paragraph was right from the start and the app still shipped a rekey that no node would
+accept, so the wire form is now written out with its citations:
+
+```
+set prv.key <128 hex chars>     // PRV_KEY_SIZE = 64 bytes, MeshCore.h:9
+get prv.key                     // replies "> <128 hex chars>"
+```
+
+- `Utils::fromHex(prv_key, PRV_KEY_SIZE, &config[8])` — `helpers/CommonCLI.cpp:510-512` —
+  and `fromHex` opens with `if (len != dest_size*2) return false` (`Utils.cpp:206-208`).
+  A 64-character seed is refused on **length**, before a digit is read: `Error, bad key`.
+- The layout is `[clamped scalar (32) || nonce prefix (32)]`. The firmware derives the
+  public key from the scalar half alone (`ed25519_derive_pub`, `Identity.cpp:69`, reached
+  through `LocalIdentity::readFrom(src, PRV_KEY_SIZE)`), so sending the 64 bytes is
+  self-sufficient — the public key does not travel with it.
+- Ground truth for that layout is in the firmware itself:
+  `LocalIdentity::validatePrivateKey` (`Identity.cpp:67-90`) carries a known-good
+  `test_client_prv` / `test_client_pub` pair, and the scalar half of that private key
+  times the base point is that public key.
+- **The firmware refuses some valid keys.** `if (pub[0] == 0x00 || pub[0] == 0xFF) return
+  false` (`Identity.cpp:71-72`) — about 1 key in 128. A generator that ignores this
+  produces an occasional rekey that fails for no visible reason.
+- On success the node replies `OK, reboot to apply! New pubkey: <hex>`
+  (`CommonCLI.cpp:517-519`). **It keeps the old identity until it restarts.**
+- **`get prv.key` is serial-only.** The branch is guarded by `sender_timestamp == 0`
+  (`CommonCLI.cpp:832`, commented "from serial command line only"), so a remote admin
+  session can never read it, however good the link is. The reply is the same 64 bytes
+  (`LocalIdentity::writeTo`, `Identity.cpp:128-138`).
+
+**A node's on-air name is a PREFIX of its public key, not the key.** `Identity::copyHashTo`
+is literally `memcpy(dest, pub_key, len)  // hash is just prefix of pub_key`
+(`Identity.h:20-26`). Two widths matter, and both are leading bytes:
+
+- **destination/source hash — always 1 byte** (`#define PATH_HASH_SIZE 1`, `MeshCore.h:18`;
+  `Mesh.cpp:443-444, 462-463`), on every direct packet, for every node type;
+- **path hash — `path_hash_mode + 1` bytes (1–3)**, appended by each forwarding repeater
+  and matched on the way back (`Mesh.cpp:89, 345-349`), with the width carried in the top
+  two bits of `path_len` (`Mesh.cpp:449`).
+
+So two repeaters whose public keys share their leading bytes are one node as far as a
+stored route is concerned. That is a keygen constraint, not a display detail: a replacement
+identity has to be checked against the prefixes already in use at the mesh's configured
+width — and, at 1 byte per hop, there are only 254 usable names, so a busy mesh runs out and
+the client has to decide *which* node to collide with rather than whether to.
+
 **Things the client is responsible for (learned the hard way in the MeshCore Open audit):**
 - **Verify advert Ed25519 signatures** (§9) before importing/updating a contact. Skipping
   this = identity/GPS spoofing.

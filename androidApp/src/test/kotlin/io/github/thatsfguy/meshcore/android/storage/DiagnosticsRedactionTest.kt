@@ -18,6 +18,23 @@ class DiagnosticsRedactionTest {
         assertTrue("[REDACTED]" in line)
     }
 
+    /**
+     * The real command, at the real length. `set prv.key` carries 128
+     * hex characters (MESHCORE_PROTOCOL §12) — the short sample above
+     * would still be caught by a rule that only matched 64, and the one
+     * line in this app that can put a node's whole identity in a
+     * shareable log deserves to be tested with what it actually sends.
+     */
+    @Test
+    fun redactsARealSixtyFourBytePrivateKey() {
+        val key = "0123456789abcdef".repeat(8)
+        assertEquals(128, key.length)
+        val line = DiagnosticsLog.redact("CLI tx: set prv.key $key")
+        assertFalse(key in line)
+        assertFalse("0123456789abcdef" in line)
+        assertTrue("[REDACTED]" in line)
+    }
+
     @Test
     fun redactsPasswordText() {
         val line = DiagnosticsLog.redact("login with password hunter2 sent")

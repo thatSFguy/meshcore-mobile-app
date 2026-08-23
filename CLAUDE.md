@@ -310,6 +310,18 @@ itself an answer: policy belongs to the app, not the wire.
 Always separate **merged** from **proposed**. PR #2594 (6-byte ACKs) is merged and shipped;
 issues #1342 / #1397 / #1489 are open proposals and must not be built against.
 
+**Earned again on 2026-08-23, on a size rather than a policy.** The repeater rekey screen
+sent a 32-byte Ed25519 seed to `set prv.key`, which reads `PRV_KEY_SIZE` = **64** bytes and
+refuses anything else on length alone — so every key the app ever generated came back
+"Error, bad key", and every key it read back (also 64 bytes) failed its own 64-hex-character
+validator and was reported as a refusal. Both halves had tests; both tests asserted the
+app's own idea of the length. MESHCORE_PROTOCOL §12 had said "expanded 64-byte private key"
+since it was written. Same shape as the trace flags and the neighbours request: a
+width-or-size read from our own code instead of the firmware's reader. See
+MESHCORE_PROTOCOL §12 for the `prv.key` wire form with citations, and note the other half of
+that fix — a node's on-air name is a *prefix* of its public key, so generating an identity
+means checking the leading bytes against the mesh, not just making 32 random ones.
+
 **This rule was earned on 2026-08-05.** A retry recommendation derived from a third-party
 client alone got the attempt count wrong (that client uses 5; the documented default is 3),
 got the default wrong (it ships the flood fallback *disabled*; the documented default is on)
