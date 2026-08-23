@@ -845,7 +845,8 @@ is literally `memcpy(dest, pub_key, len)  // hash is just prefix of pub_key`
 So two repeaters whose public keys share their leading bytes are one node as far as a
 stored route is concerned. That is a keygen constraint, not a display detail: a replacement
 identity has to be checked against the prefixes already in use at the mesh's configured
-width.
+width — and, at 1 byte per hop, there are only 254 usable names, so a busy mesh runs out and
+the client has to decide *which* node to collide with rather than whether to.
 
 **Things the client is responsible for (learned the hard way in the MeshCore Open audit):**
 - **Verify advert Ed25519 signatures** (§9) before importing/updating a contact. Skipping

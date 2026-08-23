@@ -103,6 +103,12 @@ private val CHANGELOG: List<Pair<String, List<String>>> = listOf(
             "stored route is concerned. The generator asks the node how wide its path hash " +
             "is, avoids every node this phone knows about, and says which bytes the new " +
             "identity would answer to.",
+        "When a mesh has no free name left, the clash is chosen rather than accepted. Every " +
+            "candidate is scored by the worst node it would collide with — distance from " +
+            "this radio where both have a position, hops otherwise, and an ordinary node " +
+            "always ahead of a repeater — so the collision lands on something far away " +
+            "instead of the repeater on the next hill. Whatever it settles for is named on " +
+            "screen.",
         "Keys the firmware refuses outright — public keys beginning 00 or ff, about one in " +
             "128 — are never offered, and a key typed by hand is checked against the same " +
             "rules.",

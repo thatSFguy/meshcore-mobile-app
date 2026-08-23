@@ -29,8 +29,18 @@ sharing those bytes are one node as far as a stored route is concerned. The gene
 the node how wide its path hash is, checks candidates against every node this phone knows
 about, and says what it found: which bytes the node would answer to, and whether it also
 managed to keep clear of everyone's single-byte destination hash. On a mesh with no room
-left it says that instead, with the count, because a wider path hash is then the only fix.
+left it says so, with the count, because a wider path hash is then the only real fix.
 
+- **When there is no clean key left, the clash is chosen rather than accepted.** At one byte
+  per hop there are only 254 usable names and a busy mesh does run out. The search scores
+  every candidate by the worst node it would collide with and keeps the best it saw: a
+  repeater 90 km away that has never been in one of your paths, not the one on the next hill.
+  Distance comes from the contact database — great-circle metres where both ends have
+  advertised a position, hops from the stored route otherwise — and a node with neither is
+  ranked as if it were next door, because a node that cannot be placed is not one that can be
+  called distant. An ordinary chat node always beats a repeater, since only repeaters put
+  themselves into a path at all. Whatever it settles for is named on screen, with how far away
+  it is.
 - **Keys the node would refuse are never offered.** MeshCore rejects any private key whose
   public key begins `00` or `ff`, which is about one key in 128 — enough that a rekey would
   occasionally fail at the confirmation dialog for no visible reason.

@@ -4,6 +4,7 @@ import io.github.thatsfguy.meshcore.presentation.Inbox
 import io.github.thatsfguy.meshcore.model.ChannelList
 import io.github.thatsfguy.meshcore.presentation.AdminSession
 import io.github.thatsfguy.meshcore.presentation.ChannelScopeJoin
+import io.github.thatsfguy.meshcore.protocol.PathCodec
 import io.github.thatsfguy.meshcore.protocol.PathRecovery
 import android.app.Application
 import android.content.ComponentName
@@ -45,6 +46,8 @@ import io.github.thatsfguy.meshcore.protocol.ShareUri
 import io.github.thatsfguy.meshcore.transport.ConnectionMemory
 import io.github.thatsfguy.meshcore.transport.SavedNode
 import io.github.thatsfguy.meshcore.util.hexToBytesOrNull
+import io.github.thatsfguy.meshcore.util.haversineMetres
+import io.github.thatsfguy.meshcore.util.isPlausiblePosition
 import io.github.thatsfguy.meshcore.util.toHex
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -1919,17 +1922,69 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /**
-     * Every public key this phone knows — its own radio's included.
+     * Every node this phone knows, ranked by how bad it would be to
+     * share leading bytes with — its own radio included.
      *
      * The node being rekeyed is in here too, via its contact record, and
      * that is deliberate: a new key that lands on the node's OWN old
      * prefix is the worst outcome of the lot, because every stale route
      * on the mesh would keep matching it and every packet arriving that
      * way would then fail to decrypt.
+     *
+     * Two things rank a node, and both come out of the contact database
+     * rather than out of a guess: what it is (only repeaters and room
+     * servers appear in a packet's path at all) and how far away it is —
+     * great-circle metres from this radio where both have advertised a
+     * position, hops from the stored route otherwise. A node with
+     * neither is ranked as if it were next door, because a node we
+     * cannot place is not one we may call distant.
      */
-    fun knownPublicKeys(): List<String> = buildList {
-        selfInfo.value?.publicKey?.let { add(it.toHex()) }
-        dbContacts.value.forEach { add(it.keyHex) }
+    fun knownNodes(): List<IdentityKeygen.KnownNode> {
+        val self = selfInfo.value
+        val selfLat = self?.latitude
+        val selfLon = self?.longitude
+        val selfPlaced = isPlausiblePosition(selfLat, selfLon)
+
+        return buildList {
+            // Our own radio, ranked worst on purpose: nothing on the
+            // mesh is closer than the thing in your hand, and a repeater
+            // that answers to our own destination hash is the one clash
+            // guaranteed to be in every path we care about.
+            self?.let {
+                add(
+                    IdentityKeygen.KnownNode(
+                        publicKeyHex = it.publicKeyHex,
+                        label = (it.name.ifBlank { "this radio" }) + " (this radio)",
+                        remoteness = IdentityKeygen.Remoteness.UNKNOWN,
+                    ),
+                )
+            }
+            for (contact in dbContacts.value) {
+                val distance = if (selfPlaced &&
+                    isPlausiblePosition(contact.latitude, contact.longitude)
+                ) {
+                    haversineMetres(
+                        selfLat!!, selfLon!!, contact.latitude!!, contact.longitude!!,
+                    )
+                } else {
+                    null
+                }
+                val hops = PathCodec.decodePathLen(contact.pathLen)
+                    .takeIf { !it.isFlood }?.hops
+                val isInfrastructure = contact.type == Codes.ADV_TYPE_REPEATER ||
+                    contact.type == Codes.ADV_TYPE_ROOM
+                add(
+                    IdentityKeygen.KnownNode(
+                        publicKeyHex = contact.keyHex,
+                        label = (contact.name.ifBlank { contact.keyHex.take(12) }) + ", " +
+                            IdentityKeygen.Remoteness.describe(distance, hops),
+                        remoteness = IdentityKeygen.Remoteness.of(
+                            distance, hops, isInfrastructure,
+                        ),
+                    ),
+                )
+            }
+        }
     }
 
     /**
@@ -1942,8 +1997,8 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
      * SHA-512s and scalar multiplications in the worst case, and the one
      * thing this screen must not do is stall while it decides.
      */
-    suspend fun generateIdentityKey(widthBytes: Int): IdentityKeygen.Outcome {
-        val known = knownPublicKeys()
+    suspend fun generateIdentityKey(widthBytes: Int): IdentityKeygen.Outcome? {
+        val known = knownNodes()
         return withContext(Dispatchers.Default) {
             IdentityKeygen.generate(crypto, widthBytes, known)
         }

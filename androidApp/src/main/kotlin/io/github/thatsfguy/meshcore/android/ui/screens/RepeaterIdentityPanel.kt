@@ -101,12 +101,14 @@ fun RepeaterIdentityPanel(vm: MeshCoreViewModel, keyHex: String, isAdmin: Boolea
                     scope.launch {
                         val outcome = vm.generateIdentityKey(width)
                         generated = outcome
-                        // A failed search leaves whatever was typed
-                        // alone — it is the user's key, and losing it to
-                        // a button that found nothing would be its own
-                        // defect.
-                        if (outcome is IdentityKeygen.Outcome.Generated) {
+                        if (outcome != null) {
                             newKey = outcome.candidate.privateKeyHex
+                        } else {
+                            // Only ever a platform failure — the search
+                            // itself always returns something, even if
+                            // it had to settle for a clash. Leave what
+                            // was typed alone; it is the user's key.
+                            note = "This device could not generate a key pair."
                         }
                         busy = false
                     }
@@ -270,46 +272,58 @@ fun RepeaterIdentityPanel(vm: MeshCoreViewModel, keyHex: String, isAdmin: Boolea
  * What the search actually found — stated in the terms that make it
  * worth doing, which are the leading bytes and the width they are
  * judged at, not the key.
+ *
+ * A clash is never left implied. The search picks the least harmful one
+ * available when there is no clean key, and which node it picked is the
+ * entire difference between a harmless coincidence and a broken route —
+ * so it is named, with how far away it is.
  */
 @Composable
 private fun GeneratedKeySummary(outcome: IdentityKeygen.Outcome) {
-    when (outcome) {
-        is IdentityKeygen.Outcome.Generated -> {
-            val prefix = outcome.candidate.prefixHex(outcome.widthBytes)
-            Text(
-                "This node would become ${outcome.candidate.publicKeyHex}",
-                style = MaterialTheme.typography.bodySmall,
-                fontFamily = FontFamily.Monospace,
+    val prefix = outcome.candidate.prefixHex(outcome.widthBytes)
+    val width = PathHashMode.describeBytes(outcome.widthBytes)
+    Text(
+        "This node would become ${outcome.candidate.publicKeyHex}",
+        style = MaterialTheme.typography.bodySmall,
+        fontFamily = FontFamily.Monospace,
+    )
+    val clash = outcome.clash
+    when {
+        clash == null -> HintText(
+            "On air it would answer to $prefix — $width, which is what this node is set " +
+                "to. No node this phone knows about uses those bytes, at that width or " +
+                "as a destination hash.",
+        )
+
+        clash.level == IdentityKeygen.ClashLevel.DESTINATION -> {
+            HintText(
+                "On air it would answer to $prefix — $width, which is what this node is " +
+                    "set to. No node this phone knows about uses those bytes.",
             )
             HintText(
-                "On air it would answer to $prefix — " +
-                    PathHashMode.describeBytes(outcome.widthBytes) +
-                    ", which is what this node is set to. No node this phone knows about " +
-                    "uses those bytes.",
-            )
-            if (!outcome.clearOfFirstByte) {
-                HintText(
-                    "Its first byte is shared with a node already on the mesh — the " +
-                        "search could not find a free one. That is the byte direct " +
-                        "packets are addressed by, so those packets reach both nodes and " +
-                        "are discarded by the wrong one. A nuisance, not a routing fault: " +
-                        "the bytes above are still this node's alone.",
-                )
-            }
-            HintText(
-                "Write down the 64-character seed before you apply this — it is the short " +
-                    "form of the same key: ${outcome.candidate.seedHex}",
+                "Its first byte is shared with ${clash.with.label}. That is the byte " +
+                    "direct packets are addressed by, so those packets reach both nodes " +
+                    "and are discarded by the wrong one — a nuisance, not a routing " +
+                    "fault. There was no first byte left free; the search took the most " +
+                    "distant node it could find to share one with.",
             )
         }
-        is IdentityKeygen.Outcome.Exhausted -> Text(
-            "No free identity at " + PathHashMode.describeBytes(outcome.widthBytes) +
-                ": ${outcome.takenPrefixes} of ${outcome.totalPrefixes} possible prefixes " +
-                "are already in use by nodes this phone knows about. A wider path hash is " +
-                "the fix, and every node on the mesh has to agree on it.",
+
+        else -> Text(
+            "There is no free identity left at $width: ${outcome.takenPrefixes} of the " +
+                "${IdentityKeygen.totalPrefixes(outcome.widthBytes)} possible names are " +
+                "already in use. This key shares $prefix with ${clash.with.label} — the " +
+                "furthest node the search could find to collide with, which is the best " +
+                "available and still a real routing clash. Widening the path hash is the " +
+                "actual fix, and every node on the mesh has to agree on it.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.error,
         )
     }
+    HintText(
+        "Write down the 64-character seed before you apply this — it is the short " +
+            "form of the same key: ${outcome.candidate.seedHex}",
+    )
 }
 
 @Composable

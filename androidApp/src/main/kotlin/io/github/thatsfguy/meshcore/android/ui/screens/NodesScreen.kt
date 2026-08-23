@@ -64,6 +64,8 @@ import io.github.thatsfguy.meshcore.presentation.encodePrefill
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import io.github.thatsfguy.meshcore.util.RelativeTime
+import io.github.thatsfguy.meshcore.util.haversineMetres
+import io.github.thatsfguy.meshcore.util.isPlausiblePosition
 import io.github.thatsfguy.meshcore.protocol.BlockList
 import io.github.thatsfguy.meshcore.protocol.PathCodec
 import io.github.thatsfguy.meshcore.protocol.Codes
@@ -589,14 +591,14 @@ fun ContactDetailSheet(
                 // Distance is only meaningful once BOTH ends have a
                 // position; the radio reports 0,0 when it has no fix, and
                 // treating that as the equator would invent a distance.
-                val selfLat = self?.latitude?.takeIf { it != 0.0 }
-                val selfLon = self?.longitude?.takeIf { it != 0.0 }
-                val theirLat = contact.latitude.takeIf { it != 0.0 }
-                val theirLon = contact.longitude.takeIf { it != 0.0 }
-                val distance = if (selfLat != null && selfLon != null &&
-                    theirLat != null && theirLon != null
+                val selfLat = self?.latitude
+                val selfLon = self?.longitude
+                val theirLat = contact.latitude
+                val theirLon = contact.longitude
+                val distance = if (isPlausiblePosition(selfLat, selfLon) &&
+                    isPlausiblePosition(theirLat, theirLon)
                 ) {
-                    formatDistance(haversineMetres(selfLat, selfLon, theirLat, theirLon))
+                    formatDistance(haversineMetres(selfLat!!, selfLon!!, theirLat!!, theirLon!!))
                 } else {
                     "Unknown"
                 }
@@ -857,17 +859,6 @@ private fun DetailRow(label: String, value: String, mono: Boolean = false) {
             fontFamily = if (mono) FontFamily.Monospace else null,
         )
     }
-}
-
-/** Great-circle distance in metres. */
-private fun haversineMetres(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
-    val r = 6_371_000.0
-    val dLat = Math.toRadians(lat2 - lat1)
-    val dLon = Math.toRadians(lon2 - lon1)
-    val a = kotlin.math.sin(dLat / 2) * kotlin.math.sin(dLat / 2) +
-        kotlin.math.cos(Math.toRadians(lat1)) * kotlin.math.cos(Math.toRadians(lat2)) *
-        kotlin.math.sin(dLon / 2) * kotlin.math.sin(dLon / 2)
-    return 2 * r * kotlin.math.atan2(kotlin.math.sqrt(a), kotlin.math.sqrt(1 - a))
 }
 
 private fun formatDistance(metres: Double): String = when {

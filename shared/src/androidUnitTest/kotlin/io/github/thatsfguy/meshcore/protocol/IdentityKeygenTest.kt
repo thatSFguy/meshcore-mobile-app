@@ -1,28 +1,39 @@
 package io.github.thatsfguy.meshcore.protocol
 
 import io.github.thatsfguy.meshcore.platform.AndroidCryptoProvider
+import io.github.thatsfguy.meshcore.protocol.IdentityKeygen.ClashLevel
+import io.github.thatsfguy.meshcore.protocol.IdentityKeygen.KnownNode
+import io.github.thatsfguy.meshcore.protocol.IdentityKeygen.Remoteness
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
-import kotlin.test.assertIs
 import kotlin.test.assertNotEquals
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
  * Generating a repeater identity that nobody else on the mesh answers
- * to ([IdentityKeygen]).
+ * to, and — when there is no such identity left — choosing which node to
+ * collide with rather than accepting whichever turned up first
+ * ([IdentityKeygen]).
  *
- * Two things make this suite worth more than its length suggests.
+ * Three things make this suite worth more than its length suggests.
  *
- * **It has a positive control.** Most of these assert that a generated
+ * **It has positive controls.** Most of these assert that a generated
  * key does NOT collide, and every one of them would pass against a
- * generator that returned nothing at all, or that always returned the
- * same key, or that searched a prefix width of zero. So
- * [aSearchWithNothingToAvoidStillProducesAKey] and
- * [theWidthActuallyChangesWhatCounts] pin the cases where it must
- * answer, and the collision tests generate enough keys that a generator
- * ignoring its avoid-list would fail with overwhelming probability
+ * generator that returned nothing, or always returned the same key, or
+ * compared a prefix of zero bytes. So
+ * [aSearchWithNothingToAvoidIsCleanFirstTime] and
+ * [theSameMeshIsFullAtOneByteAndHasRoomAtTwo] pin the cases where it
+ * must answer, and the collision tests generate enough keys that a
+ * generator ignoring its inputs would fail with overwhelming probability
  * rather than occasionally.
+ *
+ * **The fallback is tested as a choice, not as a fallback.** A search
+ * that settles for any clash passes every "does not clash cleanly" test
+ * there is. [theUnavoidableClashIsWithTheMostDistantNode] is the one
+ * that fails it.
  *
  * **It is checked against the firmware's rules, not ours.** A public key
  * beginning `00` or `ff` is refused by `LocalIdentity::validatePrivateKey`
@@ -40,18 +51,28 @@ class IdentityKeygenTest {
     private fun keyStartingWith(prefixHex: String): String =
         prefixHex.lowercase().padEnd(64, '7').take(64)
 
+    /** A known node at a chosen remoteness; the label is display text. */
+    private fun node(prefixHex: String, remoteness: Int, label: String = prefixHex) =
+        KnownNode(keyStartingWith(prefixHex), label, remoteness)
+
+    /** Every usable first byte claimed, so no clean key can exist. */
+    private fun everyFirstByte(remoteness: Int): List<KnownNode> =
+        (0..255).map { node("%02x".format(it), remoteness, "node-%02x".format(it)) }
+
     // ---- the search does what it says --------------------------------
 
     @Test
-    fun aSearchWithNothingToAvoidStillProducesAKey() {
+    fun aSearchWithNothingToAvoidIsCleanFirstTime() {
         // The positive control: with an empty mesh every key is fine, so
-        // anything but Generated here means the search cannot answer at
-        // all and every "does not collide" test below is vacuous.
-        val outcome = IdentityKeygen.generate(crypto, widthBytes = 2, knownKeys = emptyList())
-        val generated = assertIs<IdentityKeygen.Outcome.Generated>(outcome)
-        assertEquals(2, generated.widthBytes)
-        assertTrue(generated.clearOfFirstByte)
-        assertEquals(1, generated.attempts, "an empty mesh should be first time lucky")
+        // anything but a clean first draw here means the search cannot
+        // answer at all and every "does not clash" test below is vacuous.
+        val outcome = IdentityKeygen.generate(crypto, widthBytes = 2, known = emptyList())
+        assertNotNull(outcome)
+        assertTrue(outcome.isClean)
+        assertNull(outcome.clash)
+        assertEquals(2, outcome.widthBytes)
+        assertEquals(1, outcome.attempts, "an empty mesh should be first time lucky")
+        assertEquals(0, outcome.takenPrefixes)
     }
 
     @Test
@@ -60,14 +81,15 @@ class IdentityKeygenTest {
             // A busy mesh: 120 nodes, so at one byte per hop nearly half
             // the space is spoken for and a generator ignoring the list
             // would collide within a handful of draws.
-            val known = List(120) { keyStartingWith("%02x".format(it + 1)) }
-            val taken = IdentityKeygen.prefixesOf(known, width)
+            val known = (1..120).map { node("%02x".format(it), Remoteness.INFRASTRUCTURE_MAX) }
+            val taken = IdentityKeygen.prefixesOf(known.map { it.publicKeyHex }, width)
             repeat(25) {
                 val outcome = IdentityKeygen.generate(crypto, width, known)
-                val generated = assertIs<IdentityKeygen.Outcome.Generated>(outcome)
+                assertNotNull(outcome)
+                assertTrue(outcome.isClean, "settled for a clash with room to spare")
                 assertFalse(
-                    IdentityKeygen.collides(generated.candidate.publicKeyHex, taken, width),
-                    "width $width produced ${generated.candidate.publicKeyHex}",
+                    IdentityKeygen.collides(outcome.candidate.publicKeyHex, taken, width),
+                    "width $width produced ${outcome.candidate.publicKeyHex}",
                 )
             }
         }
@@ -75,54 +97,58 @@ class IdentityKeygenTest {
 
     /**
      * The width is load-bearing, shown the only way that cannot be
-     * confused with the one-byte preference: the SAME mesh is full at
-     * one byte per hop and has room at two.
-     *
-     * (The preference is why the obvious test does not work. With 254
-     * first bytes free the search takes a clear one, so a single known
-     * node bars its whole first byte whatever width was asked — which
-     * looks exactly like the width being ignored.)
+     * confused with the one-byte preference: the SAME mesh has no clean
+     * key at one byte per hop and plenty at two.
      */
     @Test
     fun theSameMeshIsFullAtOneByteAndHasRoomAtTwo() {
-        val everyFirstByte = (0..255).map { keyStartingWith("%02x".format(it)) }
+        val known = everyFirstByte(Remoteness.INFRASTRUCTURE_MAX)
 
-        val atOne = IdentityKeygen.generate(crypto, 1, everyFirstByte, maxAttempts = 50)
-        assertIs<IdentityKeygen.Outcome.Exhausted>(atOne)
+        val atOne = IdentityKeygen.generate(crypto, 1, known, maxAttempts = 50)
+        assertNotNull(atOne)
+        assertEquals(ClashLevel.ROUTE, atOne.clash?.level)
+        assertEquals(256, atOne.takenPrefixes)
 
-        val atTwo = IdentityKeygen.generate(crypto, 2, everyFirstByte)
-        val generated = assertIs<IdentityKeygen.Outcome.Generated>(atTwo)
-        assertEquals(2, generated.widthBytes)
+        val atTwo = IdentityKeygen.generate(crypto, 2, known)
+        assertNotNull(atTwo)
+        assertEquals(2, atTwo.widthBytes)
+        assertEquals(ClashLevel.DESTINATION, atTwo.clash?.level)
     }
 
     /**
      * And it is applied at the width asked, not at a wider one that
      * would look like success while leaving a real clash in place.
      *
-     * Every usable first byte is taken — so the one-byte preference is
-     * off the table and the requirement is exposed — and three quarters
-     * of the two-byte space with it. A search comparing three or four
-     * bytes instead would hand back a two-byte clash on most draws.
+     * Every usable first byte is taken — so no clean key exists and the
+     * route requirement is what is left — along with three quarters of
+     * the two-byte space. A search comparing three or four bytes instead
+     * would report a destination-level clash on most draws while
+     * actually sitting on a two-byte one.
      */
     @Test
     fun theRequirementIsAppliedAtTheWidthAskedAndNotAWiderOne() {
         val known = buildList {
             for (first in 1..254) {
                 for (second in 0..191) {
-                    add(keyStartingWith("%02x%02x".format(first, second)))
+                    add(
+                        node(
+                            "%02x%02x".format(first, second),
+                            Remoteness.INFRASTRUCTURE_MAX,
+                        ),
+                    )
                 }
             }
         }
-        val taken = IdentityKeygen.prefixesOf(known, 2)
+        val taken = IdentityKeygen.prefixesOf(known.map { it.publicKeyHex }, 2)
         assertEquals(254 * 192, taken.size)
 
         repeat(30) {
-            val outcome = IdentityKeygen.generate(crypto, widthBytes = 2, knownKeys = known)
-            val generated = assertIs<IdentityKeygen.Outcome.Generated>(outcome)
-            assertFalse(generated.clearOfFirstByte)
+            val outcome = IdentityKeygen.generate(crypto, widthBytes = 2, known = known)
+            assertNotNull(outcome)
+            assertEquals(ClashLevel.DESTINATION, outcome.clash?.level)
             assertFalse(
-                IdentityKeygen.collides(generated.candidate.publicKeyHex, taken, 2),
-                "${generated.candidate.publicKeyHex} clashes at two bytes",
+                IdentityKeygen.collides(outcome.candidate.publicKeyHex, taken, 2),
+                "${outcome.candidate.publicKeyHex} clashes at two bytes",
             )
         }
     }
@@ -133,73 +159,119 @@ class IdentityKeygenTest {
         // prefix is barred too. Landing back on it is the worst outcome
         // available: every stale route on the mesh keeps matching, and
         // everything arriving that way then fails to decrypt.
-        val current = keyStartingWith("5a5b5c")
+        val current = node("5a5b5c", Remoteness.UNKNOWN)
         repeat(25) {
             val outcome = IdentityKeygen.generate(crypto, 2, listOf(current))
-            val key = assertIs<IdentityKeygen.Outcome.Generated>(outcome).candidate.publicKeyHex
-            assertNotEquals(current.take(4), key.take(4))
+            assertNotNull(outcome)
+            assertNotEquals(current.publicKeyHex.take(4), outcome.candidate.publicKeyHex.take(4))
         }
     }
 
-    // ---- the destination hash, which is always one byte --------------
+    // ---- choosing the clash when there is no clean key ----------------
 
+    /**
+     * The test the fallback exists for.
+     *
+     * Every first byte is taken, so a shared destination hash is
+     * certain; one node is far away and the other 253 are neighbours. A
+     * search that took the first key that fit would land on a neighbour
+     * 253 times out of 254. This one has to find the distant node.
+     */
     @Test
-    fun aKeyClearAtTheConfiguredWidthIsPreferredClearAtOneByteToo() {
-        // Every first byte the firmware will accept is taken, but only
-        // 254 of the 65 536 two-byte prefixes are. So the search can
-        // always satisfy the width and can never satisfy the
-        // destination hash, and has to say which it got.
-        val everyFirstByte = (1..254).map { keyStartingWith("%02x".format(it)) }
-        val outcome = IdentityKeygen.generate(crypto, widthBytes = 2, knownKeys = everyFirstByte)
-        val generated = assertIs<IdentityKeygen.Outcome.Generated>(outcome)
-        assertFalse(
-            generated.clearOfFirstByte,
-            "claimed a free first byte when all 254 usable ones are taken",
-        )
-        assertFalse(
-            IdentityKeygen.collides(
-                generated.candidate.publicKeyHex,
-                IdentityKeygen.prefixesOf(everyFirstByte, 2),
-                2,
-            ),
-        )
-    }
+    fun theUnavoidableClashIsWithTheMostDistantNode() {
+        val distant = node("42", Remoteness.INFRASTRUCTURE_MAX, "Far Ridge, 240 km away")
+        val known = everyFirstByte(Remoteness.UNKNOWN)
+            .filterNot { it.publicKeyHex.startsWith("42") } + distant
 
-    @Test
-    fun aFreeFirstByteIsReportedWhenThereIsOne() {
-        val known = List(10) { keyStartingWith("%02x".format(it + 1)) }
         repeat(10) {
-            val outcome = IdentityKeygen.generate(crypto, widthBytes = 2, knownKeys = known)
-            val generated = assertIs<IdentityKeygen.Outcome.Generated>(outcome)
-            // With 10 of 254 taken this is essentially always true, and
-            // a search that never claimed it would be useless.
-            assertTrue(generated.clearOfFirstByte || generated.attempts > 1)
-            if (generated.clearOfFirstByte) {
-                assertFalse(
-                    IdentityKeygen.collides(
-                        generated.candidate.publicKeyHex,
-                        IdentityKeygen.prefixesOf(known, 1),
-                        1,
-                    ),
-                )
-            }
+            val outcome = IdentityKeygen.generate(crypto, widthBytes = 1, known = known)
+            assertNotNull(outcome)
+            val clash = assertNotNull(outcome.clash)
+            assertEquals(ClashLevel.ROUTE, clash.level)
+            assertEquals(
+                "Far Ridge, 240 km away",
+                clash.with.label,
+                "settled for a neighbour when a distant node was available",
+            )
+            assertEquals("42", outcome.candidate.publicKeyHex.take(2))
         }
     }
 
     @Test
-    fun aMeshWithNoRoomLeftSaysSoInsteadOfSearchingForEver() {
-        // All 256 first bytes claimed, one byte per hop: there is no key
-        // left to find, and the answer is a fact about the mesh rather
-        // than a retry. A wider path hash is the actual fix.
-        val everything = (0..255).map { keyStartingWith("%02x".format(it)) }
-        val outcome = IdentityKeygen.generate(
-            crypto, widthBytes = 1, knownKeys = everything, maxAttempts = 50,
-        )
-        val exhausted = assertIs<IdentityKeygen.Outcome.Exhausted>(outcome)
-        assertEquals(1, exhausted.widthBytes)
-        assertEquals(50, exhausted.attempts)
-        assertEquals(256, exhausted.takenPrefixes)
-        assertEquals(256L, exhausted.totalPrefixes)
+    fun aRoutingClashIsNeverPreferredToADestinationOne() {
+        // The far node clashes at the routing width; a near one only
+        // shares a destination hash. Distance must not buy a route
+        // clash: the level decides first, always.
+        val known = everyFirstByte(Remoteness.UNKNOWN).filterNot {
+            it.publicKeyHex.startsWith("42")
+        } + node("4200", Remoteness.INFRASTRUCTURE_MAX, "Far Ridge") +
+            node("42", Remoteness.UNKNOWN, "The Next Hill")
+
+        repeat(10) {
+            val outcome = IdentityKeygen.generate(crypto, widthBytes = 2, known = known)
+            assertNotNull(outcome)
+            assertEquals(
+                ClashLevel.DESTINATION,
+                outcome.clash?.level,
+                "took a route clash with a distant node over a destination clash",
+            )
+        }
+    }
+
+    /**
+     * A candidate is only as good as the WORST node answering to its
+     * name. Two nodes share the prefix `42` — one distant, one next
+     * door — so `42` must be judged by the neighbour and lose to `43`,
+     * which only the distant node holds.
+     */
+    @Test
+    fun aPrefixIsJudgedByTheNearestNodeHoldingIt() {
+        val known = everyFirstByte(Remoteness.UNKNOWN)
+            .filterNot { it.publicKeyHex.take(2) in setOf("42", "43") } +
+            node("42", Remoteness.INFRASTRUCTURE_MAX, "Far Ridge") +
+            node("4200", Remoteness.UNKNOWN, "The Next Hill") +
+            node("43", Remoteness.INFRASTRUCTURE_MAX, "Far Ridge Two")
+
+        repeat(10) {
+            val outcome = IdentityKeygen.generate(crypto, widthBytes = 1, known = known)
+            assertNotNull(outcome)
+            assertEquals("Far Ridge Two", outcome.clash?.with?.label)
+            assertEquals("43", outcome.candidate.publicKeyHex.take(2))
+        }
+    }
+
+    @Test
+    fun anOrdinaryNodeIsPreferredToARepeaterToCollideWith() {
+        // Only repeaters appear in a path, so sharing a prefix with a
+        // chat node next door beats sharing one with a repeater across
+        // the state. Ranked by Remoteness; asserted here because it is
+        // the search that has to act on it.
+        val chatNext = Remoteness.of(300.0, null, isInfrastructure = false)
+        val repeaterFar = Remoteness.of(400_000.0, null, isInfrastructure = true)
+        val known = everyFirstByte(Remoteness.UNKNOWN)
+            .filterNot { it.publicKeyHex.take(2) in setOf("42", "43") } +
+            node("42", repeaterFar, "Distant Repeater") +
+            node("43", chatNext, "Someone's Handheld")
+
+        repeat(10) {
+            val outcome = IdentityKeygen.generate(crypto, widthBytes = 1, known = known)
+            assertNotNull(outcome)
+            assertEquals("Someone's Handheld", outcome.clash?.with?.label)
+        }
+    }
+
+    @Test
+    fun aCleanKeyBeatsEveryClashHoweverDistant() {
+        // One node, as remote as the scale goes, and 65 535 free
+        // two-byte names. Settling for the clash would be absurd; a
+        // scoring bug that treated a big remoteness as "good enough"
+        // would do exactly that.
+        val known = listOf(node("ab", Int.MAX_VALUE, "As Far As It Gets"))
+        repeat(20) {
+            val outcome = IdentityKeygen.generate(crypto, 2, known)
+            assertNotNull(outcome)
+            assertTrue(outcome.isClean)
+        }
     }
 
     // ---- what it hands back ------------------------------------------
@@ -211,10 +283,10 @@ class IdentityKeygenTest {
         // few hundred draws will find one if the rule is not applied.
         repeat(600) {
             val outcome = IdentityKeygen.generate(crypto, 1, emptyList())
-            val candidate = assertIs<IdentityKeygen.Outcome.Generated>(outcome).candidate
+            assertNotNull(outcome)
             assertTrue(
-                IdentityKey.isAcceptablePublicKey(candidate.publicKeyHex),
-                "offered ${candidate.publicKeyHex}, which the node would refuse",
+                IdentityKey.isAcceptablePublicKey(outcome.candidate.publicKeyHex),
+                "offered ${outcome.candidate.publicKeyHex}, which the node would refuse",
             )
         }
     }
@@ -222,7 +294,8 @@ class IdentityKeygenTest {
     @Test
     fun theThreeFormsHandedBackAreAllTheSameKey() {
         val outcome = IdentityKeygen.generate(crypto, 2, emptyList())
-        val candidate = assertIs<IdentityKeygen.Outcome.Generated>(outcome).candidate
+        assertNotNull(outcome)
+        val candidate = outcome.candidate
 
         assertEquals(IdentityKey.SEED_HEX_LENGTH, candidate.seedHex.length)
         assertEquals(IdentityKey.PRIVATE_KEY_HEX_LENGTH, candidate.privateKeyHex.length)
@@ -248,17 +321,15 @@ class IdentityKeygenTest {
     @Test
     fun successiveKeysAreDifferentKeys() {
         val keys = List(20) {
-            assertIs<IdentityKeygen.Outcome.Generated>(
-                IdentityKeygen.generate(crypto, 2, emptyList()),
-            ).candidate.publicKeyHex
+            assertNotNull(IdentityKeygen.generate(crypto, 2, emptyList())).candidate.publicKeyHex
         }
         assertEquals(keys.size, keys.distinct().size)
     }
 
     @Test
     fun thePrefixIsTheLeadingBytesAtTheWidthAsked() {
-        val outcome = IdentityKeygen.generate(crypto, 3, emptyList())
-        val candidate = assertIs<IdentityKeygen.Outcome.Generated>(outcome).candidate
+        val outcome = assertNotNull(IdentityKeygen.generate(crypto, 3, emptyList()))
+        val candidate = outcome.candidate
         assertEquals(candidate.publicKeyHex.take(2), candidate.prefixHex(1))
         assertEquals(candidate.publicKeyHex.take(4), candidate.prefixHex(2))
         assertEquals(candidate.publicKeyHex.take(6), candidate.prefixHex(3))
@@ -288,6 +359,22 @@ class IdentityKeygenTest {
             widthBytes = 2,
         )
         assertEquals(setOf("aabb", "eeff"), prefixes)
+    }
+
+    @Test
+    fun aMalformedKnownNodeCannotBarAName() {
+        // Same rule where it matters most: the search must not treat a
+        // junk contact record as occupying a prefix.
+        val junk = listOf(
+            KnownNode("", "empty", Remoteness.UNKNOWN),
+            KnownNode("not a key", "junk", Remoteness.UNKNOWN),
+            KnownNode("z".repeat(64), "not hex", Remoteness.UNKNOWN),
+        )
+        repeat(10) {
+            val outcome = IdentityKeygen.generate(crypto, 1, junk)
+            assertNotNull(outcome)
+            assertTrue(outcome.isClean)
+        }
     }
 
     @Test
