@@ -74,17 +74,18 @@ fun RepeaterIdentityPanel(vm: MeshCoreViewModel, keyHex: String, isAdmin: Boolea
     LaunchedEffect(keyHex) { widthBytes = vm.repeaterPathHashWidth(keyHex) }
 
     Text("Identity key", style = MaterialTheme.typography.titleSmall)
-    HintText(
-        "This node's Ed25519 private key. The key IS the node: everything anyone knows " +
-            "about this repeater's identity is derived from it, including the leading " +
-            "bytes every other node routes by.",
-    )
-    widthBytes?.let {
-        HintText(
-            "This node is named on air by the first ${PathHashMode.describeBytes(it)} of " +
-                "its public key. Two repeaters sharing those bytes are one node as far as " +
-                "a stored route is concerned.",
-        )
+    HintText("This node's Ed25519 private key. The key IS the node.")
+    widthBytes?.let { bytes ->
+        ExpandableHint("On air it is named by its first ${PathHashMode.describeBytes(bytes)}.") {
+            HintText(
+                "A routed path carries only those leading bytes, so two repeaters that " +
+                    "share them are one node as far as a stored route is concerned.",
+            )
+            HintText(
+                "That is what a new key is chosen to avoid, and it is the node's own " +
+                    "setting — every node on the mesh has to agree on it.",
+            )
+        }
     }
 
     ButtonFlowRow {
@@ -300,25 +301,37 @@ private fun GeneratedKeySummary(outcome: IdentityKeygen.Outcome) {
                 "On air it would answer to $prefix — $width, which is what this node is " +
                     "set to. No node this phone knows about uses those bytes.",
             )
-            HintText(
-                "Its first byte is shared with ${clash.with.label}. That is the byte " +
-                    "direct packets are addressed by, so those packets reach both nodes " +
-                    "and are discarded by the wrong one — a nuisance, not a routing " +
-                    "fault. There was no first byte left free; the search took the most " +
-                    "distant node it could find to share one with.",
-            )
+            ExpandableHint("Its first byte is shared with ${clash.with.label}.") {
+                HintText(
+                    "That is the byte direct packets are addressed by, so they reach " +
+                        "both nodes and the wrong one discards them.",
+                )
+                HintText(
+                    "A nuisance, not a routing fault — and no first byte was left free, " +
+                        "so the search took the most distant node to share one with.",
+                )
+            }
         }
 
-        else -> Text(
-            "There is no free identity left at $width: ${outcome.takenPrefixes} of the " +
-                "${IdentityKeygen.totalPrefixes(outcome.widthBytes)} possible names are " +
-                "already in use. This key shares $prefix with ${clash.with.label} — the " +
-                "furthest node the search could find to collide with, which is the best " +
-                "available and still a real routing clash. Widening the path hash is the " +
-                "actual fix, and every node on the mesh has to agree on it.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.error,
-        )
+        else -> {
+            Text(
+                "No free identity left at $width. This key shares $prefix with " +
+                    "${clash.with.label} — a real routing clash.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+            )
+            ExpandableHint("It is the best available, and still a clash.") {
+                HintText(
+                    "${outcome.takenPrefixes} of the " +
+                        "${IdentityKeygen.totalPrefixes(outcome.widthBytes)} possible " +
+                        "names at this width are already in use.",
+                )
+                HintText(
+                    "The search took the furthest node it could find to collide with. " +
+                        "Widening the path hash is the actual fix.",
+                )
+            }
+        }
     }
     HintText(
         "Write down the 64-character seed before you apply this — it is the short " +
