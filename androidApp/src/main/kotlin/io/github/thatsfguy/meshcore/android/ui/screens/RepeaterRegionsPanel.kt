@@ -232,6 +232,7 @@ fun RepeaterRegionsPanel(vm: MeshCoreViewModel, keyHex: String, isAdmin: Boolean
             onValueChange = { newName = it },
             label = { Text("Name") },
             singleLine = true,
+            keyboardOptions = VERBATIM_KEYBOARD,
             isError = newName.isNotBlank() && !Regions.isValid(newName),
             modifier = Modifier.fillMaxWidth(),
         )
@@ -240,6 +241,7 @@ fun RepeaterRegionsPanel(vm: MeshCoreViewModel, keyHex: String, isAdmin: Boolean
             onValueChange = { newParent = it },
             label = { Text("Parent (* = global scope)") },
             singleLine = true,
+            keyboardOptions = VERBATIM_KEYBOARD,
             isError = Regions.canonicalSelector(newParent) == null,
             modifier = Modifier.fillMaxWidth(),
         )

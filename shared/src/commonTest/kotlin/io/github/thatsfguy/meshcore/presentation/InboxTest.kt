@@ -75,4 +75,54 @@ class InboxTest {
         assertFalse(Inbox.isOpen("dm|b389", Inbox.KIND_DM, "b389aaaa"))
         assertTrue(Inbox.shouldNotify("dm|b389", Inbox.KIND_DM, "b389aaaa"))
     }
+
+    // --- the tab badge (PARITY §14, their v1.49.0) ---
+
+    @Test
+    fun `the badge counts unread messages rather than unread threads`() {
+        // Three threads, two of them unread, five messages between them:
+        // the badge says 5, because it is a message count and that is
+        // what a reader is deciding whether to go and read.
+        assertEquals(5, Inbox.unreadTotal(listOf(0, 2, 3)))
+        assertEquals("5", Inbox.badgeLabel(Inbox.unreadTotal(listOf(0, 2, 3))))
+    }
+
+    @Test
+    fun `nothing unread shows no badge at all`() {
+        // The empty string is the signal to draw no badge. A "0" on the
+        // tab is worse than nothing: it looks like an unread count that
+        // will not clear.
+        assertEquals(0, Inbox.unreadTotal(listOf(0, 0, 0)))
+        assertEquals("", Inbox.badgeLabel(0))
+        assertEquals("", Inbox.badgeLabel(Inbox.unreadTotal(emptyList())))
+    }
+
+    @Test
+    fun `a damaged negative count is ignored rather than subtracted`() {
+        // A row claiming -3 unread is corrupt. Summing it would hide
+        // real unread messages on the other rows — the failure that is
+        // invisible, because a badge that is missing looks like an app
+        // with nothing to say.
+        assertEquals(4, Inbox.unreadTotal(listOf(-3, 4)))
+        assertEquals("", Inbox.badgeLabel(Inbox.unreadTotal(listOf(-9))))
+    }
+
+    @Test
+    fun `a runaway count caps instead of overflowing`() {
+        // Two rows near Int.MAX_VALUE would wrap to a negative in Int
+        // arithmetic and the badge would vanish — or, worse, render a
+        // minus sign. Capped, it stays "99+".
+        val huge = listOf(Int.MAX_VALUE, Int.MAX_VALUE, 7)
+        assertEquals(Int.MAX_VALUE, Inbox.unreadTotal(huge))
+        assertEquals("99+", Inbox.badgeLabel(Inbox.unreadTotal(huge)))
+    }
+
+    @Test
+    fun `the badge stops counting past ninety-nine`() {
+        // 99 still fits the circle and still means something; 100 does
+        // not, in either sense.
+        assertEquals("99", Inbox.badgeLabel(99))
+        assertEquals("99+", Inbox.badgeLabel(100))
+        assertEquals("1", Inbox.badgeLabel(1))
+    }
 }

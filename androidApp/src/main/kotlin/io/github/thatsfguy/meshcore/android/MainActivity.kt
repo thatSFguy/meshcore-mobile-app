@@ -1,6 +1,7 @@
 package io.github.thatsfguy.meshcore.android
 
 import io.github.thatsfguy.meshcore.presentation.decodePrefill
+import io.github.thatsfguy.meshcore.presentation.Inbox
 import android.os.Bundle
 import kotlinx.coroutines.flow.MutableStateFlow
 import android.content.Intent
@@ -13,6 +14,8 @@ import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -26,6 +29,8 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -138,7 +143,13 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private data class Tab(val route: String, val label: String, val icon: @Composable () -> Unit)
+private data class Tab(
+    val route: String,
+    val label: String,
+    /** "" for no badge — [Inbox.badgeLabel] decides, not the caller. */
+    val badge: String = "",
+    val icon: @Composable () -> Unit,
+)
 
 @Composable
 private fun AppShell(
@@ -170,8 +181,16 @@ private fun AppShell(
         }
     }
 
+    // The count the Chats tab carries. Every row's badge already exists
+    // inside the list; what was missing is the one number visible from
+    // the other three tabs, which is the only place it changes anyone's
+    // behaviour — a message that arrives while you are on Map or Nodes
+    // was otherwise invisible until you happened to look.
+    val conversations by vm.conversations.collectAsState()
+    val unreadBadge = Inbox.badgeLabel(Inbox.unreadTotal(conversations.map { it.unread }))
+
     val tabs = listOf(
-        Tab("chats", "Chats") { Icon(Icons.Filled.Email, contentDescription = "Chats") },
+        Tab("chats", "Chats", unreadBadge) { Icon(Icons.Filled.Email, contentDescription = "Chats") },
         Tab("nodes", "Nodes") { Icon(Icons.Filled.Person, contentDescription = "Nodes") },
         Tab("map", "Map") { Icon(Icons.Filled.LocationOn, contentDescription = "Map") },
         Tab("settings", "Settings") { Icon(Icons.Filled.Settings, contentDescription = "Settings") },
@@ -195,7 +214,29 @@ private fun AppShell(
                                     restoreState = true
                                 }
                             },
-                            icon = tab.icon,
+                            icon = {
+                                if (tab.badge.isEmpty()) {
+                                    tab.icon()
+                                } else {
+                                    BadgedBox(
+                                        badge = {
+                                            Badge {
+                                                Text(
+                                                    tab.badge,
+                                                    // The number is on the icon, which
+                                                    // already names the tab; a screen
+                                                    // reader saying "Chats, 3" beats
+                                                    // "Chats, 3, Chats".
+                                                    modifier = Modifier.semantics {
+                                                        contentDescription =
+                                                            "${tab.badge} unread"
+                                                    },
+                                                )
+                                            }
+                                        },
+                                    ) { tab.icon() }
+                                }
+                            },
                             label = { Text(tab.label) },
                         )
                     }

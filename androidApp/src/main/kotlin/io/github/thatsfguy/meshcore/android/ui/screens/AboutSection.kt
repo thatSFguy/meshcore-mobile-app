@@ -90,6 +90,17 @@ fun AboutSection(vm: MeshCoreViewModel) {
  * is a changelog you can't read in the field.
  */
 private val CHANGELOG: List<Pair<String, List<String>>> = listOf(
+    "0.8.4" to listOf(
+        "The admin command box no longer autocorrects. It was an ordinary text field, so " +
+            "Android capitalised the first letter and \"corrected\" the rest — on a screen " +
+            "whose whole purpose is sending strings a node compares byte for byte. A " +
+            "mangled command comes back as an error that names nothing, so the app looks " +
+            "broken and the field looks right. Region name and parent are fixed the same " +
+            "way.",
+        "The Chats tab carries an unread count. Each conversation already had its own " +
+            "badge inside the list, which is no use from the Nodes, Map or Settings tab. " +
+            "The total stops at \"99+\", and there is no badge at all at zero.",
+    ),
     "0.8.3" to listOf(
         "Generating a repeater identity key produced a key no node would accept. MeshCore " +
             "stores a 64-byte private key and reads exactly 128 hex characters; the app " +

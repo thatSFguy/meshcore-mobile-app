@@ -282,6 +282,7 @@ private fun CliConsole(
                 modifier = Modifier.weight(1f),
                 placeholder = { Text("CLI command (e.g. get freq)") },
                 singleLine = true,
+                keyboardOptions = VERBATIM_KEYBOARD,
             )
             IconButton(
                 onClick = {

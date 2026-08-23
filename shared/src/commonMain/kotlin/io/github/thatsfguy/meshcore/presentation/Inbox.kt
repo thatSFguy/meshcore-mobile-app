@@ -64,4 +64,34 @@ object Inbox {
         isCliReply -> false
         else -> !isOpen(activeThread, kind, peerKey)
     }
+
+    /**
+     * The unread total for a tab badge, summed over the conversation
+     * rows the list is already showing.
+     *
+     * Summed in a [Long] and capped, because the counts come out of the
+     * database and a corrupt or runaway row must not overflow the badge
+     * into a negative number — the arithmetic here is trivial and the
+     * failure would be silent and absurd. Negative counts are ignored
+     * for the same reason: a row claiming -3 unread is damaged, not a
+     * credit against the others.
+     */
+    fun unreadTotal(counts: List<Int>): Int {
+        var total = 0L
+        for (c in counts) if (c > 0) total += c
+        return total.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+    }
+
+    /**
+     * What the badge says, or "" when there is nothing to say.
+     *
+     * A badge is a glance, not a figure: past [max] the exact number has
+     * stopped meaning anything and the digits stop fitting the circle,
+     * so it becomes "99+".
+     */
+    fun badgeLabel(total: Int, max: Int = 99): String = when {
+        total <= 0 -> ""
+        total > max -> "$max+"
+        else -> total.toString()
+    }
 }

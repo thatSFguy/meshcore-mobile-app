@@ -1,7 +1,8 @@
 # Feature parity vs the mainstream MeshCore Android app
 
 **Policy (2026-08-01):** the mainstream app — `com.liamcottle.meshcore.android`,
-"MeshCore", v1.47.0 — is the **floor** for this app's feature set. Anything it does that
+"MeshCore", **v1.49.0** (was v1.47.0 when this was written; their 1.48.0 and 1.49.0 are
+tracked as a delta in §14) — is the **floor** for this app's feature set. Anything it does that
 we don't is a gap to close, unless it's explicitly out of scope below. This supersedes
 the original pruned-from-an-inventory scoping in [`SCOPE.md`](SCOPE.md) for anything
 the two disagree on.
@@ -318,3 +319,41 @@ Grouped so each block is shippable:
    - **`MessageSettingsScreen`, `ContactSettingsScreen`** — cannot be specified without
      seeing the running mainstream app; the inventory gives class names, not behaviour.
    - **`PrintScreen`, `AddMapMarker`, developer menu** — low priority, no security weight.
+
+---
+
+## 14. New since the v1.47.0 inventory — their 1.48.0 and 1.49.0
+
+**Checked 2026-08-23.** §1–§13 above were derived from v1.47.0. Two releases have landed
+since: **1.48.0** (2026-08-15) and **1.49.0** (2026-08-22).
+
+**Weaker evidence than the rest of this file, and it should be treated that way.** §1–§13
+come from an inventory of their APK — a complete map of their *surface*. These rows come
+from published release notes (the App Store version history, which is the author's own
+text, cross-read against the write-ups at `meshcore.at/en/news/app-1-48-0` and
+`app-1-49-0`). Release notes describe what an author chose to announce, in their words,
+and say nothing about behaviour — so a row here that turns out to matter wants
+re-deriving from `MeshCore-v1.49.0+77-ac8ed11-android.apk`
+(`files.liamcottle.net/MeshCore/v1.49.0/`) before it is built against.
+
+| Their item | Rel | Us | Status | Notes |
+|---|---|---|---|---|
+| Autocorrect off on the CLI command field | 1.48 | `VERBATIM_KEYBOARD` | ✅ | **Closed 2026-08-23.** Ours shipped with the default keyboard: autocorrect on, first letter capitalised. `set prv.key <128 hex>` is exactly what a keyboard "fixes", and the node answers a mangled command with an error naming nothing — so the app looks broken and the field looks right. Applied to the region **name** and **parent** fields too (their 1.49 note fixes the same thing), where a capitalised token fails as "unknown region", which reads as the region not existing. |
+| Unread counts on the tabs | 1.49 | Chats tab badge | ✅ | **Closed 2026-08-23.** Theirs badges two tabs (contacts, channels); we have one Chats tab, so it carries the total. The rule is `Inbox.unreadTotal` / `Inbox.badgeLabel` in `shared/presentation` — summed in a `Long` and capped at "99+", negatives ignored — so iOS inherits it and a corrupt row cannot overflow the badge into nothing. Per-row badges already existed inside the list; what was missing is the number visible from the other three tabs, which is the only place it changes what anyone does. |
+| CLI command history — long-press to resend | 1.48 | — | ❌ | `CliConsole` keeps no history. Our command *catalogue* (Help → prefill) answers discovery; repetition is unsolved, and repetition is what an admin session is mostly made of. Cheapest real gap on this list. |
+| Repeater regions drawn on the map | 1.48 | — | ❌ | We hold the data (`Regions`, `RepeaterRegionsPanel`) and `MapScreen` draws none of it. Worth specifying before building: a region is a flood-scope *name* in a tree, not a polygon, so "show regions on the map" means labelling nodes by scope, not drawing boundaries we do not have. |
+| Calculated power (V×I) shown when it differs from measured | 1.48 | — | ❌ | `TelemetryReading` decodes Cayenne LPP channels flat — voltage, current and power arrive as three unrelated rows. Deriving one and comparing is a small, genuinely useful addition for a solar node. |
+| Muted-channel icon; grey badges for muted | 1.49 | — | ❌ | Blocked on there being notifications at all (still open — CLAUDE.md next steps §4). Mute has no meaning until something can interrupt. |
+| Resume an existing session without re-login | 1.48 | `_adminSessions` | ◐ | In-memory per app lifetime: navigation and backgrounding keep the session, process death loses it, and the firmware's session may still be live at that point — so we re-login where they now resume. Passwords are in the keystore, so the cost is airtime and a round trip, not typing. |
+| Trace the current path to and from a repeater | 1.49 | `RoutingSheet` | ◐ | We have trace, in the node detail sheet — but tapping an infrastructure node opens the repeater **hub**, so from there it is unreachable (long-press → detail → routing). A `trace` tile on the hub is mostly wiring. The "and from" half wants checking against what `TracePath` already decodes. |
+| Region names on received channel messages | 1.49 | Channel subtitle | ◐ | `ConversationScreen` names the *channel's* scope in the subtitle; theirs is per received message. |
+| Path hash size out of experimental — onboarding, presets | 1.49 | Settings → Radio | ◐ | The setting is in main Settings already, and applied from a scanned config. Missing: `SetupScreen` never mentions it, and `RadioPresets.Preset` carries no `pathHashMode` — so a preset cannot set the width the community it belongs to actually runs. That last one is the part with teeth: the width is this codebase's recurring defect (CLAUDE.md), and a preset that sets frequency but not width leaves a node half-configured. |
+| Telemetry consolidated onto one page | 1.48 | Repeater → Status | ✅ | Ours has always been one panel. |
+| Config import/export preserves channel scope | 1.48 | `ConfigBackupRepository` | ✅ | `channelRegions` has been in the backup for a while. |
+| Repeater "network settings" — path hash size + default region scope | 1.49 | Regions spoke + settings form | ✅ | Both exist: `region default` in `RepeaterRegionsPanel`, `path.hash.mode` in `RemoteSettingsForm`. Their new screen is an arrangement difference, not a capability one. |
+| Minimum OS raised (iOS 15+, macOS 12+, Android 7+) | 1.48 | — | ⛔ | Their store policy, not a feature. |
+| Fixes: map freeze on rapid zoom, unread indicator | 1.49 | — | ⛔ | Their Flutter map; ours is osmdroid. |
+
+**If picking one:** the preset path-hash-size row, because getting the width wrong is the
+defect this codebase keeps repeating and a preset is where a whole community's answer
+belongs. Then CLI history, which is small and used constantly.

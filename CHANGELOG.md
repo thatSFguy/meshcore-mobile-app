@@ -11,6 +11,25 @@ Every entry describes what is in **that tagged build**. A feature that landed af
 belongs in the next section, not this one — 0.3.0 was once credited with four features that
 shipped after it, which misled nobody so much as the author, three months later.
 
+## 0.8.4
+
+**The admin command box no longer autocorrects what you type.** It was an ordinary text
+field, so Android capitalised the first letter and "corrected" the rest — on a screen whose
+entire purpose is sending strings a node compares byte for byte. `set prv.key <128 hex>` is
+exactly the shape a keyboard rewrites, and a node answers a mangled command with an error
+that names nothing, so the app looks broken and the field looks right. The region name and
+parent boxes are fixed the same way: a capitalised region fails as "unknown region", which
+reads as the region not existing.
+
+**The Chats tab carries an unread count.** Each conversation already showed its own badge
+inside the list, which is no use from the Nodes, Map or Settings tab — a message that
+arrived while you were somewhere else stayed invisible until you happened to look.
+
+- **The total sits on the tab itself**, so it is readable from anywhere in the app.
+- **It stops at "99+"**, because past that the exact number has stopped meaning anything.
+- **There is no badge at all at zero**, rather than a "0" that reads as an unread marker
+  stuck on.
+
 ## 0.8.3
 
 **Generating a repeater identity key produced a key no node would accept.** MeshCore stores
