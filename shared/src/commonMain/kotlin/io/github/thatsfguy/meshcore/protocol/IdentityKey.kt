@@ -17,9 +17,10 @@ import io.github.thatsfguy.meshcore.util.toHex
  *    the old node stopped existing and a stranger appeared with the same
  *    name. Contacts must re-add it; stored paths to it are meaningless;
  *    signed adverts from the old key never verify again.
- *  - **It is exfiltratable in one command.** `get prv.key` returns it
- *    over the air — through repeaters, and in the clear if the link is
- *    TCP. Anyone who has it can *be* that repeater.
+ *  - **It is exfiltratable in one command.** `get prv.key` returns it —
+ *    over USB serial only (see [READS_ARE_SERIAL_ONLY]), but it is one
+ *    command and there is nothing else protecting it. Anyone who has it
+ *    can *be* that repeater.
  *  - **There is no revocation.** Nothing in the protocol says "that key
  *    is retired". The only remedy is telling every human involved.
  *
@@ -28,28 +29,74 @@ import io.github.thatsfguy.meshcore.util.toHex
  * deliberately does NOT offer to remember a repeater's private key —
  * that would put another node's identity in this phone's keystore for
  * no benefit the user asked for.
+ *
+ * ## The wire form is 64 bytes, not 32
+ *
+ * This shipped wrong, and every key the app generated was rejected by
+ * the node with `Error, bad key`. The firmware's reader is unambiguous:
+ *
+ *  - `uint8_t prv_key[PRV_KEY_SIZE]; fromHex(prv_key, PRV_KEY_SIZE, &config[8])`
+ *    (`src/helpers/CommonCLI.cpp:510-512`)
+ *  - `#define PRV_KEY_SIZE 64` (`src/MeshCore.h:9`)
+ *  - `if (len != dest_size*2) return false;  // incorrect length`
+ *    (`src/Utils.cpp:206-208`)
+ *
+ * So `set prv.key` takes **128 hex characters** — the *expanded* private
+ * key, `SHA512(seed)` with standard Ed25519 clamping, which is
+ * `[clamped scalar (32) || nonce prefix (32)]`. The app had been sending
+ * the 32-byte seed as 64 hex characters, which `fromHex` rejects on
+ * length before it looks at a single digit.
+ *
+ * The same 64-byte form comes back out: `get prv.key` writes
+ * `PRV_KEY_SIZE` bytes (`CommonCLI.cpp:832-836` via
+ * `LocalIdentity::writeTo`, `src/Identity.cpp:128-138`), so a reply
+ * validated as 64 hex characters never matched either — the "Read key…"
+ * button could only ever report that the node had refused.
+ *
+ * Both forms are accepted as *input* here, because a person restoring a
+ * node has whichever one they wrote down, and the seed is the shorter
+ * thing to write down. Only the 64-byte form is ever sent.
  */
 object IdentityKey {
 
-    /** Ed25519 seed/private key: 32 bytes, 64 hex characters. */
-    const val KEY_HEX_LENGTH = 64
+    /** Ed25519 seed: 32 bytes, 64 hex characters. */
+    const val SEED_HEX_LENGTH = 64
 
     /**
-     * Canonical lowercase hex, or null when [raw] is not a 32-byte key.
+     * The form `set prv.key` takes: `PRV_KEY_SIZE` = 64 bytes, 128 hex
+     * characters. See the class docs for the firmware citations.
+     */
+    const val PRIVATE_KEY_HEX_LENGTH = 128
+
+    /**
+     * Canonical lowercase hex for either accepted form — a 32-byte seed
+     * or the 64-byte expanded private key — or null for anything else.
      *
      * Whitespace and a `0x` prefix are tolerated because people paste
      * these from all sorts of places; nothing else is. In particular a
      * short value is never zero-padded — silently padding a mistyped key
-     * would hand the node an identity the user never chose.
+     * would hand the node an identity the user never chose. Nor is a
+     * 64-character value silently treated as a truncated 128-character
+     * one: they are different keys, not the same key at two lengths.
      */
     fun canonicalHex(raw: String?): String? {
         val cleaned = raw?.trim()?.removePrefix("0x")?.removePrefix("0X")
             ?.filterNot { it == ' ' || it == ':' || it == '\n' || it == '\r' || it == '\t' }
             ?.lowercase()
             ?: return null
-        if (cleaned.length != KEY_HEX_LENGTH) return null
+        if (cleaned.length != SEED_HEX_LENGTH && cleaned.length != PRIVATE_KEY_HEX_LENGTH) {
+            return null
+        }
         return cleaned.takeIf { isHexDigits(it) }
     }
+
+    /** Canonical hex, but only for the 32-byte seed form. */
+    fun canonicalSeedHex(raw: String?): String? =
+        canonicalHex(raw)?.takeIf { it.length == SEED_HEX_LENGTH }
+
+    /** Canonical hex, but only for the 64-byte form the firmware reads. */
+    fun canonicalPrivateKeyHex(raw: String?): String? =
+        canonicalHex(raw)?.takeIf { it.length == PRIVATE_KEY_HEX_LENGTH }
 
     fun isValidHex(raw: String?): Boolean = canonicalHex(raw) != null
 
@@ -65,30 +112,82 @@ object IdentityKey {
         return bytes.distinct().size <= 1
     }
 
+    /**
+     * The firmware's own acceptance rule for the public key a private
+     * key produces: `if (pub[0] == 0x00 || pub[0] == 0xFF) return false`
+     * (`LocalIdentity::validatePrivateKey`, `src/Identity.cpp:71-72`).
+     *
+     * About one key in 128 fails this. Generating without checking it
+     * means a rekey that fails for no reason the user can see, once in a
+     * while, on the one screen where "try again" is the worst possible
+     * advice — so [IdentityKeygen] never offers a key that fails here.
+     */
+    fun isAcceptablePublicKey(publicKeyHex: String?): Boolean {
+        val pub = publicKeyHex?.lowercase() ?: return false
+        if (pub.length != 64 || !isHexDigits(pub)) return false
+        val first = pub.substring(0, 2)
+        return first != "00" && first != "ff"
+    }
+
     /** A fresh random seed, as canonical hex. */
     fun generate(crypto: CryptoProvider): String = crypto.generateEd25519Seed().toHex()
 
     /**
-     * The public key a seed produces, as hex — so a change can be shown
-     * as "this node will become <key>" before it is made, rather than
-     * discovered afterwards.
+     * The 64-byte form of a 32-byte seed — `SHA512(seed)`, clamped.
      *
-     * Returns null where the platform can't derive it (iOS Phase 1
-     * stubs return an empty array rather than throwing).
+     * Pinned by the firmware's own known-good keypair: the scalar half
+     * of `test_client_prv` (`src/Identity.cpp:75-84`) is clamped exactly
+     * this way and scalar-multiplies to `test_client_pub`.
+     */
+    fun expandSeedHex(crypto: CryptoProvider, seedHex: String): String? {
+        val seed = canonicalSeedHex(seedHex) ?: return null
+        return MeshIdentity.expandSeed(crypto, hexBytes(seed)).toHex()
+    }
+
+    /**
+     * What actually goes on the wire, from either accepted input form:
+     * 128 hex characters. A seed is expanded; a 64-byte key is passed
+     * through unchanged.
+     */
+    fun wireKeyHex(crypto: CryptoProvider, raw: String?): String? {
+        val key = canonicalHex(raw) ?: return null
+        return if (key.length == PRIVATE_KEY_HEX_LENGTH) key else expandSeedHex(crypto, key)
+    }
+
+    /**
+     * The public key a **seed** produces, as hex — so a change can be
+     * shown as "this node will become <key>" before it is made, rather
+     * than discovered afterwards.
+     *
+     * Returns null for the 64-byte form: deriving a public key from an
+     * expanded private key is a scalar multiplication by the base point,
+     * and neither platform's Ed25519 exposes one (Bouncy Castle's
+     * `Ed25519` takes a seed; CryptoKit takes a seed). The node reports
+     * the resulting key itself — `"OK, reboot to apply! New pubkey: …"`
+     * (`CommonCLI.cpp:517-519`) — so nothing is lost except the preview,
+     * and inventing a preview we cannot compute would be worse.
      */
     fun publicKeyHex(crypto: CryptoProvider, seedHex: String): String? {
-        val seed = canonicalHex(seedHex) ?: return null
-        val bytes = ByteArray(32) { seed.substring(it * 2, it * 2 + 2).toInt(16).toByte() }
-        val pub = runCatching { crypto.ed25519PublicKey(bytes) }.getOrNull() ?: return null
+        val seed = canonicalSeedHex(seedHex) ?: return null
+        val pub = runCatching { crypto.ed25519PublicKey(hexBytes(seed)) }.getOrNull() ?: return null
         return if (pub.size != 32) null else pub.toHex()
     }
 
-    /** The `set prv.key <hex>` command; throws on anything invalid. */
-    fun setCommand(hex: String): String {
+    /**
+     * The `set prv.key <128 hex>` command; throws on anything invalid.
+     *
+     * Takes [crypto] because a seed has to be expanded before it can be
+     * sent — the builder is the only place that knows what the firmware
+     * reads, so it is the only place that should be deciding this.
+     */
+    fun setCommand(crypto: CryptoProvider, hex: String): String {
         val key = canonicalHex(hex)
-            ?: throw IllegalArgumentException("not a 32-byte key")
+            ?: throw IllegalArgumentException("not a 32- or 64-byte key")
         require(!isDegenerate(key)) { "refusing a degenerate key" }
-        return "set prv.key $key"
+        val wire = wireKeyHex(crypto, key)
+            ?: throw IllegalArgumentException("could not expand that key")
+        require(!isDegenerate(wire)) { "refusing a degenerate key" }
+        return "set prv.key $wire"
     }
 
     /** The read command. Its REPLY contains the key — never log it. */
@@ -104,6 +203,7 @@ object IdentityKey {
         "Every contact that has it saved must add it again. Nobody is notified.",
         "Stored paths and routes to this node stop meaning anything.",
         "Old signed adverts from this node will never verify again.",
+        "The node keeps running the old key until it reboots.",
         "There is no revocation and no undo. If you don't have the current key written " +
             "down somewhere safe, it is gone the moment this is applied.",
     )
@@ -113,4 +213,21 @@ object IdentityKey {
         "Reading the key sends it back over the mesh — through every repeater on the " +
             "path, and in the clear if this link is TCP. Anyone who captures it can " +
             "impersonate this node permanently."
+
+    /**
+     * The firmware answers `get prv.key` only when the request arrived
+     * with `sender_timestamp == 0` — which is to say over the USB serial
+     * console, never from a remote admin session
+     * (`CommonCLI.cpp:832`, commented "from serial command line only").
+     *
+     * Worth saying out loud on the screen: without it, a remote read
+     * looks like a connection problem, and the honest answer is that the
+     * node is refusing on purpose and always will.
+     */
+    const val READS_ARE_SERIAL_ONLY =
+        "A node only answers this over its USB serial console — never from a remote " +
+            "admin session. Over the mesh it will refuse, however good the link is."
+
+    private fun hexBytes(hex: String): ByteArray =
+        ByteArray(hex.length / 2) { hex.substring(it * 2, it * 2 + 2).toInt(16).toByte() }
 }

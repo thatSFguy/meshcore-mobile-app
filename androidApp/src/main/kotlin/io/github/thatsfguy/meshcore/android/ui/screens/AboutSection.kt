@@ -90,6 +90,25 @@ fun AboutSection(vm: MeshCoreViewModel) {
  * is a changelog you can't read in the field.
  */
 private val CHANGELOG: List<Pair<String, List<String>>> = listOf(
+    "0.8.3" to listOf(
+        "Generating a repeater identity key produced a key no node would accept. MeshCore " +
+            "stores a 64-byte private key and reads exactly 128 hex characters; the app " +
+            "sent the 32-byte seed as 64, so every generated key came back \"Error, bad " +
+            "key\" — and every key read back from a node was 128 characters the app did " +
+            "not recognise, reported as a refusal. Both directions are fixed, and the box " +
+            "takes either form.",
+        "\"Generate a new one\" now produces a key whose leading bytes are this node's " +
+            "alone. A routed path names a repeater by one to three leading bytes of its " +
+            "public key, so two repeaters sharing those bytes are one node as far as a " +
+            "stored route is concerned. The generator asks the node how wide its path hash " +
+            "is, avoids every node this phone knows about, and says which bytes the new " +
+            "identity would answer to.",
+        "Keys the firmware refuses outright — public keys beginning 00 or ff, about one in " +
+            "128 — are never offered, and a key typed by hand is checked against the same " +
+            "rules.",
+        "Reading a key explains that a node only answers over its USB serial console, never " +
+            "over the mesh, so the refusal is no longer indistinguishable from a bad link.",
+    ),
     "0.8.2" to listOf(
         "The node list has a sort and filter menu beside the search box. Order by recent " +
             "activity, last heard, name or fewest hops; show only favourites, only unread, " +
