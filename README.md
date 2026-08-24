@@ -3,58 +3,43 @@
 *A hardened, self-contained [MeshCore](https://meshcore.co.uk/) client for Android — off-grid
 encrypted messaging over LoRa, with no servers, no accounts, and no app-store lock-in.*
 
-**Not affiliated with the official MeshCore app.** This is an independent third-party client;
-"Hardened" refers to this build's posture (small attack surface, keystore-sealed secrets,
-encrypted local storage) — not to any change in the MeshCore protocol's own guarantees.
-
-**On the name.** The app is **MeshCore Hardened**; **MCH** is shorthand, used below and in
-conversation. The full name is what ships — the launcher, the releases and the app itself all
-say MeshCore Hardened, and the word doing the work there is *Hardened*, which is a claim about
-this build that the [security posture](#security-posture) section qualifies. Worth knowing if
-you go looking: **MCH** on its own is a crowded acronym (it is mostly a blood-test value), so
-searching for it will not find this. Search for MeshCore Hardened.
-
-MCH is a native Kotlin Multiplatform client for the MeshCore mesh, built in the mold of its sibling
-[reticulum-mobile-app](https://github.com/thatSFguy/reticulum-mobile-app): a real native app —
-foreground service for a persistent radio link, system notifications on incoming messages — with
-the smallest attack surface I can keep secure and reason about.
-
-**"Self-contained" is not "small".** MCH is a full client — messaging, channels, a map, repeater
-administration, firmware updates — and matching the mainstream app's feature set is a deliberate
-goal, not drift. What is kept small is everything *around* the features: no servers, no accounts,
-no third-party SDKs, no telemetry, and outbound traffic only to the two public hosts named below.
-That is the claim; a small codebase is not.
-
-**No external dependencies.** No accounts, no API keys, no central server, no analytics, no Google
-Play Services, no Firebase. All crypto runs locally; secrets live in the Android Keystore;
-persistence is Room (SQLite). The app makes outbound HTTP in exactly **two** places, both of them
-to a public host and neither to any service of mine: OpenStreetMap tile fetches on the Map tab,
-and — only when you press the button — the MeshCore firmware release list and the firmware file
-itself from GitHub. Everything else is MeshCore frames over the transport you attach
-(BLE / USB, or TCP if you deliberately turn it on).
-
 [![Latest release](https://img.shields.io/github/v/release/thatSFguy/meshcore-mobile-app?label=latest&sort=semver&color=blue)](https://github.com/thatSFguy/meshcore-mobile-app/releases/latest)
 [![Android CI](https://github.com/thatSFguy/meshcore-mobile-app/actions/workflows/android-ci.yml/badge.svg)](https://github.com/thatSFguy/meshcore-mobile-app/actions/workflows/android-ci.yml)
 [![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0--only-blue.svg)](LICENSE)
 
-## Project scope — personal app, shared in the open
+## Why you might want this
 
-MCH is a **personal app, released in the open**. It does what I need an off-grid MeshCore client
-to do, and it is deliberately **closed to new feature requests**. The goal is the opposite of feature
-growth: the smallest, most static attack surface I can keep secure and reason about. You are very
-welcome to:
+**Two outbound connections, and you trigger both.** OpenStreetMap tiles on the Map tab, and the
+MeshCore firmware list and image from GitHub when you press the button. That is the entire list —
+no analytics, no crash reporter, no Google Play Services, no Firebase, no account, no server of
+mine anywhere. It is a promise you can check with a packet capture, which is why there is no
+crash reporter: one call home, unasked, would end it. The app runs the same on a de-Googled ROM.
 
-- **Use it** — install the signed APK, attach your own MeshCore radio over BLE or USB, and message
-  people. No account, no server, no telemetry.
-- **Fork it** — it's [AGPL-3.0](LICENSE). Build your own version with whatever features you want;
-  that's what the licence is for.
-- **Report security issues** — see **[SECURITY.md](SECURITY.md)**. Vulnerability reports are the
-  one kind of report I actively want; please report privately rather than opening a public issue.
-- **Report bugs** in the *existing* feature set — a focused bug report is welcome.
+**Your secrets are sealed and your history is encrypted.** Login passwords, channel PSKs, community
+secrets and the identity seed live in the Android Keystore (AES-GCM, key in the TEE/StrongBox); if
+the Keystore is unavailable the app declines to store them rather than quietly falling back to
+plaintext. The message database is SQLCipher-encrypted, and Auto Backup is off so none of it
+reaches a cloud backup.
 
-What I'm **not** taking: feature requests, "please add X" issues, or feature PRs — they'll be closed
-unmerged. Not because they're bad ideas, but because every added surface works against the security
-goal. Fork away instead. See [CONTRIBUTING.md](CONTRIBUTING.md) for the full policy.
+**It refuses to overstate what it knows.** Channels are labelled *obfuscated, not secure* on every
+surface, because AES-ECB with a 2-byte MAC is what the protocol mandates. A route hop is named only
+when exactly one contact matches its truncated hash, and stays `(N matches)` otherwise. A delivery
+tick comes from a real end-to-end ACK and nothing else. "Last heard" means when your radio heard
+the node, never what the node claims about itself. Where the app cannot know, it says so.
+
+**Every advert is verified before it can become a contact**, so a forged advert cannot spoof an
+identity or a GPS position, and channel sender names are never trusted for identity, contact
+mutation or echo suppression — they are attacker-controllable display text.
+
+**It is a full client, not a stripped one.** Direct messages and channels with real retry, a node
+map, routing tools, repeater and room administration, and **firmware updates over Bluetooth done
+in the app** — the transfer itself, board confirmed by name, checksum checked, rather than handing
+you off to Nordic's DFU tool. Self-contained is not the same as small.
+
+**Native, and yours to build.** Kotlin Multiplatform with a foreground service for a persistent
+radio link and real system notifications — no Dart runtime, twelve mainstream Android
+dependencies, no third-party SDKs. AGPL-3.0, built and signed by CI from a tagged commit, so what
+you install matches what the release page advertises.
 
 ## Install
 
@@ -147,25 +132,10 @@ the whole reply — while reactions to other people's messages stay quiet. Openi
 clears its notification; you should not have to tap a notification to dismiss something you have
 already read.
 
-**Reactions, and whose format we speak** — MeshCore has no reaction field, and neither does the
-firmware ([issue #880](https://github.com/meshcore-dev/MeshCore/issues/880) proposes one and is
-still open), so every client that offers reactions invents a text convention and hopes the others
-read it. At least two are live:
-
-| Client | Wire format | Target hash |
-|---|---|---|
-| [MeshCore Open](https://github.com/zjs81/meshcore-open) (and forks) | `r:HHHH:II` | Dart `String.hashCode`, 16 bits |
-| [MeshCore One](https://github.com/Avi0n/MeshCoreOne) | `{emoji}@[{sender}]\n{hash}` | SHA-256(text + LE timestamp), 40 bits |
-
-This app **reads both** and **sends MeshCore Open's**. Being open about why, since it is a choice
-and not a technical verdict: MeshCore One's hash is the better design — reproducible from any
-language, where ours reimplements another runtime's `hashCode` by hand — but a reaction only lands
-if the people who see it run a client that reads the same bytes. A survey of the local mesh
-(2026-08-23) came back roughly **6:1 in favour of MeshCore Open**, so that is what we emit.
-
-**That is a headcount, not a principle. If the balance shifts, this switches to the winning
-format.** Whichever convention a reaction arrives in, an unmatched one is rendered as "reacted to
-an earlier message" rather than as raw wire text.
+**Reactions** — MeshCore has no reaction field, so every client that offers them invents a text
+convention. This app reads both conventions on the air and sends the one this mesh mostly runs;
+an unmatched reaction renders as "reacted to an earlier message" rather than as raw wire text.
+Wire formats and the reason for the choice: [`MESHCORE_PROTOCOL.md` §14](MESHCORE_PROTOCOL.md).
 
 **Channels** — 16-byte PSKs, `#hashtag` key derivation, private channels with generated keys, and
 **community QR join** (the community secret is stored in the Keystore and its channels derived from
@@ -230,79 +200,6 @@ redaction-aware diagnostics log that is **off by default**. Each row reports its
 which transports are on, what frequency the radio is using and whether map tiles are being fetched
 are answered without opening anything.
 
-## Compared with the official MeshCore app — and what was dropped
-
-The official MeshCore Android app (`com.liamcottle.meshcore.android`) is written in **Flutter**;
-its UI compiles into `libapp.so`, and pulling the APK and extracting the Dart class names gives a
-complete map of its surface — 97 `*Screen` / `*Sheet` / `*Dialog` classes plus a service layer.
-That inventory is the reference this project was measured against, and it is treated as the
-**floor**: anything it does that MCH doesn't is a gap unless it appears below. MCH is a
-from-scratch native Kotlin client, not a fork — no Dart runtime, and nothing carried over except
-the wire protocol.
-
-Most of that surface is reimplemented. This section is about the rest.
-[`PARITY.md`](PARITY.md) carries the live row-by-row matrix with dates and reasoning; what
-follows is the summary.
-
-### Dropped by design — MCH will not grow these
-
-| Their surface | Why it isn't here |
-|---|---|
-| In-app purchases, Pro features, offline product activation, `BillingService` | There is no commercial layer, so there is no Play Billing dependency to link against. |
-| Crash and bug reporting (`BugsnagManager`, bug-reporting settings) | The app's outbound connections are two, both to public hosts and both something you asked for: map tiles and firmware downloads. That is a checkable promise, and a crash reporter — which phones home about you, unasked — would end it. |
-| Internet Map, "Add Contact from Internet", "Add me to the Map" | All three are server-mediated: they query or publish node positions and identities through their backend. No servers, no accounts. |
-| `AppInfoService`, `DeviceIdService` | Device identifiers exist to be correlated. Nothing here needs one. |
-| RF **coverage** and **line-of-sight** map tools | Cut by decision, not effort. Terrain propagation is a solved problem with better tools than a phone app can be — and a phone-sized approximation would be confidently wrong in exactly the situations you'd rely on it. |
-| Google Play Services, Firebase | Never linked. The app runs the same on a de-Googled ROM. |
-
-Four more were cut when the original scope was set, and have not been revisited: an on-device
-LLM translator (~31 MB of llama.cpp), a GIF picker and remote media, voice / telephony, and a
-Chrome-required web gate.
-
-### Dropped for now — real gaps, listed honestly
-
-- **Languages.** Theirs ships 30+ locales; **MCH is English only**, and for most people this is
-  the biggest thing on the page. It stays that way until someone can check the result:
-  machine-translating safety-critical warning copy — *this link is unencrypted*, *this code is
-  the key*, *channels are obfuscated, not secure* — into a language nobody here reads would be
-  worse than shipping English.
-- **Writing repeater ACL entries.** Reading the access list ships; adding a user does not. The
-  `set` syntax couldn't be confirmed from their binary and no repeater on this mesh supports
-  ACLs to verify against — and the command grants control of someone else's node, which is the
-  worst possible place to guess.
-- **Companion-side factory reset.** The repeater/room CLI `erase` ships behind a confirmation.
-  There is no companion equivalent in the protocol (§4 has reboot, not erase) and their
-  mechanism couldn't be identified, so nothing here wipes your radio.
-- **Print, custom map markers, developer and experimental menus.** Low priority, no security
-  weight.
-- **A Tools hub** — deliberately skipped rather than pending. Every tool (trace, noise floor,
-  discovery, regions) is reachable from the node it applies to; a hub would duplicate navigation
-  without adding capability.
-- **`MessageSettingsScreen`, `ContactSettingsScreen`** — a class-name inventory gives their
-  names and not their behaviour, and these two can't be specified without watching the app run.
-
-### Kept, but deliberately not the way they do it
-
-These are not gaps to close by copying. Each one ships the feature and keeps stricter handling:
-
-| Their behaviour | MCH |
-|---|---|
-| An always-available packet / RX log | Diagnostics are **off by default** and redact `set prv.key`, passwords and long hex before a line is stored. |
-| A hop hash rendered as a node name | A hop is a truncated key hash — two bytes is 16 bits and cheap to collide. A hop is named only when **exactly one** contact matches; otherwise it stays `(N matches)`. Never a silent pick. |
-| A scanned contact card is added | Contact cards are **unsigned**. Scanning one shows the full public key and asks. Signed adverts still go through the verifying import path. |
-| "Block a channel sender" | A MeshCore group message is `"name: text"` inside the ciphertext and carries **no sender key**, so a channel block is not possible. DMs block on the full 32-byte public key; channel names ship as **Hidden channel names**, labelled as the noise filter it is. Calling it blocking is the actual security bug available here. |
-| Region discovery rewrites the target's stored path, then restores it | The contact's existing path is sent as the reply path instead. Clobbering a pinned route — and leaving it clobbered if the app dies mid-request — is worse than a query that goes unanswered. |
-| Channels presented as messaging | Labelled **obfuscated, not secure** on every surface, because AES-ECB with a 2-byte MAC is what the protocol mandates. |
-
-### What you give up by choosing MCH
-
-The official app is the reference implementation: more complete, more widely used, translated,
-and where new MeshCore features land first. MCH is one person's app, explicitly
-[closed to feature requests](#project-scope--personal-app-shared-in-the-open), and its entire
-design goal is to stop growing. If you want the fullest MeshCore client, theirs is the honest
-recommendation. Use this one if the trade you want is the other one — fewer features, no
-telemetry, no billing, two outbound connections you have to ask for, and secrets in the Keystore.
-
 ## Security posture
 
 The protocol spec ([`MESHCORE_PROTOCOL.md`](MESHCORE_PROTOCOL.md)) is reverse-engineered, and §12
@@ -326,6 +223,53 @@ enforced here in code, not just documented:
 - The diagnostics log **redacts** `set prv.key`, passwords, and long hex blobs before a line is
   stored, and it is off by default.
 - Auto Backup is disabled so message history and identity never reach a cloud backup.
+
+## How it compares
+
+The official MeshCore Android app is treated as the **feature floor**: its surface was inventoried
+from its own APK, and anything it does that MCH doesn't is counted as a gap unless there is a
+reason on the record. MCH is a from-scratch native Kotlin client, not a fork — nothing is carried
+over but the wire protocol.
+
+**[`PARITY.md`](PARITY.md) is that comparison**, surface by surface, with dates and reasoning:
+what is done, the handful of rows still open (§13), what is out of scope and why (§11), and the
+places this app deliberately handles something differently rather than copying (§12).
+
+The short version: the commercial layer, the crash reporter, the server-mediated map features and
+the device-identity services are not here and never will be; RF coverage and line-of-sight
+modelling were cut by decision, because a phone-sized approximation of terrain propagation would
+be confidently wrong in exactly the situations you would rely on it. What is left open is listed
+honestly in PARITY rather than quietly dropped.
+
+## Project scope — personal app, shared in the open
+
+MCH is a **personal app, released in the open**. It does what I need an off-grid MeshCore client
+to do, and it is deliberately **closed to new feature requests**. The goal is the opposite of feature
+growth: the smallest, most static attack surface I can keep secure and reason about. You are very
+welcome to:
+
+- **Use it** — install the signed APK, attach your own MeshCore radio over BLE or USB, and message
+  people. No account, no server, no telemetry.
+- **Fork it** — it's [AGPL-3.0](LICENSE). Build your own version with whatever features you want;
+  that's what the licence is for.
+- **Report security issues** — see **[SECURITY.md](SECURITY.md)**. Vulnerability reports are the
+  one kind of report I actively want; please report privately rather than opening a public issue.
+- **Report bugs** in the *existing* feature set — a focused bug report is welcome.
+
+What I'm **not** taking: feature requests, "please add X" issues, or feature PRs — they'll be closed
+unmerged. Not because they're bad ideas, but because every added surface works against the security
+goal. Fork away instead. See [CONTRIBUTING.md](CONTRIBUTING.md) for the full policy.
+
+### What you give up
+
+The official MeshCore Android app is the reference implementation: more complete, more widely used,
+translated into 30+ languages, and where new MeshCore features land first. **MCH is English only**,
+and for most people that is the biggest thing on this page. It is one person's app, closed to
+feature requests, and its design goal is to stop growing.
+
+If you want the fullest MeshCore client, theirs is the honest recommendation. Use this one if the
+trade you want is the other one — fewer features, no telemetry, no billing, two outbound
+connections you have to ask for, and secrets in the Keystore.
 
 ## Build from source
 
@@ -355,16 +299,12 @@ Requires JDK 17+ and the Android SDK (compileSdk 34).
 - **[`PARITY.md`](PARITY.md)** — surface-by-surface comparison against the mainstream MeshCore
   Android app, which is treated as the minimum feature bar: what's done, what's outstanding,
   what's out of scope, and where this app deliberately handles something differently.
-- **[`REUSE.md`](REUSE.md)** — the file-by-file map of what was carried over from
-  reticulum-mobile-app.
+- **[`REUSE.md`](REUSE.md)** — the file-by-file map of what was carried over from the sibling
+  [reticulum-mobile-app](https://github.com/thatSFguy/reticulum-mobile-app), which is where the
+  transports, foreground service and several screens come from.
 - **[`SECURITY_REVIEW.md`](SECURITY_REVIEW.md)** — the 2026-07-31 full-surface security review:
   findings, fixes, accepted risks, and what was verified sound.
 - **[`CLAUDE.md`](CLAUDE.md)** — orientation for a fresh contributor (or agent).
-
-## Licence
-
-[AGPL-3.0-only](LICENSE). Third-party components keep their own licences: osmdroid and ZXing
-(Apache-2.0), SQLCipher (BSD-3-Clause), Bouncy Castle (MIT), AndroidX/Room/Compose (Apache-2.0).
 
 ## iOS
 
@@ -385,48 +325,23 @@ Every push builds it: `shared` compiles and its tests run on Kotlin/Native, and 
 So: installable, and useful for looking at the shell or building on it — **not** a working off-grid
 client. If you want to actually message someone over LoRa today, use the Android build.
 
-### Installing the unsigned IPA
+**Sideloading it** (unsigned IPA, re-signed locally with a free Apple ID), and building it on a
+Mac: [`iosApp/README.md`](iosApp/README.md).
 
-Apple requires every app to be signed by someone. This project has no Apple Developer account, so
-CI ships the IPA **unsigned** and you re-sign it locally with your own free Apple ID — the same
-posture as the sibling [reticulum-mobile-app](https://github.com/thatSFguy/reticulum-mobile-app).
+## Licence
 
-**Where to get it:** the newest green run of the
-[iOS CI workflow](https://github.com/thatSFguy/meshcore-mobile-app/actions/workflows/ios-ci.yml) —
-open it and download the `meshcore-hardened-ios-unsigned` artifact. (GitHub requires you to be
-signed in to download workflow artifacts.) There is no AltStore source and no IPA on the release
-pages yet; the Android releases carry APK/AAB only.
+[AGPL-3.0-only](LICENSE). Third-party components keep their own licences: osmdroid and ZXing
+(Apache-2.0), SQLCipher (BSD-3-Clause), Bouncy Castle (MIT), AndroidX/Room/Compose (Apache-2.0).
 
-#### One-time setup — pick one
+## About the name
 
-1. **Sideloadly** (simplest, no auto-renewal) — install [Sideloadly](https://sideloadly.io/) on a
-   Mac or Windows PC, plug the iPhone in, drag the `.ipa` in, sign in with a free Apple ID, click
-   Start. You re-run it weekly; see renewal below.
-2. **AltStore** (auto-renewing, needs a Mac) — install [AltServer](https://altstore.io/) on a Mac
-   the phone can reach over Wi-Fi after one USB pairing, then AltStore on the phone. It re-signs
-   every 7 days on its own while AltServer is running.
-3. **SideStore** (auto-renewing, no Mac) — [SideStore](https://sidestore.io/) renews on-device
-   using a paired developer disk image; the sign-in is the same free Apple ID flow.
+The app is **MeshCore Hardened**; **MCH** is shorthand, used above and in conversation. The full
+name is what ships — the launcher, the releases and the app itself all say MeshCore Hardened — and
+the word doing the work is *Hardened*, which is a claim about this build that the
+[security posture](#security-posture) section qualifies. Worth knowing if you go looking: **MCH**
+on its own is a crowded acronym (mostly a blood-test value), so searching for it will not find
+this. Search for MeshCore Hardened.
 
-#### First run only — trust the profile
-
-On the phone open **Settings → General → VPN & Device Management → Developer App**, find your
-Apple ID, and tap **Trust**. iOS will not launch a re-signed app until you do.
-
-#### Signature renewal
-
-A free Apple ID signature lasts **7 days**. AltStore and SideStore renew automatically while their
-helper is alive; Sideloadly does not, so you re-run it weekly. Past 7 days the app stops launching
-with "Untrusted Developer" until it is re-signed. A paid Developer Program account ($99/yr) extends
-this to a year — this project doesn't have one, and given the app's whole premise is working with
-no internet and no app-store infrastructure, that is unlikely to change soon.
-
-**Building it yourself** (macOS only — the app is developed on Linux, where nothing Apple compiles):
-
-```bash
-./gradlew :shared:assembleSharedXCFramework
-brew install xcodegen && cd iosApp && xcodegen generate
-open iosApp.xcodeproj
-```
-
-See [`iosApp/README.md`](iosApp/README.md) for the phase plan.
+**Not affiliated with the official MeshCore app.** This is an independent third-party client;
+"Hardened" refers to this build's posture — small attack surface, keystore-sealed secrets,
+encrypted local storage — not to any change in the MeshCore protocol's own guarantees.

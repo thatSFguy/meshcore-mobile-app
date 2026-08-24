@@ -32,9 +32,48 @@ the protocol/engine/transport layer. Not yet wired on real hardware:
 
 ## Build (macOS only)
 
+The app is developed on Linux, where nothing Apple compiles — CI on a macOS runner is the only thing that builds it.
+
+
 ```
 brew install xcodegen
 ./gradlew :shared:assembleSharedXCFramework   # repo root
 cd iosApp && xcodegen generate
 open iosApp.xcodeproj
 ```
+
+## Installing the unsigned IPA
+
+Apple requires every app to be signed by someone. This project has no Apple Developer account, so
+CI ships the IPA **unsigned** and you re-sign it locally with your own free Apple ID — the same
+posture as the sibling [reticulum-mobile-app](https://github.com/thatSFguy/reticulum-mobile-app).
+
+**Where to get it:** the newest green run of the
+[iOS CI workflow](https://github.com/thatSFguy/meshcore-mobile-app/actions/workflows/ios-ci.yml) —
+open it and download the `meshcore-hardened-ios-unsigned` artifact. (GitHub requires you to be
+signed in to download workflow artifacts.) There is no AltStore source and no IPA on the release
+pages yet; the Android releases carry APK/AAB only.
+
+### One-time setup — pick one
+
+1. **Sideloadly** (simplest, no auto-renewal) — install [Sideloadly](https://sideloadly.io/) on a
+   Mac or Windows PC, plug the iPhone in, drag the `.ipa` in, sign in with a free Apple ID, click
+   Start. You re-run it weekly; see renewal below.
+2. **AltStore** (auto-renewing, needs a Mac) — install [AltServer](https://altstore.io/) on a Mac
+   the phone can reach over Wi-Fi after one USB pairing, then AltStore on the phone. It re-signs
+   every 7 days on its own while AltServer is running.
+3. **SideStore** (auto-renewing, no Mac) — [SideStore](https://sidestore.io/) renews on-device
+   using a paired developer disk image; the sign-in is the same free Apple ID flow.
+
+### First run only — trust the profile
+
+On the phone open **Settings → General → VPN & Device Management → Developer App**, find your
+Apple ID, and tap **Trust**. iOS will not launch a re-signed app until you do.
+
+### Signature renewal
+
+A free Apple ID signature lasts **7 days**. AltStore and SideStore renew automatically while their
+helper is alive; Sideloadly does not, so you re-run it weekly. Past 7 days the app stops launching
+with "Untrusted Developer" until it is re-signed. A paid Developer Program account ($99/yr) extends
+this to a year — this project doesn't have one, and given the app's whole premise is working with
+no internet and no app-store infrastructure, that is unlikely to change soon.

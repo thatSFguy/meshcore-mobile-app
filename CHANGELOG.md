@@ -11,6 +11,29 @@ Every entry describes what is in **that tagged build**. A feature that landed af
 belongs in the next section, not this one — 0.3.0 was once credited with four features that
 shipped after it, which misled nobody so much as the author, three months later.
 
+## 0.8.9
+
+**"Last heard" now means when your radio heard the node, not what the node claims.** A repeater
+heard this morning was showing as **"20688 days ago · Jan 1, 1970"** in the node list, and others
+as 830 days. Those nodes are on the air; their clocks are wrong. An advert carries the sending
+node's own clock reading, and MeshCore's firmware keeps it to reject replayed adverts — not as a
+record of when anything was heard. Your own radio stamps its own clock every time it hears a node,
+and that is what every screen reads now.
+
+- **Sort by "Last heard" and the "Heard in last 24 h" filter were the ones that mattered.** They
+  are the controls for finding out who is actually alive, and they were answering with what each
+  node says about itself: a node with a stopped clock could never appear as recently heard however
+  recently it was heard, and one claiming a date in the future sorted to the top for ever. The
+  advert timestamp is attacker-controlled, so that was a sort key anyone could drive.
+- **The node list, the contact sheet and the map popup** showed the same wrong age; the contact
+  sheet's row is now "Last heard".
+- **A node whose clock is wrong is now told about rather than quietly corrected**: the contact
+  sheet adds "Its own clock says …", but only when the node's claim disagrees with what we
+  observed by more than a day. Its owner would otherwise be chasing that as a bug in every client
+  they try.
+- The stale-node sweep added in 0.8.8 already used the right clock; this brings the rest of the
+  app in line with it, through one shared definition instead of five copies.
+
 ## 0.8.8
 
 **The map draws a repeater's neighbours, with the signal it heard them at.** Tapping a pin used

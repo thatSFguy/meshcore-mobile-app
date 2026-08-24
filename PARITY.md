@@ -241,6 +241,7 @@ Notes on this block:
 | `InternetMapScreen`, "Add Contact from Internet", "Add me to the Map" | Server-mediated. No servers, no accounts. |
 | `AppInfoService`, `DeviceIdService` | Device identifiers for analytics. |
 | `OnlineMapManager` beyond tile fetch | Same reason. |
+| Google Play Services, Firebase | Never linked. The app runs the same on a de-Googled ROM, and the two outbound hosts it does use are both something you asked for. |
 | `CoverageMapToolScreen`, `LosMapToolScreen` | RF coverage / line-of-sight modelling. Dedicated tools do this properly, the author already maintains one, and a phone-sized approximation of terrain propagation would be confidently wrong in exactly the situations you'd rely on it. Out by decision (2026-08-01), not by effort. |
 
 ## 12. Where we deliberately differ (⚠ rows)

@@ -55,12 +55,19 @@ interface NodeListItem {
  * Pure, so the rules can be pinned in tests instead of driven on a
  * phone. The screen owns only the menu and the remembered selection.
  *
- * The two clocks in [NodeListItem] are deliberately different units and
- * that is not a wart to tidy: `lastSeen` is the radio's advert
- * timestamp, which arrives from the mesh in seconds, and
- * `lastMessageAt` is our own database's millisecond mark. Converting
- * either one at rest would mean rounding a value the firmware owns.
- * Comparisons here never mix the two.
+ * The clocks in [NodeListItem] are deliberately different units and
+ * that is not a wart to tidy: the two the radio owns arrive from it in
+ * seconds, and `lastMessageAt` is our own database's millisecond mark.
+ * Converting either at rest would mean rounding a value the firmware
+ * owns. Comparisons here never mix them.
+ *
+ * **"Last heard" means [LastHeard], never `lastSeen`.** `lastSeen` is
+ * the timestamp the node put in its own advert — a claim, kept by the
+ * firmware for replay detection. Sorting and filtering on it meant a
+ * node with an unset clock could never appear as recently heard however
+ * recently it was heard, and one claiming a future time sorted to the
+ * top for ever. Seen on a live mesh: a repeater heard that day, ranked
+ * as 20688 days old.
  */
 object NodeListModel {
 
@@ -148,7 +155,8 @@ object NodeListModel {
         // radio's clock is corrected by this app and the mesh carries
         // its own timestamps, so a few seconds of skew either way is
         // ordinary and must not read as "not heard in a day".
-        Filter.ActiveDay -> item.lastSeen > 0 && now - item.lastSeen <= ACTIVE_WINDOW_SECONDS
+        Filter.ActiveDay -> LastHeard.seconds(item) > 0 &&
+            now - LastHeard.seconds(item) <= ACTIVE_WINDOW_SECONDS
     }
 
     private fun <T : NodeListItem> comparatorFor(sort: Sort): Comparator<T> {
@@ -168,7 +176,7 @@ object NodeListModel {
                 // like a guard and was unreachable — no input could
                 // reach it, and the test written to pin it passed with
                 // it deleted.
-                compareByDescending<T> { it.lastSeen }
+                compareByDescending<T> { LastHeard.seconds(it) }
                     .then(byName)
 
             Sort.Name -> byName

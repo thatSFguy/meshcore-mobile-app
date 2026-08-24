@@ -90,6 +90,18 @@ fun AboutSection(vm: MeshCoreViewModel) {
  * is a changelog you can't read in the field.
  */
 private val CHANGELOG: List<Pair<String, List<String>>> = listOf(
+    "0.8.9" to listOf(
+        "\"Last heard\" now means when your radio heard the node, not what the node claims. A " +
+            "repeater heard this morning was showing as \"20688 days ago · Jan 1, 1970\", and " +
+            "others as 830 days — those nodes are on the air; their clocks are wrong.",
+        "Sort by \"Last heard\" and the \"Heard in last 24 h\" filter were the ones that " +
+            "mattered: a node with a stopped clock could never look recently heard however " +
+            "recently it was heard, and one claiming a future date sorted to the top for ever.",
+        "The node list, the contact sheet and the map popup showed the same wrong age.",
+        "A node whose clock is wrong is now told about rather than quietly corrected — the " +
+            "contact sheet says what its own clock claims, but only when that disagrees with " +
+            "what we observed by more than a day.",
+    ),
     "0.8.8" to listOf(
         "The map draws a repeater's neighbours. Tapping a pin used to do nothing; it now opens " +
             "the node, and for a repeater it draws lines to every neighbour the app can place, " +

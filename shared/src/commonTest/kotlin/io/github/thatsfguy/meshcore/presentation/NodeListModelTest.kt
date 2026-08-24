@@ -60,52 +60,82 @@ class NodeListModelTest {
         // I-starred is a partial sort nobody requested. Only Activity
         // floats them, and this is what pins that.
         val nodes = listOf(
-            Node("aa", name = "Anna", lastSeen = now - 60),
-            Node("bb", name = "Ben", flags = favourite, lastSeen = now - 9_000),
+            Node("aa", name = "Anna", lastModified = now - 60),
+            Node("bb", name = "Ben", flags = favourite, lastModified = now - 9_000),
         )
         assertEquals(listOf("aa", "bb"), arrange(nodes, sort = Sort.LastHeard))
         assertEquals(listOf("aa", "bb"), arrange(nodes, sort = Sort.Name))
     }
 
     @Test
-    fun `last heard puts the freshest advert first`() {
+    fun `last heard puts the freshest first`() {
         val nodes = listOf(
-            Node("aa", name = "Old", lastSeen = now - 90_000),
-            Node("bb", name = "Fresh", lastSeen = now - 30),
-            Node("cc", name = "Middling", lastSeen = now - 3_600),
+            Node("aa", name = "Old", lastModified = now - 90_000),
+            Node("bb", name = "Fresh", lastModified = now - 30),
+            Node("cc", name = "Middling", lastModified = now - 3_600),
         )
         assertEquals(listOf("bb", "cc", "aa"), arrange(nodes, sort = Sort.LastHeard))
     }
 
     @Test
     fun `a node never heard sinks below one heard a year ago`() {
-        // lastSeen is 0 for a contact imported from a QR and never since
-        // heard.
+        // The stamp is 0 for a contact imported from a QR and never
+        // since heard.
         val nodes = listOf(
             Node("aa", name = "Never"),
-            Node("bb", name = "Ancient", lastSeen = now - 365 * 86_400),
+            Node("bb", name = "Ancient", lastModified = now - 365 * 86_400),
         )
         assertEquals(listOf("bb", "aa"), arrange(nodes, sort = Sort.LastHeard))
     }
 
     @Test
-    fun `a negative advert timestamp sinks instead of floating to the top`() {
-        // lastSeen comes off the mesh, so the timestamp is
-        // attacker-controlled, and a sort key a hostile advert can drive
-        // is a sort key that puts the attacker's node first. Descending
-        // order sinks it below even a node never heard at all, which is
-        // the correct place for a number that cannot be true.
+    fun `a node with a broken clock is ranked by when WE heard it`() {
+        // The defect this whole helper exists for, seen on a live mesh:
+        // a repeater the radio had heard that morning advertised a
+        // near-zero timestamp — an unset RTC — and every screen ranked
+        // and rendered it as 20688 days old. The advert's claim is the
+        // node's opinion of itself; the sort must use ours.
         val nodes = listOf(
-            Node("aa", name = "Hostile", lastSeen = -1),
+            Node("aa", name = "Broken clock", lastSeen = 1, lastModified = now - 60),
+            Node("bb", name = "Honest", lastSeen = now - 3_600, lastModified = now - 3_600),
+        )
+        assertEquals(listOf("aa", "bb"), arrange(nodes, sort = Sort.LastHeard))
+        // And it is recent, which the filter had been denying it.
+        assertEquals(listOf("aa", "bb"), arrange(nodes, filters = setOf(Filter.ActiveDay)))
+    }
+
+    @Test
+    fun `a node claiming the future cannot camp at the top of the list`() {
+        // The mirror, and the reason this is not merely cosmetic: the
+        // advert timestamp is attacker-controlled, so a node claiming a
+        // date years ahead used to sort first for ever and pass "heard
+        // in the last 24 h" while silent.
+        val nodes = listOf(
+            Node("aa", name = "Liar", lastSeen = now + 365 * 86_400, lastModified = now - 400_000),
+            Node("bb", name = "Real", lastSeen = now - 30, lastModified = now - 30),
+        )
+        assertEquals(listOf("bb", "aa"), arrange(nodes, sort = Sort.LastHeard))
+        assertEquals(listOf("bb"), arrange(nodes, filters = setOf(Filter.ActiveDay)))
+    }
+
+    @Test
+    fun `a negative last-heard stamp sinks instead of floating to the top`() {
+        // The stamp is a u32 read off the radio into a Long, so a
+        // garbage record can still produce a number that cannot be
+        // true, and a sort key like that would put it first. Descending
+        // order sinks it below even a node never heard at all, which is
+        // the correct place for it.
+        val nodes = listOf(
+            Node("aa", name = "Hostile", lastModified = -1),
             Node("bb", name = "Never"),
-            Node("cc", name = "Real", lastSeen = now - 10),
+            Node("cc", name = "Real", lastModified = now - 10),
         )
         assertEquals(listOf("cc", "bb", "aa"), arrange(nodes, sort = Sort.LastHeard))
     }
 
     @Test
-    fun `a negative advert timestamp is never counted as heard today`() {
-        val nodes = listOf(Node("aa", name = "Hostile", lastSeen = -1))
+    fun `a negative last-heard stamp is never counted as heard today`() {
+        val nodes = listOf(Node("aa", name = "Hostile", lastModified = -1))
         assertTrue(arrange(nodes, filters = setOf(Filter.ActiveDay)).isEmpty())
     }
 
@@ -151,8 +181,8 @@ class NodeListModelTest {
         // nodes tying on the sort key must still land in a fixed order
         // or the list reshuffles under the reader's finger on every
         // recomposition.
-        val a = Node("aa11", name = "Same", lastSeen = now, lastMessageAt = 7, pathLen = 0x02)
-        val b = Node("bb22", name = "Same", lastSeen = now, lastMessageAt = 7, pathLen = 0x02)
+        val a = Node("aa11", name = "Same", lastModified = now, lastMessageAt = 7, pathLen = 0x02)
+        val b = Node("bb22", name = "Same", lastModified = now, lastMessageAt = 7, pathLen = 0x02)
         for (sort in Sort.entries) {
             assertEquals(
                 listOf("aa11", "bb22"),
@@ -175,7 +205,7 @@ class NodeListModelTest {
                 name = if (it % 3 == 0) "" else "Node $it",
                 flags = if (it % 5 == 0) favourite else 0,
                 pathLen = if (it % 4 == 0) PathCodec.PATH_LEN_FLOOD else it % 8,
-                lastSeen = if (it % 7 == 0) 0 else now - it * 600L,
+                lastModified = if (it % 7 == 0) 0 else now - it * 600L,
                 lastMessageAt = if (it % 2 == 0) it * 1_000L else 0,
                 unread = it % 3,
             )
@@ -213,9 +243,9 @@ class NodeListModelTest {
     @Test
     fun `heard in the last day keeps the boundary and drops the second past it`() {
         val nodes = listOf(
-            Node("aa", name = "Exactly a day", lastSeen = now - NodeListModel.ACTIVE_WINDOW_SECONDS),
-            Node("bb", name = "A second more", lastSeen = now - NodeListModel.ACTIVE_WINDOW_SECONDS - 1),
-            Node("cc", name = "Recent", lastSeen = now - 30),
+            Node("aa", name = "Exactly a day", lastModified = now - NodeListModel.ACTIVE_WINDOW_SECONDS),
+            Node("bb", name = "A second more", lastModified = now - NodeListModel.ACTIVE_WINDOW_SECONDS - 1),
+            Node("cc", name = "Recent", lastModified = now - 30),
         )
         assertEquals(
             listOf("cc", "aa"),
@@ -229,22 +259,22 @@ class NodeListModelTest {
         // carry their own timestamps, so small skew is ordinary. Reading
         // it as "not heard in a day" would hide the freshest node there
         // is, which is the exact opposite of the filter's purpose.
-        val nodes = listOf(Node("aa", name = "Ahead", lastSeen = now + 120))
+        val nodes = listOf(Node("aa", name = "Ahead", lastModified = now + 120))
         assertEquals(listOf("aa"), arrange(nodes, filters = setOf(Filter.ActiveDay)))
     }
 
     @Test
     fun `a node never heard is not recent whatever the clock says`() {
-        val nodes = listOf(Node("aa", name = "Never", lastSeen = 0))
+        val nodes = listOf(Node("aa", name = "Never", lastModified = 0))
         assertTrue(arrange(nodes, filters = setOf(Filter.ActiveDay)).isEmpty())
     }
 
     @Test
     fun `filters combine with and rather than or`() {
         val nodes = listOf(
-            Node("aa", name = "Fav, stale", flags = favourite, lastSeen = now - 200_000),
-            Node("bb", name = "Fresh, not fav", lastSeen = now - 60),
-            Node("cc", name = "Both", flags = favourite, lastSeen = now - 60),
+            Node("aa", name = "Fav, stale", flags = favourite, lastModified = now - 200_000),
+            Node("bb", name = "Fresh, not fav", lastModified = now - 60),
+            Node("cc", name = "Both", flags = favourite, lastModified = now - 60),
         )
         assertEquals(
             listOf("cc"),
@@ -296,9 +326,9 @@ class NodeListModelTest {
     @Test
     fun `search runs before the filters and both before the order`() {
         val nodes = listOf(
-            Node("aa", name = "Repeater north", flags = favourite, lastSeen = now - 10),
-            Node("bb", name = "Repeater south", lastSeen = now - 20),
-            Node("cc", name = "Sensor north", flags = favourite, lastSeen = now - 30),
+            Node("aa", name = "Repeater north", flags = favourite, lastModified = now - 10),
+            Node("bb", name = "Repeater south", lastModified = now - 20),
+            Node("cc", name = "Sensor north", flags = favourite, lastModified = now - 30),
         )
         assertEquals(
             listOf("aa"),

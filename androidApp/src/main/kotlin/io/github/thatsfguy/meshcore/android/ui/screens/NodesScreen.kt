@@ -59,6 +59,7 @@ import io.github.thatsfguy.meshcore.android.platform.Qr
 import io.github.thatsfguy.meshcore.android.storage.ContactEntity
 import io.github.thatsfguy.meshcore.android.storage.MessageRepository
 import io.github.thatsfguy.meshcore.android.ui.MeshCoreViewModel
+import io.github.thatsfguy.meshcore.presentation.LastHeard
 import io.github.thatsfguy.meshcore.presentation.NodeListModel
 import io.github.thatsfguy.meshcore.presentation.encodePrefill
 import androidx.compose.foundation.rememberScrollState
@@ -515,15 +516,19 @@ private fun ContactRow(
                 overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
             )
         }
-        if (c.lastSeen > 0) {
+        if (LastHeard.seconds(c) > 0) {
             // "14 min ago", not "8/19/26". A date answers a question
             // nobody asks of a mesh node: what matters is whether it was
             // heard recently enough to be worth sending to, and a date
             // makes the reader do that subtraction. Today's adverts all
             // rendered as the same date, which is the case where the
             // column said nothing at all.
+            //
+            // From OUR radio's clock, not the node's own — a repeater
+            // heard this morning read "20688 days ago" here because its
+            // RTC is unset (LastHeard).
             Text(
-                relativeAge(c.lastSeen),
+                relativeAge(LastHeard.seconds(c)),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = androidx.compose.ui.text.style.TextAlign.End,
@@ -612,12 +617,24 @@ fun ContactDetailSheet(
                 DetailRow("Distance away", distance)
             }
 
-            if (contact.lastSeen > 0) {
+            if (LastHeard.seconds(contact) > 0) {
                 DetailRow(
-                    "Last advert heard",
-                    relativeAge(contact.lastSeen) + " · " +
+                    "Last heard",
+                    relativeAge(LastHeard.seconds(contact)) + " · " +
                         DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
-                            .format(Date(contact.lastSeen * 1000)),
+                            .format(Date(LastHeard.seconds(contact) * 1000)),
+                )
+            }
+            // The node's own claim, shown ONLY when it disagrees with
+            // what we observed. It is not a second opinion about when we
+            // heard it — it is a fact about that node's clock, and the
+            // thing its owner would otherwise be chasing as a bug in
+            // every client they try.
+            if (LastHeard.claimDisagrees(contact)) {
+                DetailRow(
+                    "Its own clock says",
+                    DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
+                        .format(Date(contact.lastSeen * 1000)) + " — this node's clock is wrong",
                 )
             }
 

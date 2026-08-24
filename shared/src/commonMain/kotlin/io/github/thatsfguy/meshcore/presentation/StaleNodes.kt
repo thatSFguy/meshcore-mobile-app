@@ -70,7 +70,7 @@ object StaleNodes {
      * [NodeListItem.lastMessageAt] is local MILLIS.
      */
     fun lastEvidenceMillis(node: NodeListItem): Long = maxOf(
-        if (node.lastModified > 0) node.lastModified * 1000L else 0L,
+        LastHeard.millis(node),
         node.lastMessageAt.coerceAtLeast(0L),
     )
 

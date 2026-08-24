@@ -929,3 +929,38 @@ model/         Contact · Channel · Message · Telemetry
 
 This is the seam where a MeshCore protocol layer drops in beside (or in place of) the
 Reticulum/LXMF one.
+
+---
+
+## 14. Reactions — a convention, not a protocol feature
+
+⚠ **Nothing below is in the firmware.** Reactions are ordinary text messages that clients agree to
+render differently, so this section documents what is on the air rather than what the protocol
+defines. It is the one place in this file where a *client* is the citation, because a client is
+all there is to cite.
+
+MeshCore has no reaction field, and neither does the
+firmware ([issue #880](https://github.com/meshcore-dev/MeshCore/issues/880) proposes one and is
+still open), so every client that offers reactions invents a text convention and hopes the others
+read it. At least two are live:
+
+| Client | Wire format | Target hash |
+|---|---|---|
+| [MeshCore Open](https://github.com/zjs81/meshcore-open) (and forks) | `r:HHHH:II` | Dart `String.hashCode`, 16 bits |
+| [MeshCore One](https://github.com/Avi0n/MeshCoreOne) | `{emoji}@[{sender}]\n{hash}` | SHA-256(text + LE timestamp), 40 bits |
+
+This app **reads both** and **sends MeshCore Open's**. Being open about why, since it is a choice
+and not a technical verdict: MeshCore One's hash is the better design — reproducible from any
+language, where ours reimplements another runtime's `hashCode` by hand — but a reaction only lands
+if the people who see it run a client that reads the same bytes. A survey of the local mesh
+(2026-08-23) came back roughly **6:1 in favour of MeshCore Open**, so that is what we emit.
+
+**That is a headcount, not a principle. If the balance shifts, this switches to the winning
+format.** Whichever convention a reaction arrives in, an unmatched one is rendered as "reacted to
+an earlier message" rather than as raw wire text.
+
+**For an implementer:** read both, and treat an unmatched reaction as a reaction to an unknown
+message rather than rendering the raw wire text. The Dart `String.hashCode` reimplementation is
+the fragile half — it copies another runtime's internal hash by hand, and there are no published
+vectors to check it against (their own tests assert only that the hash is deterministic and four
+hex digits), so ours is pinned against captured traffic instead.

@@ -33,6 +33,7 @@ import io.github.thatsfguy.meshcore.android.storage.ContactEntity
 import io.github.thatsfguy.meshcore.android.ui.MeshCoreViewModel
 import io.github.thatsfguy.meshcore.engine.EngineState
 import io.github.thatsfguy.meshcore.presentation.AdminSession
+import io.github.thatsfguy.meshcore.presentation.LastHeard
 import io.github.thatsfguy.meshcore.presentation.NeighbourLink
 import io.github.thatsfguy.meshcore.presentation.collectedLabel
 import io.github.thatsfguy.meshcore.presentation.neighbourOffer
@@ -101,9 +102,11 @@ fun MapNodeSheet(
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.primary,
             )
-            if (contact.lastSeen > 0) {
+            if (LastHeard.seconds(contact) > 0) {
                 Text(
-                    "Last advert ${relativeAge(contact.lastSeen)}",
+                    // Our radio's clock, not the node's claim — see
+                    // LastHeard.
+                    "Last heard ${relativeAge(LastHeard.seconds(contact))}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
