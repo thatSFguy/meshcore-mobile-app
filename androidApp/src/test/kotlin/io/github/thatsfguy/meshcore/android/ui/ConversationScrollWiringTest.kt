@@ -107,4 +107,46 @@ class ConversationScrollWiringTest {
                 screen.contains("listState.firstVisibleItemIndex <= 2"),
         )
     }
+
+
+    // --- the paging race (0.8.6, reported on a 149-message thread) ---
+
+    @Test
+    fun `the load-older row is never the only row in the list`() {
+        // threadCount and threadPaged are separate queries and COUNT(*)
+        // returns before 50 full rows do, so there is a frame on
+        // re-entry where total is known and messages is still empty.
+        // Without this guard the list composes containing exactly one
+        // item — the load-older row — and LazyListState anchors by item
+        // key, so it latches onto it. The messages then arrive in front
+        // of it, that row moves to the far end, and the list dutifully
+        // keeps the latched key in view: the top of the thread.
+        assertTrue(
+            "the load-older row must require at least one message",
+            screen.contains("if (total > messages.size && messages.isNotEmpty())"),
+        )
+    }
+
+    @Test
+    fun `the thread lands on its newest message once its rows arrive`() {
+        // The general defence, and the reason this bug should not have a
+        // sixth outing. The structural anchor holds content that is
+        // ALREADY laid out; it cannot defend against a list that was
+        // composed with different content a frame earlier and anchored
+        // to that. So the invariant is stated outright instead of being
+        // inferred from layout: opening a conversation puts you at its
+        // end, whatever the list did while it was empty.
+        assertTrue(
+            "there must be a one-shot landing scroll",
+            screen.contains("listState.scrollToItem(0)") && screen.contains("landed = true"),
+        )
+        // Once only, or it fights the user: loading older messages
+        // empties and refills the list, and a landing that re-fired
+        // there would throw away the reading position.
+        assertTrue(
+            "the landing must be guarded by a per-thread flag",
+            screen.contains("var landed by remember(kind, peerKey)") &&
+                screen.contains("if (!landed && messages.isNotEmpty())"),
+        )
+    }
 }

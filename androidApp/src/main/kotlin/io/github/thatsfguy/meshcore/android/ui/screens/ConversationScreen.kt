@@ -144,6 +144,26 @@ fun ConversationScreen(
     // new LazyListState starts at index 0: the newest message, at the
     // bottom, which is the only sensible place to open a conversation.
     val listState = remember(kind, peerKey) { LazyListState() }
+    // Whatever the list did while it was waiting for its rows, it ends
+    // up at the newest message once they arrive.
+    //
+    // The structural anchor (reverseLayout + Arrangement.Bottom) holds
+    // content that is ALREADY laid out; it cannot defend against a list
+    // that was composed with different content a frame earlier and
+    // anchored to it. That is the shape of every return of this bug —
+    // three times in the sibling app, twice here — so this stops
+    // depending on the anchor surviving asynchronous arrival and simply
+    // states the invariant: opening a conversation puts you at its end.
+    //
+    // Fires once per thread, on the first non-empty content, so it can
+    // never yank someone who has scrolled back to read.
+    var landed by remember(kind, peerKey) { mutableStateOf(false) }
+    LaunchedEffect(kind, peerKey, messages.isNotEmpty()) {
+        if (!landed && messages.isNotEmpty()) {
+            listState.scrollToItem(0)
+            landed = true
+        }
+    }
     // reverseLayout anchors content that is ALREADY laid out, but a
     // freshly prepended index 0 — the message you just sent — lands just
     // past that anchor, hidden behind the composer and the keyboard. The
@@ -265,7 +285,26 @@ fun ConversationScreen(
                         onMeshcoreLink = { vm.importContactUri(it) },
                     )
                 }
-                if (total > messages.size) {
+                // `messages.isNotEmpty()` is not cosmetic — it is the fix
+                // for a thread opening at its OLDEST message.
+                //
+                // `threadCount` and `threadPaged` are separate queries
+                // and COUNT(*) returns before 50 full rows do, so on
+                // re-entry there is a frame where total is 149 and
+                // messages is still empty. Without this guard the list
+                // is composed containing exactly ONE item — this row —
+                // and LazyListState anchors by item key, so it latches
+                // onto it. When the messages arrive they are inserted
+                // before it, this row moves to the far end, and the list
+                // faithfully keeps the key it latched onto in view: the
+                // top of the thread. A cold start escapes it because
+                // both queries are cold and the list first composes
+                // empty, with no lone row to latch onto — which is
+                // exactly the difference the bug report described.
+                //
+                // Offering "load older" when nothing is shown is
+                // meaningless anyway.
+                if (total > messages.size && messages.isNotEmpty()) {
                     // Last item in a reversed list == top of the screen.
                     item(key = "load_older") {
                         TextButton(

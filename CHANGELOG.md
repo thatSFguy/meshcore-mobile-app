@@ -11,6 +11,32 @@ Every entry describes what is in **that tagged build**. A feature that landed af
 belongs in the next section, not this one — 0.3.0 was once credited with four features that
 shipped after it, which misled nobody so much as the author, three months later.
 
+## 0.8.7
+
+**A long conversation opens at its newest message, not at its oldest.** Reported on a thread of
+about 150 messages: a force-stop and a fresh open landed correctly, but leaving the chat and going
+back in put you at the very top, above "Load older (99 more)", with the whole thread to scroll
+back down.
+
+- **The "Load older" row is no longer rendered when no messages are showing yet.** The message
+  count and the messages themselves are two separate database queries, and counting is faster than
+  fetching fifty rows — so for a moment after re-entering a chat the list contained exactly one
+  item, that row. A list remembers its position by which item was in view, so it held on to that
+  row; when the messages then arrived in front of it, it kept faithfully showing the row, which had
+  become the top of the thread. Offering to load older messages when none are shown was meaningless
+  anyway.
+- **A conversation now lands on its newest message once its contents arrive**, whatever the list
+  did while it was still empty. The previous fixes all relied on the list's own bottom-anchoring
+  surviving every way a thread can be filled in, and this bug found another way. Stating the rule
+  outright ends that class of failure rather than the latest instance of it. It happens once per
+  conversation, so loading older messages still keeps your place — and so does scrolling back to
+  read while new messages arrive.
+
+**The reaction format this app sends is now written down in the README**, along with the reason:
+a survey of the local mesh came back about 6:1 in favour of MeshCore Open's convention, so that is
+what goes on the air even though MeshCore One's hash is the better design. If the balance shifts,
+the app switches. Both are read either way.
+
 ## 0.8.6
 
 **Reactions from MeshCore One now land on the message they were meant for.** They were

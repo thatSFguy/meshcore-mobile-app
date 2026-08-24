@@ -147,6 +147,26 @@ the whole reply — while reactions to other people's messages stay quiet. Openi
 clears its notification; you should not have to tap a notification to dismiss something you have
 already read.
 
+**Reactions, and whose format we speak** — MeshCore has no reaction field, and neither does the
+firmware ([issue #880](https://github.com/meshcore-dev/MeshCore/issues/880) proposes one and is
+still open), so every client that offers reactions invents a text convention and hopes the others
+read it. At least two are live:
+
+| Client | Wire format | Target hash |
+|---|---|---|
+| [MeshCore Open](https://github.com/zjs81/meshcore-open) (and forks) | `r:HHHH:II` | Dart `String.hashCode`, 16 bits |
+| [MeshCore One](https://github.com/Avi0n/MeshCoreOne) | `{emoji}@[{sender}]\n{hash}` | SHA-256(text + LE timestamp), 40 bits |
+
+This app **reads both** and **sends MeshCore Open's**. Being open about why, since it is a choice
+and not a technical verdict: MeshCore One's hash is the better design — reproducible from any
+language, where ours reimplements another runtime's `hashCode` by hand — but a reaction only lands
+if the people who see it run a client that reads the same bytes. A survey of the local mesh
+(2026-08-23) came back roughly **6:1 in favour of MeshCore Open**, so that is what we emit.
+
+**That is a headcount, not a principle. If the balance shifts, this switches to the winning
+format.** Whichever convention a reaction arrives in, an unmatched one is rendered as "reacted to
+an earlier message" rather than as raw wire text.
+
 **Channels** — 16-byte PSKs, `#hashtag` key derivation, private channels with generated keys, and
 **community QR join** (the community secret is stored in the Keystore and its channels derived from
 it). Channels are presented as *obfuscated, not secure* — see the security note below.

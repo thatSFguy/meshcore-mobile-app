@@ -90,6 +90,22 @@ fun AboutSection(vm: MeshCoreViewModel) {
  * is a changelog you can't read in the field.
  */
 private val CHANGELOG: List<Pair<String, List<String>>> = listOf(
+    "0.8.7" to listOf(
+        "A long conversation opens at its newest message, not at its oldest. Leaving a big " +
+            "chat and going back in put you at the very top, above \"Load older\", with the " +
+            "whole thread to scroll back down.",
+        "The \"Load older\" row is no longer shown before any messages are. The count and the " +
+            "messages are separate database queries and counting is faster, so for a moment the " +
+            "list held only that row — and a list remembers its position by which item was " +
+            "in view, so it clung to it while the messages arrived in front of it.",
+        "A conversation now lands on its newest message once its contents arrive, whatever the " +
+            "list did while it was empty. Earlier fixes relied on the list anchoring itself " +
+            "correctly through every way a thread can fill in; this states the rule outright. " +
+            "It happens once per conversation, so loading older messages keeps your place.",
+        "The README now records which reaction format this app sends and why — a survey of " +
+            "the local mesh came back about 6:1 in favour of MeshCore Open's. If that changes, " +
+            "the app switches. Both formats are read either way.",
+    ),
     "0.8.6" to listOf(
         "Reactions from MeshCore One land on the right message. They were arriving as " +
             "ordinary messages reading an emoji, a name in brackets and eight " +
