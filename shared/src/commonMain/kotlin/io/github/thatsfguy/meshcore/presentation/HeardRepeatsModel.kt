@@ -15,7 +15,7 @@ import io.github.thatsfguy.meshcore.util.hexToBytes
  */
 data class RepeatRow(
     val hashHex: String,
-    /** "b389 Blue Ridge", "b389 (2 matches)", or the bare hash. */
+    /** "b389 Blue Ridge", "b389 Blue Ridge or Other", or the bare hash. */
     val label: String,
     val direction: String,
     val relayed: Int,
@@ -37,7 +37,8 @@ data class RepeatRow(
  * Hop naming goes through [PathCodec.resolveHops] rather than matching
  * keys here: a hop is a truncated hash, two bytes is 16 bits, and
  * collisions are ordinary. Exactly one match gets a name; more than one
- * stays "(N matches)". Calling the shared resolver instead of repeating
+ * names every candidate and resolves to none. Calling the shared
+ * resolver instead of repeating
  * its four-line filter is deliberate — that filter is a rule, and a rule
  * copied is a rule that drifts.
  */

@@ -26,7 +26,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
@@ -136,7 +136,14 @@ fun ConversationScreen(
     var pendingUrl by remember { mutableStateOf<String?>(null) }
     var reactingTo by remember { mutableStateOf<MessageEntity?>(null) }
     var details by remember { mutableStateOf<MessageEntity?>(null) }
-    val listState = rememberLazyListState()
+    // Deliberately NOT rememberLazyListState(): that is a saveable, so
+    // a thread reopened from the back stack restores wherever the user
+    // was last time — which for a chat means opening at a message from
+    // days ago and scrolling down through everything since. Keyed to the
+    // thread, the state is new each time the screen is entered, and a
+    // new LazyListState starts at index 0: the newest message, at the
+    // bottom, which is the only sensible place to open a conversation.
+    val listState = remember(kind, peerKey) { LazyListState() }
     // reverseLayout anchors content that is ALREADY laid out, but a
     // freshly prepended index 0 — the message you just sent — lands just
     // past that anchor, hidden behind the composer and the keyboard. The
@@ -226,7 +233,20 @@ fun ConversationScreen(
             LazyColumn(
                 state = listState,
                 modifier = Modifier.weight(1f).fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
+                // Alignment.Bottom is NOT decoration — it is the anchor.
+                // `reverseLayout = true` makes a LazyColumn default to
+                // Arrangement.Bottom, which is what packs a thread
+                // shorter than the viewport against the composer. Naming
+                // any arrangement replaces that default, and
+                // `spacedBy(4.dp)` alone means spacedBy(4.dp,
+                // Alignment.Top) — so the spacing between bubbles, added
+                // for looks, quietly cancelled the anchor the whole
+                // screen is built on. Every short thread then floated at
+                // the top of the list with a hole above the composer,
+                // and opening the keyboard pushed the newest bubbles out
+                // of the shrunken viewport instead of keeping them
+                // pinned to its bottom edge.
+                verticalArrangement = Arrangement.spacedBy(4.dp, Alignment.Bottom),
                 reverseLayout = true,
             ) {
                 items(messages, key = { it.id }) { m ->
@@ -315,6 +335,10 @@ fun ConversationScreen(
             // hops instead of showing bare hashes.
             contactNames = vm.liveContacts.collectAsState().value
                 .values.associate { it.publicKeyHex to it.name },
+            // Orders the candidates of an ambiguous hop nearest-first.
+            // Resolved once here rather than per row: it walks the whole
+            // contact list, and a route redraws on every arrival.
+            metresAway = remember(details) { vm.metresFromThisRadio() },
             onDismiss = { details = null },
         )
     }
@@ -858,6 +882,7 @@ private fun MessageInfoSheet(
     isChannel: Boolean,
     showSender: Boolean,
     contactNames: Map<String, String>,
+    metresAway: (String) -> Double?,
     onDismiss: () -> Unit,
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss) {
@@ -900,7 +925,7 @@ private fun MessageInfoSheet(
             hopsLabel(m.hops)?.let { InfoRow("Hops travelled", it) }
             if (!m.outgoing) {
                 MessagePathMap(vm, m, senderLabel)
-                ArrivalRoute(m, contactNames)
+                ArrivalRoute(m, contactNames, metresAway)
             } else {
                 RepeatedBy(m, contactNames)
             }
@@ -932,7 +957,11 @@ private fun MessageInfoSheet(
  * sentence saying so, not an empty diagram (see HeardVia).
  */
 @Composable
-private fun ArrivalRoute(m: MessageEntity, contactNames: Map<String, String>) {
+private fun ArrivalRoute(
+    m: MessageEntity,
+    contactNames: Map<String, String>,
+    metresAway: (String) -> Double?,
+) {
     val width = m.arrivalHashWidth?.takeIf { it in 1..4 }
     val path = m.arrivalPathHex?.takeIf { it.isNotEmpty() && width != null }
     Spacer(Modifier.height(8.dp))
@@ -946,7 +975,7 @@ private fun ArrivalRoute(m: MessageEntity, contactNames: Map<String, String>) {
         return
     }
     val bytes = io.github.thatsfguy.meshcore.util.hexToBytesOrNull(path) ?: return
-    val hops = PathCodec.resolveHops(bytes, width, contactNames)
+    val hops = PathCodec.resolveHops(bytes, width, contactNames, metresAway)
     Text(
         HeardVia.summary(m.hops, path, width),
         style = MaterialTheme.typography.bodySmall,
@@ -957,9 +986,12 @@ private fun ArrivalRoute(m: MessageEntity, contactNames: Map<String, String>) {
     // message, then us. Reading it top-to-bottom IS the journey.
     RouteStep("↑", "sender", dim = true)
     hops.forEachIndexed { i, hop ->
-        // An ambiguous hop stays a hash. A 2-byte hop is 16 bits: several
-        // nodes can share one and one can be manufactured cheaply, so
-        // naming a winner would be a guess presented as a fact (PARITY §12).
+        // An ambiguous hop names every node it could be, nearest
+        // first, and never picks one. A 2-byte hop is 16 bits: nodes
+        // share one honestly and a collision is cheap to manufacture, so
+        // naming a winner would be a guess presented as a fact (PARITY
+        // §12) — but naming the whole set is just the truth, and it is
+        // what the reader came to the sheet for.
         RouteStep("${i + 1}.", hop.label)
     }
     RouteStep("↓", "this radio", dim = true)

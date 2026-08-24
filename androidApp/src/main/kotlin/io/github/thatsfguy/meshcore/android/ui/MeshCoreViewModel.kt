@@ -62,6 +62,8 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import io.github.thatsfguy.meshcore.presentation.RekeyFlow
+import io.github.thatsfguy.meshcore.util.haversineMetres
+import io.github.thatsfguy.meshcore.util.isPlausiblePosition
 import io.github.thatsfguy.meshcore.protocol.IdentityKey
 import org.json.JSONObject
 
@@ -2003,6 +2005,36 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
         val known = knownNodes()
         return withContext(Dispatchers.Default) {
             IdentityKeygen.generate(crypto, widthBytes, known)
+        }
+    }
+
+    /**
+     * Metres from this radio to a contact, or null when either end has
+     * no usable position.
+     *
+     * Used to order the candidates of an ambiguous hop: two nodes that
+     * share a truncated hash are told apart by where they are, and the
+     * one you can see from here is the likelier carrier of a packet that
+     * reached here. It never picks one — [TracePath.Hop] still names
+     * every candidate; this only decides which is read first.
+     *
+     * Null for a node that has never advertised a position, and null for
+     * everything when this radio has none: a missing position is
+     * unknown, not "here", and the ordering keeps it last rather than
+     * ranking it as the nearest thing on the mesh.
+     */
+    fun metresFromThisRadio(): (String) -> Double? {
+        val self = _service.value?.engine?.selfInfo?.value
+        if (self == null || !isPlausiblePosition(self.latitude, self.longitude)) {
+            return { null }
+        }
+        val positions = dbContacts.value
+            .filter { isPlausiblePosition(it.latitude, it.longitude) }
+            .associate { it.keyHex.lowercase() to (it.latitude!! to it.longitude!!) }
+        return { keyHex ->
+            positions[keyHex.lowercase()]?.let { (lat, lon) ->
+                haversineMetres(self.latitude, self.longitude, lat, lon)
+            }
         }
     }
 

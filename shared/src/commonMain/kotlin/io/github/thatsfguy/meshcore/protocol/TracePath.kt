@@ -202,19 +202,50 @@ object PathCodec {
     data class Hop(
         /** The hop hash as lower-case hex, e.g. "b389". */
         val hashHex: String,
-        /** Names of every contact whose key starts with [hashHex]. */
+        /**
+         * Names of every contact whose key starts with [hashHex],
+         * nearest first when the caller gave [resolveHops] a distance.
+         */
         val candidates: List<String>,
     ) {
         val isResolved: Boolean get() = candidates.size == 1
         val isAmbiguous: Boolean get() = candidates.size > 1
 
-        /** "b389 SpartaMI", "b389 (2 matches)", or "b389". */
+        /**
+         * "b389 SpartaMI", "b389 SpartaMI or Impostor", or "b389".
+         *
+         * An ambiguous hop NAMES its candidates rather than counting
+         * them. "(2 matches)" was true and useless: the reader is
+         * looking at a route to work out who carried something, and a
+         * count tells them only that the app knows something it will not
+         * say. Naming every possibility asserts no identity — "A or B"
+         * cannot be misread as a resolution the way a single name could
+         * — which is the guarantee this class exists to keep (PARITY
+         * §12: a truncated hash is not an identity).
+         *
+         * Long lists stay readable: past [NAMED_CANDIDATES] the rest are
+         * counted, because a hop matching six nodes is telling you about
+         * the width of the hash, not about six nodes.
+         */
         val label: String
             get() = when {
                 isResolved -> "$hashHex ${candidates[0]}"
-                isAmbiguous -> "$hashHex (${candidates.size} matches)"
+                isAmbiguous -> "$hashHex " + orList(candidates)
                 else -> hashHex
             }
+    }
+
+    /** How many candidates an ambiguous hop names before it counts. */
+    const val NAMED_CANDIDATES = 3
+
+    /** "A or B", "A, B or C", "A, B or 3 others". */
+    private fun orList(names: List<String>): String {
+        if (names.size <= NAMED_CANDIDATES) {
+            return names.dropLast(1).joinToString(", ") + " or " + names.last()
+        }
+        val shown = names.take(NAMED_CANDIDATES)
+        val rest = names.size - NAMED_CANDIDATES
+        return shown.joinToString(", ") + " or $rest other" + if (rest == 1) "" else "s"
     }
 
     /**
@@ -225,15 +256,30 @@ object PathCodec {
         path: ByteArray,
         hashWidth: Int,
         contactsByKeyHex: Map<String, String>,
+        metresAway: ((keyHex: String) -> Double?)? = null,
     ): List<Hop> {
         val width = hashWidth.coerceIn(1, 4)
         return path.toList().chunked(width) { chunk ->
             val hex = chunk.toByteArray().toHex()
-            val candidates = contactsByKeyHex.entries
+            val matched = contactsByKeyHex.entries
                 .filter { it.key.startsWith(hex, ignoreCase = true) }
-                .map { it.value.ifBlank { it.key.take(12) } }
-                .sorted()
-            Hop(hashHex = hex, candidates = candidates)
+                .map { it.key to it.value.ifBlank { it.key.take(12) } }
+            // Nearest first when distances are known, alphabetical
+            // otherwise — and a node whose distance is unknown sorts
+            // AFTER every node whose distance is known rather than
+            // ranking as if it were at zero. Unknown is not near.
+            val ordered = if (metresAway == null) {
+                matched.sortedBy { it.second }
+            } else {
+                matched.sortedWith(
+                    compareBy(
+                        { metresAway(it.first) == null },
+                        { metresAway(it.first) ?: 0.0 },
+                        { it.second },
+                    ),
+                )
+            }
+            Hop(hashHex = hex, candidates = ordered.map { it.second })
         }
     }
 

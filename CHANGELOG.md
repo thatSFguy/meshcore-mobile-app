@@ -11,6 +11,32 @@ Every entry describes what is in **that tagged build**. A feature that landed af
 belongs in the next section, not this one — 0.3.0 was once credited with four features that
 shipped after it, which misled nobody so much as the author, three months later.
 
+## 0.8.5
+
+**Chats open at the newest message again.** Two faults, both of which made a conversation
+look like it had lost its place.
+
+- **The bottom anchor had been switched off by four decorative pixels.** A reversed message
+  list packs its content against the composer — that is what keeps the newest bubble visible
+  when you enter a thread, when one arrives, and when the keyboard opens. Naming any
+  arrangement replaces that default, and the 4dp gap between bubbles was doing exactly that:
+  short threads floated at the top of the screen with a hole above the composer, and opening
+  the keyboard pushed the newest messages out of the shrunken view instead of keeping them
+  pinned to it.
+- **A thread reopened wherever you last left it**, which for a chat means opening at a
+  message from days ago and scrolling down through everything since. A conversation now
+  opens at its newest message, every time.
+
+**A route step that could be more than one node now names them.** A hop in a path is a
+truncated hash of a public key — two bytes in the usual case — so more than one node can
+answer to it, and the app has always refused to guess which. It said "(2 matches)", which is
+true and no use to someone reading a route to work out who carried a message. It now names
+every candidate — "b389 SpartaMI or Impostor" — which asserts no identity and is what the
+reader came for. **The nearest node is listed first**, measured from this radio where both
+ends have advertised a position, since the one you can see from here is the likelier carrier.
+A node whose position is unknown is listed after every node whose position is known: unknown
+is not near.
+
 ## 0.8.4
 
 **The admin command box no longer autocorrects what you type.** It was an ordinary text

@@ -90,6 +90,21 @@ fun AboutSection(vm: MeshCoreViewModel) {
  * is a changelog you can't read in the field.
  */
 private val CHANGELOG: List<Pair<String, List<String>>> = listOf(
+    "0.8.5" to listOf(
+        "Chats open at the newest message again. A reversed message list packs its " +
+            "content against the composer — that is what keeps the newest bubble " +
+            "visible on entry, on arrival and when the keyboard opens — and the 4dp " +
+            "gap between bubbles had quietly replaced that default. Short threads floated " +
+            "at the top with a hole above the composer, and the keyboard pushed the newest " +
+            "messages out of view.",
+        "A thread no longer reopens wherever you last left it, which for a chat meant " +
+            "opening days back and scrolling down through everything since.",
+        "A route step that could be more than one node now names them, nearest first, " +
+            "instead of saying \"(2 matches)\". A hop is a truncated hash, so several nodes " +
+            "can answer to it; naming them all asserts nothing, and the nearest is the " +
+            "likelier carrier. A node with no known position is listed last — unknown " +
+            "is not near.",
+    ),
     "0.8.4" to listOf(
         "Replacing a repeater's identity key can restart the node, and no longer leaves " +
             "you waiting for it. The confirmation dialog has a \"Restart the node now\" " +

@@ -52,9 +52,79 @@ class HopResolutionTest {
         assertEquals(2, hop.candidates.size)
         assertTrue(hop.candidates.contains("SpartaMI"))
         assertTrue(hop.candidates.contains("Impostor"))
-        // The label must not assert either identity.
-        assertEquals("b389 (2 matches)", hop.label)
-        assertFalse(hop.label.contains("SpartaMI"))
+        // The label NAMES both and asserts neither. "(2 matches)" was
+        // the old wording: true, and useless to someone reading a route
+        // to work out who carried a message. "A or B" cannot be misread
+        // as a resolution, which is the guarantee that matters.
+        assertEquals("b389 Impostor or SpartaMI", hop.label)
+        assertTrue(hop.label.contains("SpartaMI"))
+        assertTrue(hop.label.contains("Impostor"))
+        assertTrue(hop.label.contains(" or "))
+    }
+
+    @Test
+    fun `an ambiguous hop lists its candidates nearest first`() {
+        // Two nodes sharing a truncated hash are told apart by where
+        // they are, and the one you can see from here is the likelier
+        // carrier of a packet that arrived here. Ordering is a hint;
+        // both are still named.
+        val colliding = contacts + mapOf(
+            "b389ffffffff0000000000000000000000000000000000000000000000000000" to "Impostor",
+        )
+        val far = mapOf(
+            "b389548d314a0000000000000000000000000000000000000000000000000000" to 54_000.0,
+            "b389ffffffff0000000000000000000000000000000000000000000000000000" to 3_200.0,
+        )
+        val hop = PathCodec.resolveHops(path(0xb3, 0x89), 2, colliding) { far[it] }.single()
+        assertEquals(listOf("Impostor", "SpartaMI"), hop.candidates)
+
+        // Reverse the distances and the order follows, so this is the
+        // distance talking and not the alphabet agreeing by accident.
+        val swapped = mapOf(
+            "b389548d314a0000000000000000000000000000000000000000000000000000" to 1_000.0,
+            "b389ffffffff0000000000000000000000000000000000000000000000000000" to 90_000.0,
+        )
+        val hop2 = PathCodec.resolveHops(path(0xb3, 0x89), 2, colliding) { swapped[it] }.single()
+        assertEquals(listOf("SpartaMI", "Impostor"), hop2.candidates)
+    }
+
+    @Test
+    fun `a node with no position sorts after every node that has one`() {
+        // Unknown is not near. Treating a missing position as zero would
+        // put the node nobody can place at the top of the list, which is
+        // the opposite of what the ordering is for.
+        val colliding = contacts + mapOf(
+            "b389ffffffff0000000000000000000000000000000000000000000000000000" to "Impostor",
+        )
+        val onlyFarKnown = mapOf(
+            "b389548d314a0000000000000000000000000000000000000000000000000000" to 54_000.0,
+        )
+        val hop = PathCodec.resolveHops(path(0xb3, 0x89), 2, colliding) { onlyFarKnown[it] }
+            .single()
+        assertEquals(listOf("SpartaMI", "Impostor"), hop.candidates)
+    }
+
+    @Test
+    fun `a crowded hop names three and counts the rest`() {
+        // Past three the list is telling you about the width of the hash
+        // rather than about the nodes.
+        val crowd = (1..6).associate {
+            "b389" + "0".repeat(59) + it to "Node$it"
+        }
+        val hop = PathCodec.resolveHops(path(0xb3, 0x89), 2, crowd).single()
+        assertEquals(6, hop.candidates.size)
+        assertEquals("b389 Node1, Node2, Node3 or 3 others", hop.label)
+    }
+
+    @Test
+    fun `one extra candidate past the cap is one other`() {
+        val crowd = (1..4).associate {
+            "b389" + "0".repeat(59) + it to "Node$it"
+        }
+        assertEquals(
+            "b389 Node1, Node2, Node3 or 1 other",
+            PathCodec.resolveHops(path(0xb3, 0x89), 2, crowd).single().label,
+        )
     }
 
     @Test

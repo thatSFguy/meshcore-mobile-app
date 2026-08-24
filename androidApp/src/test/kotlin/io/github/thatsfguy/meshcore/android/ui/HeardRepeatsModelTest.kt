@@ -42,16 +42,19 @@ class HeardRepeatsModelTest {
     }
 
     @Test
-    fun `a hop matching two contacts is never named`() {
+    fun `a hop matching two contacts names both and picks neither`() {
         // 16 bits collide. Picking one would put a specific repeater's
-        // name against traffic it may never have touched.
+        // name against traffic it may never have touched — but naming
+        // both asserts nothing and is what the reader needs, so the
+        // label lists them and the row stays flagged ambiguous.
         val colliding = mapOf(
             blue to "Blue Ridge",
             "b389cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc" to "Other",
         )
         val row = repeatRows(listOf(echo("b389")), colliding, nowMillis = 10_000L).single()
-        assertEquals("b389 (2 matches)", row.label)
+        assertEquals("b389 Blue Ridge or Other", row.label)
         assertTrue(row.isAmbiguous)
+        assertFalse(row.label == "b389 Blue Ridge")
     }
 
     @Test
