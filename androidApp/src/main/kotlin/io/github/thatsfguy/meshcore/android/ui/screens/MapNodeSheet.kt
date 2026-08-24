@@ -149,7 +149,12 @@ fun MapNodeSheet(
                     },
                 ) { Text(offer.fetchLabel) }
             }
-            if (busy) SectionSpinner("Asking the node…")
+            if (busy) {
+                SectionSpinner("Asking the node…")
+                // What the radio actually reported, rather than a
+                // spinner that reads the same at second 1 and second 60.
+                RequestProgressHint(vm, contact.keyHex)
+            }
             HintText(offer.fetchHint)
             note?.let { HintText(it) }
 

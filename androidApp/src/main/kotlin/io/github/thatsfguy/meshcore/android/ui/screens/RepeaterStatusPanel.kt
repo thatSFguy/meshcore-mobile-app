@@ -85,7 +85,10 @@ fun RepeaterStatusPanel(vm: MeshCoreViewModel, keyHex: String) {
                 },
             ) { Text("Fetch telemetry") }
         }
-        if (loading) SectionSpinner("Waiting for the node…")
+        if (loading) {
+            SectionSpinner("Waiting for the node…")
+            RequestProgressHint(vm, keyHex)
+        }
         note?.let { HintText(it) }
 
         // --- Access list -------------------------------------------------
@@ -191,7 +194,10 @@ private fun AccessListSection(vm: MeshCoreViewModel, keyHex: String) {
             },
         ) { Text("Fetch access list") }
     }
-    if (loading) SectionSpinner("Asking the node…")
+    if (loading) {
+        SectionSpinner("Asking the node…")
+        RequestProgressHint(vm, keyHex)
+    }
     note?.let { HintText(it) }
     entries?.let { list ->
         if (list.isEmpty()) {
@@ -397,7 +403,10 @@ private fun NeighboursSection(vm: MeshCoreViewModel, keyHex: String) {
         // with nothing to say why.
         HintText("They answer over the air; this takes about a minute.")
     }
-    if (loading && !probing) SectionSpinner("Asking the node…")
+    if (loading && !probing) {
+        SectionSpinner("Asking the node…")
+        RequestProgressHint(vm, keyHex)
+    }
     note?.let { HintText(it) }
 
     table?.let { t ->

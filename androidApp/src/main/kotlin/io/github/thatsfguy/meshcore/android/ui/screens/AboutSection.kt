@@ -90,6 +90,21 @@ fun AboutSection(vm: MeshCoreViewModel) {
  * is a changelog you can't read in the field.
  */
 private val CHANGELOG: List<Pair<String, List<String>>> = listOf(
+    "0.8.10" to listOf(
+        "A repeater far away is given the time the radio says it needs. Fetching status, the " +
+            "access list or the neighbour table waited a flat 30 seconds however far the node " +
+            "was — while signing in to the same node already used the radio's own estimate. " +
+            "That is why a distant repeater would let you log in and then fail every fetch.",
+        "The wait now comes from the radio's own figure, computed from the airtime and hop " +
+            "count of the path it just used, doubled because a fetch has to come back too, and " +
+            "held between 20 and 90 seconds.",
+        "The wait says what is actually known: \"Sent over the stored path · reply expected " +
+            "within 34s\", counting down, and then \"past the radio's estimate, still " +
+            "listening\" — rather than a spinner that reads the same at second 1 and second 60.",
+        "No extra retry was added: a signed-in request already tries, resets the route and " +
+            "tries again, re-authenticates and tries a third time. Each of those now gets the " +
+            "proper wait, which was the actual problem.",
+    ),
     "0.8.9" to listOf(
         "\"Last heard\" now means when your radio heard the node, not what the node claims. A " +
             "repeater heard this morning was showing as \"20688 days ago · Jan 1, 1970\", and " +

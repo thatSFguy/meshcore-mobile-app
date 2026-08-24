@@ -9,6 +9,7 @@ import io.github.thatsfguy.meshcore.presentation.NeighbourRecord
 import io.github.thatsfguy.meshcore.presentation.StaleNodes
 import io.github.thatsfguy.meshcore.presentation.neighbourWrite
 import io.github.thatsfguy.meshcore.protocol.PathCodec
+import io.github.thatsfguy.meshcore.protocol.BinaryRequestBudget
 import io.github.thatsfguy.meshcore.protocol.PathRecovery
 import android.app.Application
 import android.content.ComponentName
@@ -1603,6 +1604,26 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
     private val _adminSessions = MutableStateFlow<Map<String, AdminSession>>(emptyMap())
     val adminSessions: StateFlow<Map<String, AdminSession>> = _adminSessions
 
+    /**
+     * What the radio said when it put a request to this node on the air,
+     * per node key — cleared when the answer arrives or the wait ends.
+     *
+     * The only genuine progress a LoRa request has. A spinner alone
+     * reads the same whether the radio never transmitted, the request
+     * is in flight, or the node's own estimate has already passed.
+     */
+    private val _requestInFlight =
+        MutableStateFlow<Map<String, BinaryRequestBudget.InFlight>>(emptyMap())
+    val requestInFlight: StateFlow<Map<String, BinaryRequestBudget.InFlight>> = _requestInFlight
+
+    private fun markInFlight(keyHex: String, inFlight: BinaryRequestBudget.InFlight?) {
+        _requestInFlight.value = if (inFlight == null) {
+            _requestInFlight.value - keyHex
+        } else {
+            _requestInFlight.value + (keyHex to inFlight)
+        }
+    }
+
     /** True while a login round-trip is in flight, per node. */
     private val _loginInFlight = MutableStateFlow<Set<String>>(emptySet())
     val loginInFlight: StateFlow<Set<String>> = _loginInFlight
@@ -1841,7 +1862,13 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
     suspend fun repeaterStatus(keyHex: String): io.github.thatsfguy.meshcore.protocol.RepeaterStatus? {
         val svc = _service.value ?: return null
         val key = hexToBytesOrNull(keyHex) ?: return null
-        return withPathRecovery(keyHex) { svc.engine.repeaterStatus(key) }
+        return try {
+            withPathRecovery(keyHex) {
+                svc.engine.repeaterStatus(key) { markInFlight(keyHex, it) }
+            }
+        } finally {
+            markInFlight(keyHex, null)
+        }
     }
 
     suspend fun repeaterTelemetry(keyHex: String): List<io.github.thatsfguy.meshcore.protocol.TelemetryReading> {
@@ -1961,7 +1988,13 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
         val svc = _service.value ?: return null
         val key = hexToBytesOrNull(keyHex) ?: return null
         val request = io.github.thatsfguy.meshcore.protocol.Neighbours.Request(offset = offset)
-        val table = withPathRecovery(keyHex) { svc.engine.requestNeighbours(key, request) }
+        val table = try {
+            withPathRecovery(keyHex) {
+                svc.engine.requestNeighbours(key, request) { markInFlight(keyHex, it) }
+            }
+        } finally {
+            markInFlight(keyHex, null)
+        }
         if (table != null) recordNeighbours(keyHex, table)
         return table
     }
@@ -2112,7 +2145,13 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
     ): List<io.github.thatsfguy.meshcore.protocol.AccessList.BinEntry>? {
         val svc = _service.value ?: return null
         val key = hexToBytesOrNull(keyHex) ?: return null
-        return withPathRecovery(keyHex) { svc.engine.requestAccessList(key) }
+        return try {
+            withPathRecovery(keyHex) {
+                svc.engine.requestAccessList(key) { markInFlight(keyHex, it) }
+            }
+        } finally {
+            markInFlight(keyHex, null)
+        }
     }
 
     /** Names a neighbour prefix could belong to — plural stays plural. */

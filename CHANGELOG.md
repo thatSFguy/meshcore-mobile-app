@@ -11,6 +11,31 @@ Every entry describes what is in **that tagged build**. A feature that landed af
 belongs in the next section, not this one — 0.3.0 was once credited with four features that
 shipped after it, which misled nobody so much as the author, three months later.
 
+## 0.8.10
+
+**A repeater far away is given the time the radio says it needs.** Fetching status, the access
+list or the neighbour table used to wait a flat 30 seconds regardless of how far the node was —
+while signing in to the same node already used the radio's own estimate, clamped to 45 s. That is
+why a distant repeater would let you log in and then fail every fetch.
+
+- **The wait now comes from the radio.** `RESP_CODE_SENT` carries a `timeout_ms` computed from the
+  real airtime and hop count of the path just used. The app was receiving that number on this path
+  and discarding it. It is now doubled — the firmware's figure covers getting a packet *there*, and
+  a fetch has to come back too — then floored at 20 s and capped at 90 s. Measured at 62.5 kHz /
+  SF7: a 5-hop path estimates about 17 s one way, so its round trip never fitted in 30 s.
+- **The wait says what is actually known.** Instead of a spinner that reads the same at second 1
+  and second 60: "Sent over the stored path · reply expected within 34s", counting down, and once
+  that estimate passes, "past the radio's estimate, still listening". There is no partly-arrived
+  LoRa response to draw a progress bar from, so this reports the three things the radio really
+  told us and nothing more.
+- **No extra retry was added, deliberately.** A signed-in node's request is already wrapped in path
+  recovery: try, reset the route and try again, re-authenticate and try a third time — which stops
+  as soon as a repair works and is smarter than a blind resend. Adding a second retry underneath
+  would have made six trips to a node that is probably out of range. Each of those three attempts
+  now gets the proper budget, which was the actual defect.
+- Telemetry and region queries still use a fixed wait; they correlate their replies differently and
+  are a separate change.
+
 ## 0.8.9
 
 **"Last heard" now means when your radio heard the node, not what the node claims.** A repeater

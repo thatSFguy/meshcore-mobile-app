@@ -18,6 +18,7 @@ import io.github.thatsfguy.meshcore.protocol.SendRetry
 import io.github.thatsfguy.meshcore.protocol.HeardRepeats
 import io.github.thatsfguy.meshcore.protocol.HeardVia
 import io.github.thatsfguy.meshcore.protocol.AccessList
+import io.github.thatsfguy.meshcore.protocol.BinaryRequestBudget
 import io.github.thatsfguy.meshcore.protocol.Neighbours
 import io.github.thatsfguy.meshcore.protocol.NodeDiscovery
 import io.github.thatsfguy.meshcore.protocol.PathCodec
@@ -1285,17 +1286,23 @@ class MeshCoreEngine(
      */
     suspend fun repeaterStatus(
         repeaterPubKey: ByteArray,
-        timeoutMs: Long = 30_000,
+        timeoutMs: Long = BinaryRequestBudget.MAX_BUDGET_MS,
+        onSent: ((BinaryRequestBudget.InFlight) -> Unit)? = null,
     ): RepeaterStatus? {
         val prefix = repeaterPubKey.copyOfRange(0, 6).toHex()
-        val ev = sendAndAwait(
-            Frames.sendStatusRequest(repeaterPubKey),
+        // Same budget as the other fetches, and for the same reason:
+        // this is the first thing the hub asks a node, so it is the
+        // wait a user actually sits through.
+        val status = sendThenAwait(
             timeoutMs = timeoutMs,
-        ) {
-            it is DeviceEvent.StatusResponse &&
-                StatusCodec.parse(statusFrame(it))?.senderPrefixHex == prefix
+            onSent = onSent,
+            buildFrame = { Frames.sendStatusRequest(repeaterPubKey) },
+        ) { event, _ ->
+            (event as? DeviceEvent.StatusResponse)
+                ?.let { StatusCodec.parse(statusFrame(it)) }
+                ?.takeIf { it.senderPrefixHex == prefix }
         }
-        return (ev as? DeviceEvent.StatusResponse)?.let { StatusCodec.parse(statusFrame(it)) }
+        return status
     }
 
     private fun statusFrame(ev: DeviceEvent.StatusResponse): ByteArray =
@@ -1313,11 +1320,13 @@ class MeshCoreEngine(
      */
     suspend fun requestAccessList(
         repeaterPubKey: ByteArray,
-        timeoutMs: Long = 30_000,
+        timeoutMs: Long = BinaryRequestBudget.MAX_BUDGET_MS,
+        onSent: ((BinaryRequestBudget.InFlight) -> Unit)? = null,
     ): List<AccessList.BinEntry>? {
         val body = binaryRequest(
             Frames.sendBinaryRequest(repeaterPubKey, AccessList.requestPayload()),
             timeoutMs = timeoutMs,
+            onSent = onSent,
         ) ?: return null
         return AccessList.parseBinary(body)
     }
@@ -1337,12 +1346,20 @@ class MeshCoreEngine(
     suspend fun requestNeighbours(
         repeaterPubKey: ByteArray,
         request: Neighbours.Request = Neighbours.Request(),
-        timeoutMs: Long = 30_000,
+        timeoutMs: Long = BinaryRequestBudget.MAX_BUDGET_MS,
+        onSent: ((BinaryRequestBudget.InFlight) -> Unit)? = null,
     ): Neighbours.Table? {
-        val nonce = crypto.randomBytes(Neighbours.NONCE_BYTES)
+        // A fresh nonce per CALL, which is per path-recovery attempt:
+        // the four random bytes exist for packet-hash uniqueness, so a
+        // repeat that reused them would be the mesh's to drop as a
+        // duplicate.
         val body = binaryRequest(
-            Frames.sendBinaryRequest(repeaterPubKey, request.payload(nonce)),
+            Frames.sendBinaryRequest(
+                repeaterPubKey,
+                request.payload(crypto.randomBytes(Neighbours.NONCE_BYTES)),
+            ),
             timeoutMs = timeoutMs,
+            onSent = onSent,
         ) ?: return null
         return Neighbours.parse(body, request)
     }
@@ -1977,36 +1994,98 @@ class MeshCoreEngine(
      * becomes known when the radio's `Sent` receipt arrives, and on a
      * 0-hop link the answer can beat us to it.
      */
-    private suspend fun binaryRequest(
-        frame: ByteArray,
+    /**
+     * Send, wait for the radio's own receipt, then wait for the node —
+     * the two-phase shape every over-the-air request needs.
+     *
+     * Phase one is local and fast: `RESP_CODE_SENT` says the radio put
+     * the frame on the air, and carries the estimate this budget is
+     * built from. Phase two is the mesh's, and is the part that used to
+     * be a flat 30 s on every caller regardless of how far away the
+     * node was.
+     *
+     * [match] is handed each event and the receipt, and returns non-null
+     * for the one it wanted — correlation stays the caller's business,
+     * because a status push is matched by sender prefix and a binary
+     * response by ack hash.
+     */
+    private suspend fun <T> sendThenAwait(
         timeoutMs: Long,
-    ): ByteArray? = coroutineScope {
-        val replies = CoroutineChannel<ByteArray>(CoroutineChannel.UNLIMITED)
+        attempt: Int = 1,
+        ofAttempts: Int = 1,
+        onSent: ((BinaryRequestBudget.InFlight) -> Unit)? = null,
+        buildFrame: () -> ByteArray,
+        match: (DeviceEvent, DeviceEvent.Sent) -> T?,
+    ): T? = coroutineScope {
+        val seen = CoroutineChannel<DeviceEvent>(CoroutineChannel.UNLIMITED)
+        // Buffer from BEFORE the send: the correlation tag is only known
+        // once the receipt arrives, and a 0-hop node can answer inside
+        // that gap.
         val pump = launch(start = CoroutineStart.UNDISPATCHED) {
-            events.collect { if (it is DeviceEvent.BinaryResponse) replies.trySend(it.payload) }
+            events.collect { seen.trySend(it) }
         }
-        val sent = sendAndAwait(frame, timeoutMs = 10_000) {
+        val sent = sendAndAwait(buildFrame(), timeoutMs = 10_000) {
             it is DeviceEvent.Sent
         } as? DeviceEvent.Sent
 
-        val body = if (sent == null) {
+        val result = if (sent == null) {
             null
         } else {
-            withTimeoutOrNull(timeoutMs) {
-                var match: ByteArray? = null
-                for (payload in replies) {
-                    if (binaryResponseTag(payload) == sent.ackHash) {
-                        match = binaryResponseBody(payload)
+            val budget = BinaryRequestBudget.budget(sent.timeoutMs).coerceAtMost(timeoutMs)
+            onSent?.invoke(
+                BinaryRequestBudget.InFlight(
+                    isFlood = sent.isFlood,
+                    estimateMs = sent.timeoutMs,
+                    budgetMs = budget,
+                    attempt = attempt,
+                    ofAttempts = ofAttempts,
+                ),
+            )
+            withTimeoutOrNull(budget) {
+                var found: T? = null
+                for (event in seen) {
+                    val hit = match(event, sent)
+                    if (hit != null) {
+                        found = hit
                         break
                     }
                 }
-                match
+                found
             }
         }
         pump.cancel()
-        replies.close()
-        body
+        seen.close()
+        result
     }
+
+    /**
+     * One binary request, waited for as long as the RADIO says to.
+     *
+     * The wait is [BinaryRequestBudget.budget] of the `timeout_ms` the
+     * radio reports in `RESP_CODE_SENT`, not a fixed number: that value
+     * is derived from the airtime and hop count of the path actually
+     * used, and this call site used to receive it and throw it away
+     * while the login on the same node was already using it.
+     */
+    private suspend fun binaryRequest(
+        frame: ByteArray,
+        timeoutMs: Long,
+        attempt: Int = 1,
+        ofAttempts: Int = 1,
+        onSent: ((BinaryRequestBudget.InFlight) -> Unit)? = null,
+    ): ByteArray? = sendThenAwait(
+        timeoutMs = timeoutMs,
+        attempt = attempt,
+        ofAttempts = ofAttempts,
+        onSent = onSent,
+        buildFrame = { frame },
+    ) { event, sent ->
+        (event as? DeviceEvent.BinaryResponse)
+            ?.payload
+            ?.takeIf { binaryResponseTag(it) == sent.ackHash }
+            ?.let { binaryResponseBody(it) }
+    }
+
 
     /** u32 tag echoed in a PUSH_CODE_BINARY_RESPONSE, or null if short. */
     private fun binaryResponseTag(payload: ByteArray): Long? {

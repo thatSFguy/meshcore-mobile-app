@@ -5,6 +5,7 @@ import io.github.thatsfguy.meshcore.platform.AndroidCryptoProvider
 import io.github.thatsfguy.meshcore.protocol.BufferWriter
 import io.github.thatsfguy.meshcore.protocol.ChannelCrypto
 import io.github.thatsfguy.meshcore.protocol.AccessList
+import io.github.thatsfguy.meshcore.protocol.BinaryRequestBudget
 import io.github.thatsfguy.meshcore.protocol.PathRecovery
 import io.github.thatsfguy.meshcore.protocol.Advert
 import io.github.thatsfguy.meshcore.protocol.Codes
@@ -24,6 +25,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.yield
@@ -1519,6 +1521,65 @@ class MeshCoreEngineTest {
         val table = engine.requestNeighbours(peerKey)
         assertNotNull(table)
         assertTrue(table.entries.isEmpty())
+    }
+
+    @Test
+    fun aFarNodesReplyIsStillAcceptedPastTheOldThirtySecondWait() = runTest {
+        // The defect: every binary fetch waited a flat 30s while the
+        // LOGIN to the same node used the radio's own estimate. On a far
+        // repeater the login worked and the fetch always timed out.
+        //
+        // Here the radio reports a 25s one-way estimate — a long path —
+        // and the node answers at 40s. The old fixed wait would have
+        // given up ten seconds earlier.
+        val radio = FakeRadio()
+        val tag = 0x5150A11AL
+        radio.responder = { frame ->
+            when (frame[0].toInt() and 0xFF) {
+                Codes.CMD_SEND_BINARY_REQ -> listOf(binarySentFrame(tag, estTimeoutMs = 25_000L))
+                else -> standardResponder(radio)(frame)
+            }
+        }
+        val engine = readyEngine(radio)
+
+        val table = async { engine.requestNeighbours(peerKey) }
+        advanceTimeBy(40_000)
+        radio.push(binaryResponseFrame(tag, byteArrayOf(0, 0, 0, 0)))
+        val answer = table.await()
+
+        assertNotNull(answer, "a reply at 40s was dropped; the wait is not using the estimate")
+        assertTrue(answer.entries.isEmpty())
+    }
+
+    @Test
+    fun eachNeighbourRequestCarriesFreshBytesSoTheMeshCannotDropItAsADuplicate() = runTest {
+        // MeshCore dedups by packet hash, and a neighbour request's four
+        // random bytes exist purely for that uniqueness. Path recovery
+        // re-issues the request after a repair, so two goes at the same
+        // node must not produce identical frames — that is the one
+        // repeat the mesh is entitled to throw away.
+        val radio = FakeRadio()
+        val tag = 0xBEEF0001L
+        radio.responder = { frame ->
+            when (frame[0].toInt() and 0xFF) {
+                Codes.CMD_SEND_BINARY_REQ -> listOf(
+                    binarySentFrame(tag),
+                    binaryResponseFrame(tag, byteArrayOf(0, 0, 0, 0)),
+                )
+                else -> standardResponder(radio)(frame)
+            }
+        }
+        val engine = readyEngine(radio)
+
+        engine.requestNeighbours(peerKey)
+        engine.requestNeighbours(peerKey)
+
+        val requests = radio.sentFrames.filter { (it[0].toInt() and 0xFF) == Codes.CMD_SEND_BINARY_REQ }
+        assertEquals(2, requests.size)
+        assertFalse(
+            requests[0].contentEquals(requests[1]),
+            "two neighbour requests were byte-identical — the mesh may drop the second",
+        )
     }
 
     // ------------------------------------------------------------------
