@@ -109,7 +109,8 @@ data class ContactEntity(
     val latitude: Double?,
     val longitude: Double?,
     override val lastSeen: Long,       // advert timestamp, epoch seconds
-    val lastModified: Long,
+    /** The RADIO's own clock, when it last heard from this node. */
+    override val lastModified: Long,
     override val unread: Int = 0,
     override val lastMessageAt: Long = 0,
     /**
@@ -309,4 +310,42 @@ data class DiscoveredEntity(
     val rssi: Int,
     /** Raw advert payload, hex — replayed to CMD_IMPORT_CONTACT. */
     val advertHex: String,
+)
+
+/**
+ * One row of a repeater's neighbour table, as read at a moment in time.
+ *
+ * The reading is kept so the map can draw a repeater's links without a
+ * radio attached, and so a table read once is not re-read every time
+ * the map opens — a neighbour fetch is a login and a round trip over
+ * the air, not a local lookup.
+ *
+ * [collectedAt] is not decoration. The wire carries `heard_seconds_ago`
+ * — an ELAPSED time on the repeater's clock, valid only at the instant
+ * it answered (MESHCORE_PROTOCOL §11). Persisted on its own it would go
+ * on claiming "heard 4 minutes ago" a week later. Stored beside the
+ * local clock reading that produced it, it can be aged forward instead
+ * (`NeighbourRecord.secondsAgoAt`).
+ *
+ * The identity is a key PREFIX, [Neighbours.DEFAULT_PREFIX_BYTES] of
+ * one, so a row names a node only as far as a prefix goes — which is
+ * why it is the primary key here and why nothing resolves it to a
+ * contact until it is drawn.
+ */
+@Entity(
+    tableName = "neighbours",
+    primaryKeys = ["selfKey", "repeaterKey", "keyPrefixHex"],
+)
+data class NeighbourEntity(
+    val selfKey: String,
+    /** The repeater whose table this came from, full pubkey hex. */
+    val repeaterKey: String,
+    /** Key prefix of the neighbour, hex. NOT an identity. */
+    val keyPrefixHex: String,
+    /** SNR in dB, as the repeater heard it. */
+    val snr: Double,
+    /** `heard_seconds_ago` as reported — valid at [collectedAt]. */
+    val heardSecondsAgo: Long,
+    /** Local epoch millis when this reading was taken. */
+    val collectedAt: Long,
 )

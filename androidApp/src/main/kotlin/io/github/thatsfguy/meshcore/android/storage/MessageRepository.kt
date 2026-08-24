@@ -608,6 +608,7 @@ class MessageRepository(
         for (contact in db.contacts().allOnce(key)) db.contacts().delete(key, contact.keyHex)
         for (channel in db.channels().allOnce(key)) db.channels().delete(key, channel.idx)
         db.discovered().clear(key)
+        db.neighbours().clearAll(key)
         return counts
     }
 

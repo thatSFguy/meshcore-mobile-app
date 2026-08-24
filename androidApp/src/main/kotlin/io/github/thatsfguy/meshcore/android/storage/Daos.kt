@@ -448,3 +448,37 @@ interface DiscoveredDao {
     @Query("DELETE FROM discovered WHERE selfKey = :selfKey AND keyHex IN (:contactKeys)")
     suspend fun deleteKnown(selfKey: String, contactKeys: List<String>)
 }
+
+@Dao
+interface NeighbourDao {
+    @Upsert
+    suspend fun upsertAll(rows: List<NeighbourEntity>)
+
+    /**
+     * Every repeater's rows for this radio, strongest first.
+     *
+     * All of them, not one repeater's: the map draws from this and the
+     * whole store is a few dozen rows — a repeater commonly reports two
+     * or three neighbours and `MAX_NEIGHBOURS` is 50.
+     */
+    @Query("SELECT * FROM neighbours WHERE selfKey = :selfKey ORDER BY snr DESC")
+    fun all(selfKey: String): Flow<List<NeighbourEntity>>
+
+    @Query("SELECT * FROM neighbours WHERE selfKey = :selfKey AND repeaterKey = :repeaterKey")
+    suspend fun forRepeater(selfKey: String, repeaterKey: String): List<NeighbourEntity>
+
+    /**
+     * Drop a repeater's table before recording a fresh first page.
+     *
+     * A neighbour table is a snapshot, and the firmware never expires an
+     * entry — so merging a new read into an old one would accumulate
+     * nodes the repeater has stopped reporting and present them as
+     * current. Page 2 upserts onto page 1 of the same sweep; a new sweep
+     * starts by clearing.
+     */
+    @Query("DELETE FROM neighbours WHERE selfKey = :selfKey AND repeaterKey = :repeaterKey")
+    suspend fun clear(selfKey: String, repeaterKey: String)
+
+    @Query("DELETE FROM neighbours WHERE selfKey = :selfKey")
+    suspend fun clearAll(selfKey: String)
+}

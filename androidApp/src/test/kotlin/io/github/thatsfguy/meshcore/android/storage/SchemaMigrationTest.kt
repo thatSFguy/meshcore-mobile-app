@@ -116,4 +116,45 @@ class SchemaMigrationTest {
             panel.contains("flaggedInUpdateMode = (storedContact?.updateModeSince ?: 0L) > 0L"),
         )
     }
+    @Test
+    fun `a neighbour reading is stored with the clock that took it`() {
+        // `heard_seconds_ago` is an ELAPSED time on the repeater's own
+        // clock, valid only at the instant it answered. Persisted
+        // without the local reading that produced it there is no way to
+        // age it, and the row goes on claiming "heard 4 minutes ago"
+        // for as long as it is kept.
+        val schema = File(
+            "schemas/io.github.thatsfguy.meshcore.android.storage.MeshCoreDatabase/$version.json",
+        ).readText()
+        assertTrue(
+            "the neighbours table has no collectedAt stamp",
+            schema.contains("\"columnName\": \"collectedAt\""),
+        )
+        assertTrue(
+            "no migration creates the neighbours table",
+            dbSource.contains("CREATE TABLE IF NOT EXISTS `neighbours`"),
+        )
+    }
+
+    @Test
+    fun `the neighbours migration creates every column the entity has`() {
+        // The second cheap mistake this file exists to catch, in the
+        // shape a CREATE TABLE takes: a column added to the entity and
+        // forgotten in the SQL opens fine on a fresh install and fails
+        // on every device that already had the app.
+        val schema = File(
+            "schemas/io.github.thatsfguy.meshcore.android.storage.MeshCoreDatabase/$version.json",
+        ).readText()
+        val table = schema.substringAfter("\"tableName\": \"neighbours\"")
+            .substringBefore("\"tableName\":")
+        val columns = Regex("""\"columnName\": \"(\w+)\"""").findAll(table)
+            .map { it.groupValues[1] }.toList()
+        assertTrue("no neighbours columns found in the schema", columns.size >= 6)
+        val sql = dbSource.substringAfter("CREATE TABLE IF NOT EXISTS `neighbours`")
+            .substringBefore("PRIMARY KEY")
+        for (column in columns) {
+            assertTrue("the migration never mentions neighbours.$column", sql.contains("`$column`"))
+        }
+    }
+
 }

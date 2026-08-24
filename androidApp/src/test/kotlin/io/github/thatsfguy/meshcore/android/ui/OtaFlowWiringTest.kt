@@ -45,7 +45,12 @@ class OtaFlowWiringTest {
         // exactly the case that went wrong: a node reflashed over USB
         // and signed into was still being described as advertising for
         // an update.
-        val login = viewModel.substringAfter("fun repeaterLogin(").substringBefore("\n    /**")
+        // The whole login path, not just the function that starts it:
+        // the round trip lives in `performLogin` so a neighbour fetch
+        // can wait for a session without a second copy of it, and this
+        // rule has to hold wherever the reply is actually read.
+        val login = viewModel.substringAfter("fun repeaterLogin(")
+            .substringBefore("     * The saved password for a node.")
         assertTrue(
             "a login that was answered must clear the update-mode flag",
             login.contains("outcome.answered") && login.contains("setUpdateMode(keyHex, false)"),

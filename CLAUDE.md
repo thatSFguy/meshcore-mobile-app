@@ -32,8 +32,9 @@ Feature work is now driven by **[`PARITY.md`](PARITY.md)** — the mainstream Me
 Android app is the agreed floor for the feature set, with an explicit out-of-scope list
 and the places we deliberately keep our own (stricter) handling. **Read PARITY.md before
 picking up feature work**; it carries per-row status, dates, and the reasons behind
-each deliberate difference. As of 2026-08-01 the tally is **44 ✅ · 10 ◐ · 8 ❌ · 3 ⛔ ·
-1 ⚠**; blocks 1–4 are done, and so are the three §13 follow-ups (hop selection by
+each deliberate difference. As of 2026-08-24 the tally is **45 ✅ · 9 ◐ · 8 ❌ · 3 ⛔ ·
+1 ⚠** (`RepeaterNeighboursMapScreen` closed 2026-08-24 — the map draws a repeater's
+neighbour links); blocks 1–4 are done, and so are the three §13 follow-ups (hop selection by
 tapping, path-history cleanup, heard-via). What remains is listed with its reason in
 PARITY §13 — a handful of rows blocked on hardware, on seeing the mainstream app run, or
 on a translation programme. LOS/coverage modelling is **out of scope by decision** —
@@ -76,6 +77,14 @@ Layout:
     confirmed: `freqKhz` renders correctly as `910.525 MHz` against real hardware,
     and the live tile subtitles are the best thing in the rebuild. Screenshots +
     the `ui.sh` uiautomator helper make this repeatable; drive it weekly (§8.2).
+  - **Neighbour links on the map were driven on hardware 2026-08-24** (SpartaMI,
+    firmware v1.16.0, BLE to `MeshCore-BlueMobile`). A blank-password login was
+    accepted, six neighbours came back, three had positions and were drawn. Two
+    defects the tests could not see, both about reading: the colour legend under the
+    map was grey-on-tiles and effectively invisible — deleted, the band is spelled
+    out ON the line now ("Strong · 12.0 dB") — and the reading chips were drawn with
+    their lines, which put them under the always-on node labels. A refusal also looks
+    exactly like silence on this firmware, so the wording had to stop claiming one.
   - **Settings is hub-and-spoke** (2026-08-05, REBUILD-PLAYBOOK §6.2). `settings` is
     a grouped tile list (`SettingsScreen.kt`); each tile opens `settings/<route>`
     (`SettingsSpokeScreens.kt`), and the section bodies moved verbatim to

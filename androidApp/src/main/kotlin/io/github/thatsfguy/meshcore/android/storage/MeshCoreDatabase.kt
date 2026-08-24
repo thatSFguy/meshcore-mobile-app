@@ -14,9 +14,9 @@ import java.io.File
 @Database(
     entities = [
         MessageEntity::class, ContactEntity::class, ChannelEntity::class,
-        PathHistoryEntity::class, DiscoveredEntity::class,
+        PathHistoryEntity::class, DiscoveredEntity::class, NeighbourEntity::class,
     ],
-    version = 16,
+    version = 17,
     exportSchema = true,
 )
 abstract class MeshCoreDatabase : RoomDatabase() {
@@ -25,6 +25,7 @@ abstract class MeshCoreDatabase : RoomDatabase() {
     abstract fun channels(): ChannelDao
     abstract fun paths(): PathHistoryDao
     abstract fun discovered(): DiscoveredDao
+    abstract fun neighbours(): NeighbourDao
 
     companion object {
         private const val TAG = "MeshCoreDb"
@@ -271,6 +272,27 @@ abstract class MeshCoreDatabase : RoomDatabase() {
         }
 
         /**
+         * v17 adds the neighbour store: a repeater's one-hop table, kept
+         * with the local clock reading that produced it.
+         *
+         * CREATE TABLE only — nothing existing is touched. There is no
+         * back-fill to do and none that would be honest: `heard_seconds_ago`
+         * is elapsed time against the moment of collection, and rows that
+         * were never collected have no such moment.
+         */
+        private val MIGRATION_16_17 = object : Migration(16, 17) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `neighbours` (" +
+                        "`selfKey` TEXT NOT NULL, `repeaterKey` TEXT NOT NULL, " +
+                        "`keyPrefixHex` TEXT NOT NULL, `snr` REAL NOT NULL, " +
+                        "`heardSecondsAgo` INTEGER NOT NULL, `collectedAt` INTEGER NOT NULL, " +
+                        "PRIMARY KEY(`selfKey`, `repeaterKey`, `keyPrefixHex`))",
+                )
+            }
+        }
+
+        /**
          * Open the database, encrypted with [passphrase] when one is
          * available (see [DatabaseKey]). A pre-existing PLAINTEXT
          * database is converted in place first, so turning encryption on
@@ -316,7 +338,7 @@ abstract class MeshCoreDatabase : RoomDatabase() {
                         MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4,
                         MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8,
                         MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14,
-                        MIGRATION_14_15, MIGRATION_15_16,
+                        MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17,
                     )
 
             if (key == null) {

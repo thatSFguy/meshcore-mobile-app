@@ -620,6 +620,21 @@ neighbours; that is the mesh, not a cap (`MAX_NEIGHBOURS` is 50 on every shipped
 Room-server firmware has no neighbour table and no `0x06` handler at all, so it cannot
 answer this request.
 
+**Who may ask.** A binary request reaches `handleRequest()` only for a sender already in the
+node's ACL (`onPeerDataRecv` → `acl.getClientByIdx`, `MyMesh.cpp:663-677`), so it takes a
+login — but `0x06` carries **no `isAdmin()` gate**, unlike `0x05` get_access_list which is
+written `payload[0] == REQ_TYPE_GET_ACCESS_LIST && sender->isAdmin()` (`MyMesh.cpp:262` vs
+`:276`). A **guest session is enough to read the neighbour table.** And a login with a blank
+password is the ordinary way to get one: `handleLoginReq` first looks the sender up in the
+ACL, and failing that compares the empty string against the admin password and then the guest
+password — which ships empty (`MyMesh.cpp:90-107`). Read from firmware v1.16.0+ on
+2026-08-24. Note this is the ONE thing about the map's neighbour links not yet confirmed
+against a live repeater here.
+
+**`heard_seconds_ago` cannot be stored on its own.** It is elapsed time at the instant the
+node answered, so a persisted copy needs the local clock reading that produced it or it goes
+on reporting the same age forever. See `presentation/NeighbourLinks.kt`.
+
 **Control/discovery** (`CMD_SEND_CONTROL_DATA`): subtypes `0x08` DISCOVER_REQ /
 `0x09` DISCOVER_RESP; discover payload `[(0x08<<4)|prefix_only][type_mask][u32 tag][u32 since]`.
 

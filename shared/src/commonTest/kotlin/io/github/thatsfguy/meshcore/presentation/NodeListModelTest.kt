@@ -24,6 +24,7 @@ class NodeListModelTest {
         override val flags: Int = 0,
         override val pathLen: Int = PathCodec.PATH_LEN_FLOOD,
         override val lastSeen: Long = 0,
+        override val lastModified: Long = 0,
         override val lastMessageAt: Long = 0,
         override val unread: Int = 0,
     ) : NodeListItem

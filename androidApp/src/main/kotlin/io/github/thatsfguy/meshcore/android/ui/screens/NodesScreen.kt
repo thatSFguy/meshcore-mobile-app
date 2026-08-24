@@ -83,6 +83,7 @@ import java.util.Date
 fun NodesScreen(vm: MeshCoreViewModel, nav: NavController) {
     val contacts by vm.dbContacts.collectAsState()
     var detail by remember { mutableStateOf<ContactEntity?>(null) }
+    var staleOpen by remember { mutableStateOf(false) }
 
     val scanLauncher = rememberLauncherForActivityResult(ScanContract()) { result ->
         result.contents?.let { vm.importScannedCode(it) }
@@ -118,6 +119,9 @@ fun NodesScreen(vm: MeshCoreViewModel, nav: NavController) {
                     // The other direction from "Discover": not who is
                     // out there, but who is carrying MY traffic.
                     MenuAction("Who repeats me") { nav.navigate(HEARD_REPEATS_ROUTE) },
+                    // The only bulk-destructive action in the app, and
+                    // it lives where the list it prunes is.
+                    MenuAction("Remove stale nodes…") { staleOpen = true },
                 ),
             )
         },
@@ -277,6 +281,9 @@ fun NodesScreen(vm: MeshCoreViewModel, nav: NavController) {
     }
     if (discovering) {
         DiscoverNodesDialog(vm, nav, onDismiss = { discovering = false })
+    }
+    if (staleOpen) {
+        StaleNodesDialog(vm, onDismiss = { staleOpen = false })
     }
 
     detail?.let { contact ->
@@ -459,7 +466,7 @@ private fun DiscoveredRow(
     }
 }
 
-private fun typeLabel(type: Int): String = when (type) {
+internal fun typeLabel(type: Int): String = when (type) {
     Codes.ADV_TYPE_CHAT -> "Contacts"
     Codes.ADV_TYPE_REPEATER -> "Repeaters"
     Codes.ADV_TYPE_ROOM -> "Room servers"
@@ -868,7 +875,7 @@ private fun formatDistance(metres: Double): String = when {
 }
 
 /** "9 hours ago" — wording shared with the heard-repeats list. */
-private fun relativeAge(epochSeconds: Long): String =
+internal fun relativeAge(epochSeconds: Long): String =
     RelativeTime.ago(System.currentTimeMillis() / 1000 - epochSeconds)
 
 

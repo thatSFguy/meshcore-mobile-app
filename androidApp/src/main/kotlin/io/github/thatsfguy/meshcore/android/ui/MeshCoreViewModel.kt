@@ -4,6 +4,10 @@ import io.github.thatsfguy.meshcore.presentation.Inbox
 import io.github.thatsfguy.meshcore.model.ChannelList
 import io.github.thatsfguy.meshcore.presentation.AdminSession
 import io.github.thatsfguy.meshcore.presentation.ChannelScopeJoin
+import io.github.thatsfguy.meshcore.presentation.NeighbourFetch
+import io.github.thatsfguy.meshcore.presentation.NeighbourRecord
+import io.github.thatsfguy.meshcore.presentation.StaleNodes
+import io.github.thatsfguy.meshcore.presentation.neighbourWrite
 import io.github.thatsfguy.meshcore.protocol.PathCodec
 import io.github.thatsfguy.meshcore.protocol.PathRecovery
 import android.app.Application
@@ -21,6 +25,7 @@ import io.github.thatsfguy.meshcore.android.storage.ContactEntity
 import io.github.thatsfguy.meshcore.android.storage.MeshCoreDatabase
 import io.github.thatsfguy.meshcore.android.storage.MessageEntity
 import io.github.thatsfguy.meshcore.android.storage.MessageRepository
+import io.github.thatsfguy.meshcore.android.storage.NeighbourEntity
 import io.github.thatsfguy.meshcore.android.storage.Preferences
 import io.github.thatsfguy.meshcore.engine.EngineState
 import io.github.thatsfguy.meshcore.engine.MeshEvent
@@ -451,6 +456,28 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch { db.discovered().clear(selfKey.value) }
     }
 
+    /**
+     * Every repeater neighbour reading kept for this radio.
+     *
+     * All repeaters at once because the map draws from it, and the whole
+     * store is a few dozen rows — a repeater commonly reports two or
+     * three neighbours, and `MAX_NEIGHBOURS` is 50 on every shipped
+     * variant.
+     */
+    val neighbourRecords: StateFlow<List<NeighbourRecord>> = selfKey.flatMapLatest { key ->
+        if (key.isEmpty()) flowOf(emptyList()) else db.neighbours().all(key)
+    }.map { rows ->
+        rows.map {
+            NeighbourRecord(
+                repeaterKeyHex = it.repeaterKey,
+                keyPrefixHex = it.keyPrefixHex,
+                snr = it.snr,
+                heardSecondsAgo = it.heardSecondsAgo,
+                collectedAt = it.collectedAt,
+            )
+        }
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
     val dbChannels: StateFlow<List<ChannelEntity>> = selfKey.flatMapLatest { key ->
         if (key.isEmpty()) flowOf(emptyList()) else db.channels().all(key)
     }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
@@ -792,8 +819,56 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             if (svc.engine.removeContact(key)) {
                 db.contacts().delete(selfKey.value, keyHex)
+                // Its neighbour table goes with it. Keeping the rows
+                // would leave lines drawn from a node the map no longer
+                // has a pin for.
+                db.neighbours().clear(selfKey.value, keyHex)
             }
         }
+    }
+
+    /**
+     * Remove every node stale at [olderThanDays] — the Nodes-tab sweep.
+     *
+     * Deliberately goes through the RADIO, one `removeContact` at a
+     * time, exactly as removing a single node does. The radio owns the
+     * contact list: deleting rows from our cache alone would look like
+     * it worked and then be undone by the next contact sync, which is
+     * the kind of failure that teaches a user not to trust the button.
+     * The cost is a command round trip per node, which is why the
+     * dialog says how many it is about to do.
+     *
+     * A refusal is counted, never swallowed — see [StaleNodes.outcome].
+     * What gets swept (and what is spared) is [StaleNodes.sweep]'s
+     * decision, so favourites are safe by a rule that has tests rather
+     * than by a filter written twice.
+     */
+    suspend fun removeStaleNodes(olderThanDays: Int): String {
+        val svc = _service.value ?: return "Not connected to a radio."
+        val self = selfKey.value
+        val sweep = StaleNodes.sweep(
+            dbContacts.value,
+            olderThanDays,
+            System.currentTimeMillis(),
+        )
+        var removed = 0
+        var failed = 0
+        for (node in sweep.remove) {
+            val key = hexToBytesOrNull(node.keyHex)
+            val gone = key != null &&
+                runCatching { svc.engine.removeContact(key) }.getOrDefault(false)
+            if (gone) {
+                db.contacts().delete(self, node.keyHex)
+                // Its neighbour readings go too — the same rule as a
+                // single removal, and lines drawn from a node with no
+                // pin are worse than no lines.
+                db.neighbours().clear(self, node.keyHex)
+                removed++
+            } else {
+                failed++
+            }
+        }
+        return StaleNodes.outcome(removed, failed)
     }
 
     fun setFavourite(keyHex: String, favourite: Boolean) {
@@ -1547,92 +1622,126 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
      * [LoginOutcome].
      */
     fun repeaterLogin(keyHex: String, password: String, savePassword: Boolean) {
-        // Say why nothing happened. These two returns used to be silent,
-        // which was survivable when the password row sat on the admin
-        // screen and the radio state was visible beside it; from a modal
-        // sign-in dialog a dead button is all the user sees.
-        val svc = _service.value
-        if (svc == null) {
-            _loginError.value = _loginError.value +
-                (keyHex to "Not connected to a radio.")
-            return
-        }
-        val key = hexToBytesOrNull(keyHex)
-        if (key == null) {
-            _loginError.value = _loginError.value +
-                (keyHex to "That contact's public key is unreadable.")
-            return
-        }
         viewModelScope.launch {
-            _loginInFlight.value = _loginInFlight.value + keyHex
-            _loginError.value = _loginError.value - keyHex
-            val outcome = try {
-                runCatching {
-                    svc.engine.sendLoginWithRetry(
-                        key,
-                        password,
-                        floodFallbackEnabled = prefs.floodFallbackOnLastRetry,
-                    )
-                }.getOrDefault(io.github.thatsfguy.meshcore.engine.LoginOutcome.NoAnswer)
-            } finally {
-                _loginInFlight.value = _loginInFlight.value - keyHex
-            }
-            // Only seal a credential the node actually accepted.
-            //
-            // The result is not optional. On a device whose Keystore
-            // rejects every key spec — which KeystoreSecretVault
-            // documents as real, on shipped Samsung firmware — this
-            // returns false and stores nothing, and dropping that
-            // meant the dialog offered "Save password", said nothing,
-            // and asked again next session.
-            var sealFailed = false
-            if (outcome.accepted && savePassword) {
-                sealFailed = !svc.secrets.storeLoginPassword(keyHex, password)
-            }
-            // What the NODE granted, straight from its reply byte.
-            val granted = when {
-                !outcome.accepted -> AdminSession.None
-                outcome.isAdmin -> AdminSession.Admin
-                else -> AdminSession.Guest
-            }
-            _adminSessions.value = _adminSessions.value + (keyHex to granted)
-            // A node that answered at all is not in update mode.
-            //
-            // The Nordic bootloader is a BLE-only image — it has no LoRa
-            // stack, and MeshCore's firmware is not running underneath
-            // it to receive anything. So any reply to a login, including
-            // "wrong password", is proof the application is up, and it
-            // is the cheapest evidence this app ever gets. Not using it
-            // is what left a node that had been reflashed over USB and
-            // signed straight back into still described as advertising
-            // for an update.
-            if (outcome.answered) setUpdateMode(keyHex, false)
-            if (granted == AdminSession.None) {
-                // A refusal and a silence are different problems with
-                // different fixes — check the password, or get closer.
-                _loginError.value = _loginError.value + (
-                    keyHex to if (outcome.answered) {
-                        "The node rejected that password."
-                    } else {
-                        "No answer from the node after ${SendRetry.DEFAULT_MAX_ATTEMPTS} tries."
-                    }
-                    )
-            }
-            val sealNote = if (sealFailed) {
+            val result = performLogin(keyHex, password, savePassword)
+            // A guard that stopped this before it reached the radio has
+            // already said why, in the dialog, next to the button that
+            // did nothing. A transient "No answer from the node" on top
+            // of it would name the wrong culprit.
+            if (!result.attempted) return@launch
+            val sealNote = if (result.sealFailed) {
                 " — but this device's keystore refused to store the password, " +
                     "so you'll need to type it again next time"
             } else {
                 ""
             }
             transientMessage.value = when {
-                granted == AdminSession.Admin -> "Logged in as admin$sealNote"
+                result.session == AdminSession.Admin -> "Logged in as admin$sealNote"
                 // Say what was GRANTED, not what was asked for. A guest
                 // grant is a successful login, not a failure.
-                granted == AdminSession.Guest -> "Logged in as guest — read-only$sealNote"
-                outcome.answered -> "Password rejected"
+                result.session == AdminSession.Guest -> "Logged in as guest — read-only$sealNote"
+                result.answered -> "Password rejected"
                 else -> "No answer from the node"
             }
         }
+    }
+
+    /** What one login round trip settled. */
+    private data class LoginResult(
+        val session: AdminSession,
+        /** The node replied at all — a refusal is still an answer. */
+        val answered: Boolean,
+        val sealFailed: Boolean,
+        /** False when a guard stopped this before the radio was asked. */
+        val attempted: Boolean = true,
+    )
+
+    /**
+     * One login round trip: present the password, record what the node
+     * granted, and leave the error state fit to read.
+     *
+     * Separate from [repeaterLogin] so a caller that needs a session in
+     * order to do something else — [collectNeighbours] — can wait for
+     * one without going through the dialog, and without a second copy
+     * of this logic drifting away from it. Everything user-facing that
+     * is about the login ITSELF (the transient message) stays with the
+     * dialog; a fetch that happens to sign in reports on the fetch.
+     */
+    private suspend fun performLogin(
+        keyHex: String,
+        password: String,
+        savePassword: Boolean,
+    ): LoginResult {
+        // Say why nothing happened. These two returns used to be silent,
+        // which was survivable when the password row sat on the admin
+        // screen and the radio state was visible beside it; from a modal
+        // sign-in dialog a dead button is all the user sees.
+        val svc = _service.value
+        if (svc == null) {
+            _loginError.value = _loginError.value + (keyHex to "Not connected to a radio.")
+            return LoginResult(AdminSession.None, false, sealFailed = false, attempted = false)
+        }
+        val key = hexToBytesOrNull(keyHex)
+        if (key == null) {
+            _loginError.value = _loginError.value +
+                (keyHex to "That contact's public key is unreadable.")
+            return LoginResult(AdminSession.None, false, sealFailed = false, attempted = false)
+        }
+        _loginInFlight.value = _loginInFlight.value + keyHex
+        _loginError.value = _loginError.value - keyHex
+        val outcome = try {
+            runCatching {
+                svc.engine.sendLoginWithRetry(
+                    key,
+                    password,
+                    floodFallbackEnabled = prefs.floodFallbackOnLastRetry,
+                )
+            }.getOrDefault(io.github.thatsfguy.meshcore.engine.LoginOutcome.NoAnswer)
+        } finally {
+            _loginInFlight.value = _loginInFlight.value - keyHex
+        }
+        // Only seal a credential the node actually accepted.
+        //
+        // The result is not optional. On a device whose Keystore
+        // rejects every key spec — which KeystoreSecretVault
+        // documents as real, on shipped Samsung firmware — this
+        // returns false and stores nothing, and dropping that
+        // meant the dialog offered "Save password", said nothing,
+        // and asked again next session.
+        var sealFailed = false
+        if (outcome.accepted && savePassword) {
+            sealFailed = !svc.secrets.storeLoginPassword(keyHex, password)
+        }
+        // What the NODE granted, straight from its reply byte.
+        val granted = when {
+            !outcome.accepted -> AdminSession.None
+            outcome.isAdmin -> AdminSession.Admin
+            else -> AdminSession.Guest
+        }
+        _adminSessions.value = _adminSessions.value + (keyHex to granted)
+        // A node that answered at all is not in update mode.
+        //
+        // The Nordic bootloader is a BLE-only image — it has no LoRa
+        // stack, and MeshCore's firmware is not running underneath
+        // it to receive anything. So any reply to a login, including
+        // "wrong password", is proof the application is up, and it
+        // is the cheapest evidence this app ever gets. Not using it
+        // is what left a node that had been reflashed over USB and
+        // signed straight back into still described as advertising
+        // for an update.
+        if (outcome.answered) setUpdateMode(keyHex, false)
+        if (granted == AdminSession.None) {
+            // A refusal and a silence are different problems with
+            // different fixes — check the password, or get closer.
+            _loginError.value = _loginError.value + (
+                keyHex to if (outcome.answered) {
+                    "The node rejected that password."
+                } else {
+                    "No answer from the node after ${SendRetry.DEFAULT_MAX_ATTEMPTS} tries."
+                }
+                )
+        }
+        return LoginResult(granted, answered = outcome.answered, sealFailed = sealFailed)
     }
 
     /**
@@ -1852,7 +1961,120 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
         val svc = _service.value ?: return null
         val key = hexToBytesOrNull(keyHex) ?: return null
         val request = io.github.thatsfguy.meshcore.protocol.Neighbours.Request(offset = offset)
-        return withPathRecovery(keyHex) { svc.engine.requestNeighbours(key, request) }
+        val table = withPathRecovery(keyHex) { svc.engine.requestNeighbours(key, request) }
+        if (table != null) recordNeighbours(keyHex, table)
+        return table
+    }
+
+    /**
+     * Keep a page of neighbours, stamped with the clock that read it.
+     *
+     * Recording happens HERE, on the one call every neighbour fetch
+     * goes through, rather than at the screen that asked. Two screens
+     * ask already (the repeater's Status panel and the map) and a
+     * reading is worth the same whichever did — a table costs a login
+     * and a round trip over the air, so throwing one away because the
+     * user happened to be on the other screen is the kind of waste that
+     * makes a feature feel broken.
+     *
+     * What a page does to what is already stored is [neighbourWrite]'s
+     * decision, not this function's.
+     */
+    private suspend fun recordNeighbours(
+        keyHex: String,
+        table: io.github.thatsfguy.meshcore.protocol.Neighbours.Table,
+    ) {
+        val self = selfKey.value
+        if (self.isEmpty()) return
+        val plan = neighbourWrite(
+            offset = table.offset,
+            entryCount = table.entries.size,
+            rejected = table.isEmptyButNotEmpty,
+        )
+        if (plan.clearFirst) db.neighbours().clear(self, keyHex)
+        if (!plan.store) return
+        // One stamp for the whole page: they were all read in the same
+        // reply, and dating them individually would invent a precision
+        // the wire does not carry.
+        val collectedAt = System.currentTimeMillis()
+        db.neighbours().upsertAll(
+            table.entries.map {
+                NeighbourEntity(
+                    selfKey = self,
+                    repeaterKey = keyHex,
+                    keyPrefixHex = it.keyPrefixHex,
+                    snr = it.snr,
+                    heardSecondsAgo = it.heardSecondsAgo,
+                    collectedAt = collectedAt,
+                )
+            },
+        )
+    }
+
+    /**
+     * Read a repeater's whole neighbour table, signing in first if that
+     * is what it takes — the map's one-tap path.
+     *
+     * The credential is chosen, not asked for: the open session if there
+     * is one, then the password saved for this node, and otherwise a
+     * BLANK one. Blank is the ordinary way in, not a trick — the
+     * firmware falls through to the guest slot, which ships empty
+     * (`MyMesh.cpp:90-107`), and `REQ_TYPE_GET_NEIGHBOURS` carries no
+     * `isAdmin()` gate the way `GET_ACCESS_LIST` does, so a guest
+     * session can read the table. A blank password is never sealed:
+     * there is nothing there to keep.
+     *
+     * Paging is capped at [NEIGHBOUR_PAGE_LIMIT]. A `total` off the mesh
+     * is attacker-controlled and 50 rows is the firmware's own ceiling,
+     * so this cannot be talked into an unbounded round-trip loop — and
+     * when the cap does bite, the outcome says "x of y", never a bare
+     * count that would read as the whole table.
+     */
+    suspend fun collectNeighbours(keyHex: String): NeighbourFetch {
+        _service.value ?: return NeighbourFetch.NotConnected
+        val session = _adminSessions.value[keyHex] ?: AdminSession.None
+        if (!session.signedIn) {
+            val saved = savedLoginPassword(keyHex)
+            val login = performLogin(keyHex, saved ?: "", savePassword = false)
+            if (!login.session.signedIn) {
+                // `answered` is carried through because a repeater that
+                // turns a password down replies with nothing at all, so
+                // "refused" and "out of reach" are the same silence and
+                // only the node's having spoken can tell them apart.
+                return NeighbourFetch.SignInRefused(
+                    blank = saved.isNullOrEmpty(),
+                    answered = login.answered,
+                )
+            }
+        }
+        var stored = 0
+        var total = 0
+        var offset = 0
+        repeat(NEIGHBOUR_PAGE_LIMIT) {
+            val table = repeaterNeighbours(keyHex, offset)
+                ?: return if (offset == 0) {
+                    NeighbourFetch.NoAnswer
+                } else {
+                    NeighbourFetch.Collected(stored, total)
+                }
+            if (table.isEmptyButNotEmpty) return NeighbourFetch.Rejected(table.total)
+            stored += table.entries.size
+            total = table.total
+            offset = table.nextOffset
+            if (!table.isPartial || table.entries.isEmpty()) {
+                return NeighbourFetch.Collected(stored, total)
+            }
+        }
+        return NeighbourFetch.Collected(stored, total)
+    }
+
+    /** True when this node has a password sealed in the keystore. */
+    suspend fun hasSavedLoginPassword(keyHex: String): Boolean =
+        !savedLoginPassword(keyHex).isNullOrEmpty()
+
+    /** Forget a repeater's stored neighbour table. */
+    fun forgetNeighbours(keyHex: String) {
+        viewModelScope.launch { db.neighbours().clear(selfKey.value, keyHex) }
     }
 
     /**
@@ -2809,5 +3031,18 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
          * a failure.
          */
         const val REBOOT_SETTLE_MS = 25_000L
+
+        /**
+         * Pages one neighbour collection will ask for.
+         *
+         * A page holds 11 rows at our prefix width and the firmware's
+         * `MAX_NEIGHBOURS` is 50, so five pages covers any real table
+         * with room to spare. The cap is not about real tables: `total`
+         * arrives off the mesh, and without a ceiling a node claiming
+         * 65535 neighbours would drive round trips until the user gave
+         * up. When it bites, the outcome reports "x of y" rather than a
+         * count that would read as the whole table.
+         */
+        const val NEIGHBOUR_PAGE_LIMIT = 5
     }
 }

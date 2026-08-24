@@ -90,6 +90,34 @@ fun AboutSection(vm: MeshCoreViewModel) {
  * is a changelog you can't read in the field.
  */
 private val CHANGELOG: List<Pair<String, List<String>>> = listOf(
+    "0.8.8" to listOf(
+        "The map draws a repeater's neighbours. Tapping a pin used to do nothing; it now opens " +
+            "the node, and for a repeater it draws lines to every neighbour the app can place, " +
+            "coloured by the signal that repeater heard it at, with the quality written on the " +
+            "line itself — \"Strong · 12.0 dB\" — so there is no colour key to decode.",
+        "Remove stale nodes: a slider from 3 to 30 days on the Nodes menu, and everything " +
+            "nothing has been heard from for longer than that goes from the radio's contact " +
+            "list. Favourites are never removed, whatever the slider says, and nor is a node " +
+            "never heard from at all. The list is shown before the button is pressed.",
+        "\"Last heard\" there means what THIS radio heard, not what the node claims. An advert " +
+            "carries the sending node's own clock, and on this mesh that reported live nodes as " +
+            "last heard 830 days ago — sweeping on it would have deleted them for having a bad " +
+            "clock.",
+        "A neighbour table is now kept, stamped with the moment it was read. The radio reports " +
+            "how long ago it heard each node — an elapsed time on its own clock — so a stored " +
+            "reading with no collection time would go on claiming \"4 minutes ago\" a week " +
+            "later. The popup says how old the whole reading is.",
+        "Every neighbour fetch is recorded, from whichever screen asked, so a read on a " +
+            "repeater's Status screen also fills the map.",
+        "Fetching from the map signs itself in: the session you already have, then the password " +
+            "saved for that node, and otherwise a blank one, which is the ordinary read-only " +
+            "way in. It says which it is about to use, and never saves a blank password.",
+        "A repeater that turns a password down says nothing at all, so a silence is no longer " +
+            "reported as a refusal — it may want a guest password, or be out of reach.",
+        "A line is only drawn where the app is sure who it points at. A neighbour is named by " +
+            "six bytes of its public key, so a row matching two known nodes, or none, or one " +
+            "with no position, is listed with the reason rather than drawn at a guess.",
+    ),
     "0.8.7" to listOf(
         "A long conversation opens at its newest message, not at its oldest. Leaving a big " +
             "chat and going back in put you at the very top, above \"Load older\", with the " +

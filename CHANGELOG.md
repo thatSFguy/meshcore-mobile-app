@@ -11,6 +11,62 @@ Every entry describes what is in **that tagged build**. A feature that landed af
 belongs in the next section, not this one — 0.3.0 was once credited with four features that
 shipped after it, which misled nobody so much as the author, three months later.
 
+## 0.8.8
+
+**The map draws a repeater's neighbours, with the signal it heard them at.** Tapping a pin used
+to do nothing at all. It now opens the node, and for a repeater it offers its neighbour table:
+lines from that repeater to every neighbour the app can place, coloured and weighted by signal —
+green for a strong link through to red at the edge of what LoRa recovers — with the quality
+written on the line itself ("Strong · 12.0 dB"), so there is no colour key to look away and
+decode.
+
+Driven against a live repeater on 2026-08-24: signed in with a blank password, read six
+neighbours, and drew three of them — the other three name nodes with no position, or none this
+app knows.
+
+**Remove stale nodes.** A slider from 3 to 30 days on the Nodes menu, in the shape Meshtastic
+offers it: everything nothing has been heard from for longer than that goes from the radio's
+contact list. **Favourites are never removed**, whatever the slider says, and neither is a node
+that has never been heard from at all — which is what a contact just added from a QR code looks
+like. The list is shown before the button is pressed, oldest first, with a count that moves as
+the slider does.
+
+- **"Last heard" means what OUR radio heard**, not what the node claims. The advert timestamp is
+  the sending node's own clock, which the firmware keeps only for replay detection — on this mesh
+  it reported live, currently-transmitting nodes as last heard 830 days ago, and one as 20 688
+  days ago, because their clocks are wrong. Sweeping on that would have deleted them as
+  punishment for a bad RTC. The radio stamps its own clock every time it hears a node, and that
+  is what the sweep reads. Its own eviction, when contact storage fills, ranks the same way and
+  also spares favourites.
+- **A node you were talking to yesterday is never stale**, even if it advertises rarely.
+- Removal goes through the radio one node at a time, as removing a single contact does, so what
+  the sweep says happened is what the contact list will still say after the next sync. A refusal
+  is counted and reported rather than folded into the total.
+
+- **A neighbour table is now kept, stamped with the moment it was read.** This matters more than
+  it sounds: the radio reports *how long ago* it heard each node, an elapsed time on its own
+  clock, so a stored reading with no collection time would go on claiming "heard 4 minutes ago"
+  a week later. Stored beside the local clock that took it, it ages honestly instead — and the
+  popup says how old the whole reading is. Confirmed on the phone: a reading taken and then
+  re-read after a restart said "Collected 15 min ago", not "just now".
+- **Every neighbour fetch is recorded, from whichever screen asked.** A table costs a login and a
+  round trip over the air, so one read on the repeater's Status screen now also fills the map.
+- **Fetching from the map signs itself in.** It uses the session you already have, then the
+  password saved for that node, and otherwise a blank one — which is the ordinary read-only way
+  in where the operator never set a guest password. The popup says which of the three it is about
+  to use before it spends it, and a blank password is never saved.
+- **A repeater that turns a password down says nothing at all**, so the app no longer reports a
+  silence as a refusal. "No answer to a blank password" now adds that it may want a guest
+  password — or simply be out of reach — because on the wire those are the same event.
+- **A line is only drawn where the app is sure who it points at.** A neighbour is identified by
+  the first six bytes of its public key, so a row that matches two known nodes, or none, or one
+  that has never advertised a position, is listed with the reason instead of being drawn at a
+  guess. A line to the wrong roof is worse than no line.
+- **What the lines do and do not mean is stated once, behind a tap.** A repeater records a
+  neighbour only from another repeater's advert that arrived directly, nothing expires it, and
+  the whole table is what that repeater says it hears. Removing a node, or purging local data,
+  takes its stored readings with it.
+
 ## 0.8.7
 
 **A long conversation opens at its newest message, not at its oldest.** Reported on a thread of

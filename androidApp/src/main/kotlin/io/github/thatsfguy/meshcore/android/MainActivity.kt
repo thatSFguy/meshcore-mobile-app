@@ -261,7 +261,7 @@ private fun AppShell(
             // Reached from Nodes ⋮ — it is about the repeaters around
             // this node, which is what that tab is for.
             composable(HEARD_REPEATS_ROUTE) { HeardRepeatsScreen(vm, nav) }
-            composable("map") { MapScreen(vm) }
+            composable("map") { MapScreen(vm, nav) }
             // Settings is hub-and-spoke for the same reason repeater
             // admin is: eleven expandable sections on one scroll, one of
             // which held another eight surfaces (REBUILD-PLAYBOOK §6.2).

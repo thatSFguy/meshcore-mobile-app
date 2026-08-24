@@ -137,6 +137,48 @@ object NodeMarkers {
         return BitmapDrawable(context.resources, bmp)
     }
 
+    /**
+     * A small filled chip carrying [text] — the signal reading drawn on
+     * a neighbour link, at the line's midpoint.
+     *
+     * White text on the band's own colour, so the number and the line it
+     * labels cannot disagree, and a thin light rim so it stays legible
+     * over a dark tile.
+     */
+    fun buildChip(context: Context, text: String, argb: Int): BitmapDrawable {
+        val density = context.resources.displayMetrics.density
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            textSize = 10 * density
+            typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
+            color = Color.WHITE
+        }
+        val padX = 5 * density
+        val padY = 3 * density
+        val w = (paint.measureText(text) + padX * 2).toInt().coerceAtLeast(1)
+        val h = (paint.textSize + padY * 2).toInt().coerceAtLeast(1)
+        val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bmp)
+        val rect = RectF(0f, 0f, w.toFloat(), h.toFloat())
+        canvas.drawRoundRect(
+            rect, 3 * density, 3 * density,
+            Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                style = Paint.Style.FILL
+                color = argb
+            },
+        )
+        canvas.drawRoundRect(
+            rect, 3 * density, 3 * density,
+            Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                style = Paint.Style.STROKE
+                strokeWidth = 1f * density
+                color = Color.argb(180, 255, 255, 255)
+            },
+        )
+        val baseline = h / 2f - (paint.descent() + paint.ascent()) / 2f
+        canvas.drawText(text, padX, baseline, paint)
+        return BitmapDrawable(context.resources, bmp)
+    }
+
     /** White glyph inside the pin circle, centered at (cx, cy), radius r. */
     private fun drawGlyph(
         canvas: Canvas,

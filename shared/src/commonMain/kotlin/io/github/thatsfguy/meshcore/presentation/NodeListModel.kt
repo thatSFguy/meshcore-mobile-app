@@ -19,8 +19,29 @@ interface NodeListItem {
     /** `path_len` byte — decode with [PathCodec.decodePathLen]. */
     val pathLen: Int
 
-    /** Advert timestamp, epoch **seconds**. 0 means never heard. */
+    /**
+     * Advert timestamp, epoch **seconds**. 0 means never heard.
+     *
+     * ⚠ SENDER-CLAIMED. This is the clock reading the advertising node
+     * put in its own advert, and the firmware uses it for replay
+     * detection (`BaseChatMesh.cpp:131`), not as a record of when
+     * anything was heard. A node with a wrong RTC reports 2023, or
+     * 1970, while transmitting perfectly well today. Use
+     * [lastModified] for "when did we last hear from this node".
+     */
     val lastSeen: Long
+
+    /**
+     * When OUR radio last heard from this node — epoch **seconds** on
+     * its own clock. 0 means never/unknown.
+     *
+     * The firmware stamps this from its RTC every time an advert or a
+     * message arrives from the contact (`BaseChatMesh.cpp:117`, `:196`,
+     * `:238` — the last of which is commented "update last heard
+     * time"), and its own contact eviction picks the oldest one
+     * (`:89-93`). One clock, ours, for every node.
+     */
+    val lastModified: Long
 
     /** Last message either way, epoch **milliseconds**. 0 means never. */
     val lastMessageAt: Long
