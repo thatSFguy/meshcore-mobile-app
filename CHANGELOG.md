@@ -21,6 +21,32 @@ that names nothing, so the app looks broken and the field looks right. The regio
 parent boxes are fixed the same way: a capitalised region fails as "unknown region", which
 reads as the region not existing.
 
+**Replacing a repeater's identity key can restart the node and no longer leaves you
+waiting for it.** A new key does nothing until the node reboots, and a rebooted node is
+hard to find again: its boot advert is zero-hop, so only radios in direct range hear it,
+and the next advert that travels the mesh can be up to 47 hours away. So the node would
+quietly become a stranger, and the app would sit there with the old entry.
+
+- **The confirmation dialog has a "Restart the node now" tick box**, on by default,
+  because a stored key that has not been applied is the state that confuses everyone — the
+  node reports one identity and answers to another.
+- **The new identity is written into your radio's contact list immediately.** The node
+  reports its new public key when it accepts the change, which is the only copy anyone
+  gets before that flood advert. The new entry carries the old one's name, its favourite
+  mark, its Bluetooth address, its nickname and its saved password — the password is a
+  setting on the node, not part of its key, so it still works.
+- **The old entry is left alone**, because until the node actually restarts it is still
+  the live one. Delete it once the new identity answers.
+- **A key the node reports that doesn't match the key that was sent stops everything.**
+  Nothing is written and nothing is restarted: something answered that is not the node the
+  key was generated for.
+- **The restart is reported honestly.** A node never acknowledges a reboot — the firmware
+  restarts before it can reply, and sends no acknowledgement either — so the app says the
+  command was sent, waits for the node to come back, and then tries to sign in to the new
+  identity. A granted session is the only real proof it restarted, and that is the only
+  case that says so. Silence says it is not yet confirmed, and says plainly that this is
+  not yet a failure.
+
 **The Chats tab carries an unread count.** Each conversation already showed its own badge
 inside the list, which is no use from the Nodes, Map or Settings tab — a message that
 arrived while you were somewhere else stayed invisible until you happened to look.

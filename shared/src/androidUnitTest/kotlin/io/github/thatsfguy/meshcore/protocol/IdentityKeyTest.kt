@@ -5,6 +5,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertIs
 import kotlin.test.assertNotEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -258,5 +259,102 @@ class IdentityKeyTest {
         // A remote read always fails, by design (CommonCLI.cpp:832), and
         // the screen has to say so or it reads as a connection problem.
         assertTrue(IdentityKey.READS_ARE_SERIAL_ONLY.lowercase().contains("serial"))
+    }
+
+
+    // --- reading the reply (CommonCLI.cpp:510-522) ---
+
+    // The firmware's own words, byte for byte:
+    //   strcpy(reply, "OK, reboot to apply! New pubkey: ");
+    //   mesh::Utils::toHex(&reply[33], new_id.pub_key, PUB_KEY_SIZE);
+    private val realPubKey = "b389c985" + "7a1f0c42".repeat(7)
+    private val realReply = "OK, reboot to apply! New pubkey: $realPubKey"
+
+    @Test
+    fun `the accepted prefix is exactly where the firmware writes the key`() {
+        // The firmware indexes past its own string (&reply[33]) instead
+        // of appending, so the prefix and the offset are one fact
+        // written twice. If they ever disagree the key is read from the
+        // wrong column and every character of it is wrong.
+        assertEquals(33, IdentityKey.REKEY_ACCEPTED_PREFIX.length)
+        assertEquals(
+            realPubKey,
+            realReply.substring(33),
+        )
+    }
+
+    @Test
+    fun `an accepted rekey yields the new public key`() {
+        val parsed = assertIs<IdentityKey.RekeyReply.Accepted>(
+            IdentityKey.parseRekeyReply(realReply),
+        )
+        assertEquals(realPubKey, parsed.newPublicKeyHex)
+    }
+
+    @Test
+    fun `a C string's trailing null and whitespace are not part of the key`() {
+        // The reply crosses a fixed C buffer. A stray terminator or the
+        // radio's own line ending must not make a valid key
+        // unrecognisable — that would strand the user waiting for an
+        // advert for the sake of one byte.
+        val parsed = assertIs<IdentityKey.RekeyReply.Accepted>(
+            IdentityKey.parseRekeyReply("$realReply\u0000\n  "),
+        )
+        assertEquals(realPubKey, parsed.newPublicKeyHex)
+    }
+
+    @Test
+    fun `the refusal is recognised as a refusal and not as a key`() {
+        assertIs<IdentityKey.RekeyReply.Refused>(IdentityKey.parseRekeyReply("Error, bad key"))
+    }
+
+    @Test
+    fun `a truncated key is not accepted`() {
+        // The whole point of reading this reply is to write a contact
+        // nobody has to wait for. Half a key would write a node the mesh
+        // has never heard of, under the name of one that exists.
+        val short = IdentityKey.REKEY_ACCEPTED_PREFIX + realPubKey.dropLast(2)
+        assertIs<IdentityKey.RekeyReply.Unrecognised>(IdentityKey.parseRekeyReply(short))
+    }
+
+    @Test
+    fun `an over-long key is not accepted`() {
+        val long = IdentityKey.REKEY_ACCEPTED_PREFIX + realPubKey + "ab"
+        assertIs<IdentityKey.RekeyReply.Unrecognised>(IdentityKey.parseRekeyReply(long))
+    }
+
+    @Test
+    fun `non-hex where the key should be is not accepted`() {
+        val bad = IdentityKey.REKEY_ACCEPTED_PREFIX + "z".repeat(64)
+        assertIs<IdentityKey.RekeyReply.Unrecognised>(IdentityKey.parseRekeyReply(bad))
+    }
+
+    @Test
+    fun `an unrelated reply is never mistaken for an acceptance`() {
+        // Every other CLI answer arrives on the same path. "OK" is what
+        // half of them say.
+        for (other in listOf("OK", "> 910525", "Err - unknown region", "OK - Advert sent")) {
+            assertTrue(
+                IdentityKey.parseRekeyReply(other) is IdentityKey.RekeyReply.Unrecognised,
+                "$other must not parse as an acceptance",
+            )
+        }
+    }
+
+    @Test
+    fun `silence is its own answer`() {
+        assertEquals(IdentityKey.RekeyReply.NoAnswer, IdentityKey.parseRekeyReply(null))
+        assertEquals(IdentityKey.RekeyReply.NoAnswer, IdentityKey.parseRekeyReply("   "))
+    }
+
+    @Test
+    fun `a key reported in upper case is still that key`() {
+        val parsed = assertIs<IdentityKey.RekeyReply.Accepted>(
+            IdentityKey.parseRekeyReply(IdentityKey.REKEY_ACCEPTED_PREFIX + realPubKey.uppercase()),
+        )
+        // Lower-cased, because everything else in this app keys contacts
+        // by lower-case hex and a case difference would add the node
+        // twice.
+        assertEquals(realPubKey, parsed.newPublicKeyHex)
     }
 }

@@ -228,6 +228,122 @@ object IdentityKey {
         "A node only answers this over its USB serial console — never from a remote " +
             "admin session. Over the mesh it will refuse, however good the link is."
 
+    /**
+     * What a node said when asked to take a new key.
+     *
+     * The firmware's own words, decoded once. `set prv.key` is the rare
+     * command that hands back something worth keeping — the node's new
+     * public key — and until now the app printed the whole reply as a
+     * note and threw the key away, which is why a rekeyed repeater then
+     * had to be waited for.
+     */
+    sealed interface RekeyReply {
+        /**
+         * The node stored the key and reported the public half.
+         *
+         * It is still running the OLD identity at this point: the
+         * firmware saves and says "reboot to apply".
+         */
+        data class Accepted(val newPublicKeyHex: String) : RekeyReply
+
+        /** The node refused — bad length, or a key it will not hold. */
+        data class Refused(val text: String) : RekeyReply
+
+        /** Something came back that this parser does not recognise. */
+        data class Unrecognised(val text: String) : RekeyReply
+
+        /** Nothing came back at all. */
+        data object NoAnswer : RekeyReply
+    }
+
+    /**
+     * The exact prefix the firmware writes before the new public key:
+     *
+     * ```c
+     * strcpy(reply, "OK, reboot to apply! New pubkey: ");
+     * mesh::Utils::toHex(&reply[33], new_id.pub_key, PUB_KEY_SIZE);
+     * ```
+     * (`CommonCLI.cpp:518-519`)
+     *
+     * Thirty-three characters, which is where the hex is written — the
+     * firmware indexes past its own string rather than appending, so
+     * prefix and offset are the same fact stated twice and a test pins
+     * them against each other.
+     */
+    const val REKEY_ACCEPTED_PREFIX = "OK, reboot to apply! New pubkey: "
+
+    /** What the firmware says when it will not take the key. */
+    const val REKEY_REFUSED = "Error, bad key"
+
+    /**
+     * Decode the reply to [setCommand].
+     *
+     * Deliberately strict about the key and forgiving about the frame
+     * around it: the 64 hex characters either parse as a public key or
+     * this is not an acceptance, because the entire value of reading
+     * this reply is that the app can stop waiting for an advert — and a
+     * half-read key would put a node in the contact list under a name
+     * nothing on the mesh answers to.
+     */
+    fun parseRekeyReply(reply: String?): RekeyReply {
+        val text = reply?.trim() ?: return RekeyReply.NoAnswer
+        if (text.isEmpty()) return RekeyReply.NoAnswer
+        if (text.startsWith(REKEY_REFUSED, ignoreCase = true)) return RekeyReply.Refused(text)
+        if (!text.startsWith(REKEY_ACCEPTED_PREFIX, ignoreCase = true)) {
+            return RekeyReply.Unrecognised(text)
+        }
+        // Trailing whitespace or a stray null from the C string are the
+        // node's, not the key's. Anything else after 64 hex characters
+        // means this is not the reply it looks like.
+        val tail = text.substring(REKEY_ACCEPTED_PREFIX.length).trim().trimEnd('\u0000')
+        val key = tail.lowercase()
+        if (key.length != PUBLIC_KEY_HEX_LENGTH || !key.all { it in "0123456789abcdef" }) {
+            return RekeyReply.Unrecognised(text)
+        }
+        return RekeyReply.Accepted(key)
+    }
+
+    /** A public key is 32 bytes on the wire, 64 characters in a reply. */
+    const val PUBLIC_KEY_HEX_LENGTH = 64
+
+    /** The command that applies a stored key. */
+    const val REBOOT_COMMAND = "reboot"
+
+    /**
+     * There is no such thing as a confirmed reboot.
+     *
+     * `CommonCLI.cpp:185` is `_board->reboot(); // doesn't return` — the
+     * reply buffer is never written, so no reply is sent. Nor is there
+     * an ACK: a repeater acknowledges only `TXT_TYPE_PLAIN` messages
+     * ("for legacy CLI", `MyMesh.cpp:717`) and every command this app
+     * sends is `TXT_TYPE_CLI_DATA`. Compare `advert`, which delays 1500
+     * ms explicitly to "give CLI response time to be sent first" — the
+     * firmware knows the difference and does not try here.
+     *
+     * So the only honest report is that OUR radio transmitted it. The
+     * screen must not promise more, and silence afterwards must never be
+     * presented as a failure: silence is the expected outcome.
+     */
+    const val REBOOT_HAS_NO_ANSWER =
+        "A node never answers a reboot — the firmware restarts before it can reply, and " +
+            "sends no acknowledgement either. Silence here is what success looks like."
+
+    /**
+     * Why the new identity has to be written locally rather than waited
+     * for.
+     *
+     * A repeater adverts on boot — `sendSelfAdvertisement(16000, false)`
+     * (`examples/simple_repeater/main.cpp:119`) — but that `false` is
+     * **zero-hop**: only nodes in direct radio range hear it. A repeater
+     * reached over hops is not one of them. The next advert that
+     * actually propagates is the flood advert, whose firmware default is
+     * `flood_advert_interval = 47` hours.
+     */
+    const val NEW_IDENTITY_IS_NOT_ANNOUNCED =
+        "A rebooted node announces itself only to radios in direct range, and its next " +
+            "flooded advert can be up to 47 hours away. That is why the new identity is " +
+            "written here rather than waited for."
+
     private fun hexBytes(hex: String): ByteArray =
         ByteArray(hex.length / 2) { hex.substring(it * 2, it * 2 + 2).toInt(16).toByte() }
 }

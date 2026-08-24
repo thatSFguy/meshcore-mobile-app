@@ -101,4 +101,96 @@ class AdminInputWiringTest {
         )
         assertTrue("the shell must draw a BadgedBox otherwise", icon.contains("BadgedBox("))
     }
+
+
+    // --- the rekey sequence (identity panel) ---
+
+    private val viewModel =
+        read("src/main/kotlin/io/github/thatsfguy/meshcore/android/ui/MeshCoreViewModel.kt")
+    private val identity = read(screens + "RepeaterIdentityPanel.kt")
+
+    private val rekey: String
+        get() = viewModel.substringAfter("suspend fun replaceIdentityKey(")
+            .substringBefore("suspend fun rebootRepeater(")
+
+    @Test
+    fun `a mismatched public key stops before anything is changed`() {
+        // The cross-check has to come BEFORE the adoption, or a node
+        // that reported an identity we did not ask for gets written into
+        // the contact list anyway. Order is the whole guarantee here,
+        // and order is what a source pin can see.
+        val check = rekey.indexOf("mismatchedWith = expected")
+        val adopt = rekey.indexOf("adoptNewIdentity(")
+        assertTrue("the mismatch check must exist", check > 0)
+        assertTrue("adoption must come after the mismatch check", adopt > check)
+    }
+
+    @Test
+    fun `the contact is adopted before the node is rebooted`() {
+        // The reply carrying the new public key is the only copy the app
+        // gets without waiting for a flood advert, and the node is about
+        // to stop answering. Writing the contact first means a reboot
+        // that goes wrong still leaves the user with the identity.
+        val adopt = rekey.indexOf("adoptNewIdentity(")
+        val reboot = rekey.indexOf("rebootRepeater(")
+        assertTrue("adoption must happen", adopt > 0)
+        assertTrue("the reboot must come after the adoption", reboot > adopt)
+    }
+
+    @Test
+    fun `the reboot is sent without waiting for a reply`() {
+        // A repeater reboots without writing a reply and ACKs only
+        // TXT_TYPE_PLAIN, so awaiting one spends 15 seconds to learn
+        // nothing and turns the expected silence into a timeout.
+        val fn = viewModel.substringAfter("suspend fun rebootRepeater(")
+            .substringBefore("private suspend fun adoptNewIdentity(")
+        assertTrue(
+            "reboot must use the fire-and-confirm-sent path",
+            fn.contains("sendCliCommand("),
+        )
+        assertFalse(
+            "reboot must not await a CLI reply",
+            fn.contains("cliQuery(") || fn.contains("sendCliAndAwaitReply("),
+        )
+    }
+
+    @Test
+    fun `the confirmation probe waits for the node to come back`() {
+        // The firmware schedules its own boot advert 16 s after start.
+        // Probing sooner asks a node that is not listening yet, and the
+        // silence would be reported against a node that is fine.
+        val fn = viewModel.substringAfter("private suspend fun confirmRebooted(")
+        assertTrue(
+            "the probe must wait before asking",
+            fn.contains("delay(REBOOT_SETTLE_MS)"),
+        )
+        assertTrue(
+            "the settle time must be at least the firmware's 16 s advert delay",
+            Regex("""REBOOT_SETTLE_MS = (\d[\d_]*)L""").find(viewModel)
+                ?.groupValues?.get(1)?.replace("_", "")?.toLong()?.let { it >= 16_000 } == true,
+        )
+    }
+
+    @Test
+    fun `the panel reports through the shared rule`() {
+        // The wording is pinned by RekeyFlowTest in shared. A panel that
+        // built its own sentence would escape every one of those tests —
+        // including the one that stops it claiming a reboot happened.
+        assertTrue(
+            "the panel must describe the outcome via RekeyFlow",
+            identity.contains("RekeyFlow.describe("),
+        )
+    }
+
+    @Test
+    fun `the restart checkbox defaults to on`() {
+        // A stored key does nothing until the node restarts. Defaulting
+        // it off produces the state that confuses everyone: a node
+        // reporting one identity and answering to another.
+        val dialog = identity.substringAfter("private fun ReplaceKeyDialog(")
+        assertTrue(
+            "the reboot checkbox must default to checked",
+            dialog.contains("var reboot by remember { mutableStateOf(true) }"),
+        )
+    }
 }

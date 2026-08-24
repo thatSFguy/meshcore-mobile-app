@@ -91,6 +91,19 @@ fun AboutSection(vm: MeshCoreViewModel) {
  */
 private val CHANGELOG: List<Pair<String, List<String>>> = listOf(
     "0.8.4" to listOf(
+        "Replacing a repeater's identity key can restart the node, and no longer leaves " +
+            "you waiting for it. The confirmation dialog has a \"Restart the node now\" " +
+            "tick box, on by default — a stored key does nothing until the node reboots.",
+        "The new identity is added to your radio's contact list straight away, carrying " +
+            "the old entry's name, favourite mark, Bluetooth address, nickname and saved " +
+            "password. A rebooted node announces itself only to radios in direct range, " +
+            "and its next flooded advert can be 47 hours away, so waiting for one is not " +
+            "a plan. The old entry is left alone until you delete it: until the node " +
+            "restarts, it is still the live one.",
+        "The restart is reported honestly. A node never acknowledges a reboot, so the app " +
+            "waits for it to come back and tries to sign in to the new identity — a " +
+            "granted session is the only real proof. Silence says \"not yet confirmed\", " +
+            "and says that is not yet a failure.",
         "The admin command box no longer autocorrects. It was an ordinary text field, so " +
             "Android capitalised the first letter and \"corrected\" the rest — on a screen " +
             "whose whole purpose is sending strings a node compares byte for byte. A " +

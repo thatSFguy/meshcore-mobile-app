@@ -1,10 +1,13 @@
 package io.github.thatsfguy.meshcore.android.ui.screens
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -16,10 +19,12 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import io.github.thatsfguy.meshcore.android.ui.MeshCoreViewModel
+import io.github.thatsfguy.meshcore.presentation.RekeyFlow
 import io.github.thatsfguy.meshcore.protocol.IdentityKey
 import io.github.thatsfguy.meshcore.protocol.IdentityKeygen
 import io.github.thatsfguy.meshcore.protocol.PathHashMode
@@ -66,6 +71,10 @@ fun RepeaterIdentityPanel(vm: MeshCoreViewModel, keyHex: String, isAdmin: Boolea
     var busy by remember { mutableStateOf(false) }
     var busyLabel by remember { mutableStateOf("Talking to the node…") }
     var note by remember { mutableStateOf<String?>(null) }
+    // The rekey report is several lines and each one is a separate
+    // claim; joining them into a sentence is how a report starts
+    // saying more than it knows.
+    var report by remember { mutableStateOf<List<String>>(emptyList()) }
     // The width the node names itself by on air. Asked of the node
     // rather than assumed: it is mesh truth, this phone's radio is only
     // one member of the mesh, and a key generated against the wrong
@@ -119,6 +128,13 @@ fun RepeaterIdentityPanel(vm: MeshCoreViewModel, keyHex: String, isAdmin: Boolea
     }
     if (busy) SectionSpinner(busyLabel)
     note?.let { HintText(it) }
+    if (report.isNotEmpty()) {
+        Spacer(Modifier.height(8.dp))
+        for (line in report) {
+            Text("• $line", style = MaterialTheme.typography.bodySmall)
+            Spacer(Modifier.height(4.dp))
+        }
+    }
 
     revealed?.let { key ->
         Spacer(Modifier.height(8.dp))
@@ -253,15 +269,25 @@ fun RepeaterIdentityPanel(vm: MeshCoreViewModel, keyHex: String, isAdmin: Boolea
     if (changeConfirm) {
         ReplaceKeyDialog(
             onDismiss = { changeConfirm = false },
-            onConfirm = {
+            onConfirm = { reboot ->
                 changeConfirm = false
                 busy = true
                 busyLabel = "Talking to the node…"
                 note = null
+                report = emptyList()
+                val applying = newKey
                 scope.launch {
-                    note = vm.replaceIdentityKey(keyHex, newKey)
+                    // Cleared before the sequence, not after: it runs for
+                    // half a minute when a reboot is asked for, and a key
+                    // still sitting in the box behind a spinner invites a
+                    // second press of a button that cannot be undone.
                     newKey = ""
                     generated = null
+                    report = RekeyFlow.describe(
+                        vm.replaceIdentityKey(keyHex, applying, reboot) { step ->
+                            busyLabel = step
+                        },
+                    )
                     busy = false
                 }
             },
@@ -339,9 +365,25 @@ private fun GeneratedKeySummary(outcome: IdentityKeygen.Outcome) {
     )
 }
 
+/**
+ * The last stop before a node changes its name for ever.
+ *
+ * The restart checkbox is on by default, and that is the honest default
+ * rather than the convenient one: a stored key does nothing at all until
+ * the node restarts (`CommonCLI.cpp:518` — "OK, reboot to apply!"), so
+ * leaving it off produces the state that confuses everyone — a node
+ * reporting one identity while still answering to another. Unticking it
+ * is for when the restart has to happen at a chosen moment.
+ *
+ * Both firmware facts are stated here rather than in the outcome,
+ * because they change what the user should expect BEFORE they commit:
+ * nothing acknowledges a reboot, and a rebooted node does not announce
+ * itself anywhere the phone can hear.
+ */
 @Composable
-private fun ReplaceKeyDialog(onDismiss: () -> Unit, onConfirm: () -> Unit) {
+private fun ReplaceKeyDialog(onDismiss: () -> Unit, onConfirm: (Boolean) -> Unit) {
     var typed by remember { mutableStateOf("") }
+    var reboot by remember { mutableStateOf(true) }
     val armed = typed.trim().equals(CONFIRM_WORD, ignoreCase = true)
 
     AlertDialog(
@@ -354,18 +396,35 @@ private fun ReplaceKeyDialog(onDismiss: () -> Unit, onConfirm: () -> Unit) {
                     Spacer(Modifier.height(4.dp))
                 }
                 Spacer(Modifier.height(8.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth().clickable { reboot = !reboot },
+                ) {
+                    Checkbox(checked = reboot, onCheckedChange = { reboot = it })
+                    Text(
+                        "Restart the node now to apply it",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                HintText(IdentityKey.REBOOT_HAS_NO_ANSWER)
+                HintText(IdentityKey.NEW_IDENTITY_IS_NOT_ANNOUNCED)
+                Spacer(Modifier.height(8.dp))
                 OutlinedTextField(
                     value = typed,
                     onValueChange = { typed = it },
                     label = { Text("Type $CONFIRM_WORD to confirm") },
                     singleLine = true,
+                    keyboardOptions = VERBATIM_KEYBOARD,
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
         },
         confirmButton = {
-            TextButton(onClick = onConfirm, enabled = armed) {
-                Text("Replace", color = MaterialTheme.colorScheme.error)
+            TextButton(onClick = { onConfirm(reboot) }, enabled = armed) {
+                Text(
+                    if (reboot) "Replace and restart" else "Replace",
+                    color = MaterialTheme.colorScheme.error,
+                )
             }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },

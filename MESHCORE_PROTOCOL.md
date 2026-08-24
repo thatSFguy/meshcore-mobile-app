@@ -832,6 +832,34 @@ get prv.key                     // replies "> <128 hex chars>"
   session can never read it, however good the link is. The reply is the same 64 bytes
   (`LocalIdentity::writeTo`, `Identity.cpp:128-138`).
 
+**Applying it: a reboot is never confirmed, and the node that comes back is quiet
+(added 2026-08-23).** Three firmware facts that together decide what a client can honestly
+tell a user after a rekey:
+
+- **`reboot` sends no reply.** `else if (memcmp(command, "reboot", 6) == 0) { _board->reboot();
+  // doesn't return }` (`CommonCLI.cpp:185-186`) — the reply buffer is never written, so
+  nothing is sent before the restart. Contrast `advert` three lines below, which passes a
+  1500 ms delay explicitly commented "give CLI response time to be sent first": the
+  firmware knows the difference and does not try here.
+- **There is no ACK either.** A repeater acknowledges a text message only when
+  `flags == TXT_TYPE_PLAIN`, commented "for legacy CLI"
+  (`examples/simple_repeater/MyMesh.cpp:717-731`). Companion clients send commands as
+  `TXT_TYPE_CLI_DATA`, whose only answer is the reply datagram — and a reboot has none. So
+  a client has **no protocol evidence at all** that a reboot was received: not a reply, not
+  a delivery confirmation. The only positive evidence available is indirect — the new
+  identity answering something afterwards.
+- **The boot advert is zero-hop.** `the_mesh.sendSelfAdvertisement(16000, false)`
+  (`examples/simple_repeater/main.cpp:119`) — 16 seconds after start, and `false` is
+  *not flooded*, so only nodes in direct radio range hear it. A repeater reached over hops
+  is not one of them. The next advert that propagates is the flood advert, default
+  `flood_advert_interval = 47` hours (`MyMesh.cpp:904`).
+
+The consequence for a client: after `set prv.key` the reply's `New pubkey:` hex is the only
+copy of the node's new identity available for up to two days. Write it into the contact
+list rather than waiting for an advert — the alternative is a repeater that has silently
+become a stranger.
+
+
 **A node's on-air name is a PREFIX of its public key, not the key.** `Identity::copyHashTo`
 is literally `memcpy(dest, pub_key, len)  // hash is just prefix of pub_key`
 (`Identity.h:20-26`). Two widths matter, and both are leading bytes:

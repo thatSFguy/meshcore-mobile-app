@@ -61,6 +61,8 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import io.github.thatsfguy.meshcore.presentation.RekeyFlow
+import io.github.thatsfguy.meshcore.protocol.IdentityKey
 import org.json.JSONObject
 
 /** One row in the merged conversation list. */
@@ -2038,21 +2040,203 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
         return io.github.thatsfguy.meshcore.protocol.IdentityKey.canonicalHex(value)
     }
 
-    /** Replace a repeater's identity key. Not undoable; see IdentityKey. */
-    suspend fun replaceIdentityKey(repeaterKeyHex: String, newKeyHex: String): String {
+    /**
+     * Replace a repeater's identity key, optionally restarting it, and
+     * write the identity it reports into this radio's contact list.
+     *
+     * Not undoable; see [IdentityKey]. The steps are ordered so that
+     * each one only runs on evidence from the last:
+     *
+     *  1. `set prv.key`. The node stores it and replies with the PUBLIC
+     *     half ([IdentityKey.parseRekeyReply]). This is the only copy of
+     *     that key the app ever gets without waiting for an advert, and
+     *     the reason for the whole sequence — see
+     *     [IdentityKey.NEW_IDENTITY_IS_NOT_ANNOUNCED].
+     *  2. Cross-check it, when this phone can. A key we generated (or a
+     *     seed that was typed) has a public half we can compute. If the
+     *     node reports a different one, something is wrong that no
+     *     amount of retrying fixes, and NOTHING further is done.
+     *  3. Adopt the new identity locally, carrying the things that
+     *     describe the hardware rather than the key: name, type,
+     *     favourite mark, BLE address, nickname, saved password.
+     *  4. Reboot, if asked. Never confirmable — see
+     *     [IdentityKey.REBOOT_HAS_NO_ANSWER].
+     *  5. Prove it, if we can: sign in to the NEW identity with the same
+     *     password. A granted session is the only positive evidence the
+     *     node restarted and is running the key.
+     */
+    suspend fun replaceIdentityKey(
+        repeaterKeyHex: String,
+        newKeyHex: String,
+        reboot: Boolean,
+        progress: (String) -> Unit = {},
+    ): RekeyFlow.Report {
+        progress("Sending the new key…")
         val command = runCatching {
             io.github.thatsfguy.meshcore.protocol.IdentityKey.setCommand(crypto, newKeyHex)
-        }.getOrElse { return "Refused: ${it.message}" }
+        }.getOrElse { return RekeyFlow.Report(refusal = "Refused: ${it.message}") }
 
         val reply = cliQuery(repeaterKeyHex, command)
-            ?: return "No reply — the change may or may not have applied. The node keeps " +
-                "its old key until it reboots, so `get public.key` only answers that " +
-                "after a restart."
-        // The firmware answers "OK, reboot to apply! New pubkey: <hex>"
-        // (CommonCLI.cpp:517-519) — pass it through verbatim: that hex
-        // is the node's new identity and the only copy of it we get.
-        return "Node replied: ${reply.trim()}. Its identity has changed; it keeps the old " +
-            "key until it reboots, and contacts must re-add it."
+        val parsed = io.github.thatsfguy.meshcore.protocol.IdentityKey.parseRekeyReply(reply)
+        val newKey = when (parsed) {
+            is IdentityKey.RekeyReply.Accepted -> parsed.newPublicKeyHex
+            is IdentityKey.RekeyReply.Refused ->
+                return RekeyFlow.Report(refusal = "The node refused the key: ${parsed.text}")
+            is IdentityKey.RekeyReply.Unrecognised ->
+                return RekeyFlow.Report(
+                    refusal = "The node answered something this app does not recognise, so " +
+                        "nothing has been assumed: ${parsed.text}",
+                )
+            IdentityKey.RekeyReply.NoAnswer -> return RekeyFlow.Report()
+        }
+
+        // The check is only possible for a key whose public half this
+        // phone can derive — a seed, or one the generator produced. A
+        // bare 64-byte key cannot be checked here (IdentityKey docs), so
+        // its absence is not evidence of anything.
+        val expected = io.github.thatsfguy.meshcore.protocol.IdentityKey
+            .canonicalSeedHex(newKeyHex)?.let { publicKeyFor(it) }
+        if (expected != null && !expected.equals(newKey, ignoreCase = true)) {
+            return RekeyFlow.Report(newPublicKeyHex = newKey, mismatchedWith = expected)
+        }
+
+        progress("Adding the new identity to this radio…")
+        val adopted = adoptNewIdentity(repeaterKeyHex, newKey)
+        if (!reboot) {
+            return RekeyFlow.Report(newPublicKeyHex = newKey, adopted = adopted)
+        }
+
+        progress("Restarting the node…")
+        val sent = rebootRepeater(repeaterKeyHex)
+        if (!sent) {
+            return RekeyFlow.Report(
+                newPublicKeyHex = newKey,
+                adopted = adopted,
+                rebootRequested = true,
+            )
+        }
+        return RekeyFlow.Report(
+            newPublicKeyHex = newKey,
+            adopted = adopted,
+            rebootRequested = true,
+            rebootSent = true,
+            probe = confirmRebooted(repeaterKeyHex, newKey, progress),
+        )
+    }
+
+    /**
+     * Ask a node to restart, and report only that this radio sent it.
+     *
+     * Deliberately does NOT wait for a reply: the firmware reboots
+     * without writing one and sends no ACK either
+     * ([IdentityKey.REBOOT_HAS_NO_ANSWER]), so waiting would spend 15
+     * seconds to learn nothing and would present the expected silence as
+     * a timeout.
+     */
+    suspend fun rebootRepeater(repeaterKeyHex: String): Boolean {
+        val svc = _service.value ?: return false
+        val key = hexToBytesOrNull(repeaterKeyHex) ?: return false
+        return runCatching {
+            svc.engine.sendCliCommand(
+                key,
+                io.github.thatsfguy.meshcore.protocol.IdentityKey.REBOOT_COMMAND,
+            ) != null
+        }.getOrDefault(false)
+    }
+
+    /**
+     * Put the node's new identity into the radio's contact list now,
+     * carrying across everything that belongs to the hardware rather
+     * than to the key.
+     *
+     * What is carried is chosen by one question: would this still be
+     * true of the node after it takes a new name? Its name, its kind,
+     * whether it is a favourite, its BLE address and the password that
+     * opens its admin session all survive a rekey — the password is a
+     * repeater *setting*, untouched by `saveIdentity()`. Stored routes
+     * and message history do not: a route is to a destination hash that
+     * has just changed.
+     *
+     * The new contact is added flood-routed, which is the truth — no
+     * route to this identity has ever existed.
+     */
+    private suspend fun adoptNewIdentity(oldKeyHex: String, newKeyHex: String): Boolean {
+        val svc = _service.value ?: return false
+        val newKey = hexToBytesOrNull(newKeyHex) ?: return false
+        val old = dbContacts.value.firstOrNull { it.keyHex.equals(oldKeyHex, true) }
+        val name = old?.name?.ifBlank { null } ?: "Repeater ${newKeyHex.take(6)}"
+        val type = old?.type ?: io.github.thatsfguy.meshcore.protocol.Codes.ADV_TYPE_REPEATER
+
+        val added = runCatching { svc.engine.addContactFromCard(newKey, name, type) }
+            .getOrDefault(false)
+        if (!added) return false
+
+        // Everything below is a nicety that must not be able to fail the
+        // adoption: the contact exists, which is the part that stops the
+        // user waiting 47 hours for a flood advert.
+        if (old != null) {
+            if (old.flags and io.github.thatsfguy.meshcore.protocol.Codes.CONTACT_FLAG_FAVORITE != 0) {
+                runCatching { svc.engine.setFavourite(newKey, true) }
+            }
+            if (!old.otaAddress.isNullOrBlank()) {
+                runCatching {
+                    db.contacts().rememberOtaAddress(
+                        selfKey.value,
+                        newKeyHex,
+                        old.otaAddress,
+                        System.currentTimeMillis() / 1000,
+                    )
+                }
+            }
+        }
+        prefs.nicknameFor(oldKeyHex)?.let { prefs.setNickname(newKeyHex, it) }
+        svc.secrets.loginPassword(oldKeyHex)?.let {
+            svc.secrets.storeLoginPassword(newKeyHex, it)
+        }
+        return true
+    }
+
+    /**
+     * Try to sign in to the new identity, which is the only positive
+     * evidence a reboot happened.
+     *
+     * Waits [REBOOT_SETTLE_MS] first: the firmware's own boot advert is
+     * scheduled 16 seconds after start
+     * (`examples/simple_repeater/main.cpp:119`), so anything sooner is
+     * asking a node that is not listening yet. A silence here is
+     * reported as a silence and never as a failure.
+     */
+    private suspend fun confirmRebooted(
+        oldKeyHex: String,
+        newKeyHex: String,
+        progress: (String) -> Unit = {},
+    ): RekeyFlow.Probe {
+        val svc = _service.value ?: return RekeyFlow.Probe.NOT_ATTEMPTED
+        val key = hexToBytesOrNull(newKeyHex) ?: return RekeyFlow.Probe.NOT_ATTEMPTED
+        val password = svc.secrets.loginPassword(oldKeyHex)
+            ?: return RekeyFlow.Probe.NO_PASSWORD
+
+        // Said out loud because it is half a minute of nothing on a
+        // screen that has just done something irreversible, and a
+        // spinner that never changes is what makes people press again.
+        progress("Waiting for the node to come back…")
+        kotlinx.coroutines.delay(REBOOT_SETTLE_MS)
+        progress("Signing in to the new identity…")
+        val outcome = runCatching {
+            svc.engine.sendLoginWithRetry(
+                key,
+                password,
+                floodFallbackEnabled = prefs.floodFallbackOnLastRetry,
+            )
+        }.getOrDefault(io.github.thatsfguy.meshcore.engine.LoginOutcome.NoAnswer)
+
+        if (outcome.accepted) {
+            _adminSessions.value = _adminSessions.value + (
+                newKeyHex to if (outcome.isAdmin) AdminSession.Admin else AdminSession.Guest
+                )
+            return RekeyFlow.Probe.CONFIRMED
+        }
+        return if (outcome.answered) RekeyFlow.Probe.REJECTED else RekeyFlow.Probe.SILENT
     }
 
     // --- Blocking and filtering (PARITY §3) ---
@@ -2578,5 +2762,19 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
          * into memory whole.
          */
         const val MAX_BACKUP_BYTES = 4 * 1024 * 1024
+
+        /**
+         * How long to leave a rebooting node alone before asking it
+         * anything.
+         *
+         * The firmware schedules its own boot advert 16 seconds after
+         * start (`examples/simple_repeater/main.cpp:119`), which is the
+         * closest thing to a published "I am ready" the app has. 25
+         * seconds is that plus the restart itself, and erring long
+         * costs nothing here: the alternative to waiting is a probe that
+         * fails for the one reason the report is careful to say is not
+         * a failure.
+         */
+        const val REBOOT_SETTLE_MS = 25_000L
     }
 }
