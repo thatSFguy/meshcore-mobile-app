@@ -13,6 +13,7 @@ import io.github.thatsfguy.meshcore.protocol.DeliveryWatch
 import io.github.thatsfguy.meshcore.protocol.PathHistoryHygiene
 import io.github.thatsfguy.meshcore.protocol.ReactionCounts
 import io.github.thatsfguy.meshcore.protocol.ReactionNotice
+import io.github.thatsfguy.meshcore.protocol.MeshCoreOneReactions
 import io.github.thatsfguy.meshcore.protocol.Reactions
 import io.github.thatsfguy.meshcore.protocol.Retention
 import io.github.thatsfguy.meshcore.protocol.SendRetry
@@ -399,6 +400,16 @@ class MessageRepository(
     // ------------------------------------------------------------------
 
     /**
+     * SHA-256 for MeshCore One's target hash. Held here rather than
+     * built per reaction: a busy channel hashes every candidate in the
+     * search window for each arrival.
+     */
+    private val cryptoProvider by lazy {
+        io.github.thatsfguy.meshcore.platform.androidCryptoProvider()
+    }
+    private val reactionSha256: (ByteArray) -> ByteArray = { cryptoProvider.sha256(it) }
+
+    /**
      * If [text] is a reaction, attach it to the message it targets and
      * return true (the caller then skips inserting a message row).
      *
@@ -417,26 +428,35 @@ class MessageRepository(
         senderName: String?,
         contentKey: String? = null,
     ): ReactionOutcome {
-        val reaction = Reactions.parse(text) ?: return ReactionOutcome.NotAReaction
+        // Two conventions are live on the mesh and this reads both.
+        // `r:HHHH:II` is MeshCore Open's and is what this app SENDS;
+        // `{emoji}@[{sender}]\n{hash}` is MeshCore One's, whose
+        // reactions were arriving as ordinary messages until 2026-08-23.
+        val ours = Reactions.parse(text)
+        val theirs = if (ours == null) MeshCoreOneReactions.parse(text) else null
+        if (ours == null && theirs == null) return ReactionOutcome.NotAReaction
+        val emoji = ours?.emoji ?: theirs!!.emoji
         // Consume repeats (our own echo, or double delivery) without
         // counting them again — but still consume, so the wire text
         // never lands in the thread as a message.
         if (!firstSightOfReaction(contentKey)) return ReactionOutcome.Consumed
         val recent = db.messages()
             .recentOnce(self, kind, peerKey, ReactionRouting.SEARCH_WINDOW)
-        // Which message this points at is ReactionRouting's rule, not
-        // this class's: it is pure, it is hostile-input facing, and iOS
-        // needs the same answer. Here we only map rows to it and back.
-        val hit = ReactionRouting.target(
-            recent.map {
-                ReactionRouting.Candidate(it.id, it.timestamp, it.senderName, it.text, it.outgoing)
-            },
-            reaction.targetHash,
-            isChannel = kind == KIND_CHANNEL,
-        ) ?: return ReactionOutcome.Consumed
+        // Which message this points at is the protocol layer's rule, not
+        // this class's: both are pure, hostile-input facing, and iOS
+        // needs the same answers. Here we only map rows to them and back.
+        val candidates = recent.map {
+            ReactionRouting.Candidate(it.id, it.timestamp, it.senderName, it.text, it.outgoing)
+        }
+        val isChannel = kind == KIND_CHANNEL
+        val hit = if (ours != null) {
+            ReactionRouting.target(candidates, ours.targetHash, isChannel)
+        } else {
+            MeshCoreOneReactions.target(candidates, theirs!!, isChannel, reactionSha256)
+        } ?: return ReactionOutcome.Consumed
         val target = recent.first { it.id == hit.id }
-        addReaction(target, reaction.emoji)
-        return ReactionOutcome.Applied(reaction.emoji, target)
+        addReaction(target, emoji)
+        return ReactionOutcome.Applied(emoji, target)
     }
 
     /**

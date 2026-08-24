@@ -688,7 +688,8 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
      * thread does rather than leaking "r:1a2b:00" into the list.
      */
     private fun previewOf(m: io.github.thatsfguy.meshcore.android.storage.MessageEntity): String {
-        Reactions.parse(m.text)?.let { return it.emoji + " reacted" }
+        io.github.thatsfguy.meshcore.protocol.AnyReaction.emojiOf(m.text)
+            ?.let { return "$it reacted" }
         // A quote-reply's text BEGINS with the quoted message, so
         // take(80) showed what was being replied to and cut off the
         // reply itself — the list read as though everyone were

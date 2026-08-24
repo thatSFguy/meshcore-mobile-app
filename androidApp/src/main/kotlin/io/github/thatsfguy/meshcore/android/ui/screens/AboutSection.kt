@@ -90,6 +90,19 @@ fun AboutSection(vm: MeshCoreViewModel) {
  * is a changelog you can't read in the field.
  */
 private val CHANGELOG: List<Pair<String, List<String>>> = listOf(
+    "0.8.6" to listOf(
+        "Reactions from MeshCore One land on the right message. They were arriving as " +
+            "ordinary messages reading an emoji, a name in brackets and eight " +
+            "random-looking characters — which is what a reaction looks like to a " +
+            "client that does not know the format. MeshCore has no reaction field, so " +
+            "every app invents one; this one now reads MeshCore One's as well as the " +
+            "format it already sent.",
+        "We still send the same format as before, so nothing that worked stops working.",
+        "A reaction whose target cannot be found now reads \"reacted to an earlier " +
+            "message\" instead of raw wire text, whichever format it arrived in.",
+        "A message that merely tags somebody is still a message: the reaction shape is " +
+            "matched strictly, because a false match would hide what somebody typed.",
+    ),
     "0.8.5" to listOf(
         "Chats open at the newest message again. A reversed message list packs its " +
             "content against the composer — that is what keeps the newest bubble " +

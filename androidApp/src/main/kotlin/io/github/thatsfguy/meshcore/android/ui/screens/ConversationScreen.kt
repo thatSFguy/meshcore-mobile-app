@@ -531,8 +531,12 @@ private fun MessageBubble(
     val (quoted, body) = remember(m.text) { splitQuote(m.text) }
     val reactions = remember(m.reactionsJson) { ReactionCounts.decode(m.reactionsJson) }
     // A reaction whose target we couldn't find still has to render as
-    // something a human understands, not as "r:1a2b:00".
-    val orphanReaction = remember(m.text) { Reactions.parse(m.text) }
+    // something a human understands, not as "r:1a2b:00" — nor as
+    // MeshCore One's "😂@[Someone]\nb0c26wb5", which is what those
+    // looked like in the thread until 2026-08-23.
+    val orphanReaction = remember(m.text) {
+        io.github.thatsfguy.meshcore.protocol.AnyReaction.emojiOf(m.text)
+    }
 
     // Swipe-right-to-reply: accumulate the rightward drag as a visual
     // pull, and fire on release once past the threshold.
@@ -602,7 +606,7 @@ private fun MessageBubble(
                 quoted?.let { QuoteBlock(it) }
                 if (orphanReaction != null) {
                     Text(
-                        orphanReaction.emoji + "  reacted to an earlier message",
+                        orphanReaction + "  reacted to an earlier message",
                         style = MaterialTheme.typography.bodyMedium,
                         fontStyle = FontStyle.Italic,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,

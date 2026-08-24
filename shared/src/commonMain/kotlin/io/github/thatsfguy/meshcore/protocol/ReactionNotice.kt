@@ -26,8 +26,9 @@ object ReactionNotice {
     fun text(emoji: String, targetText: String): String {
         val body = Quoting.oneLine(Quoting.previewBody(targetText), TARGET_MAX_CHARS)
         // A reaction whose target is another reaction would otherwise
-        // quote raw wire text ("r:1a2b:00") into a notification.
-        val quotable = body.isNotBlank() && Reactions.parse(targetText) == null
+        // quote raw wire text ("r:1a2b:00", or MeshCore One's
+        // "😂@[Someone]\nb0c26wb5") into a notification.
+        val quotable = body.isNotBlank() && !AnyReaction.isReaction(targetText)
         return if (quotable) "$emoji to \"$body\"" else emoji
     }
 }

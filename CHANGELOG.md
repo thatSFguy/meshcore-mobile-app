@@ -11,6 +11,32 @@ Every entry describes what is in **that tagged build**. A feature that landed af
 belongs in the next section, not this one — 0.3.0 was once credited with four features that
 shipped after it, which misled nobody so much as the author, three months later.
 
+## 0.8.6
+
+**Reactions from MeshCore One now land on the message they were meant for.** They were
+arriving as ordinary messages reading `😂@[Somebody]` followed by eight random-looking
+characters, which is what a reaction looks like to a client that does not know the format.
+
+MeshCore has no reaction field, and the firmware has none either — the proposal for one is
+still open — so every client that offers reactions invents a text format and hopes others
+read it. Two are live on this mesh: MeshCore Open's `r:HHHH:II`, which this app sends and
+has always understood, and MeshCore One's, which it now understands as well. That app
+publishes the format as an interoperability guide, and this implementation was checked
+against a reaction that actually arrived on the air rather than against the document alone.
+
+- **We still send the format we always did**, so nothing that works today stops working.
+  Only reading is new.
+- **A reaction whose target can't be found is never shown as wire text.** Whichever format
+  it arrived in, it renders as "😄 reacted to an earlier message" — in the thread, in the
+  conversation list and in notifications.
+- **A message that merely mentions somebody is still a message.** `@[Name]` is the
+  ecosystem's tagging syntax and turns up in ordinary sentences, so the reaction shape is
+  matched strictly: eight valid characters of hash, an emoji with no letters or digits in
+  it, and nothing after. Getting that wrong would hide what somebody typed.
+- **An ambiguous target is left alone.** If two messages in the window hash the same, or a
+  channel reaction names an author who did not write the message it points at, the reaction
+  attaches to nothing rather than to a guess.
+
 ## 0.8.5
 
 **Chats open at the newest message again.** Two faults, both of which made a conversation
