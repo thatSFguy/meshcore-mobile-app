@@ -197,8 +197,10 @@ Kotlin Multiplatform, mirroring reticulum-mobile-app:
 - **Deferred:** telemetry, RF stats, neighbors, discovery-as-separate (all since done —
   see PARITY). **Cut:** web gate, on-device LLM translation, GIF picker, voice, and
   LOS/coverage modelling (2026-08-01: better tools exist and the author has a repo for
-  it; a phone-sized terrain approximation would be confidently wrong exactly when it
-  mattered).
+  it. ⚠ The old reason — "a phone-sized terrain approximation would be confidently
+  wrong exactly when it mattered" — was **corrected 2026-08-24**: MeshCore Open does it
+  against a real elevation API, so the honest reason is scope, namely that it needs an
+  outbound terrain service and this app promises two hosts the user asked for).
 
 ## Security carry-over (do NOT repeat the §12 client-side findings — MESHCORE_PROTOCOL §12)
 

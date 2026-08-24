@@ -203,8 +203,10 @@ are answered without opening anything.
 ## Security posture
 
 The protocol spec ([`MESHCORE_PROTOCOL.md`](MESHCORE_PROTOCOL.md)) is reverse-engineered, and §12
-lists the client-side mistakes a security review of an existing MeshCore client turned up. Each is
-enforced here in code, not just documented:
+lists the client-side mistakes a security review of an existing MeshCore client turned up — a
+review this project ran, and whose fixes it wrote and submitted back to that client rather than
+merely noting. The list is here because it is the standing checklist for *this* app, not as a
+score against anyone else's. Each item is enforced here in code, not just documented:
 
 - **Advert Ed25519 signatures are verified** before any node is imported, mapped, or shown in the
   discovery inbox — an unsigned or forged advert can't spoof an identity or a GPS position.
@@ -236,10 +238,12 @@ what is done, the handful of rows still open (§13), what is out of scope and wh
 places this app deliberately handles something differently rather than copying (§12).
 
 The short version: the commercial layer, the crash reporter, the server-mediated map features and
-the device-identity services are not here and never will be; RF coverage and line-of-sight
-modelling were cut by decision, because a phone-sized approximation of terrain propagation would
-be confidently wrong in exactly the situations you would rely on it. What is left open is listed
-honestly in PARITY rather than quietly dropped.
+the device-identity services are not here and never will be. RF coverage and line-of-sight
+modelling are out by a **scope** decision — they need a terrain-elevation service, and this app's
+whole promise is that it talks to two hosts you asked it to talk to. That is the real reason, and
+it is not a claim that the feature cannot be built well: MeshCore Open queries a genuine elevation
+API for exactly this, which is a better answer than a phone-sized approximation would be. What is
+left open is listed honestly in PARITY rather than quietly dropped.
 
 ## Project scope — personal app, shared in the open
 

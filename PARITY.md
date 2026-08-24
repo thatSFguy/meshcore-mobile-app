@@ -242,7 +242,7 @@ Notes on this block:
 | `AppInfoService`, `DeviceIdService` | Device identifiers for analytics. |
 | `OnlineMapManager` beyond tile fetch | Same reason. |
 | Google Play Services, Firebase | Never linked. The app runs the same on a de-Googled ROM, and the two outbound hosts it does use are both something you asked for. |
-| `CoverageMapToolScreen`, `LosMapToolScreen` | RF coverage / line-of-sight modelling. Dedicated tools do this properly, the author already maintains one, and a phone-sized approximation of terrain propagation would be confidently wrong in exactly the situations you'd rely on it. Out by decision (2026-08-01), not by effort. |
+| `CoverageMapToolScreen`, `LosMapToolScreen` | RF coverage / line-of-sight modelling. Out by decision (2026-08-01), not by effort — and the stated reason was **corrected 2026-08-24**. It used to read "a phone-sized approximation of terrain propagation would be confidently wrong"; that is not what a good implementation looks like. MeshCore Open's `line_of_sight_service.dart` queries `api.open-meteo.com` for real elevation data. The actual reason is scope: it needs a terrain-elevation service, and this app's promise is two outbound hosts the user asked for. Dedicated tools still do it better, and the author maintains one. |
 
 ## 12. Where we deliberately differ (⚠ rows)
 
