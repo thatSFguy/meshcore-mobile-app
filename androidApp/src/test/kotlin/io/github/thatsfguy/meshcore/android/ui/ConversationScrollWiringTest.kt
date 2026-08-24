@@ -19,21 +19,27 @@ import org.junit.Test
  * means `spacedBy(space, Alignment.Top)`. Four decorative dp silently
  * un-anchored every thread.
  *
- * These are source pins — lint, not proof; the behaviour itself was
- * driven on the phone (Galaxy A42, 2026-08-23, screenshots before and
- * after). Their job is to fail loudly when the next edit takes one of
- * the four facts away.
+ * These are source pins — lint, not proof. They passed through every
+ * previous instance of this bug, which is why the real guard is now
+ * `ThreadListScrollTest`: an instrumented Compose test that asserts on a
+ * device whether the newest message is actually on screen, and which
+ * fails against the code that shipped in 0.8.6. These stay because CI
+ * has no device attached, so they are the only thing watching there.
  */
 class ConversationScrollWiringTest {
 
+    // The rules moved into ThreadList so a real Compose test could
+    // reach them; these pins follow. They remain because CI has no
+    // device — `ThreadListScrollTest` is the guard that can actually see
+    // layout, and it only runs on `connectedDebugAndroidTest`.
     private val screen = File(
-        "src/main/kotlin/io/github/thatsfguy/meshcore/android/ui/screens/ConversationScreen.kt",
+        "src/main/kotlin/io/github/thatsfguy/meshcore/android/ui/screens/ThreadList.kt",
     ).readText()
 
     private val daos =
         File("src/main/kotlin/io/github/thatsfguy/meshcore/android/storage/Daos.kt").readText()
 
-    /** The message list's own arguments, not the composer's or a sheet's. */
+    /** The message list's own arguments. */
     private val list: String
         get() = screen.substringAfter("LazyColumn(").substringBefore("items(messages")
 
@@ -84,7 +90,7 @@ class ConversationScrollWiringTest {
         // entry and a new LazyListState starts at index 0 — the bottom.
         assertTrue(
             "the list state must be keyed to the thread",
-            screen.contains("remember(kind, peerKey) { LazyListState() }"),
+            screen.contains("remember(threadKey) { LazyListState() }"),
         )
         assertFalse(
             "rememberLazyListState restores a stale position into a chat",
@@ -145,7 +151,7 @@ class ConversationScrollWiringTest {
         // there would throw away the reading position.
         assertTrue(
             "the landing must be guarded by a per-thread flag",
-            screen.contains("var landed by remember(kind, peerKey)") &&
+            screen.contains("var landed by remember(threadKey)") &&
                 screen.contains("if (!landed && messages.isNotEmpty())"),
         )
     }

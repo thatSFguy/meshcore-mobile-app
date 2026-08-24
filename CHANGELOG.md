@@ -32,6 +32,16 @@ back down.
   conversation, so loading older messages still keeps your place — and so does scrolling back to
   read while new messages arrive.
 
+**The message list is now tested where it actually lives.** This bug has been reported five
+times across this app and its sibling, and every fix was guarded by a test that reads the source
+code and checks it still *says* the right thing. Those tests cannot see layout, so every version
+of the bug passed them — including the one that shipped in 0.8.6. The list is now a separate
+component that a real Compose test can drive on a real phone, and the suite asserts what actually
+matters: that the newest message is on screen after opening a short thread, after opening a long
+one, after one arrives, and — the case that caused this — after the rows turn up a moment later
+than the count of them. Run against the code that shipped in 0.8.6, three of those six tests fail,
+including that one. Run against this build, all six pass.
+
 **The reaction format this app sends is now written down in the README**, along with the reason:
 a survey of the local mesh came back about 6:1 in favour of MeshCore Open's convention, so that is
 what goes on the air even though MeshCore One's hash is the better design. If the balance shifts,

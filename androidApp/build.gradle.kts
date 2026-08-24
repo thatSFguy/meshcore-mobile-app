@@ -34,6 +34,7 @@ android {
         applicationId = "io.github.thatsfguy.meshcore.native"
         minSdk = 26
         targetSdk = 34
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         val gitVersion = gitDerivedVersion()
         versionName = (project.findProperty("versionName") as? String)
             ?: gitVersion?.first
@@ -142,6 +143,14 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
 
     debugImplementation("androidx.compose.ui:ui-tooling:1.7.6")
+
+    // On-device Compose tests. The conversation list's rules live in
+    // layout, and layout is the one thing a local unit test cannot see:
+    // every source pin guarding it passed through five separate reports
+    // of a thread opening in the wrong place. See ThreadListScrollTest.
+    androidTestImplementation("androidx.compose.ui:ui-test-junit4:1.7.6")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    debugImplementation("androidx.compose.ui:ui-test-manifest:1.7.6")
 
     testImplementation(kotlin("test"))
     testImplementation(kotlin("test-junit"))

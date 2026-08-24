@@ -102,6 +102,11 @@ private val CHANGELOG: List<Pair<String, List<String>>> = listOf(
             "list did while it was empty. Earlier fixes relied on the list anchoring itself " +
             "correctly through every way a thread can fill in; this states the rule outright. " +
             "It happens once per conversation, so loading older messages keeps your place.",
+        "The message list is now tested on a real phone rather than by reading the source. " +
+            "This bug has been reported five times, and every fix was guarded by a test that " +
+            "checks the code still says the right thing — which cannot see layout, so every " +
+            "version of the bug passed. Six tests now assert that the newest message is really " +
+            "on screen; three of them fail against the build that shipped last.",
         "The README now records which reaction format this app sends and why — a survey of " +
             "the local mesh came back about 6:1 in favour of MeshCore Open's. If that changes, " +
             "the app switches. Both formats are read either way.",
