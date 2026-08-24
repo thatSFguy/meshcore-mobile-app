@@ -77,6 +77,12 @@ Layout:
     confirmed: `freqKhz` renders correctly as `910.525 MHz` against real hardware,
     and the live tile subtitles are the best thing in the rebuild. Screenshots +
     the `ui.sh` uiautomator helper make this repeatable; drive it weekly (§8.2).
+  - **The stale-node sweep was run by the operator on 2026-08-24** against the live
+    contact list (177 contacts) and reported working. It is the only bulk-destructive
+    action in the app — it removes contacts from the RADIO, one `removeContact` at a
+    time — so treat it as exercised rather than as untested, and do not re-flag it.
+    What is pinned by tests rather than by that run: favourites are never swept, nor a
+    node never heard from, nor one messaged inside the window.
   - **Neighbour links on the map were driven on hardware 2026-08-24** (SpartaMI,
     firmware v1.16.0, BLE to `MeshCore-BlueMobile`). A blank-password login was
     accepted, six neighbours came back, three had positions and were drawn. Two
