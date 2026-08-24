@@ -112,93 +112,29 @@ secret rather than something safe to pin to a noticeboard. Format:
 
 ## Features
 
-**Transports** — BLE (Nordic UART Service) and USB serial (CDC-ACM / CP210x) by default, each with
-its own enable toggle: a disabled transport is never started, so it never scans, connects, or feeds
-bytes to a parser. **TCP is off by default** behind a one-time stern warning — the MeshCore TCP link
-is unencrypted and unauthenticated, and the UI keeps flagging it while connected. Saved-node list,
-automatic reconnect with backoff, foreground service so the link survives backgrounding.
+The short version; the full inventory is **[`FEATURES.md`](FEATURES.md)**.
 
-**Messaging** — direct messages and channels, with **automatic retry** on MeshCore's documented
-terms: three attempts, each waiting the radio's own airtime-derived ACK timeout, and the last one
-clears a dead path and floods so your radio can learn a live route from the reply. That fallback
-is on by default and can be turned off. Delivery ticks come exclusively from real end-to-end ACKs.
-Paged scrollback, long-press for copy / quote / message details (SNR, attempts, ack hash),
-mark-unread, per-channel mute.
-
-**Notifications** — inbound direct and channel messages, with per-kind switches and per-thread
-mute. A **reply** shows the reply first and the quoted message behind the expander, rather than
-running the two together. A **reaction to your own message** notifies too — a thumbs-up is often
-the whole reply — while reactions to other people's messages stay quiet. Opening a conversation
-clears its notification; you should not have to tap a notification to dismiss something you have
-already read.
-
-**Reactions** — MeshCore has no reaction field, so every client that offers them invents a text
-convention. This app reads both conventions on the air and sends the one this mesh mostly runs;
-an unmatched reaction renders as "reacted to an earlier message" rather than as raw wire text.
-Wire formats and the reason for the choice: [`MESHCORE_PROTOCOL.md` §14](MESHCORE_PROTOCOL.md).
-
-**Channels** — 16-byte PSKs, `#hashtag` key derivation, private channels with generated keys, and
-**community QR join** (the community secret is stored in the Keystore and its channels derived from
-it). Channels are presented as *obfuscated, not secure* — see the security note below.
-
-**Nodes** — Contacts / Repeaters / Rooms / Sensors tabs plus a **discovery inbox** of signature-verified
-adverts you haven't added yet. Favourites, search, hash-colored avatars, rename, and **QR
-share/import that interoperates with the mainstream MeshCore app** — codes are emitted in its
-`meshcore://contact/add?…` form (and the older signed-advert form is still accepted on scan).
-A scanned contact card is unsigned, so the app shows you the public key and asks before adding
-it, rather than trusting the name in the code.
-
-**Routing** — per-contact **Auto / Flood / Manual** routing, a hop-by-hop manual path editor, a
-record of every path seen or used with success/failure quality labels, and a **path trace** showing
-each hop with its SNR. A received message's details sheet shows **Arrived via** — the route it
-actually travelled, in travel order, drawn on a map. A hop that can't be identified stays a gap
-rather than being credited to a guess.
-
-**Repeats — who is actually carrying your traffic.** Two views of the same evidence, because
-there are two questions. On a **sent message**, a `↻ 2` badge says how many nodes were heard
-re-broadcasting *that message*, and its details sheet names them. This pairs with the delivery
-tick to say something neither can alone: `✗ (try 3) · ↻ 2` means the mesh moved your message and
-nobody answered, which is a different problem from one that never left your radio.
-
-**Who repeats me** (Nodes → ⋮) answers the standing version — what the mesh around you looks
-like. Send a flood advert and watch which nodes send a copy back; every row is a copy of your own
-**Ed25519-signed** advert, so nobody else can add a node to your list without your private key.
-It distinguishes a node that *heard you* from one that *you heard* — only the second has a
-measured SNR — and says plainly that it is a floor rather than a coverage map, since a node that
-relayed you onward without a copy returning cannot appear at all. "Node", not "repeater": room
-servers relay, and so do companions with client-repeat enabled.
-
-**Map** — every node advertising GPS, with type-specific markers and always-visible name labels.
-Filter by node type, export nodes as GPX, clear the tile cache. Tiles cache in app-private
-storage, and they and firmware downloads are the only HTTP the app makes.
-
-**Firmware updates over Bluetooth** — for nRF52 radios on companion firmware v1.15 or newer,
-which is when MeshCore began exposing Nordic's DFU service. Settings → Firmware updates the
-radio you are connected to; the repeater hub has the same tile for a node you can stand next
-to, since `start ota` travels over the mesh but the image cannot. Builds are fetched from the
-MeshCore releases on GitHub and checked against the checksum published with them, or opened
-from storage if you would rather download them yourself. The board is confirmed by name before
-anything is written — a DFU package cannot say which board it is for, because every nRF52 board
-declares the same device type. ESP32 boards are told plainly that their path is USB or their own
-WiFi hotspot, which a browser does better than this app would.
-
-**Repeater / room administration** — a **hub** with one screen per tool. You sign in with a
-password (sealed in the Keystore if you ask); the node decides what that unlocks and reports it,
-and the hub shows what you got — `ADMIN` or `GUEST`. There is no access-level control to set,
-because there is no such choice to make. Behind the hub: a decoded **Status** panel (battery,
-uptime, queue, RSSI/SNR, airtime, packet and duplicate counts, channel utilisation) plus
-Cayenne-LPP telemetry, **Regions**, **Identity**, a form-based **Settings** editor that fetches
-live values over the CLI and saves only what you changed, a raw **Console**, and a **Command
-help** catalogue filtered by node role and session role — a guest is never offered a command the
-node would refuse.
-
-**Device settings** — a hub of grouped pages covering the full companion-command surface:
-connection, transports, identity, radio parameters, clock, mesh policies (advert location,
-multi-acks, telemetry permissions, path-hash width, flood scope), auto-add policy, custom
-variables, channels, blocked senders, appearance, notifications, privacy, backup, retention, and a
-redaction-aware diagnostics log that is **off by default**. Each row reports its current value, so
-which transports are on, what frequency the radio is using and whether map tiles are being fetched
-are answered without opening anything.
+- **Transports** — BLE, USB serial and TCP, each with its own toggle. TCP is off by default behind
+  a stern warning, and flagged for as long as it is connected. Auto-reconnect and a foreground
+  service keep the radio link up.
+- **Messaging** — direct and channel messages, retry on the firmware's documented terms, delivery
+  ticks only from real ACKs, reactions in both conventions on the air, and **Arrived via**: the
+  route a message actually took, drawn on a map.
+- **Channels** — 16-byte PSKs, `#hashtag` derivation, community QR join. Labelled *obfuscated, not
+  secure*, because AES-ECB with a 2-byte MAC is what the protocol mandates.
+- **Nodes** — Contacts / Repeaters / Rooms / Sensors plus a discovery inbox of signature-verified
+  adverts, search and sorting, QR share and import, **Who repeats me**, and a stale-node sweep that
+  never touches favourites.
+- **Routing** — Auto / Flood / Manual per contact, a hop-by-hop path editor, path history with
+  quality labels, and traces showing each hop's SNR. A hop is named only on a unique match.
+- **Map** — every node advertising GPS, and for a repeater the **neighbour links** it reports,
+  coloured and weighted by signal with the quality written on the line.
+- **Repeater and room administration** — a hub with decoded status, telemetry, neighbours, access
+  list, regions, identity, a live settings editor, a console, and role-filtered command help.
+- **Firmware updates over Bluetooth** — Nordic legacy DFU spoken in-app, board confirmed by name,
+  checksum checked.
+- **Settings** — the full companion-command surface as grouped pages with live subtitles, plus
+  retention, backup, blocking, and a redaction-aware diagnostics log that is off by default.
 
 ## Security posture
 
@@ -289,6 +225,8 @@ Requires JDK 17+ and the Android SDK (compileSdk 34).
 
 ## Project docs
 
+- **[`FEATURES.md`](FEATURES.md)** — the complete feature inventory, which this README only
+  summarises.
 - **[`CHANGELOG.md`](CHANGELOG.md)** — what shipped in each release. The GitHub release notes are
   built from it, and the app carries the same text so it is readable with no network.
 - **[`MESHCORE_PROTOCOL.md`](MESHCORE_PROTOCOL.md)** — the companion + over-the-air wire spec
