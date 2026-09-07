@@ -177,10 +177,20 @@ The short version; the full inventory is **[`FEATURES.md`](FEATURES.md)**.
 ## Security posture
 
 The protocol spec ([`MESHCORE_PROTOCOL.md`](MESHCORE_PROTOCOL.md)) is reverse-engineered, and §12
-lists the client-side mistakes a security review of an existing MeshCore client turned up — a
-review this project ran, and whose fixes it wrote and submitted back to that client rather than
-merely noting. The list is here because it is the standing checklist for *this* app, not as a
-score against anyone else's. Each item is enforced here in code, not just documented:
+lists the client-side mistakes that a security review of
+**[MeshCore Open](https://github.com/zjs81/meshcore-open)** (Flutter) turned up — a review this
+project ran, and whose fixes it wrote and submitted back to that project rather than merely
+noting them.
+
+**To be explicit, because the next section compares this app to the official MeshCore Android
+app: none of those findings are about that app.** It is closed source, so it has never been
+security-reviewed here and could not be; only its *feature* surface was inventoried, from its
+APK, for [`PARITY.md`](PARITY.md). Naming the reviewed client matters more than the tidier
+sentence did — "an existing MeshCore client", sitting one paragraph above a comparison with
+somebody else's app, is an accusation pointed in the wrong direction.
+
+The list is here because it is the standing checklist for *this* app, not as a score against
+anyone else's. Each item is enforced here in code, not just documented:
 
 - **Advert Ed25519 signatures are verified** before any node is imported, mapped, or shown in the
   discovery inbox — an unsigned or forged advert can't spoof an identity or a GPS position.
