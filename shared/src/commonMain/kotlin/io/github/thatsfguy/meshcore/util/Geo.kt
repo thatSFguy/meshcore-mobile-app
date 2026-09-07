@@ -27,17 +27,44 @@ fun haversineMetres(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Dou
 }
 
 /**
- * True for a coordinate pair worth doing arithmetic with.
+ * How close to 0, 0 still counts as "unset" — about 111 m.
+ *
+ * Coordinates cross the wire as int32 **microdegrees**, so "unset" is
+ * not always the single value 0: a partial or garbage fix arrives as a
+ * handful of raw units, which is a few metres off Null Island and just
+ * as fictional. An exact-zero test lets those through, and `%.5f` then
+ * prints them as `0.00000, 0.00000` — a node reported in the Gulf of
+ * Guinea by a check written to prevent exactly that.
+ *
+ * 0.001° is chosen to be far outside float noise and far inside
+ * anywhere real: no genuine fix lands within 111 m of Null Island, and
+ * nothing legitimate is lost by refusing that box.
+ */
+private const val UNSET_DEGREES = 0.001
+
+/**
+ * True for a coordinate pair worth doing arithmetic with — or printing.
  *
  * A node that has never had a position advertises 0, 0 — a real place
  * in the Gulf of Guinea, about 6 000 km from anywhere this app is used.
  * Treating it as a location turns "no position" into "very far away",
  * which is the wrong answer everywhere it matters.
+ *
+ * **This is the single rule, and every caller must use it rather than
+ * writing its own.** The rule was reimplemented inline in eight places,
+ * each subtly different — `!= null`, `!= 0.0`, `abs() > 1e-6` — and the
+ * weakest of them is what put a node on the equator in the contact
+ * sheet while the map, using a stronger one, correctly left it off.
+ * A predicate copied is a predicate that drifts.
+ *
+ * Note the OR: a node genuinely on the equator, or genuinely on the
+ * prime meridian, has one axis at zero and is a real place. Only being
+ * near zero in *both* is unset.
  */
 fun isPlausiblePosition(lat: Double?, lon: Double?): Boolean {
     if (lat == null || lon == null) return false
     if (lat !in -90.0..90.0 || lon !in -180.0..180.0) return false
-    return abs(lat) > 1e-6 || abs(lon) > 1e-6
+    return abs(lat) >= UNSET_DEGREES || abs(lon) >= UNSET_DEGREES
 }
 
 /**

@@ -2,6 +2,7 @@ package io.github.thatsfguy.meshcore.protocol
 
 import io.github.thatsfguy.meshcore.crypto.CryptoProvider
 import io.github.thatsfguy.meshcore.util.sanitizeDisplayName
+import io.github.thatsfguy.meshcore.util.isPlausiblePosition
 import io.github.thatsfguy.meshcore.util.toHex
 
 /**
@@ -72,9 +73,7 @@ object Advert {
                 lat = r.readInt32LE() / 1e6
                 lon = r.readInt32LE() / 1e6
             }
-            val plausible = lat != null && lon != null &&
-                (kotlin.math.abs(lat) > 1e-6 || kotlin.math.abs(lon) > 1e-6) &&
-                lat in -90.0..90.0 && lon in -180.0..180.0
+            val plausible = isPlausiblePosition(lat, lon)
             val name = if ((flags and FLAG_HAS_NAME) != 0 && r.remaining > 0) {
                 sanitizeDisplayName(r.readCString(Codes.MAX_NAME_SIZE))
             } else {

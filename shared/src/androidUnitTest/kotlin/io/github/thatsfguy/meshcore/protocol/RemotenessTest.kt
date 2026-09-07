@@ -141,6 +141,36 @@ class RemotenessTest {
         assertTrue(isPlausiblePosition(42.9634, -85.6681))
     }
 
+    @Test
+    fun `a position a few microdegrees from Null Island is still unset`() {
+        // The defect a user reported from the Public channel on
+        // 2026-09-07: a node shown "in the middle of the ocean at 0, 0".
+        //
+        // Coordinates cross the wire as int32 MICRODEGREES, so "unset"
+        // is not always the single value 0 — a partial or garbage fix
+        // arrives as a handful of raw units. Those passed an exact-zero
+        // test, were stored non-null, and `%.5f` then printed them as
+        // "0.00000, 0.00000". The check written to keep nodes out of the
+        // Gulf of Guinea was putting them there.
+        assertFalse(isPlausiblePosition(3e-6, -7e-6))   // raw 3, -7
+        assertFalse(isPlausiblePosition(1e-6, 0.0))     // raw 1, 0
+        assertFalse(isPlausiblePosition(0.0, 2e-6))     // raw 0, 2
+        assertFalse(isPlausiblePosition(-4e-4, 9e-4))   // still inside the band
+    }
+
+    @Test
+    fun `the equator and the prime meridian are real places`() {
+        // The positive control for the band, and the reason the rule is
+        // an OR. A node genuinely at latitude 0 has one axis at zero and
+        // is a real node; widening "unset" into a rule that needed BOTH
+        // axes non-zero would erase everyone on the equator — which runs
+        // through inhabited land, and through meshes that are not ours.
+        assertTrue(isPlausiblePosition(0.0, -85.6681))
+        assertTrue(isPlausiblePosition(42.9634, 0.0))
+        assertTrue(isPlausiblePosition(0.0, 0.001))
+        assertTrue(isPlausiblePosition(-0.001, 0.0))
+    }
+
     // ------------------------------------------------------------------
     // meshCentre — the other half of the same rule. isPlausiblePosition
     // refuses the wrong answer; this supplies a usable one for the places

@@ -6,6 +6,7 @@ import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sqrt
+import io.github.thatsfguy.meshcore.util.isPlausiblePosition
 
 /**
  * Laying a received message's route out on a map, including the parts
@@ -267,10 +268,9 @@ object PathSketch {
         if (w.unidentifiedReason != null) return null
         val lat = w.latitude ?: return null
         val lon = w.longitude ?: return null
-        // All-zero is MeshCore's "unset", not a point in the Gulf of
-        // Guinea — the same rule PathGeometry applies.
-        if (lat == 0.0 && lon == 0.0) return null
-        if (lat !in -90.0..90.0 || lon !in -180.0..180.0) return null
+        // At and around all-zero is MeshCore's "unset", not a point in
+        // the Gulf of Guinea — the same shared rule PathGeometry uses.
+        if (!isPlausiblePosition(lat, lon)) return null
         return Point(lat, lon)
     }
 

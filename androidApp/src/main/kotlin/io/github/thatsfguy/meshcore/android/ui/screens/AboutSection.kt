@@ -90,6 +90,20 @@ fun AboutSection(vm: MeshCoreViewModel) {
  * is a changelog you can't read in the field.
  */
 private val CHANGELOG: List<Pair<String, List<String>>> = listOf(
+    "0.9.1" to listOf(
+        "A node with no position no longer appears in the Gulf of Guinea. Opening a node's " +
+            "info could show \"Position 0.00000, 0.00000\" with \"Distance away: Unknown\" " +
+            "directly underneath it — the two rows contradicting each other in the same sheet.",
+        "Coordinates cross the wire as int32 microdegrees, so \"unset\" is not always exactly " +
+            "zero: a partial or garbage fix arrives as a handful of raw units, a few metres " +
+            "from Null Island and just as fictional. Anything within about 111 m of 0, 0 is " +
+            "now treated as unset when the frame is parsed, so it never becomes a position.",
+        "The rule now lives in one place. \"Is this a real position\" had been written inline " +
+            "eight times, and the weakest copy was the one behind the contact sheet — which is " +
+            "why the map correctly left the same node off while the sheet put it on the equator.",
+        "The equator is still a real place: a node genuinely at latitude 0, or on the prime " +
+            "meridian, has one axis at zero and is not unset.",
+    ),
     "0.9.0" to listOf(
         "You can tag somebody in a message. Typing \"@\" offers the names it knows, and " +
             "picking one writes \"@[Name]\" — the same form the official MeshCore app uses, " +

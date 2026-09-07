@@ -37,14 +37,9 @@ data class Contact(
     val isRoom: Boolean get() = type == Codes.ADV_TYPE_ROOM
     val isChat: Boolean get() = type == Codes.ADV_TYPE_CHAT
 
-    /** Advertised location, when plausible (non-zero, in range). */
+    /** Advertised location, when plausible — [isPlausiblePosition]. */
     val hasValidLocation: Boolean
-        get() {
-            val lat = latitude ?: return false
-            val lon = longitude ?: return false
-            return (kotlin.math.abs(lat) > 1e-6 || kotlin.math.abs(lon) > 1e-6) &&
-                lat in -90.0..90.0 && lon in -180.0..180.0
-        }
+        get() = io.github.thatsfguy.meshcore.util.isPlausiblePosition(latitude, longitude)
 
     override fun equals(other: Any?): Boolean =
         other is Contact && publicKey.contentEquals(other.publicKey) &&

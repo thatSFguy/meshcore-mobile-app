@@ -597,12 +597,15 @@ fun ContactDetailSheet(
                 }) { Text("Copy") }
             }
 
-            if (contact.latitude != null && contact.longitude != null) {
+            // `isPlausiblePosition`, not a null check. These two rows
+            // used different rules and contradicted each other in the
+            // same sheet: a node a few microdegrees from Null Island is
+            // non-null, so Position printed "0.00000, 0.00000" while
+            // Distance directly underneath it said "Unknown". Reported
+            // from the Public channel, 2026-09-07.
+            if (isPlausiblePosition(contact.latitude, contact.longitude)) {
                 Spacer(Modifier.height(8.dp))
                 DetailRow("Position", "%.5f, %.5f".format(contact.latitude, contact.longitude))
-                // Distance is only meaningful once BOTH ends have a
-                // position; the radio reports 0,0 when it has no fix, and
-                // treating that as the equator would invent a distance.
                 val selfLat = self?.latitude
                 val selfLon = self?.longitude
                 val theirLat = contact.latitude

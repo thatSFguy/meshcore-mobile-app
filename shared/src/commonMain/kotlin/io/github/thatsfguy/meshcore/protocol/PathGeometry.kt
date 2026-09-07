@@ -1,5 +1,7 @@
 package io.github.thatsfguy.meshcore.protocol
 
+import io.github.thatsfguy.meshcore.util.isPlausiblePosition
+
 /**
  * Turning a mesh path into something drawable (PARITY.md §9,
  * `TracePathMapScreen` / `ViewPathScreen`).
@@ -30,14 +32,10 @@ object PathGeometry {
         val latitude: Double?,
         val longitude: Double?,
     ) {
-        val hasPosition: Boolean
-            get() {
-                val lat = latitude ?: return false
-                val lon = longitude ?: return false
-                // The all-zero position is MeshCore's "unset", not a
-                // point in the Gulf of Guinea.
-                return (lat != 0.0 || lon != 0.0) && lat in -90.0..90.0 && lon in -180.0..180.0
-            }
+        // MeshCore's "unset" is at and around 0, 0 — not a point in
+        // the Gulf of Guinea. One shared rule rather than a local copy
+        // of it; see [isPlausiblePosition].
+        val hasPosition: Boolean get() = isPlausiblePosition(latitude, longitude)
     }
 
     /** Why a hop could not be drawn. */

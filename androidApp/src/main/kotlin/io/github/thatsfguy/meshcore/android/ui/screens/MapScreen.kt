@@ -22,6 +22,7 @@ import io.github.thatsfguy.meshcore.android.storage.ContactEntity
 import io.github.thatsfguy.meshcore.android.ui.MeshCoreViewModel
 import io.github.thatsfguy.meshcore.presentation.LinkQuality
 import io.github.thatsfguy.meshcore.presentation.NeighbourEndpoint
+import io.github.thatsfguy.meshcore.util.isPlausiblePosition
 import io.github.thatsfguy.meshcore.presentation.NeighbourLink
 import io.github.thatsfguy.meshcore.presentation.neighbourLinks
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
@@ -63,12 +64,9 @@ fun MapScreen(vm: MeshCoreViewModel, nav: NavController) {
     var selectedKey by remember { mutableStateOf<String?>(null) }
     var linksFor by remember { mutableStateOf<String?>(null) }
 
-    val located = contacts.filter {
-        val lat = it.latitude
-        val lon = it.longitude
-        lat != null && lon != null && (kotlin.math.abs(lat) > 1e-6 || kotlin.math.abs(lon) > 1e-6) &&
-            lat in -90.0..90.0 && lon in -180.0..180.0
-    }.filter { typeFilter.isEmpty() || it.type in typeFilter }
+    val located = contacts
+        .filter { isPlausiblePosition(it.latitude, it.longitude) }
+        .filter { typeFilter.isEmpty() || it.type in typeFilter }
 
     // Links are resolved against EVERY contact, not the filtered pins:
     // a neighbour hidden by the type filter is still a node we know, and
@@ -211,7 +209,7 @@ fun MapScreen(vm: MeshCoreViewModel, nav: NavController) {
                 // This node first (green location-dot pin).
                 val selfLat = self?.latitude ?: 0.0
                 val selfLon = self?.longitude ?: 0.0
-                if (kotlin.math.abs(selfLat) > 1e-6 || kotlin.math.abs(selfLon) > 1e-6) {
+                if (isPlausiblePosition(selfLat, selfLon)) {
                     val p = GeoPoint(selfLat, selfLon)
                     points.add(p)
                     map.overlays.add(

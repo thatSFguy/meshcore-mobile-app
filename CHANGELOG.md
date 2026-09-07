@@ -11,6 +11,28 @@ Every entry describes what is in **that tagged build**. A feature that landed af
 belongs in the next section, not this one — 0.3.0 was once credited with four features that
 shipped after it, which misled nobody so much as the author, three months later.
 
+## 0.9.1
+
+**A node with no position no longer appears in the Gulf of Guinea.** Opening a node's info could
+show `Position 0.00000, 0.00000` — the Atlantic, off West Africa — with `Distance away: Unknown`
+directly underneath it, the two rows contradicting each other in the same sheet. Reported from the
+Public channel.
+
+- **Coordinates cross the wire as int32 microdegrees, so "unset" is not always exactly zero.** A
+  partial or garbage fix arrives as a handful of raw units — a few metres from Null Island, and
+  just as fictional. Those passed the exact-zero check, were stored as a real position, and then
+  printed as `0.00000, 0.00000`. Anything within about 111 m of 0, 0 is now treated as unset, at
+  the point the frame is parsed, so it never becomes a position at all.
+- **The rule now lives in one place.** "Is this a real position" had been written inline eight
+  times — as `!= null`, as `!= 0.0`, as `abs() > 1e-6` — and the weakest copy was the one behind
+  the contact sheet. That is why the map, which used a stronger copy, correctly left the same node
+  off while the sheet put it on the equator. Every caller now uses the shared check: the contact
+  sheet, the repeater hub's identity card, the map and its own-node marker, route plotting and
+  sketching, advert parsing, the contact record and GPX export.
+- **The equator is still a real place.** A node genuinely at latitude 0, or on the prime meridian,
+  has one axis at zero and is not unset — only being near zero on *both* is. Pinned by tests in
+  both directions, including the raw microdegree values that caused this.
+
 ## 0.9.0
 
 **You can tag somebody in a message.** Typing `@` in a conversation offers the names it knows,

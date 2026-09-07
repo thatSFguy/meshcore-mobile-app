@@ -6,6 +6,7 @@ import io.github.thatsfguy.meshcore.model.Contact
 import io.github.thatsfguy.meshcore.model.DeviceInfo
 import io.github.thatsfguy.meshcore.model.SelfInfo
 import io.github.thatsfguy.meshcore.util.sanitizeDisplayName
+import io.github.thatsfguy.meshcore.util.isPlausiblePosition
 
 /**
  * Radio → client frame parser. One entry point, [parse], that never
@@ -194,8 +195,12 @@ object ResponseParser {
             path = path,
             name = name,
             timestamp = timestamp,
-            latitude = lat.takeIf { it != 0.0 || lon != 0.0 },
-            longitude = lon.takeIf { it != 0.0 || lat != 0.0 },
+            // Both or neither, through the one shared rule. The old
+            // per-field `!= 0.0` kept a position that was a few raw
+            // microdegrees from Null Island — non-null, so every
+            // display gated on nullity printed it as "0.00000, 0.00000".
+            latitude = lat.takeIf { isPlausiblePosition(lat, lon) },
+            longitude = lon.takeIf { isPlausiblePosition(lat, lon) },
             lastModified = lastMod,
         )
     }

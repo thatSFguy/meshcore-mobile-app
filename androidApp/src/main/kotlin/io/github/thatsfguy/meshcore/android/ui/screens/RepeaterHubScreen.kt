@@ -1,6 +1,7 @@
 package io.github.thatsfguy.meshcore.android.ui.screens
 
 import io.github.thatsfguy.meshcore.presentation.AdminSession
+import io.github.thatsfguy.meshcore.util.isPlausiblePosition
 import io.github.thatsfguy.meshcore.presentation.HubTile
 import io.github.thatsfguy.meshcore.presentation.repeaterHubTiles
 import io.github.thatsfguy.meshcore.presentation.repeaterRoleLabel
@@ -218,7 +219,7 @@ private fun IdentityCard(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                if (latitude != null && longitude != null) {
+                if (isPlausiblePosition(latitude, longitude)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(
                             Icons.Filled.LocationOn,

@@ -2908,9 +2908,8 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
     fun exportGpx(@Suppress("UNUSED_PARAMETER") count: Int) {
         val app = getApplication<Application>()
         viewModelScope.launch {
-            val nodes = dbContacts.value.filter { c ->
-                val lat = c.latitude; val lon = c.longitude
-                lat != null && lon != null && (kotlin.math.abs(lat) > 1e-6 || kotlin.math.abs(lon) > 1e-6)
+            val nodes = dbContacts.value.filter {
+                isPlausiblePosition(it.latitude, it.longitude)
             }
             if (nodes.isEmpty()) {
                 transientMessage.value = "No nodes with GPS to export"
