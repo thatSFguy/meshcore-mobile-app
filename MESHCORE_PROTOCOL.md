@@ -885,6 +885,30 @@ is literally `memcpy(dest, pub_key, len)  // hash is just prefix of pub_key`
   and matched on the way back (`Mesh.cpp:89, 345-349`), with the width carried in the top
   two bits of `path_len` (`Mesh.cpp:449`).
 
+**Who chooses the width: the ORIGINATOR, per packet — not the repeaters.** This is the part
+that surprises people, and it is worth being exact about because a client that assumes
+otherwise misreads every route it did not send.
+
+- The sending node stamps its own configured width into the packet:
+  `Mesh::sendFlood(packet, delay, path_hash_size)` calls
+  `setPathHashSizeAndCount(path_hash_size, 0)` (`Mesh.cpp:637-649`), and refuses anything
+  outside 1–3 even though the two-bit field could encode 4.
+- Every repeater then honours **the packet's** width, never its own setting. Appending on a
+  flood is `self_id.copyHashTo(&packet->path[n * packet->getPathHashSize()],
+  packet->getPathHashSize())` (`Mesh.cpp:349`); matching on a direct route is
+  `self_id.isHashMatch(pkt->path, pkt->getPathHashSize())` (`Mesh.cpp:89`). Both read
+  `getPathHashSize()` off the packet in hand.
+
+So **a mesh does not have "a" hop-hash width.** Widths are per-packet and mixed traffic is
+normal: on a busy channel you will see 1-, 2- and 3-byte paths side by side, one per
+originator, and the width on a message tells you about *that sender's* configuration and
+nothing about the repeaters that carried it. Observed on the author's mesh, 2026-08-24.
+
+The width is not free. `(n + 1) * size <= MAX_PATH_SIZE` (64) gates the append
+(`Mesh.cpp:347`) and the count field is 6 bits, so the ceiling is **63 hops at 1 byte, 32 at
+2, 21 at 3** — past it a repeater silently stops appending, and the route stops being
+recoverable. Against that, 1 byte is 8 bits of name for the whole mesh.
+
 So two repeaters whose public keys share their leading bytes are one node as far as a
 stored route is concerned. That is a keygen constraint, not a display detail: a replacement
 identity has to be checked against the prefixes already in use at the mesh's configured
