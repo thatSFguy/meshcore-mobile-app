@@ -365,8 +365,28 @@ class MessageRepository(
 
             is MeshEvent.VerifiedAdvertHeard -> {
                 val keyHex = event.advert.publicKeyHex
-                // Only nodes the radio hasn't accepted as contacts.
-                if (engine.contacts.value.containsKey(keyHex)) return
+                // A node the radio already holds is not a discovery — but
+                // the advert is still the freshest thing anyone has about
+                // it, and it is signature-verified, so throwing it away
+                // was how a contact's position could sit 31 days stale
+                // while the node advertised a new one every few hours.
+                // The radio updates its own record here; this keeps our
+                // cache of that record in step without waiting for the
+                // next connection to re-read the whole list.
+                if (engine.contacts.value.containsKey(keyHex)) {
+                    db.contacts().refreshFromAdvert(
+                        selfKey = self,
+                        keyHex = keyHex,
+                        name = event.advert.name,
+                        latitude = event.advert.latitude,
+                        longitude = event.advert.longitude,
+                        lastSeen = event.advert.timestamp,
+                        // OUR clock, not the node's claim — the whole
+                        // point of `lastModified` (see LastHeard).
+                        heardAt = System.currentTimeMillis() / 1000,
+                    )
+                    return
+                }
                 val now = System.currentTimeMillis()
                 val prev = db.discovered().get(self, keyHex)
                 db.discovered().upsert(

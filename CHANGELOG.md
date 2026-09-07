@@ -11,6 +11,27 @@ Every entry describes what is in **that tagged build**. A feature that landed af
 belongs in the next section, not this one — 0.3.0 was once credited with four features that
 shipped after it, which misled nobody so much as the author, three months later.
 
+## 0.9.2
+
+**A node's position and "last heard" now update when it advertises, instead of waiting for the
+next reconnection.** Reported from the field: a repeater showed a position 31 days old — and
+wrong; its owner had set a real one — while the node had been advertising the whole time.
+
+- **The advert was reaching the app and being thrown away.** Every advert this app hears is
+  Ed25519-verified before anything is done with it, and for a node the radio already holds the
+  handler simply returned: the node was not a *discovery*, so nothing happened at all. The
+  verified name, position and arrival time went on the floor.
+- **The radio's own record was never the problem.** The firmware rewrites a contact's name,
+  position and last-heard clock on every advert it hears. The app just re-read that list only
+  when it connected — and a foreground service that holds the link up for weeks means it may
+  never re-read it. The cache aged while its source stayed current.
+- **Only what the advert carries is written.** A name and a position are both optional in an
+  advert, and an advert without one is not a claim that the node has no name or has moved to
+  nowhere — so an absent field leaves the stored value alone. Locally learned facts that the
+  radio cannot supply, like the update-mode address that makes a bricked node recoverable, are
+  untouched.
+- Being a favourite had nothing to do with it, beyond keeping the row alive to be noticed.
+
 ## 0.9.1
 
 **A node with no position no longer appears in the Gulf of Guinea.** Opening a node's info could

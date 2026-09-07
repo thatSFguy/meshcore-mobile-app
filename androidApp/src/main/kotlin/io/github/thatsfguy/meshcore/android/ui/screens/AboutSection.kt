@@ -90,6 +90,20 @@ fun AboutSection(vm: MeshCoreViewModel) {
  * is a changelog you can't read in the field.
  */
 private val CHANGELOG: List<Pair<String, List<String>>> = listOf(
+    "0.9.2" to listOf(
+        "A node's position and \"last heard\" now update when it advertises, instead of " +
+            "waiting for the next reconnection. A repeater could show a position 31 days old " +
+            "— and wrong — while the node had been advertising a correct one the whole time.",
+        "The advert was reaching the app and being thrown away: for a node the radio already " +
+            "held, the handler returned without doing anything, so the verified name, position " +
+            "and arrival time went on the floor.",
+        "The radio's own record was never the problem. The firmware rewrites a contact on " +
+            "every advert it hears; this app re-read that list only when it connected, and a " +
+            "foreground service can hold the link up for weeks.",
+        "Only what the advert carries is written. A name and a position are both optional, and " +
+            "an advert without one is not a claim that the node has no name or has moved to " +
+            "nowhere, so an absent field leaves the stored value alone.",
+    ),
     "0.9.1" to listOf(
         "A node with no position no longer appears in the Gulf of Guinea. Opening a node's " +
             "info could show \"Position 0.00000, 0.00000\" with \"Distance away: Unknown\" " +

@@ -298,6 +298,43 @@ interface ContactDao {
     suspend fun clearUnread(selfKey: String, keyHex: String)
 
     /**
+     * Refresh a contact from an advert this app heard and verified.
+     *
+     * The radio owns the contact list, and the firmware updates its own
+     * record on every advert it hears — name, position, and `lastmod`
+     * (`BaseChatMesh.cpp:220-226`). But this app re-reads that list only
+     * on connection, so while a foreground service holds the link up for
+     * days the cached copy silently ages: a repeater that moved, or that
+     * set a position it never had, kept the value it was first synced
+     * with. Reported from the field 2026-09-07 on a node last synced 31
+     * days earlier.
+     *
+     * Only what the advert actually carries is written. A name is
+     * optional in the advert (§9) and an absent one must not blank the
+     * stored name; a position is optional too, and an advert without one
+     * says nothing about where the node is — it is not a claim that the
+     * node has moved to nowhere.
+     */
+    @Query(
+        "UPDATE contacts SET " +
+            "name = COALESCE(NULLIF(:name, ''), name), " +
+            "latitude = COALESCE(:latitude, latitude), " +
+            "longitude = COALESCE(:longitude, longitude), " +
+            "lastSeen = :lastSeen, " +
+            "lastModified = :heardAt " +
+            "WHERE selfKey = :selfKey AND keyHex = :keyHex",
+    )
+    suspend fun refreshFromAdvert(
+        selfKey: String,
+        keyHex: String,
+        name: String,
+        latitude: Double?,
+        longitude: Double?,
+        lastSeen: Long,
+        heardAt: Long,
+    )
+
+    /**
      * Remember the BLE address a node announced when it entered update
      * mode. Written straight to the row rather than through an upsert:
      * the contact's other fields belong to the radio's own contact list
