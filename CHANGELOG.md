@@ -30,6 +30,11 @@ wrong; its owner had set a real one — while the node had been advertising the 
   nowhere — so an absent field leaves the stored value alone. Locally learned facts that the
   radio cannot supply, like the update-mode address that makes a bricked node recoverable, are
   untouched.
+- **And the contact list is now re-read while connected, not only when connecting.** Adverts cover
+  nodes this radio can hear; this covers everything else. It asks only for records the radio has
+  touched since we last looked — `CMD_GET_CONTACTS` takes an optional `since`, which the app had
+  never used — so the usual answer is an empty sweep, and nothing goes on the air either way. Every
+  15 minutes while the link is up.
 - Being a favourite had nothing to do with it, beyond keeping the row alive to be noticed.
 
 ## 0.9.1

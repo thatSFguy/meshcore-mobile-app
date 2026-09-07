@@ -103,6 +103,9 @@ private val CHANGELOG: List<Pair<String, List<String>>> = listOf(
         "Only what the advert carries is written. A name and a position are both optional, and " +
             "an advert without one is not a claim that the node has no name or has moved to " +
             "nowhere, so an absent field leaves the stored value alone.",
+        "The contact list is also re-read every 15 minutes while connected, not only when " +
+            "connecting. It asks for just the records the radio has touched since we last " +
+            "looked, so the usual answer is an empty sweep and nothing goes on the air.",
     ),
     "0.9.1" to listOf(
         "A node with no position no longer appears in the Gulf of Guinea. Opening a node's " +

@@ -13,6 +13,7 @@ import io.github.thatsfguy.meshcore.protocol.HeardRepeats
 import io.github.thatsfguy.meshcore.protocol.ShareUri
 import io.github.thatsfguy.meshcore.protocol.MeshIdentity
 import io.github.thatsfguy.meshcore.protocol.RoutingMode
+import io.github.thatsfguy.meshcore.util.toHex
 import io.github.thatsfguy.meshcore.transport.IncomingFrame
 import io.github.thatsfguy.meshcore.transport.Transport
 import io.github.thatsfguy.meshcore.transport.TransportState
@@ -111,6 +112,9 @@ class MeshCoreEngineTest {
         pubKey: ByteArray,
         name: String,
         outPath: ByteArray = ByteArray(0),
+        lastModified: Long = 1L,
+        latMicros: Int = 0,
+        lonMicros: Int = 0,
     ): ByteArray {
         val w = BufferWriter()
         w.writeByte(Codes.RESP_CODE_CONTACT)
@@ -121,8 +125,8 @@ class MeshCoreEngineTest {
         w.writeBytesPadded(outPath, 64)
         w.writeFixedCString(name, 32)
         w.writeUInt32LE(1L)
-        w.writeInt32LE(0); w.writeInt32LE(0)
-        w.writeUInt32LE(1L)
+        w.writeInt32LE(latMicros); w.writeInt32LE(lonMicros)
+        w.writeUInt32LE(lastModified)
         return w.toBytes()
     }
 
@@ -1873,7 +1877,7 @@ class MeshCoreEngineTest {
         radio.push(contactFrameWithPackedPathLen(key, 0x40))
         yield()
 
-        assertEquals(RoutingMode.Auto, engine.routingMode(key.toHexString()))
+        assertEquals(RoutingMode.Auto, engine.routingMode(key.toHex()))
     }
 
     @Test
@@ -1889,7 +1893,7 @@ class MeshCoreEngineTest {
         radio.push(contactFrameWithPackedPathLen(key, 0x42, byteArrayOf(0xB3.toByte(), 0x89.toByte(), 0xC9.toByte(), 0x85.toByte())))
         yield()
 
-        assertEquals(RoutingMode.Manual, engine.routingMode(key.toHexString()))
+        assertEquals(RoutingMode.Manual, engine.routingMode(key.toHex()))
     }
 
     @Test
@@ -1902,7 +1906,7 @@ class MeshCoreEngineTest {
         radio.push(contactFrameWithPackedPathLen(key, 0xFF))
         yield()
 
-        assertEquals(RoutingMode.Flood, engine.routingMode(key.toHexString()))
+        assertEquals(RoutingMode.Flood, engine.routingMode(key.toHex()))
     }
 
     // ------------------------------------------------------------------
@@ -1969,8 +1973,155 @@ class MeshCoreEngineTest {
         val sent = radio.sentFrames.last { (it[0].toInt() and 0xFF) == Codes.CMD_ADD_UPDATE_CONTACT }
         assertEquals(0L, advertTimestampOf(sent))
     }
+
+    // --- incremental contact re-read (CMD_GET_CONTACTS `since`) --------
+
+    private val otherKey = ByteArray(32) { (it + 90).toByte() }
+
+    /**
+     * A radio holding two contacts, where a second GET_CONTACTS carrying
+     * a `since` returns only the one that changed — which is what the
+     * firmware does (`contact.lastmod > _iter_filter_since`,
+     * `MyMesh.cpp:1764`).
+     */
+    private fun twoContactResponder(radio: FakeRadio): (ByteArray) -> List<ByteArray> {
+        val base = standardResponder(radio)
+        return { frame ->
+            if ((frame[0].toInt() and 0xFF) == Codes.CMD_GET_CONTACTS) {
+                if (frame.size >= 5) {
+                    // Incremental: only the record that moved.
+                    listOf(
+                        byteArrayOf(Codes.RESP_CODE_CONTACTS_START.toByte(), 1, 0, 0, 0),
+                        contactFrame(
+                            otherKey, "other-moved",
+                            lastModified = 900L, latMicros = 42_963_400, lonMicros = -85_668_100,
+                        ),
+                        byteArrayOf(Codes.RESP_CODE_END_OF_CONTACTS.toByte()),
+                    )
+                } else {
+                    listOf(
+                        byteArrayOf(Codes.RESP_CODE_CONTACTS_START.toByte(), 2, 0, 0, 0),
+                        contactFrame(peerKey, "peer", lastModified = 500L),
+                        contactFrame(otherKey, "other", lastModified = 700L),
+                        byteArrayOf(Codes.RESP_CODE_END_OF_CONTACTS.toByte()),
+                    )
+                }
+            } else {
+                base(frame)
+            }
+        }
+    }
+
+    @Test
+    fun incrementalSyncMergesInsteadOfReplacing() = runTest {
+        // THE trap. A full sweep is authoritative and replaces the map;
+        // an incremental one returns only what changed, so replacing
+        // would erase every contact that simply had not moved. The
+        // failure would not look like a bug — it would look like the
+        // radio forgetting everyone every fifteen minutes.
+        val radio = FakeRadio()
+        radio.responder = twoContactResponder(radio)
+        val engine = MeshCoreEngine(backgroundScope, crypto, { now })
+        engine.attach(radio)
+        radio.connect()
+        engine.awaitReady()
+        assertEquals(2, engine.contacts.value.size)
+
+        assertTrue(engine.syncContactsChangedOnly())
+
+        assertEquals(2, engine.contacts.value.size)
+        // The unchanged one survived...
+        assertEquals("peer", engine.contacts.value[peerKey.toHex()]?.name)
+        // ...and the changed one took its new position.
+        val moved = engine.contacts.value[otherKey.toHex()]!!
+        assertEquals("other-moved", moved.name)
+        assertEquals(42.9634, moved.latitude!!, 1e-9)
+    }
+
+    @Test
+    fun theSinceValueIsTheNewestLastModifiedWeHold() = runTest {
+        // Pinned as BYTES against the firmware's reader, not against our
+        // own parser: CMD_GET_CONTACTS takes the parameter only when the
+        // frame is 5 bytes or longer (`if (len >= 5)`) and compares with
+        // a strict `>`, so sending the newest lastmod we hold asks for
+        // strictly newer records and never re-fetches what we have.
+        val radio = FakeRadio()
+        radio.responder = twoContactResponder(radio)
+        val engine = MeshCoreEngine(backgroundScope, crypto, { now })
+        engine.attach(radio)
+        radio.connect()
+        engine.awaitReady()
+
+        radio.sentFrames.clear()
+        engine.syncContactsChangedOnly()
+
+        val sent = radio.sentFrames.first { (it[0].toInt() and 0xFF) == Codes.CMD_GET_CONTACTS }
+        assertEquals(5, sent.size)
+        // 700 = the newer of the two lastmod values, little-endian.
+        assertContentEquals(
+            byteArrayOf(Codes.CMD_GET_CONTACTS.toByte(), 0xBC.toByte(), 0x02, 0x00, 0x00),
+            sent,
+        )
+    }
+
+    @Test
+    fun aFullSweepAfterAnIncrementalStillReplaces() = runTest {
+        // The incremental flag must not survive its own sweep. If it
+        // did, the next FULL sync would merge instead of replacing and
+        // quietly resurrect contacts the radio had dropped — which is
+        // how a deleted contact comes back from the dead.
+        val radio = FakeRadio()
+        radio.responder = twoContactResponder(radio)
+        val engine = MeshCoreEngine(backgroundScope, crypto, { now })
+        engine.attach(radio)
+        radio.connect()
+        engine.awaitReady()
+        engine.syncContactsChangedOnly()
+        assertEquals(2, engine.contacts.value.size)
+
+        // The radio now reports only one contact at all.
+        radio.responder = { frame ->
+            if ((frame[0].toInt() and 0xFF) == Codes.CMD_GET_CONTACTS) {
+                listOf(
+                    byteArrayOf(Codes.RESP_CODE_CONTACTS_START.toByte(), 1, 0, 0, 0),
+                    contactFrame(peerKey, "peer", lastModified = 500L),
+                    byteArrayOf(Codes.RESP_CODE_END_OF_CONTACTS.toByte()),
+                )
+            } else {
+                standardResponder(radio)(frame)
+            }
+        }
+        engine.syncContacts()
+        assertEquals(1, engine.contacts.value.size)
+        assertNull(engine.contacts.value[otherKey.toHex()])
+    }
+
+    @Test
+    fun withNoContactsThereIsNothingToBeIncrementalAbout() = runTest {
+        // since = 0 would mean "everything", which is a full sweep
+        // wearing an incremental sweep's merge semantics. The caller is
+        // told to do a real full sweep instead.
+        val radio = FakeRadio()
+        radio.responder = { frame ->
+            if ((frame[0].toInt() and 0xFF) == Codes.CMD_GET_CONTACTS) {
+                listOf(
+                    byteArrayOf(Codes.RESP_CODE_CONTACTS_START.toByte(), 0, 0, 0, 0),
+                    byteArrayOf(Codes.RESP_CODE_END_OF_CONTACTS.toByte()),
+                )
+            } else {
+                standardResponder(radio)(frame)
+            }
+        }
+        val engine = MeshCoreEngine(backgroundScope, crypto, { now })
+        engine.attach(radio)
+        radio.connect()
+        engine.awaitReady()
+
+        assertFalse(engine.syncContactsChangedOnly())
+    }
+
 }
 
 /** Lowercase hex, local to the tests. */
-private fun ByteArray.toHexString(): String =
+private fun ByteArray.toHex(): String =
     joinToString("") { ((it.toInt() and 0xFF) + 0x100).toString(16).substring(1) }

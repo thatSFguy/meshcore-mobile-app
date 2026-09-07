@@ -304,6 +304,21 @@ class MeshCoreEngine(
     // Contact sync accumulator (CONTACTS_START … CONTACT* … END_OF_CONTACTS).
     private var syncingContacts: MutableMap<String, Contact>? = null
 
+    /**
+     * True while the sweep in flight asked for only what changed.
+     *
+     * A full sweep is authoritative and REPLACES the contact map. An
+     * incremental one is not: the radio returns only records whose
+     * `lastmod` is newer than the `since` we sent
+     * (`MyMesh.cpp:1764`, `contact.lastmod > _iter_filter_since`), so
+     * replacing the map with a two-record answer would erase every
+     * contact that simply had not changed. Merge instead.
+     */
+    private var syncingIsIncremental = false
+
+    /** The periodic incremental contact re-read; see [CONTACT_REFRESH_MS]. */
+    private var contactRefreshJob: Job? = null
+
     // Serialized message-queue drain (MSG_WAITING → SYNC_NEXT_MESSAGE
     // loop). Written from the RX collector and from the drain coroutine
     // on a multi-threaded dispatcher, so it must be volatile.
@@ -371,10 +386,13 @@ class MeshCoreEngine(
     fun detach() {
         rxJob?.cancel(); rxJob = null
         stateJob?.cancel(); stateJob = null
+        contactRefreshJob?.cancel(); contactRefreshJob = null
         transport = null
         _state.value = EngineState.Detached
         _plaintextLink.value = false
         syncingContacts = null
+        syncingIsIncremental = false
+        contactRefreshJob?.cancel(); contactRefreshJob = null
         drainingQueue = false
         // The next radio's slots are unknown until we read them, even
         // if the last one's are still sitting in _channels.
@@ -418,6 +436,7 @@ class MeshCoreEngine(
             // Initial syncs (serialized by the command mutex anyway).
             syncChannels()
             syncContacts()
+            startPeriodicContactRefresh()
             refreshBattery()
             requestCustomVars()
             requestAutoAddConfig()
@@ -539,8 +558,16 @@ class MeshCoreEngine(
                 }
             }
             is DeviceEvent.EndOfContacts -> {
-                syncingContacts?.let { _contacts.value = it.toMap() }
+                syncingContacts?.let { swept ->
+                    // Replace on a full sweep; merge on an incremental
+                    // one. Getting this backwards would not look like a
+                    // bug — it would look like the radio forgetting
+                    // everyone every few minutes.
+                    _contacts.value =
+                        if (syncingIsIncremental) _contacts.value + swept else swept.toMap()
+                }
                 syncingContacts = null
+                syncingIsIncremental = false
                 _meshEvents.tryEmit(MeshEvent.ContactsSynced)
             }
 
@@ -862,7 +889,75 @@ class MeshCoreEngine(
     suspend fun syncContacts() {
         // The full sweep ends with END_OF_CONTACTS; accumulation happens
         // in handleEvent. Await the end marker so callers can sequence.
+        syncingIsIncremental = false
         sendAndAwait(Frames.getContacts(), timeoutMs = 30_000) { it is DeviceEvent.EndOfContacts }
+    }
+
+    /**
+     * Keep re-reading what changed, for as long as the link is up.
+     *
+     * The contact list used to be read once per connection, which is
+     * only ever "often enough" if connections are frequent — and the
+     * foreground service exists to make sure they are not. A repeater
+     * reported from the field had held a 31-day-old position through
+     * weeks of uninterrupted uptime.
+     *
+     * Cheap because it is incremental: the usual answer is an empty
+     * sweep, and the radio does the filtering. Failures are swallowed on
+     * purpose — this is a background refresh, and a radio busy or briefly
+     * unreachable is not an error the user needs to see; the next tick
+     * tries again.
+     */
+    private fun startPeriodicContactRefresh() {
+        contactRefreshJob?.cancel()
+        contactRefreshJob = scope.launch {
+            while (isReady) {
+                delay(CONTACT_REFRESH_MS)
+                if (!isReady) break
+                runCatching { if (!syncContactsChangedOnly()) syncContacts() }
+                    .onFailure { log("Periodic contact refresh failed: ${it.message}") }
+            }
+        }
+    }
+
+    /**
+     * Re-read only the contacts the radio has touched since we last looked.
+     *
+     * The radio keeps every contact current — the firmware rewrites a
+     * record's name, position and `lastmod` on every advert it hears
+     * (`BaseChatMesh.cpp:220-226`). This app used to re-read that list
+     * only in the connect handshake, and a foreground service exists so
+     * that there may be no next connection for weeks. Adverts we hear
+     * ourselves now refresh a contact directly, but that only covers
+     * nodes in earshot of *this* radio while the app is running.
+     *
+     * `since` is verified against the firmware's own reader rather than
+     * against our builder: `CMD_GET_CONTACTS` takes the parameter only
+     * when the frame is 5 bytes or longer (`if (len >= 5)`,
+     * `MyMesh.cpp:1642-1659`) and filters with a strict `>` on
+     * `lastmod` (`MyMesh.cpp:1764`). So passing the newest `lastmod` we
+     * hold asks for strictly newer records and never re-fetches what we
+     * already have.
+     *
+     * Returns false when there is nothing to be incremental about — no
+     * contacts yet — so the caller can do a full sweep instead.
+     */
+    suspend fun syncContactsChangedOnly(): Boolean {
+        val newest = _contacts.value.values.maxOfOrNull { it.lastModified } ?: 0L
+        if (newest <= 0L) return false
+        syncingIsIncremental = true
+        try {
+            sendAndAwait(Frames.getContacts(newest), timeoutMs = 30_000) {
+                it is DeviceEvent.EndOfContacts
+            }
+        } catch (t: Throwable) {
+            // A sweep that never ended leaves the flag set, and the next
+            // FULL sync would then merge instead of replacing — quietly
+            // resurrecting contacts the radio had dropped.
+            syncingIsIncremental = false
+            throw t
+        }
+        return true
     }
 
     /**
@@ -2171,6 +2266,19 @@ class MeshCoreEngine(
 
         /** Hard ceiling on tracked contacts, independent of firmware. */
         private const val MAX_TRACKED_CONTACTS = 1024
+
+        /**
+         * How often to re-read what the radio has changed, while connected.
+         *
+         * Fifteen minutes is a compromise between the two costs, and
+         * neither is the radio's airtime — an incremental sweep is a
+         * companion-link round trip and puts nothing on the air. What it
+         * spends is BLE traffic and a slot in the serialized command
+         * queue, so it wants to be rare enough not to sit in front of
+         * something the user is waiting for, and frequent enough that a
+         * position is minutes stale rather than weeks.
+         */
+        internal const val CONTACT_REFRESH_MS = 15 * 60 * 1000L
 
         /** Cap on responders collected from one discovery broadcast. */
         private const val MAX_DISCOVERY_REPLIES = 64
