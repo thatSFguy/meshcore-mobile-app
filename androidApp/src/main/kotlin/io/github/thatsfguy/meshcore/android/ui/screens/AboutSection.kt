@@ -90,6 +90,28 @@ fun AboutSection(vm: MeshCoreViewModel) {
  * is a changelog you can't read in the field.
  */
 private val CHANGELOG: List<Pair<String, List<String>>> = listOf(
+    "0.9.0" to listOf(
+        "You can tag somebody in a message. Typing \"@\" offers the names it knows, and " +
+            "picking one writes \"@[Name]\" — the same form the official MeshCore app uses, " +
+            "so a tag sent from here reads as a tag over there. A message that tags you is " +
+            "tinted and outlined in the thread.",
+        "A mention is a convention, not a protocol feature: MeshCore has no mention field, so " +
+            "this is plain text that clients agree to render specially. It carries a name and " +
+            "no key — it addresses nobody in particular, and anyone can be tagged as anyone. " +
+            "That is why a mention is tinted but not tappable.",
+        "Tagging is offered where it means something: in a channel, the names seen posting " +
+            "there; in a direct message, the one person who will read it.",
+        "\"Mention\" is its own action, separate from Reply. Reply quotes the text being " +
+            "answered and costs those bytes out of a ~150-byte frame; a mention costs the name.",
+        "0, 0 is a node with no fix, not a place in the Gulf of Guinea. Picking a position " +
+            "with no fix and no remembered map view used to open on the whole world at 0, 0; " +
+            "it now starts from the middle of the nodes it can place.",
+        "Settings → Identity leaves the coordinates blank when the radio has none, instead of " +
+            "printing 0.0 and 0.0 — which in a text field looks like something you typed.",
+        "A repeater's GPS sensor no longer reports a fix it does not have. A GPS channel with " +
+            "no lock reports 0, 0, and the status page rendered it as \"Latitude 0.0000 °\" — " +
+            "a measurement, on the one screen where somebody would believe it.",
+    ),
     "0.8.10" to listOf(
         "A repeater far away is given the time the radio says it needs. Fetching status, the " +
             "access list or the neighbour table waited a flat 30 seconds however far the node " +

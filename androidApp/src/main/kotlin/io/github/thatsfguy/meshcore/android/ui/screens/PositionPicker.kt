@@ -23,6 +23,8 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import io.github.thatsfguy.meshcore.android.ui.MeshCoreViewModel
+import io.github.thatsfguy.meshcore.util.isPlausiblePosition
+import io.github.thatsfguy.meshcore.util.meshCentre
 import org.osmdroid.config.Configuration
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.util.GeoPoint
@@ -50,13 +52,29 @@ fun PositionPickerDialog(
     val context = LocalContext.current
     val tilesEnabled = vm.prefs.mapTilesEnabled
 
-    // A radio with no fix reports 0,0. Starting the map there drops the
-    // user in the Atlantic; start from the last map camera instead.
+    // A radio with no fix reports 0,0, and starting the map there drops
+    // the user in the Gulf of Guinea — six thousand kilometres from the
+    // only place the answer can be. It is not that we know nothing about
+    // where this radio is: it is on a mesh whose repeaters we CAN place,
+    // and a LoRa mesh is tens of kilometres across. So fall back to the
+    // last camera, then to the middle of the nodes we know, and only
+    // then to the world view — which is what "we truly have no idea"
+    // actually looks like.
+    //
+    // Read once, not collected: the camera this dialog opens with must
+    // not jump because a contact sync landed while it was open.
     val start = remember {
-        val hasFix = kotlin.math.abs(initialLat) > 1e-6 || kotlin.math.abs(initialLon) > 1e-6
         when {
-            hasFix -> Triple(initialLat, initialLon, 13.0)
-            else -> vm.prefs.mapCamera ?: Triple(0.0, 0.0, 2.0)
+            isPlausiblePosition(initialLat, initialLon) -> Triple(initialLat, initialLon, 13.0)
+            else -> vm.prefs.mapCamera
+                ?: meshCentre(
+                    vm.dbContacts.value.map { (it.latitude ?: 0.0) to (it.longitude ?: 0.0) },
+                )
+                    // Zoom 10 is roughly a 30 km view on a phone: wide
+                    // enough to hold a local mesh, tight enough that the
+                    // crosshair starts on streets rather than on ocean.
+                    ?.let { Triple(it.first, it.second, 10.0) }
+                ?: Triple(0.0, 0.0, 2.0)
         }
     }
 

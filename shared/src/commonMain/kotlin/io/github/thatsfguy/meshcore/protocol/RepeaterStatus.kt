@@ -1,5 +1,6 @@
 package io.github.thatsfguy.meshcore.protocol
 
+import io.github.thatsfguy.meshcore.util.isPlausiblePosition
 import io.github.thatsfguy.meshcore.util.toHex
 
 /**
@@ -181,8 +182,18 @@ object CayenneLpp {
                         val lat = r.readInt24BE() / 10_000.0
                         val lon = r.readInt24BE() / 10_000.0
                         val alt = r.readInt24BE() / 100.0
-                        out.add(reading(channel, type, "Latitude", lat, "°"))
-                        out.add(reading(channel, type, "Longitude", lon, "°"))
+                        // A GPS sensor with no fix still reports its
+                        // channel, at 0, 0 — the same "unset" the rest of
+                        // this app refuses to read as the Gulf of Guinea.
+                        // Reported as a reading it is worse than missing:
+                        // "Latitude 0.0000°" is a measurement, and a
+                        // repeater's own status page is exactly where
+                        // someone would believe it. Altitude is a
+                        // separate number and is kept.
+                        if (isPlausiblePosition(lat, lon)) {
+                            out.add(reading(channel, type, "Latitude", lat, "°"))
+                            out.add(reading(channel, type, "Longitude", lon, "°"))
+                        }
                         out.add(reading(channel, type, "Altitude", alt, "m"))
                     }
                     // Unknown type: its length is unknown, so stop rather

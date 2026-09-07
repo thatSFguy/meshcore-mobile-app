@@ -11,6 +11,45 @@ Every entry describes what is in **that tagged build**. A feature that landed af
 belongs in the next section, not this one — 0.3.0 was once credited with four features that
 shipped after it, which misled nobody so much as the author, three months later.
 
+## 0.9.0
+
+**You can tag somebody in a message.** Typing `@` in a conversation offers the names it knows,
+and picking one writes `@[Name]` — the same form the official MeshCore app uses, so a tag sent
+from here reads as a tag over there. A message that tags *you* is tinted and outlined in the
+thread, so it stands out from the scrollback without a notification.
+
+- **A mention is a convention, not a protocol feature.** MeshCore has no mention field; this is
+  plain text in an ordinary message body that clients agree to render specially. Same standing
+  as reactions (MESHCORE_PROTOCOL §14), and worth knowing because it means a tag carries a
+  *name* and no key: it addresses nobody in particular, and anyone can be tagged as anyone.
+  That is why mentions are tinted but not tappable — "open that node" would mean guessing which
+  contact answers to a string, and the app does not guess about identity.
+- **Tagging is offered where it means something.** In a channel `@` offers the names seen
+  posting there; in a direct message it offers the one person who will read it, rather than a
+  contact list full of people who will not.
+- **"Mention" is its own action**, separate from Reply. Reply quotes the text being answered
+  and costs those bytes out of a ~150-byte frame; a mention costs the name. The official app
+  folds them together by seeding a mention on reply, which here would silently double the cost
+  of the commonest action on the tightest budget in the app.
+- Being tagged is signalled by a fill **and** an outline. Colour alone is not a reading anyone
+  can take on a colour-blind screen — the same rule the neighbour links learned on hardware.
+
+**0, 0 is a node with no fix, not a place in the Gulf of Guinea.** Most of the app already knew
+this. Three places did not, and all three stated a position the radio had never had.
+
+- **Picking a position no longer starts in the Atlantic.** With no fix and no remembered map
+  view, the picker opened at 0, 0 zoomed out to the whole world. It now starts from the middle
+  of the nodes it *can* place: the radio has no position, but it is on a mesh whose repeaters
+  do, and a LoRa mesh is tens of kilometres across, not six thousand. Verified on the mesh — a
+  radio with its position cleared opens on the local cluster instead of on ocean.
+- **Settings → Identity leaves the coordinates blank when the radio has none.** It printed
+  `0.0` and `0.0`, which in a text field is indistinguishable from something you typed, and
+  said nothing about why. It now says the radio has no position set.
+- **A repeater's GPS sensor no longer reports a fix it does not have.** A GPS channel with no
+  lock reports 0, 0, and the status page rendered that as `Latitude 0.0000 °` — a measurement,
+  on the one screen where somebody would believe it. The reading is withheld; altitude is a
+  separate number and is kept.
+
 ## 0.8.10
 
 **A repeater far away is given the time the radio says it needs.** Fetching status, the access

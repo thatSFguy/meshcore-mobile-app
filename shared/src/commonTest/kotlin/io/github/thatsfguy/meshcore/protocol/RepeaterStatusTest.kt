@@ -105,4 +105,68 @@ class RepeaterStatusTest {
         assertTrue(r.isEmpty())
         assertTrue(CayenneLpp.parse(ByteArray(0)).isEmpty())
     }
+
+    /** ch, 0x88, lat(3 BE), lon(3 BE), alt(3 BE) — GPS is nine bytes. */
+    private fun gps(latRaw: Int, lonRaw: Int, altRaw: Int): ByteArray {
+        fun be24(v: Int) = byteArrayOf(
+            ((v shr 16) and 0xFF).toByte(),
+            ((v shr 8) and 0xFF).toByte(),
+            (v and 0xFF).toByte(),
+        )
+        return byteArrayOf(1, 0x88.toByte()) + be24(latRaw) + be24(lonRaw) + be24(altRaw)
+    }
+
+    @Test
+    fun cayenneGpsReadsARealFix() {
+        // The positive control. Everything below asserts that a reading
+        // is WITHHELD, and every one of those would pass if the GPS
+        // branch had been deleted outright — so pin the case where it
+        // must answer. 42.9634, -85.6681 at 1/10000 deg.
+        val r = CayenneLpp.parse(gps(429_634, -856_681, 20_000))
+        assertEquals(3, r.size)
+        assertEquals("Latitude", r[0].label)
+        assertEquals(42.9634, r[0].value, 1e-9)
+        assertEquals("Longitude", r[1].label)
+        assertEquals(-85.6681, r[1].value, 1e-9)
+        assertEquals("Altitude", r[2].label)
+        assertEquals(200.0, r[2].value, 1e-9)
+    }
+
+    @Test
+    fun cayenneGpsWithNoFixReportsNoPosition() {
+        // A GPS sensor with no fix still reports its channel, at 0, 0.
+        // That is MeshCore's "unset", not a point in the Gulf of Guinea,
+        // and a repeater's status page is exactly where "Latitude
+        // 0.0000 deg" would be read as a measurement.
+        val r = CayenneLpp.parse(gps(0, 0, 0))
+        assertEquals(1, r.size)
+        assertEquals("Altitude", r[0].label)
+    }
+
+    @Test
+    fun cayenneGpsKeepsAFixThatIsZeroInOnlyOneAxis() {
+        // Zero latitude with a real longitude is a place — the equator
+        // runs through inhabited land. Only BOTH being zero is "unset",
+        // which is the same rule isPlausiblePosition applies everywhere
+        // else, and the reason it is a shared function and not a local
+        // `== 0.0` at each call site.
+        val onlyLat = CayenneLpp.parse(gps(0, -856_681, 0))
+        assertEquals(3, onlyLat.size)
+        assertEquals(0.0, onlyLat[0].value, 1e-9)
+
+        val onlyLon = CayenneLpp.parse(gps(429_634, 0, 0))
+        assertEquals(3, onlyLon.size)
+        assertEquals(0.0, onlyLon[1].value, 1e-9)
+    }
+
+    @Test
+    fun cayenneGpsAltitudeSurvivesTheMissingFix() {
+        // Altitude is a separate sensor reading on the same frame and
+        // has nothing to do with the fix: withholding it too would lose
+        // real data to fix a presentation problem.
+        val r = CayenneLpp.parse(gps(0, 0, 25_000))
+        assertEquals(1, r.size)
+        assertEquals(250.0, r[0].value, 1e-9)
+        assertEquals("m", r[0].unit)
+    }
 }

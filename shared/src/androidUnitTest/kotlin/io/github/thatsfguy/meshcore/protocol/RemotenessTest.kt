@@ -3,9 +3,11 @@ package io.github.thatsfguy.meshcore.protocol
 import io.github.thatsfguy.meshcore.protocol.IdentityKeygen.Remoteness
 import io.github.thatsfguy.meshcore.util.haversineMetres
 import io.github.thatsfguy.meshcore.util.isPlausiblePosition
+import io.github.thatsfguy.meshcore.util.meshCentre
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -137,5 +139,86 @@ class RemotenessTest {
         assertFalse(isPlausiblePosition(91.0, 10.0))
         assertFalse(isPlausiblePosition(45.0, 181.0))
         assertTrue(isPlausiblePosition(42.9634, -85.6681))
+    }
+
+    // ------------------------------------------------------------------
+    // meshCentre — the other half of the same rule. isPlausiblePosition
+    // refuses the wrong answer; this supplies a usable one for the places
+    // that have to point a camera somewhere.
+
+    @Test
+    fun `the centre of a local mesh is inside it`() {
+        // The positive control: three nodes around Grand Rapids must
+        // produce a point among them, not an average with a stray zero
+        // dragged into it.
+        val centre = meshCentre(
+            listOf(
+                42.9634 to -85.6681,
+                43.0125 to -85.5500,
+                42.8000 to -85.7000,
+            ),
+        )!!
+        assertTrue(centre.first in 42.7..43.1, "latitude was ${centre.first}")
+        assertTrue(centre.second in -85.8..-85.4, "longitude was ${centre.second}")
+    }
+
+    @Test
+    fun `a node with no fix does not drag the centre towards Africa`() {
+        // The bug this exists to prevent. Two nodes on the mesh and one
+        // that has never had a fix: averaged naively the centre lands a
+        // third of the way to the Gulf of Guinea and every camera that
+        // uses it opens on ocean.
+        val withUnset = meshCentre(
+            listOf(42.9634 to -85.6681, 43.0125 to -85.5500, 0.0 to 0.0),
+        )!!
+        val without = meshCentre(listOf(42.9634 to -85.6681, 43.0125 to -85.5500))!!
+        assertEquals(without.first, withUnset.first, 1e-9)
+        assertEquals(without.second, withUnset.second, 1e-9)
+    }
+
+    @Test
+    fun `out of range coordinates are discarded like unset ones`() {
+        // A hostile advert is not obliged to send a real latitude.
+        val centre = meshCentre(
+            listOf(42.9634 to -85.6681, 91.0 to -85.0, 42.0 to 181.0),
+        )!!
+        assertEquals(42.9634, centre.first, 1e-9)
+        assertEquals(-85.6681, centre.second, 1e-9)
+    }
+
+    @Test
+    fun `nothing placed means no guess at all`() {
+        // The caller has to be able to tell "we have no idea" from a
+        // point, or 0, 0 comes back in through this door instead.
+        assertNull(meshCentre(emptyList()))
+        assertNull(meshCentre(listOf(0.0 to 0.0, 0.0 to 0.0)))
+        assertNull(meshCentre(listOf(91.0 to 0.0)))
+    }
+
+    @Test
+    fun `a mesh straddling the antimeridian does not fold into Africa`() {
+        // Averaging longitude as a number puts the midpoint of 179 and
+        // -179 at zero — the far side of the planet, and by coincidence
+        // the exact wrong answer this whole file is about. Averaged as a
+        // direction it stays on the date line.
+        val centre = meshCentre(listOf(-16.5 to 179.9, -16.6 to -179.9))!!
+        assertTrue(
+            kotlin.math.abs(centre.second) > 179.0,
+            "longitude folded to ${centre.second}",
+        )
+        assertTrue(centre.first in -16.7..-16.4, "latitude was ${centre.first}")
+    }
+
+    @Test
+    fun `antipodal longitudes fall back to a real node rather than to zero`() {
+        // Two nodes exactly half a world apart cancel to the origin,
+        // where the direction is undefined and atan2(0, 0) quietly
+        // reads as 0 degrees — Null Island by arithmetic accident.
+        val centre = meshCentre(listOf(10.0 to 0.0, 10.0 to 180.0))!!
+        assertTrue(
+            centre.second == 0.0 || kotlin.math.abs(centre.second) == 180.0,
+            "longitude was ${centre.second}",
+        )
+        assertEquals(10.0, centre.first, 1e-9)
     }
 }

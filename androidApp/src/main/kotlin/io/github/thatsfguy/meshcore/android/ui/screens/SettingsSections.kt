@@ -44,6 +44,7 @@ import io.github.thatsfguy.meshcore.protocol.Codes
 import io.github.thatsfguy.meshcore.protocol.PathHashMode
 import io.github.thatsfguy.meshcore.protocol.RadioUnits
 import io.github.thatsfguy.meshcore.protocol.Regions
+import io.github.thatsfguy.meshcore.util.isPlausiblePosition
 import java.text.DateFormat
 import java.util.Date
 
@@ -136,8 +137,18 @@ internal fun IdentitySection(vm: MeshCoreViewModel, onShowSelfQr: () -> Unit) {
         return
     }
     var name by remember(info.name) { mutableStateOf(info.name) }
-    var lat by remember(info.latitude) { mutableStateOf(info.latitude.toString()) }
-    var lon by remember(info.longitude) { mutableStateOf(info.longitude.toString()) }
+    // SELF_INFO has no "unset" — a radio with no fix reports 0, 0, which
+    // as a coordinate is a point in the Gulf of Guinea. Printing it into
+    // the field states a position this radio has never had, and the
+    // reader has no way to tell it apart from one they typed. Blank is
+    // what "not set" looks like in a text field.
+    val fixed = isPlausiblePosition(info.latitude, info.longitude)
+    var lat by remember(info.latitude) {
+        mutableStateOf(if (fixed) info.latitude.toString() else "")
+    }
+    var lon by remember(info.longitude) {
+        mutableStateOf(if (fixed) info.longitude.toString() else "")
+    }
 
     Text(
         info.publicKeyHex,
@@ -162,8 +173,8 @@ internal fun IdentitySection(vm: MeshCoreViewModel, onShowSelfQr: () -> Unit) {
     if (pickPosition) {
         PositionPickerDialog(
             vm = vm,
-            initialLat = lat.toDoubleOrNull() ?: info.latitude,
-            initialLon = lon.toDoubleOrNull() ?: info.longitude,
+            initialLat = lat.toDoubleOrNull() ?: 0.0,
+            initialLon = lon.toDoubleOrNull() ?: 0.0,
             onPick = { pickedLat, pickedLon ->
                 lat = "%.5f".format(pickedLat)
                 lon = "%.5f".format(pickedLon)
@@ -189,6 +200,12 @@ internal fun IdentitySection(vm: MeshCoreViewModel, onShowSelfQr: () -> Unit) {
                 vm.setAdvertLocation(la, lo)
             }
         }) { Text("Set") }
+    }
+    if (!fixed) {
+        HintText(
+            "This radio has no position set. It is still on the mesh — " +
+                "adverts just go out without a location.",
+        )
     }
     ButtonFlowRow {
         OutlinedButton(onClick = { pickPosition = true }) { Text("Pick on map") }

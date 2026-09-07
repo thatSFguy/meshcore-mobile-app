@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
@@ -56,12 +57,15 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import io.github.thatsfguy.meshcore.presentation.Inbox
+import io.github.thatsfguy.meshcore.presentation.Mentions
 import io.github.thatsfguy.meshcore.android.storage.MessageEntity
 import io.github.thatsfguy.meshcore.android.ui.MeshCoreViewModel
 import io.github.thatsfguy.meshcore.android.storage.MessageRepository
@@ -127,7 +131,15 @@ fun ConversationScreen(
     }
 
     val threadKey = Inbox.threadKey(kind, peerKey)
-    var draft by remember(threadKey) { mutableStateOf(vm.draftFor(threadKey)) }
+    // TextFieldValue rather than String: the `@` picker has to know
+    // where the caret is, and a plain String composer cannot say. The
+    // saved draft stays a String — the caret is not worth persisting,
+    // and restoring one into text the user has since edited elsewhere
+    // would put it in the wrong place.
+    var draft by remember(threadKey) {
+        val saved = vm.draftFor(threadKey)
+        mutableStateOf(TextFieldValue(saved, TextRange(saved.length)))
+    }
     var clearConfirm by remember { mutableStateOf(false) }
     var showContact by remember { mutableStateOf(false) }
     var showChannelEditor by remember { mutableStateOf(false) }
@@ -137,6 +149,22 @@ fun ConversationScreen(
     var reactingTo by remember { mutableStateOf<MessageEntity?>(null) }
     var details by remember { mutableStateOf<MessageEntity?>(null) }
     val selfName = vm.selfInfo.collectAsState().value?.name
+    // Who `@` can offer. On a channel that is the names seen posting on
+    // it — the same list "Names seen…" shows, and the only names anyone
+    // reading the channel would recognise. In a DM there is exactly one
+    // other party, so the picker is the peer and nothing else: offering
+    // the whole contact list would suggest tagging people who will
+    // never see the message.
+    var mentionNames by remember(threadKey) { mutableStateOf<List<String>>(emptyList()) }
+    LaunchedEffect(threadKey, isChannel) {
+        mentionNames = if (isChannel) {
+            peerKey.toIntOrNull()
+                ?.let { vm.channelSenders(it).map { s -> s.name } }
+                .orEmpty()
+        } else {
+            listOfNotNull(title.takeIf { Mentions.canMention(it) })
+        }
+    }
     val maxBytes = if (isChannel) {
         Frames.maxChannelMessageBytes(selfName)
     } else {
@@ -217,8 +245,25 @@ fun ConversationScreen(
                 MessageBubble(
                     m,
                     showSender = showSenders,
+                    selfName = selfName,
+                    // Only worth offering when there is a name to insert
+                    // and more than one person who could read it.
+                    canMention = isChannel && !m.outgoing &&
+                        Mentions.canMention(m.senderName.orEmpty()),
                     showAvatar = showSenders,
                     onSwipeReply = { replyingTo = m },
+                    onMention = {
+                        val insert = Mentions.wire(m.senderName.orEmpty().trim()) + " "
+                        val next = draft.text.substring(0, draft.selection.min) +
+                            insert + draft.text.substring(draft.selection.max)
+                        if (next.encodeToByteArray().size <= bodyBudget) {
+                            draft = TextFieldValue(
+                                next,
+                                TextRange(draft.selection.min + insert.length),
+                            )
+                            vm.setDraft(threadKey, next)
+                        }
+                    },
                     onReact = { emoji -> vm.sendReaction(m.id, emoji) },
                     onMoreEmoji = { reactingTo = m },
                     onReply = { replyingTo = m },
@@ -234,6 +279,24 @@ fun ConversationScreen(
                 ReplyBanner(target, onCancel = { replyingTo = null })
             }
 
+            // The `@` picker. Shown only while something still matches,
+            // which is what makes it safe for the query to run on past
+            // a space: an `@` typed in prose stops matching within a
+            // word or two and the row disappears on its own.
+            val mentionQuery = Mentions.activeQuery(draft.text, draft.selection.start)
+            val suggestions = remember(mentionQuery, mentionNames) {
+                mentionQuery?.let { Mentions.candidates(it, mentionNames) }.orEmpty()
+            }
+            if (suggestions.isNotEmpty()) {
+                MentionPicker(suggestions) { name ->
+                    val done = Mentions.complete(draft.text, draft.selection.start, name)
+                    if (done.text.encodeToByteArray().size <= bodyBudget) {
+                        draft = TextFieldValue(done.text, TextRange(done.cursor))
+                        vm.setDraft(threadKey, done.text)
+                    }
+                }
+            }
+
             Row(
                 Modifier.fillMaxWidth().padding(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -242,9 +305,14 @@ fun ConversationScreen(
                     value = draft,
                     onValueChange = {
                         // Enforce the frame-size limit at input time.
-                        if (it.encodeToByteArray().size <= bodyBudget) {
+                        // Caret-only moves must always be accepted, or a
+                        // draft sitting exactly on the limit becomes
+                        // un-navigable.
+                        if (it.text == draft.text ||
+                            it.text.encodeToByteArray().size <= bodyBudget
+                        ) {
                             draft = it
-                            vm.setDraft(threadKey, it)
+                            vm.setDraft(threadKey, it.text)
                         }
                     },
                     modifier = Modifier.weight(1f),
@@ -253,18 +321,18 @@ fun ConversationScreen(
                 )
                 IconButton(
                     onClick = {
-                        val text = quotePrefix + draft.trim()
+                        val text = quotePrefix + draft.text.trim()
                         if (text.isBlank()) return@IconButton
                         if (isChannel) {
                             peerKey.toIntOrNull()?.let { vm.sendChannelMessage(it, text) }
                         } else {
                             vm.sendDirectMessage(peerKey, text)
                         }
-                        draft = ""
+                        draft = TextFieldValue("")
                         vm.setDraft(threadKey, "")
                         replyingTo = null
                     },
-                    enabled = draft.isNotBlank(),
+                    enabled = draft.text.isNotBlank(),
                 ) {
                     Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send")
                 }
@@ -466,8 +534,11 @@ internal fun splitQuote(text: String): Pair<String?, String> = Quoting.split(tex
 private fun MessageBubble(
     m: MessageEntity,
     showSender: Boolean,
+    selfName: String? = null,
+    canMention: Boolean = false,
     showAvatar: Boolean = false,
     onSwipeReply: () -> Unit = {},
+    onMention: () -> Unit = {},
     onReact: (String) -> Unit = {},
     onMoreEmoji: () -> Unit = {},
     onReply: () -> Unit = {},
@@ -491,6 +562,13 @@ private fun MessageBubble(
     val orphanReaction = remember(m.text) {
         io.github.thatsfguy.meshcore.protocol.AnyReaction.emojiOf(m.text)
     }
+    // Does this message tag the reader? A reading aid and nothing more:
+    // the name it matched is unauthenticated display text that anyone on
+    // the channel can advertise, so this may tint a bubble and must
+    // never gate an action or stand in for identity (Mentions, §12).
+    val tagsMe = remember(body, selfName) {
+        !outgoing && Mentions.tags(body, selfName)
+    }
 
     // Swipe-right-to-reply: accumulate the rightward drag as a visual
     // pull, and fire on release once past the threshold.
@@ -502,6 +580,11 @@ private fun MessageBubble(
             dragOffsetX = (dragOffsetX + delta).coerceIn(0f, thresholdPx * 1.5f)
         }
     }
+    val bubbleShape = RoundedCornerShape(
+        topStart = 12.dp, topEnd = 12.dp,
+        bottomStart = if (outgoing) 12.dp else 2.dp,
+        bottomEnd = if (outgoing) 2.dp else 12.dp,
+    )
 
     Row(
         Modifier
@@ -536,16 +619,30 @@ private fun MessageBubble(
             Modifier
                 .widthIn(max = 300.dp)
                 .background(
-                    color = if (outgoing) {
-                        MaterialTheme.colorScheme.primaryContainer
-                    } else {
-                        MaterialTheme.colorScheme.surfaceVariant
+                    color = when {
+                        outgoing -> MaterialTheme.colorScheme.primaryContainer
+                        // Tagged: the same container the app uses for
+                        // "this one is about you" elsewhere, rather than
+                        // a colour invented for the occasion.
+                        tagsMe -> MaterialTheme.colorScheme.tertiaryContainer
+                        else -> MaterialTheme.colorScheme.surfaceVariant
                     },
-                    shape = RoundedCornerShape(
-                        topStart = 12.dp, topEnd = 12.dp,
-                        bottomStart = if (outgoing) 12.dp else 2.dp,
-                        bottomEnd = if (outgoing) 2.dp else 12.dp,
-                    ),
+                    shape = bubbleShape,
+                )
+                .then(
+                    // Colour alone is not a signal on a colour-blind
+                    // screen, and a tinted container against a tinted
+                    // theme can be nearly the same value. The outline
+                    // carries it a second time.
+                    if (tagsMe) {
+                        Modifier.border(
+                            1.dp,
+                            MaterialTheme.colorScheme.tertiary,
+                            bubbleShape,
+                        )
+                    } else {
+                        Modifier
+                    },
                 )
                 .padding(horizontal = 12.dp, vertical = 8.dp),
         ) {
@@ -566,7 +663,12 @@ private fun MessageBubble(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 } else {
-                    MessageText(body, onHttpLink = onHttpLink, onMeshcoreLink = onMeshcoreLink)
+                    MessageText(
+                        body,
+                        selfName = selfName,
+                        onHttpLink = onHttpLink,
+                        onMeshcoreLink = onMeshcoreLink,
+                    )
                 }
                 if (reactions.isNotEmpty()) ReactionChips(reactions)
                 Text(
@@ -612,9 +714,11 @@ private fun MessageBubble(
                     // same way.
                     canReact = !m.outgoing,
                     canResend = m.outgoing && m.status == MessageStatus.Failed.ordinal,
+                    canMention = canMention,
                     onReact = { emoji -> showActions = false; onReact(emoji) },
                     onMoreEmoji = { showActions = false; onMoreEmoji() },
                     onReply = { showActions = false; onReply() },
+                    onMention = { showActions = false; onMention() },
                     onCopy = {
                         showActions = false
                         clipboard.setText(AnnotatedString(m.text))
@@ -630,6 +734,45 @@ private fun MessageBubble(
 }
 
 /**
+ * The row of names the `@` picker offers, above the composer.
+ *
+ * A horizontal strip rather than a dropdown: it must not cover the
+ * message being replied to, and on a 384dp phone with the keyboard up
+ * there is no room above the composer for a list anyway.
+ *
+ * The names are unauthenticated channel display text (§12) — inserting
+ * one writes a string into a message and addresses nobody in
+ * particular. That is the whole convention, and the UI must not dress
+ * it up as picking a recipient.
+ */
+@Composable
+private fun MentionPicker(names: List<String>, onPick: (String) -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = 8.dp, vertical = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        for (name in names) {
+            Text(
+                name,
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(MaterialTheme.colorScheme.secondaryContainer)
+                    .clickable { onPick(name) }
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
+            )
+        }
+    }
+}
+
+/**
  * Inline action bar for a message: quick reactions on top, text actions
  * below. A popup anchored on the bubble rather than a modal dialog —
  * reacting should be one tap, not read-dialog-then-tap.
@@ -638,9 +781,11 @@ private fun MessageBubble(
 private fun MessageActionBar(
     canReact: Boolean,
     canResend: Boolean,
+    canMention: Boolean,
     onReact: (String) -> Unit,
     onMoreEmoji: () -> Unit,
     onReply: () -> Unit,
+    onMention: () -> Unit,
     onCopy: () -> Unit,
     onInfo: () -> Unit,
     onDelete: () -> Unit,
@@ -687,6 +832,15 @@ private fun MessageActionBar(
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 ActionLabel("Reply", onReply)
+                // Separate from Reply on purpose. Reply quotes the text
+                // being answered, which costs those bytes out of a
+                // ~150-byte frame; Mention costs the name and nothing
+                // else. The official app folds them together by seeding
+                // a mention on reply — here that would silently double
+                // the cost of the commonest action on the tightest
+                // budget in the app, so both are offered and neither is
+                // implied.
+                if (canMention) ActionLabel("Mention", onMention)
                 ActionLabel("Copy", onCopy)
                 ActionLabel("Info", onInfo)
                 if (canResend) ActionLabel("Resend", onResend)
@@ -735,22 +889,29 @@ private fun QuoteBlock(quoted: String) {
     }
 }
 
-/** Message body with tappable links (plain [Text] when there are none). */
+/**
+ * Message body with tappable links and styled `@[Name]` mentions
+ * (plain [Text] when it holds neither).
+ */
 @Composable
 private fun MessageText(
     text: String,
+    selfName: String?,
     onHttpLink: (String) -> Unit,
     onMeshcoreLink: (String) -> Unit,
 ) {
-    if (!MessageLinks.hasLinks(text)) {
+    if (!MessageLinks.hasMarkup(text)) {
         Text(text, style = MaterialTheme.typography.bodyMedium)
         return
     }
     val linkColor = MaterialTheme.colorScheme.primary
-    val annotated = remember(text, linkColor) {
+    val mentionColor = MaterialTheme.colorScheme.primary
+    val annotated = remember(text, linkColor, mentionColor, selfName) {
         MessageLinks.annotate(
             text = text,
             linkColor = linkColor,
+            mentionColor = mentionColor,
+            selfName = selfName,
             onHttpLink = onHttpLink,
             onMeshcoreLink = onMeshcoreLink,
         )
