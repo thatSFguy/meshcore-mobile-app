@@ -39,6 +39,14 @@ feature rather than a footnote to it.
   app reads both conventions on the air and sends the one this mesh mostly runs; an unmatched
   reaction renders as "reacted to an earlier message" rather than as raw wire text. Formats and the
   reasoning: [`MESHCORE_PROTOCOL.md` §14](MESHCORE_PROTOCOL.md).
+- **Mentions.** Typing `@` offers the names it knows — on a channel, whoever has posted there; in
+  a direct message, the one person who will read it — and picking one writes `@[Name]`, the form
+  the official app uses. A message tagging you is tinted and outlined in the thread. Like
+  reactions this is a client convention rather than a protocol feature, and a mention carries a
+  *name* and no key: it addresses nobody in particular, anyone can be tagged as anyone, and that
+  is why a mention is styled but never tappable. "Mention" is its own action rather than being
+  folded into Reply, because Reply quotes the text and spends those bytes out of a ~150-byte
+  frame.
 - Mark-unread, per-thread mute, quoting, automatic link detection.
 - **Arrived via** — the route a received message actually travelled, in travel order, drawn on a
   map. A channel message's route is exact; a direct message's is correlated, and is claimed only

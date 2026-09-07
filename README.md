@@ -1,43 +1,71 @@
-# MeshCore Hardened (MCH)
+# MeshCore Hardened (MCH) — private off-grid LoRa messaging for Android
 
-*A hardened, self-contained [MeshCore](https://meshcore.co.uk/) client for Android — off-grid
-encrypted messaging over LoRa, with no servers, no accounts, and no app-store lock-in.*
+*An independent, open-source [MeshCore](https://meshcore.co.uk/) client for Android. Text people
+over LoRa radio with no cell service, no internet, no accounts and no servers — on a phone that
+does not need Google Play Services.*
 
 [![Latest release](https://img.shields.io/github/v/release/thatSFguy/meshcore-mobile-app?label=latest&sort=semver&color=blue)](https://github.com/thatSFguy/meshcore-mobile-app/releases/latest)
 [![Android CI](https://github.com/thatSFguy/meshcore-mobile-app/actions/workflows/android-ci.yml/badge.svg)](https://github.com/thatSFguy/meshcore-mobile-app/actions/workflows/android-ci.yml)
 [![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0--only-blue.svg)](LICENSE)
 
-## Why you might want this
+Pair the app with a MeshCore LoRa radio — Heltec, RAK, LilyGo T-Echo, Seeed and friends — over
+**Bluetooth, USB-C or TCP**, and you have an encrypted messenger that works in the backcountry,
+in a blackout, on a ridge, or anywhere the towers stop. Direct messages, group channels, a node
+map, repeater administration, and **firmware updates flashed straight from your phone**.
 
-**Two outbound connections, and you trigger both.** OpenStreetMap tiles on the Map tab, and the
-MeshCore firmware list and image from GitHub when you press the button. That is the entire list —
-no analytics, no crash reporter, no Google Play Services, no Firebase, no account, no server of
-mine anywhere. It is a promise you can check with a packet capture, which is why there is no
-crash reporter: one call home, unasked, would end it. The app runs the same on a de-Googled ROM.
+| Chats | Nodes | Map |
+|---|---|---|
+| ![MeshCore Hardened chats screen on Android](docs/screenshots/01-chats.png) | ![MeshCore node list with contacts, repeaters and rooms](docs/screenshots/02-nodes.png) | ![LoRa mesh node map with GPS positions](docs/screenshots/04-map.png) |
 
-**Your secrets are sealed and your history is encrypted.** Login passwords, channel PSKs, community
-secrets and the identity seed live in the Android Keystore (AES-GCM, key in the TEE/StrongBox); if
-the Keystore is unavailable the app declines to store them rather than quietly falling back to
-plaintext. The message database is SQLCipher-encrypted, and Auto Backup is off so none of it
-reaches a cloud backup.
+| Repeaters | Node detail | Settings |
+|---|---|---|
+| ![MeshCore repeater admin hub](docs/screenshots/03-repeaters.png) | ![Node detail sheet with position and hops](docs/screenshots/07-contact-sheet.png) | ![Settings screen](docs/screenshots/05-settings.png) |
 
-**It refuses to overstate what it knows.** Channels are labelled *obfuscated, not secure* on every
-surface, because AES-ECB with a 2-byte MAC is what the protocol mandates. A route hop is named only
-when exactly one contact matches its truncated hash, and stays `(N matches)` otherwise. A delivery
-tick comes from a real end-to-end ACK and nothing else. "Last heard" means when your radio heard
-the node, never what the node claims about itself. Where the app cannot know, it says so.
+## Why use MeshCore Hardened?
 
-**Every advert is verified before it can become a contact**, so a forged advert cannot spoof an
-identity or a GPS position, and channel sender names are never trusted for identity, contact
-mutation or echo suppression — they are attacker-controllable display text.
+**Nothing phones home. Ever.** Two outbound connections exist and you trigger both: map tiles when
+you open the Map tab, and the firmware image when you press the update button. No analytics, no
+crash reporter, no Google Play Services, no Firebase, no account, no server of mine anywhere. It
+is a promise you can check with a packet capture — which is exactly why there is no crash
+reporter. One call home, unasked, would end it. Runs identically on GrapheneOS, CalyxOS,
+LineageOS and any other de-Googled ROM.
 
-**It is a full client, not a stripped one.** Direct messages and channels with real retry, a node
-map, routing tools, repeater and room administration, and **firmware updates over Bluetooth done
-in the app** — the transfer itself, board confirmed by name, checksum checked, rather than handing
-you off to Nordic's DFU tool. Self-contained is not the same as small.
+**Your history is encrypted on the phone, not just on the air.** The message database is
+SQLCipher-encrypted. Login passwords, channel keys, community secrets and your identity seed live
+in the Android Keystore with the key in the TEE or StrongBox — and if the Keystore is unavailable
+the app refuses to store them rather than quietly writing plaintext. Android Auto Backup is off,
+so none of it is copied to anyone's cloud.
 
-**Native, and yours to build.** Kotlin Multiplatform with a foreground service for a persistent
-radio link and real system notifications — no Dart runtime, twelve mainstream Android
+**Flash your radio's firmware from your phone, over Bluetooth.** Nordic DFU spoken natively in
+the app: it picks the image for your board, confirms the board by name, checks the checksum and
+paces the transfer. No cable, no desktop, no handoff to a separate DFU tool.
+
+**See the route a message actually took.** *Arrived via* draws the real path a message travelled
+across the mesh, hop by hop, on a map. Repeaters show their **neighbour links** as coloured lines
+with the signal written on each one. A `↻` badge names which nodes were heard rebroadcasting the
+message you sent — so "the mesh moved it and nobody answered" stops looking like "it never left
+your radio".
+
+**It says "I don't know" instead of guessing.** A route hop is named only when exactly one contact
+matches its hash, and stays `(N matches)` otherwise. A delivery tick comes from a real end-to-end
+ACK and nothing else. "Last heard" means when *your radio* heard the node, never what the node
+claims. Channels are labelled *obfuscated, not secure* on every screen, because AES-ECB with a
+2-byte MAC is what the protocol mandates and pretending otherwise would be a lie about your
+privacy. Where the app cannot know something, it tells you.
+
+**Forged adverts cannot become contacts.** Every advert's Ed25519 signature is verified before a
+node is imported, mapped or even shown in the discovery inbox, so nobody can spoof an identity or
+a GPS position into your contact list. Channel sender names are treated as what they are —
+attacker-controllable display text — and never used for identity, contact changes or echo
+suppression.
+
+**It is a full client, not a cut-down one.** Direct messages and channels with real retry,
+mentions, reactions, quoting and notifications; a tile-backed node map; per-contact routing with a
+hop-by-hop path editor; repeater and room administration with a live settings editor and console;
+QR sharing; backup and retention. Self-contained is not the same as feature-poor.
+
+**Native Android, and yours to build.** Kotlin Multiplatform with a foreground service for a
+persistent radio link and real system notifications — no Dart runtime, twelve mainstream Android
 dependencies, no third-party SDKs. AGPL-3.0, built and signed by CI from a tagged commit, so what
 you install matches what the release page advertises.
 
@@ -71,6 +99,23 @@ derived from the git tag, so what you install matches what the release page adve
 
 Requires **Android 8.0 (API 26)** or newer.
 
+## Which LoRa radios does it work with?
+
+**Any radio running MeshCore companion firmware**, over **Bluetooth LE** (Nordic UART),
+**USB-C serial** (CDC-ACM / CP210x) or **TCP** to a networked base station. The app speaks the
+MeshCore companion protocol, so hardware support is whatever the firmware supports — Heltec
+(V3, T114, Mesh Solar), RAK WisBlock (4631, 3401, WisMesh Tag), LilyGo T-Echo and T-Echo Lite,
+Seeed Xiao nRF52 and Wio Tracker L1, MeshTracker X1, and the rest of the MeshCore board list.
+
+**Firmware updates over Bluetooth** are narrower: nRF52 boards on companion firmware v1.15 or
+newer, which is where Nordic legacy DFU is available. ESP32 boards still flash over USB from a
+desktop.
+
+> MeshCore and **Meshtastic** are different protocols on the same kind of hardware and **do not
+> interoperate** — a MeshCore node cannot message a Meshtastic node. Many boards can run either
+> firmware, so a radio you already own may well work here after reflashing. This app is a
+> MeshCore client only.
+
 ## Quick start
 
 1. **Grant permissions** on MCH's first launch — Bluetooth (to reach the radio) and notifications.
@@ -102,15 +147,7 @@ legal limit where the person scanning is standing, and a channel key would make 
 secret rather than something safe to pin to a noticeboard. Format:
 [`MESHCORE_PROTOCOL.md` §11](MESHCORE_PROTOCOL.md); source: [`docs/settings-qr/`](docs/settings-qr/).
 
-| Chats | Nodes | Map |
-|---|---|---|
-| ![Chats](docs/screenshots/01-chats.png) | ![Nodes](docs/screenshots/02-nodes.png) | ![Map](docs/screenshots/04-map.png) |
-
-| Repeaters | Node detail | Settings |
-|---|---|---|
-| ![Repeaters](docs/screenshots/03-repeaters.png) | ![Node detail](docs/screenshots/07-contact-sheet.png) | ![Settings](docs/screenshots/05-settings.png) |
-
-## Features
+## Features at a glance
 
 The short version; the full inventory is **[`FEATURES.md`](FEATURES.md)**.
 
@@ -118,8 +155,9 @@ The short version; the full inventory is **[`FEATURES.md`](FEATURES.md)**.
   a stern warning, and flagged for as long as it is connected. Auto-reconnect and a foreground
   service keep the radio link up.
 - **Messaging** — direct and channel messages, retry on the firmware's documented terms, delivery
-  ticks only from real ACKs, reactions in both conventions on the air, and **Arrived via**: the
-  route a message actually took, drawn on a map.
+  ticks only from real ACKs, `@[Name]` **mentions** with autocomplete and a highlight when you are
+  tagged, reactions in both conventions on the air, and **Arrived via**: the route a message
+  actually took, drawn on a map.
 - **Channels** — 16-byte PSKs, `#hashtag` derivation, community QR join. Labelled *obfuscated, not
   secure*, because AES-ECB with a 2-byte MAC is what the protocol mandates.
 - **Nodes** — Contacts / Repeaters / Rooms / Sensors plus a discovery inbox of signature-verified
@@ -180,6 +218,44 @@ whole promise is that it talks to two hosts you asked it to talk to. That is the
 it is not a claim that the feature cannot be built well: MeshCore Open queries a genuine elevation
 API for exactly this, which is a better answer than a phone-sized approximation would be. What is
 left open is listed honestly in PARITY rather than quietly dropped.
+
+## FAQ
+
+**Does it need Google Play Services?** No. There is no Play Services dependency, no Firebase and
+no Google account. It runs the same on GrapheneOS, CalyxOS, LineageOS and other de-Googled ROMs.
+
+**Is it on Google Play or F-Droid?** Neither. Install the signed APK from
+[Releases](https://github.com/thatSFguy/meshcore-mobile-app/releases/latest), or use
+[Obtainium](#via-obtainium-recommended-for-ongoing-updates) to track releases automatically.
+
+**Does it need internet or a mobile signal?** No. Messaging is entirely over your LoRa radio.
+The only two things that ever reach the internet are map tiles and firmware downloads, both
+only when you ask for them — and map tiles can be switched off, after which the map plots
+markers on a blank canvas.
+
+**Are my messages encrypted?** A direct message is encrypted to the recipient's identity key —
+by the radio's firmware, not by this app, which never sees the plaintext go out. **Group channels
+are a weaker thing entirely**: AES-ECB with a 2-byte MAC, which hides traffic from casual
+listeners but is not a privacy guarantee, and the app labels it *obfuscated, not secure*
+everywhere it appears. On the phone, message history is SQLCipher-encrypted and secrets are
+sealed in the Android Keystore.
+
+**Can it update my radio's firmware?** Yes, over Bluetooth, for nRF52 boards on companion
+firmware v1.15+. The app picks the image for your board, confirms the board by name and verifies
+the checksum before writing.
+
+**Does it work with Meshtastic?** No — different protocol. See
+[above](#which-lora-radios-does-it-work-with).
+
+**Is it a fork of the official MeshCore app?** No. It is a from-scratch native Kotlin client that
+shares nothing with it but the wire protocol.
+
+**What does "Hardened" mean here?** This build's posture — a small network and dependency
+surface, keystore-sealed secrets, encrypted local storage, verified adverts. It does **not** mean
+the MeshCore protocol's own guarantees are changed; channels are still obfuscated rather than
+secure, and the app says so.
+
+**Is there an iOS version?** Not a usable one yet — see [iOS](#ios).
 
 ## Project scope — personal app, shared in the open
 
