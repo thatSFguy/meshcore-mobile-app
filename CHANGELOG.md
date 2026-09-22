@@ -11,6 +11,42 @@ Every entry describes what is in **that tagged build**. A feature that landed af
 belongs in the next section, not this one — 0.3.0 was once credited with four features that
 shipped after it, which misled nobody so much as the author, three months later.
 
+## 0.9.3
+
+**A message sent to you once no longer arrives nine times.** Reported from the field: a contact
+4–11 hops away delivered the same direct message nine times, some copies showing different hop
+counts. Every copy was a real, separate transmission — and the reason is a chain of three
+firmware facts, none of which this app was reading correctly.
+
+- **The retries were not the sender's fault, and not a bug at their end.** A direct message is
+  retried when its ACK does not get back in time, and each attempt deliberately carries its own
+  attempt number *inside the encrypted payload* — so it hashes differently, the mesh's seen-table
+  passes it, and the receiving radio queues every copy with no duplicate check anywhere. That is
+  by design: without a distinct attempt, a retry's ACK would be identical to the first one's and
+  get swallowed. The attempt byte is then stripped before the app ever sees the frame.
+- **Which leaves de-duplication entirely to the client, and this app only did it for channels.**
+  Direct messages were stored with no dedup key at all. They now key on the sender, the sender's
+  own timestamp and the text — the three things every copy of one message shares — and the extra
+  copies are counted instead of discarded. The thread shows one message; its info sheet says
+  "Delivered 9 times" and why. A message you deliberately send twice is still two messages.
+- **A retry no longer buzzes the phone again**, and a re-sent reaction no longer counts its emoji
+  once per attempt.
+- **"Flood" and a hop count were printed the wrong way round.** On an arriving message the
+  firmware writes `0xFF` when the packet was *not* flooded — a routed packet consumes its path as
+  it travels, so it has no hop count to report — and writes a real count when it *was*. This app
+  read that byte the way it reads a contact record, where `0xFF` means the opposite. So every
+  routed message was labelled "flood", and every flooded one was reported as though it had been
+  routed. The label now says "routed" or "Flooded — 4 hops", and the two readings of that byte
+  live side by side with the firmware citation between them.
+- **This app waits longer for an ACK before retrying a distant node.** The radio's flood timeout
+  is a flat 16 airtimes no matter how far away the recipient is — about eight hops of round trip
+  with no contention — so past that distance a flooded send times out *while its ACK is still in
+  flight*, and the sender retries a message that already arrived. Sends now spend the firmware's
+  own per-hop budget on the distance we know, which is what stops this app doing to other people
+  what was done to it.
+- The ACK itself was never ours to change: the radio composes it on receipt, with no involvement
+  from the phone, so no setting here could have stopped those retries.
+
 ## 0.9.2
 
 **A node's position and "last heard" now update when it advertises, instead of waiting for the

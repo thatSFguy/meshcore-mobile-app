@@ -418,12 +418,40 @@ Validation: reject all-zero (or mostly-zero, >16/32) pubkeys and all-non-printab
 [0]      code
 (v3 only) [1..3] snr + reserved (skip 3)
 [+0..5]  sender pubkey prefix (6)
-[+6]     path_len (skip)
+[+6]     path_len        // 0xFF = ROUTED (see below); else a flooded packet's hop count
 [+7]     txt_type
 [+8..11] timestamp u32
 [+12..15] signature (4)   // only if txt_type indicates signed ((type>>2)==2 or type==2)
 text…\0
 ```
+
+> **`path_len` on an ARRIVAL means the opposite of `path_len` on a contact record.**
+> The companion firmware writes
+> `uint8_t path_len = out_frame[i++] = pkt->isRouteFlood() ? pkt->path_len : 0xFF;`
+> (`examples/companion_radio/MyMesh.cpp`, `queueMessage`). So here **0xFF means the packet
+> was NOT flooded** — it came down a stored route, which consumes its path as it travels
+> and so arrives with no hop count to report — while a real value means it **was** flooded
+> and carries the count it accumulated (packed as `((hash_width-1) << 6) | hop_count`,
+> §9). On a *contact record* the same byte means "no stored path, so packets to this node
+> flood". Same byte, opposite readings, and nothing in the frame tells you which you are
+> holding except where it came from.
+>
+> Read the wrong way round it is silent and plausible: every routed message is labelled
+> "flood" and every flooded one is reported as though it had been routed. Shipped that way
+> until 2026-09-22, when a contact 4–11 hops out delivered one message nine times and the
+> hop counts in the thread were the evidence that explained it. `PathCodec.decodeArrival`
+> is the reader for this context; `PathCodec.decodePathLen` is the reader for the other.
+
+> **Retries are not de-duplicated by the mesh, and the firmware does not de-duplicate them
+> either.** Each attempt packs its own attempt number into the encrypted payload
+> (`temp[4] = (attempt & 3)`, `BaseChatMesh::composeMsgPacket`), so the packet hash differs
+> and the seen-table passes it — deliberately, per PR #2594, so a retry can be acknowledged
+> at all. `Packet::calculatePacketHash` covers the payload type and the payload and **not
+> the path** (except for TRACE), so one flood arriving by several routes *is* collapsed, but
+> two attempts never are. The receiver then queues every copy (`onMessageRecv` →
+> `queueMessage` → `addToOfflineQueue`, no duplicate check in any of them) and the attempt
+> byte is stripped before the frame reaches the app. **A client that does not de-duplicate
+> shows one message N times.**
 
 ### Channel message (`RESP_CODE_CHANNEL_MSG_RECV` = 8 / `…_V3` = 17)
 Text body is `"<sender_name>: <message>"` — **the sender name is unauthenticated**
@@ -643,6 +671,16 @@ on reporting the same age forever. See `presentation/NeighbourLinks.kt`.
 
 **LoRa airtime / ACK timeout** — Semtech SX127x airtime formula; direct-path timeout
 `500ms + (airtime*6 + 250ms)*(hops+1)`, flood `500ms + 16*airtime`. Used to time out ACKs.
+Confirmed verbatim 2026-09-22 in `MyMesh::calcDirectTimeoutMillisFor` /
+`calcFloodTimeoutMillisFor` (`SEND_TIMEOUT_BASE_MILLIS` 500, `FLOOD_SEND_TIMEOUT_FACTOR` 16,
+`DIRECT_SEND_PERHOP_FACTOR` 6, `DIRECT_SEND_PERHOP_EXTRA_MILLIS` 250).
+⚠ **The flood timeout is distance-blind** — a flat 16 airtimes whether the recipient is one
+hop away or eleven, which is roughly eight hops of round trip with zero contention. Past
+that, a flooded send times out *while its ACK is still in flight*, and the sender retries a
+message that arrived. `AckTimeout` spends the firmware's own per-hop budget on the distance
+we know instead; the ACK itself is composed by the radio (`BaseChatMesh::onRecvTextMessage`,
+`TXT_TYPE_PLAIN` only) with no involvement from the app, so this is the only lever a client
+has over the problem.
 
 **Contact-share URIs (QR codes).** Two forms exist in the wild; a client should emit the
 first and accept both:

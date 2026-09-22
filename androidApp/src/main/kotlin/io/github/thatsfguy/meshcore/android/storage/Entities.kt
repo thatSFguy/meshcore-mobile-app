@@ -39,7 +39,13 @@ data class MessageEntity(
     val status: Int,
     /** Radio's expected-ack hash for outgoing messages. */
     val ackHash: Long?,
-    /** Dedup key (channel messages); null for DMs. */
+    /**
+     * Dedup key. Channel messages arrive twice (sync + RX log); direct
+     * messages arrive once per SENDER ATTEMPT, which is a different
+     * cause with the same remedy — see MeshCoreEngine.directContentKey.
+     *
+     * Null for CLI replies, which repeat legitimately.
+     */
     val contentKey: String?,
     val snr: Double?,
     /** txt_type — CLI replies (1) render differently in repeater admin. */
@@ -56,9 +62,18 @@ data class MessageEntity(
      */
     val reactionsJson: String? = null,
     /**
-     * Hops this message travelled. -1 (MeshCoreEngine.FLOOD_HOPS) means
-     * it flooded; null means unknown — outgoing rows, or anything
-     * received before this was recorded.
+     * Repeaters that relayed this message to us — 0 meaning we heard
+     * the sender with nothing in between.
+     *
+     * -1 (PathCodec.HOPS_ROUTED) means it came down a stored route and
+     * the radio reported no count; null means unknown — outgoing rows,
+     * or anything received before this was recorded.
+     *
+     * ⚠ Rows written before 2026-09-22 carry the same values under the
+     * opposite labels: -1 was rendered as "flood" and a hop count as
+     * though the packet had been routed. The stored numbers were always
+     * right, only the reading of them was inverted, so old rows need no
+     * back-fill — see PathCodec.decodeArrival.
      */
     val hops: Int? = null,
     /**
@@ -87,6 +102,17 @@ data class MessageEntity(
      */
     val repeatHopsHex: String? = null,
     val repeatHashWidth: Int? = null,
+    /**
+     * How many times this message was DELIVERED to us — 1 for the
+     * ordinary case.
+     *
+     * Counted rather than discarded. A sender that has to transmit the
+     * same message six times is telling us something real about the
+     * link, and silently collapsing the copies to one row would throw
+     * away the only evidence the user has of it. The thread shows one
+     * message; the info sheet says how many arrived.
+     */
+    val copies: Int = 1,
 )
 
 enum class MessageStatus { Pending, Sent, Delivered, Failed }

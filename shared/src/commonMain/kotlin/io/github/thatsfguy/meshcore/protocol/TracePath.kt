@@ -138,6 +138,64 @@ object PathCodec {
     }
 
     /**
+     * The `hops` sentinel for a message that arrived on a stored route.
+     *
+     * NOT a flood. See [decodeArrival] for why the two are easy to
+     * swap and what it costs.
+     */
+    const val HOPS_ROUTED = -1
+
+    /** How a received message reached this radio. */
+    data class ArrivalInfo(
+        /** True when the packet was flooded; false when it was routed. */
+        val flooded: Boolean,
+        /**
+         * Repeaters that relayed it — 0 meaning we heard the sender
+         * directly. Null when the radio did not report a count, which
+         * is every routed arrival.
+         */
+        val hops: Int?,
+    ) {
+        /** The value stored on a message row; see [HOPS_ROUTED]. */
+        val storedHops: Int get() = hops ?: HOPS_ROUTED
+    }
+
+    /**
+     * Decode the `path_len` byte of a RECEIVED message frame
+     * (`RESP_CODE_CONTACT_MSG_RECV` / `..._CHANNEL_MSG_RECV`).
+     *
+     * **This is the opposite of [decodePathLen], on the same byte.** The
+     * companion firmware writes:
+     *
+     * ```cpp
+     * uint8_t path_len = out_frame[i++] = pkt->isRouteFlood() ? pkt->path_len : 0xFF;
+     * ```
+     *
+     * (`examples/companion_radio/MyMesh.cpp`, `queueMessage`). So on an
+     * ARRIVAL, `0xFF` means the packet came down a stored route and the
+     * radio has no hop count to report — a flood is the case that
+     * carries one, because a flooded packet accumulates the path it
+     * travelled and a routed one consumes it.
+     *
+     * On a CONTACT RECORD the same byte means the reverse: `0xFF` is
+     * "no stored path, so packets to this node flood". [decodePathLen]
+     * is right there and wrong here. Reading a frame with it labelled
+     * every routed message "flood" and every flooded message with a
+     * bare hop count — precisely inverted, on the one screen a user
+     * consults to work out why a message took the route it did.
+     *
+     * Found 2026-09-22 while explaining why a distant contact's retries
+     * looked like they arrived four different ways.
+     */
+    fun decodeArrival(raw: Int): ArrivalInfo {
+        // readInt8 gives -1 for 0xFF; accept either spelling.
+        if (raw < 0 || (raw and 0xFF) == PATH_LEN_FLOOD) {
+            return ArrivalInfo(flooded = false, hops = null)
+        }
+        return ArrivalInfo(flooded = true, hops = decodePathLen(raw).hops)
+    }
+
+    /**
      * Largest hop count representable at [hashWidth].
      *
      * Bounded twice: the path itself must fit the record's 64-byte

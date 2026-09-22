@@ -145,7 +145,10 @@ object HeardVia {
      *
      * The wording separates "no repeaters were involved" from "we don't
      * know which repeaters were involved" — the whole point of the
-     * feature is not to imply the first when we mean the second.
+     * feature is not to imply the first when we mean the second. It
+     * also separates both from "it was routed, so nothing was counted",
+     * which is a third thing and was being printed as the word "flood"
+     * until 2026-09-22.
      */
     fun summary(hops: Int?, route: String?, hashWidth: Int): String {
         val width = hashWidth.coerceIn(1, 4)
@@ -153,19 +156,19 @@ object HeardVia {
         return when {
             routed != null -> "Arrived via ${routed.length / (width * 2)} repeater(s), " +
                 "listed in the order it travelled."
-            // FLOOD IS NOT DIRECT. path_len 0xFF decodes to -1, and
-            // folding that in with 0 put "Arrived directly — no repeater
-            // in between" directly under "Hops travelled: flood" on a
-            // real message. A flooded packet is re-broadcast by whoever
-            // hears it and the frame records no route at all, so the one
-            // thing we can be sure of is that we do NOT know.
+            // ROUTED IS NOT DIRECT, and it is not flood either. A
+            // path_len of 0xFF on an ARRIVAL means the packet came down
+            // a stored route, which consumes the path as it travels and
+            // so arrives with no count to report (PathCodec.decodeArrival).
+            // Folding that in with 0 would put "no repeater in between"
+            // under a message that may have crossed six.
             hops != null && hops < 0 ->
-                "Sent by flooding, so no route was recorded — a flooded packet is passed " +
-                    "on by whoever hears it. Which repeaters relayed this isn't known."
-            hops == 0 -> "Arrived directly — no repeater in between."
+                "Sent along a route the sender already had, so the radio recorded no hop " +
+                    "count. How many repeaters carried this isn't known."
+            hops == 0 -> "Flooded, and reached this radio directly — no repeater in between."
             hops != null && hops > 0 ->
-                "Travelled $hops hop(s), but which repeaters carried it isn't known — " +
-                    "the message frame states a hop count only."
+                "Flooded across $hops hop(s), but which repeaters carried it isn't known — " +
+                    "the message frame states a count only."
             else -> "How this arrived isn't known."
         }
     }

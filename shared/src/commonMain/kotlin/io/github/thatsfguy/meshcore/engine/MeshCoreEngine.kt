@@ -110,7 +110,11 @@ sealed class MeshEvent {
         val snr: Double?,
         /** "Name [AABBCCDD]" for a room post; null for a plain DM. */
         val roomAuthorLabel: String? = null,
-        /** Hops travelled; [FLOOD_HOPS] when flooded, null if unknown. */
+        /**
+         * Repeaters that relayed it, or [PathCodec.HOPS_ROUTED] when it
+         * came down a stored route and the radio stated no count. Null
+         * if unknown.
+         */
         val hops: Int? = null,
         /**
          * The route this arrived on, hex, in TRAVEL order — recovered by
@@ -120,6 +124,12 @@ sealed class MeshEvent {
          */
         val arrivalPathHex: String? = null,
         val arrivalHashWidth: Int? = null,
+        /**
+         * Stable dedup key — see [directContentKey]. Null for CLI
+         * replies, which repeat legitimately and must never be
+         * collapsed.
+         */
+        val contentKey: String? = null,
     ) : MeshEvent()
 
     /**
@@ -134,7 +144,7 @@ sealed class MeshEvent {
         val text: String,
         val timestamp: Long,
         val contentKey: String,
-        /** Hops travelled; [FLOOD_HOPS] when flooded, null if unknown. */
+        /** Hops travelled; [HOPS_ROUTED] when routed, null if unknown. */
         val hops: Int? = null,
         val snr: Double? = null,
         /**
@@ -596,18 +606,21 @@ class MeshCoreEngine(
                     it.publicKeyHex.startsWith(prefixHex)
                 }
                 val resolved = matches.singleOrNull()
-                val hops = PathCodec.decodePathLen(event.pathLen).hops
+                // path_len on an ARRIVAL is not path_len on a contact
+                // record — 0xFF here means the packet came down a
+                // stored route, and a hop count means it flooded. See
+                // PathCodec.decodeArrival.
+                val how = PathCodec.decodeArrival(event.pathLen)
+                val hops = how.storedHops
                 // Which raw packet carried this? Only answered when
                 // exactly one fits — see HeardVia. The packet is then
                 // consumed so a second message can't claim it too.
-                // A FLOODED message reports path_len 0xFF — decoded to
-                // -1, meaning "no route recorded", NOT "zero hops". Pass
-                // it as unknown rather than as a hop count no packet can
-                // ever equal: a flood is exactly the case where the route
-                // is most worth recovering, and matching on -1 made it
-                // the one case we could never recover.
+                // A routed arrival states no hop count, so it is passed
+                // as unknown rather than as a number no packet can ever
+                // equal; a flooded one states a real count and that is
+                // the field both sides assert independently.
                 val arrival =
-                    HeardVia.match(pendingArrivals, prefixHex, hops.takeIf { it >= 0 }, nowMillis())
+                    HeardVia.match(pendingArrivals, prefixHex, how.hops, nowMillis())
                 if (arrival != null) pendingArrivals = pendingArrivals - arrival
                 emitMeshEvent(
                     MeshEvent.DirectMessageReceived(
@@ -621,6 +634,12 @@ class MeshCoreEngine(
                         hops = hops,
                         arrivalPathHex = arrival?.pathHex,
                         arrivalHashWidth = arrival?.hashWidth,
+                        contentKey = directContentKey(
+                            senderPrefixHex = prefixHex,
+                            timestamp = event.timestamp,
+                            txtType = event.txtType,
+                            text = event.text,
+                        ),
                     ),
                 )
             }
@@ -633,7 +652,7 @@ class MeshCoreEngine(
                     hops = if (event.pathHashWidth != null) {
                         event.pathLen
                     } else {
-                        PathCodec.decodePathLen(event.pathLen).hops
+                        PathCodec.decodeArrival(event.pathLen).storedHops
                     },
                 )
             }
@@ -673,6 +692,64 @@ class MeshCoreEngine(
             it[3] = ((timestamp shr 16) and 0xFF).toByte()
             it[4] = ((timestamp shr 24) and 0xFF).toByte()
         } + "$senderName: $text".encodeToByteArray()
+        return crypto.sha256(keyInput).copyOfRange(0, 8).toHex()
+    }
+
+    /**
+     * Dedup key for a direct message — what makes a sender's retries
+     * one message instead of four.
+     *
+     * A DM retry is a deliberately DISTINCT packet. Each attempt carries
+     * its own attempt number in the encrypted payload
+     * (`temp[4] = (attempt & 3)`, `BaseChatMesh::composeMsgPacket`), so
+     * the packet hash differs and the mesh's seen-table does not drop
+     * it — that is the whole point of firmware PR #2594, which widened
+     * the over-the-air ACK so a retry could be acknowledged at all. The
+     * receiving firmware then queues every copy: `onMessageRecv` →
+     * `queueMessage` → `addToOfflineQueue`, with no duplicate check on
+     * any of the three. And the attempt byte is unpacked and discarded
+     * before the frame reaches us, so the app cannot even see which
+     * copy it is holding.
+     *
+     * Which leaves dedup entirely to the client. Three fields are what
+     * every copy of one message shares:
+     *
+     *  - the SENDER's timestamp, not our arrival time. It is fixed when
+     *    the message is composed and cannot change between attempts:
+     *    the firmware's ACK hash is computed over the timestamp, the
+     *    text and the sender's public key, so a client that re-stamped
+     *    a retry would emit an ACK its own radio could not match.
+     *  - the text.
+     *  - the sender.
+     *
+     * A person who types the same word twice inside one second and
+     * sends it twice loses the second copy. That is the whole cost, it
+     * is the same trade [channelContentKey] already makes, and it is
+     * worth far less than the nine rows one distant contact produced on
+     * 2026-09-22.
+     *
+     * Every field is fixed-width or last, so no two different messages
+     * can hash the same input, and the leading tag keeps this from ever
+     * colliding with a channel key in the unique index they share.
+     */
+    fun directContentKey(
+        senderPrefixHex: String,
+        timestamp: Long,
+        txtType: Int,
+        text: String,
+    ): String? {
+        // A CLI reply is console output. Two identical `get freq`
+        // answers in one second are two answers, and collapsing them
+        // would silently eat a line of the console.
+        if (txtType == Codes.TXT_TYPE_CLI_DATA) return null
+        val prefix = senderPrefixHex.lowercase().take(12).padEnd(12, ' ')
+        val keyInput = "dm".encodeToByteArray() + ByteArray(5).also {
+            it[0] = (timestamp and 0xFF).toByte()
+            it[1] = ((timestamp shr 8) and 0xFF).toByte()
+            it[2] = ((timestamp shr 16) and 0xFF).toByte()
+            it[3] = ((timestamp shr 24) and 0xFF).toByte()
+            it[4] = txtType.toByte()
+        } + prefix.encodeToByteArray() + text.encodeToByteArray()
         return crypto.sha256(keyInput).copyOfRange(0, 8).toHex()
     }
 
@@ -2242,8 +2319,13 @@ class MeshCoreEngine(
     }
 
     companion object {
-        /** Sentinel hop count for a flooded (pathless) message. */
-        const val FLOOD_HOPS = -1
+        /**
+         * Sentinel hop count for a message that arrived on a stored
+         * route. Lives in [PathCodec] now, next to the decode that
+         * produces it; kept here because it is part of this class's
+         * published event shape.
+         */
+        const val HOPS_ROUTED = PathCodec.HOPS_ROUTED
 
         /**
          * `PUSH_CODE_LOGIN_SUCCESS[1]` value meaning an ADMIN session.

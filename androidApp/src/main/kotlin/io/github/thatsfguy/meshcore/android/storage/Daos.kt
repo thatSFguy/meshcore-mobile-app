@@ -148,6 +148,51 @@ interface MessageDao {
     ): Int
 
     /**
+     * Record one more delivery of a message we already hold.
+     *
+     * `outgoing = 0` because a content key is shared with our own
+     * outbox on the channel path — an echo of something WE sent is a
+     * repeat, not a copy delivered to us, and the two are counted in
+     * different columns (see MessageRepeats).
+     */
+    @Query(
+        "UPDATE messages SET copies = copies + 1 WHERE selfKey = :selfKey " +
+            "AND contentKey = :contentKey AND outgoing = 0",
+    )
+    suspend fun countAnotherCopy(selfKey: String, contentKey: String): Int
+
+    /**
+     * Fill in a hop count we did not have.
+     *
+     * The copies of one message do not all arrive the same way: a
+     * sender's first attempts go down its stored route, which states no
+     * hop count, and its last floods, which does. When a later copy
+     * carries the count the first could not, take it — `hops IS NULL OR
+     * hops < 0` keeps a real count from ever being overwritten by a
+     * second routed arrival.
+     */
+    @Query(
+        "UPDATE messages SET hops = :hops WHERE selfKey = :selfKey AND contentKey = :contentKey " +
+            "AND outgoing = 0 AND (hops IS NULL OR hops < 0)",
+    )
+    suspend fun fillHops(selfKey: String, contentKey: String, hops: Int): Int
+
+    /**
+     * How far away a contact's messages actually come from, in hops.
+     *
+     * The most recent inbound message that stated a count. Routed
+     * arrivals (-1) state none and are excluded rather than read as
+     * zero — treating "not reported" as "next door" is what would make
+     * this shorten a timeout instead of lengthening it.
+     */
+    @Query(
+        "SELECT hops FROM messages WHERE selfKey = :selfKey AND kind = 'dm' " +
+            "AND peerKey = :peerKey AND outgoing = 0 AND hops IS NOT NULL AND hops >= 0 " +
+            "ORDER BY receivedAt DESC LIMIT 1",
+    )
+    suspend fun lastHeardHops(selfKey: String, peerKey: String): Int?
+
+    /**
      * The outgoing row a channel echo belongs to, if that echo is of
      * something WE sent.
      *

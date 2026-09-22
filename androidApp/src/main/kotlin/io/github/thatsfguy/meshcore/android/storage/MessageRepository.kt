@@ -16,6 +16,7 @@ import io.github.thatsfguy.meshcore.protocol.ReactionNotice
 import io.github.thatsfguy.meshcore.protocol.MeshCoreOneReactions
 import io.github.thatsfguy.meshcore.protocol.Reactions
 import io.github.thatsfguy.meshcore.protocol.Retention
+import io.github.thatsfguy.meshcore.protocol.AckTimeout
 import io.github.thatsfguy.meshcore.protocol.SendRetry
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
@@ -233,7 +234,17 @@ class MessageRepository(
                 // reaches us; attach it to its target instead of letting
                 // "r:1a2b:00" land in the thread as a line of text.
                 if (event.txtType != 1) {
-                    when (val r = applyReaction(self, KIND_DM, peer, storedText, null)) {
+                    // The key matters here as much as on the insert: a
+                    // reaction never becomes a message row, so the unique
+                    // index cannot dedup it, and a retried "👍" would
+                    // otherwise be counted once per attempt (see
+                    // ReactionRouting.SeenKeys, which takes a null key as
+                    // "never seen").
+                    when (
+                        val r = applyReaction(
+                            self, KIND_DM, peer, storedText, null, event.contentKey,
+                        )
+                    ) {
                         is ReactionOutcome.Applied -> {
                             if (Inbox.shouldBumpUnread(activeThread, KIND_DM, peer)) {
                                 db.contacts().bumpUnread(self, peer, System.currentTimeMillis())
@@ -245,7 +256,7 @@ class MessageRepository(
                         ReactionOutcome.NotAReaction -> Unit
                     }
                 }
-                db.messages().insert(
+                val inserted = db.messages().insert(
                     MessageEntity(
                         selfKey = self,
                         kind = KIND_DM,
@@ -259,7 +270,7 @@ class MessageRepository(
                         outgoing = false,
                         status = MessageStatus.Delivered.ordinal,
                         ackHash = null,
-                        contentKey = null,
+                        contentKey = event.contentKey,
                         snr = event.snr,
                         txtType = event.txtType,
                         hops = event.hops,
@@ -267,12 +278,41 @@ class MessageRepository(
                         arrivalHashWidth = event.arrivalHashWidth,
                     ),
                 )
-                if (Inbox.shouldBumpUnread(activeThread, KIND_DM, peer)) {
-                    db.contacts().bumpUnread(self, peer, System.currentTimeMillis())
-                    // CLI replies are console output, not messages.
-                    if (event.txtType != 1) {
-                        onNewMessage?.invoke(KIND_DM, peer, event.roomAuthorLabel, event.text)
+                // insert == -1 → the unique (selfKey, contentKey) index
+                // bounced it: another attempt at a message we already
+                // hold. Not a no-op — record that it arrived again, and
+                // take whatever this copy knows that the first did not.
+                // The copies took different routes (a sender's early
+                // attempts are routed, its last floods), so the later
+                // one can carry the hop count and the RX-log route the
+                // first could never have had.
+                val key = event.contentKey
+                if (inserted == -1L && key != null) {
+                    db.messages().countAnotherCopy(self, key)
+                    event.hops?.takeIf { it >= 0 }?.let { db.messages().fillHops(self, key, it) }
+                    val path = event.arrivalPathHex
+                    val width = event.arrivalHashWidth
+                    if (path != null && width != null) {
+                        db.messages().fillArrivalPath(self, key, path, width)
                     }
+                }
+                // A retry must not buzz the phone a second time, and a
+                // message the user is already looking at must not buzz
+                // at all.
+                if (Inbox.shouldNotify(
+                        activeThread, KIND_DM, peer,
+                        isDuplicate = inserted == -1L,
+                        isCliReply = event.txtType == 1,
+                    )
+                ) {
+                    db.contacts().bumpUnread(self, peer, System.currentTimeMillis())
+                    onNewMessage?.invoke(KIND_DM, peer, event.roomAuthorLabel, event.text)
+                } else if (inserted != -1L &&
+                    Inbox.shouldBumpUnread(activeThread, KIND_DM, peer)
+                ) {
+                    // A CLI reply still counts as unread — the console
+                    // has something new in it — it just never interrupts.
+                    db.contacts().bumpUnread(self, peer, System.currentTimeMillis())
                 }
             }
 
@@ -709,11 +749,10 @@ class MessageRepository(
     /**
      * Send a direct message with automatic retry — LoRa loses first
      * attempts routinely, so a single failed ACK is not a failed
-     * message. Each attempt carries an incrementing `attempt` byte (the
-     * receiving radio dedups on it), waits the radio's own suggested
-     * ACK timeout, and backs off before retrying. Path success/failure
-     * is scored per attempt so the routing sheet learns which routes
-     * actually work.
+     * message. Each attempt carries an incrementing `attempt` byte,
+     * waits for an ACK, and backs off before retrying. Path
+     * success/failure is scored per attempt so the routing sheet learns
+     * which routes actually work.
      *
      * The **last** attempt resets the contact's path and floods, which
      * is MeshCore's documented default — see [SendRetry] for the FAQ
@@ -721,10 +760,22 @@ class MessageRepository(
      * down the same stored path, so a repeater that had gone away cost
      * three transmissions and taught the radio nothing.
      *
-     * That the attempt byte differs per attempt matters more than it
-     * looks: the firmware's ACK carries a copy of it (PR #2594, merged
-     * 2026-05-21) specifically so a retry's ACK is a distinct packet and
-     * is not dropped as a duplicate by the mesh's seen-table.
+     * **The attempt byte does the OPPOSITE of de-duplicating.** This
+     * said "the receiving radio dedups on it" until 2026-09-22, which is
+     * backwards and was worth an hour of confusion: the byte goes into
+     * the encrypted payload, so each attempt hashes differently and the
+     * mesh's seen-table lets every one of them through — deliberately,
+     * per PR #2594, because otherwise a retry's ACK would be identical
+     * to the first attempt's and get swallowed. The receiving firmware
+     * then queues every copy with no duplicate check of its own. So a
+     * retry ladder puts N copies on the recipient's phone unless their
+     * client collapses them, which is what [MeshCoreEngine.directContentKey]
+     * does at this end.
+     *
+     * Which makes the wait the thing that matters most here: every
+     * attempt past the first costs somebody else a duplicate. See
+     * [AckTimeout] for why the radio's own flood timeout is too short
+     * for a distant contact, and what is done about it.
      */
     suspend fun sendDirectWithRetry(
         engine: MeshCoreEngine,
@@ -746,6 +797,17 @@ class MessageRepository(
         } else {
             ""
         }
+
+        // How far away this contact is, for the ACK wait. The radio's
+        // flood timeout is a flat multiple of airtime and knows nothing
+        // about distance, so on a node several hops out every flooded
+        // attempt times out before an ACK could possibly return — see
+        // AckTimeout. Read once, before the last attempt resets the
+        // path and takes the stored-route half of the answer with it.
+        val knownHops = AckTimeout.estimateHops(
+            storedPathHops = contact?.pathInfo?.takeIf { !it.isFlood }?.hops,
+            lastHeardHops = db.messages().lastHeardHops(self, peerKeyHex),
+        )
 
         // ONE collector for the whole send, not one wait per attempt.
         //
@@ -805,8 +867,9 @@ class MessageRepository(
                     db.messages().updateResult(rowId, MessageStatus.Sent.ordinal, sent.ackHash)
                     db.messages().setAttempts(rowId, attempt + 1)
 
-                    // Trust the radio's own airtime-derived timeout, with a floor.
-                    val timeout = sent.timeoutMs.coerceIn(3_000L, 60_000L)
+                    // Trust the radio's own airtime-derived timeout —
+                    // and add the distance it left out of a flood.
+                    val timeout = AckTimeout.waitFor(sent.timeoutMs, sent.isFlood, knownHops)
                     val scores = SendRetry.scoresStoredPath(route)
                     if (awaitAnyAck(timeout)) {
                         db.messages()

@@ -330,11 +330,16 @@ object ResponseParser {
             r.skipBytes(1) // reserved
             channelIdx = r.readByte()
             val pathByte = r.readByte()
-            // Top 2 bits = hash-width mode, low 6 bits = hop count.
-            pathHashWidth = ((pathByte and 0xC0) shr 6) + 1
-            val hopCount = pathByte and 0x3F
-            pathLen = hopCount
-            if (hasPath && hopCount > 0) {
+            // Top 2 bits = hash-width mode, low 6 bits = hop count —
+            // but ONLY on a flooded arrival. 0xFF means the packet came
+            // down a stored route, and reading it as a width and a
+            // count yields "63 hops at 4 bytes" and an attempt to read
+            // 252 bytes of path that is not there. See decodeArrival.
+            val arrival = PathCodec.decodeArrival(pathByte)
+            val hopCount = arrival.hops ?: 0
+            pathHashWidth = if (arrival.flooded) ((pathByte and 0xC0) shr 6) + 1 else null
+            pathLen = arrival.storedHops
+            if (hasPath && hopCount > 0 && pathHashWidth != null) {
                 pathBytes = r.readBytes(hopCount * pathHashWidth)
             }
             txtType = r.readByte()

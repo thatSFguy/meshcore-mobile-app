@@ -182,25 +182,45 @@ class HeardViaTest {
     }
 
     @Test
-    fun floodIsNotDirect() {
+    fun aRoutedArrivalIsNeitherDirectNorFlooded() {
         // Caught on a real message: the sheet showed "Hops travelled:
         // flood" and, one line below, "Arrived directly — no repeater in
-        // between". path_len 0xFF decodes to -1, and folding -1 in with 0
-        // asserted the opposite of what was known.
-        val flood = HeardVia.summary(PathCodec.decodePathLen(0xFF).hops, null, 2)
-        assertFalse(flood.contains("directly"))
-        assertTrue(flood.contains("flooding"))
-        assertTrue(flood.contains("isn't known"))
+        // between". Folding -1 in with 0 asserted the opposite of what
+        // was known, and that half was fixed in August.
+        //
+        // The OTHER half of the same line survived until 2026-09-22, and
+        // this test was holding it in place: it asserted the word
+        // "flooding" for -1, having been written against decodePathLen —
+        // our reading of a CONTACT RECORD — rather than against the
+        // firmware's writer. On an arrival `MyMesh::queueMessage` writes
+        // `pkt->isRouteFlood() ? pkt->path_len : 0xFF`, so -1 is the case
+        // that did NOT flood. Same shape as the trace flags and the
+        // neighbours request: a value read from our own code instead of
+        // the firmware's.
+        val routed = HeardVia.summary(PathCodec.decodeArrival(0xFF).storedHops, null, 2)
+        assertFalse(routed.contains("directly"))
+        assertFalse(routed.contains("Flooded"), "0xFF on an arrival means it was NOT flooded")
+        assertTrue(routed.contains("isn't known"))
         // And the two really are different answers, not two spellings.
-        assertNotEquals(HeardVia.summary(0, null, 2), flood)
+        assertNotEquals(HeardVia.summary(0, null, 2), routed)
+    }
+
+    @Test
+    fun aFloodedArrivalIsTheOneThatStatesACount() {
+        // The positive control for the pair: a real path_len means the
+        // packet flooded and accumulated the hops it names.
+        val flooded = HeardVia.summary(PathCodec.decodeArrival(0x44).storedHops, null, 2)
+        assertTrue(flooded.contains("Flooded"))
+        assertTrue(flooded.contains("4 hop"))
     }
 
     @Test
     fun aFloodedMessageCanStillRecoverItsRouteFromAUniquePacket() {
-        // A flood states no hop count, so there is nothing to cross-check
-        // against — but sender + time + uniqueness still stands, and a
-        // flood is exactly the case where "what carried this" is worth
-        // knowing. Passing -1 as a hop count matched nothing, ever.
+        // A ROUTED arrival states no hop count, so there is nothing to
+        // cross-check against — but sender + time + uniqueness still
+        // stands, and that is exactly the case where "what carried this"
+        // is worth knowing. Passing -1 as a hop count matched nothing,
+        // ever.
         val m = HeardVia.match(listOf(arrival(hops = 2)), "b389548d314a", null, now + 500)
         assertNotNull(m)
         assertEquals("b389c985", m.pathHex)

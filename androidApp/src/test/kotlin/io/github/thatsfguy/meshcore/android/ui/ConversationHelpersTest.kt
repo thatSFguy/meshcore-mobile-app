@@ -3,11 +3,15 @@ package io.github.thatsfguy.meshcore.android.ui
 import io.github.thatsfguy.meshcore.android.storage.MessageEntity
 import io.github.thatsfguy.meshcore.android.storage.MessageRepository
 import io.github.thatsfguy.meshcore.android.ui.screens.formatDrift
+import io.github.thatsfguy.meshcore.android.ui.screens.arrivalLabel
+import io.github.thatsfguy.meshcore.android.ui.screens.copiesLabel
 import io.github.thatsfguy.meshcore.android.ui.screens.hopsLabel
 import io.github.thatsfguy.meshcore.android.ui.screens.quotePrefixFor
 import io.github.thatsfguy.meshcore.android.ui.screens.splitQuote
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -41,7 +45,52 @@ class ConversationHelpersTest {
         assertEquals("direct", hopsLabel(0))
         assertEquals("1 hop", hopsLabel(1))
         assertEquals("4 hops", hopsLabel(4))
-        assertEquals("flood", hopsLabel(-1))
+    }
+
+    @Test
+    fun `a negative hop count is a ROUTED arrival, not a flooded one`() {
+        // This test asserted "flood" until 2026-09-22 — it pinned the
+        // defect as correct, which is the shape CLAUDE.md warns about:
+        // written against our own reading of the byte instead of the
+        // firmware's writer. `MyMesh::queueMessage` writes
+        // `pkt->isRouteFlood() ? pkt->path_len : 0xFF`, so 0xFF (-1) is
+        // the case that did NOT flood, and a count is the case that did.
+        assertEquals("routed", hopsLabel(-1))
+        assertNotEquals("flood", hopsLabel(-1))
+    }
+
+    @Test
+    fun `the info sheet says which of the two ways it came`() {
+        assertTrue(arrivalLabel(-1)!!.startsWith("Routed"))
+        assertTrue(arrivalLabel(0)!!.startsWith("Flooded"))
+        assertTrue(arrivalLabel(6)!!.startsWith("Flooded"))
+        assertTrue(arrivalLabel(6)!!.contains("6 hops"))
+        assertNull(arrivalLabel(null))
+    }
+
+    @Test
+    fun `a routed arrival never claims a hop count`() {
+        // "Routed" means the radio reported none. A label implying zero
+        // would read as "they are next door" for a node six hops away.
+        val label = arrivalLabel(-1)!!
+        assertFalse(label.contains("0"))
+        assertTrue(label.contains("no hop count"))
+    }
+
+    // ---- copies ----------------------------------------------------------
+
+    @Test
+    fun `one delivery says nothing at all`() {
+        // The ordinary case must not grow a line. A "Delivered 1 times"
+        // row on every message would be noise on every message.
+        assertNull(copiesLabel(1))
+        assertNull(copiesLabel(0))
+    }
+
+    @Test
+    fun `more than one delivery is counted out loud`() {
+        assertEquals("Delivered 2 times", copiesLabel(2))
+        assertEquals("Delivered 9 times", copiesLabel(9))
     }
 
     @Test

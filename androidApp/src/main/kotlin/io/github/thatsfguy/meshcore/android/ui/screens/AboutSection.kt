@@ -90,6 +90,31 @@ fun AboutSection(vm: MeshCoreViewModel) {
  * is a changelog you can't read in the field.
  */
 private val CHANGELOG: List<Pair<String, List<String>>> = listOf(
+    "0.9.3" to listOf(
+        "A message sent to you once no longer arrives nine times. A contact 4-11 hops away " +
+            "delivered the same direct message nine times, some copies showing different hop " +
+            "counts. Every copy was a real, separate transmission.",
+        "A direct message is retried when its ACK does not get back in time, and each attempt " +
+            "carries its own attempt number inside the encrypted payload — so it hashes " +
+            "differently, the mesh passes it, and the receiving radio queues every copy with " +
+            "no duplicate check anywhere. That is by design, and it leaves de-duplication " +
+            "entirely to the app.",
+        "Direct messages were stored with no dedup key at all. They now key on the sender, the " +
+            "sender's own timestamp and the text, and the extra copies are counted rather than " +
+            "discarded: the thread shows one message and its info sheet says how many arrived. " +
+            "A message you deliberately send twice is still two messages.",
+        "A retry no longer buzzes the phone again, and a re-sent reaction no longer counts its " +
+            "emoji once per attempt.",
+        "\"Flood\" and a hop count were printed the wrong way round. On an arriving message the " +
+            "firmware reports no hop count when the packet was NOT flooded, and a real count " +
+            "when it was. Messages now read \"routed\" or \"Flooded — 4 hops\".",
+        "This app waits longer for an ACK before retrying a distant node. The radio's flood " +
+            "timeout is the same whether the recipient is one hop away or eleven, so past that " +
+            "distance a send times out while its ACK is still in flight — and the retry is a " +
+            "duplicate on somebody else's phone.",
+        "The ACK itself was never ours to change: the radio composes it on receipt, with no " +
+            "involvement from the phone.",
+    ),
     "0.9.2" to listOf(
         "A node's position and \"last heard\" now update when it advertises, instead of " +
             "waiting for the next reconnection. A repeater could show a position 31 days old " +

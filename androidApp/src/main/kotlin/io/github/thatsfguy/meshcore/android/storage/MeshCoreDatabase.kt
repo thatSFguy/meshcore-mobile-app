@@ -16,7 +16,7 @@ import java.io.File
         MessageEntity::class, ContactEntity::class, ChannelEntity::class,
         PathHistoryEntity::class, DiscoveredEntity::class, NeighbourEntity::class,
     ],
-    version = 17,
+    version = 18,
     exportSchema = true,
 )
 abstract class MeshCoreDatabase : RoomDatabase() {
@@ -293,6 +293,26 @@ abstract class MeshCoreDatabase : RoomDatabase() {
         }
 
         /**
+         * v18 adds `messages.copies` — how many times one message was
+         * delivered to us.
+         *
+         * Defaults to 1, which is the truth for every existing row in
+         * the only sense available: each is one delivery that was
+         * written down. The retries that preceded this migration were
+         * written down as separate rows and stay that way; back-filling
+         * a count onto them would mean guessing which of them were the
+         * same message, which is exactly the judgement the dedup key
+         * now makes at arrival time and cannot make in hindsight.
+         */
+        private val MIGRATION_17_18 = object : Migration(17, 18) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE `messages` ADD COLUMN `copies` INTEGER NOT NULL DEFAULT 1",
+                )
+            }
+        }
+
+        /**
          * Open the database, encrypted with [passphrase] when one is
          * available (see [DatabaseKey]). A pre-existing PLAINTEXT
          * database is converted in place first, so turning encryption on
@@ -339,6 +359,7 @@ abstract class MeshCoreDatabase : RoomDatabase() {
                         MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8,
                         MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14,
                         MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17,
+                        MIGRATION_17_18,
                     )
 
             if (key == null) {

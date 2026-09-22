@@ -1037,11 +1037,23 @@ private fun MessageInfoSheet(
                 m.ackHash?.let { InfoRow("Ack hash", "%08x".format(it), mono = true) }
             }
             m.snr?.let { InfoRow("SNR", "%.1f dB".format(it)) }
-            // "Hops", not "Path": this is a COUNT. The inbound message
-            // frame carries path_len only (MESHCORE_PROTOCOL §9) — the
-            // radio keeps the route to itself — so calling it "Path"
-            // implied we knew which repeaters carried it. We don't.
-            hopsLabel(m.hops)?.let { InfoRow("Hops travelled", it) }
+            // A COUNT, not a path. The inbound message frame carries
+            // path_len only (MESHCORE_PROTOCOL §9) — the radio keeps the
+            // route to itself — so calling it "Path" implied we knew
+            // which repeaters carried it. We don't. And on a routed
+            // arrival there is not even a count: see arrivalLabel.
+            arrivalLabel(m.hops)?.let { InfoRow("Arrival", it) }
+            copiesLabel(m.copies)?.let {
+                InfoRow("Copies", it)
+                Text(
+                    "The sender re-sent this. A direct message is retried when its ACK does " +
+                        "not get back in time, and each attempt is a separate packet the mesh " +
+                        "will not de-duplicate — so the copies are counted here and shown once " +
+                        "in the thread.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             if (!m.outgoing) {
                 MessagePathMap(vm, m, senderLabel)
                 ArrivalRoute(m, contactNames, metresAway)
@@ -1195,16 +1207,45 @@ private fun InfoRow(label: String, value: String, mono: Boolean = false) {
 
 
 /**
- * "3 hops" / "direct" / "flood" — null when the message predates hop
+ * "3 hops" / "direct" / "routed" — null when the message predates hop
  * recording or we sent it ourselves.
+ *
+ * "routed" is the negative-hops case and it used to read "flood",
+ * which was exactly backwards: on an arrival the firmware writes 0xFF
+ * when the packet was NOT flooded, and a real count when it was (see
+ * PathCodec.decodeArrival). A count here therefore means the message
+ * flooded — so the word "flood" belonged to every row that does not
+ * show one.
  */
 internal fun hopsLabel(hops: Int?): String? = when {
     hops == null -> null
-    hops < 0 -> "flood"
+    hops < 0 -> "routed"
     hops == 0 -> "direct"
     hops == 1 -> "1 hop"
     else -> "$hops hops"
 }
+
+/**
+ * The same fact spelled out for the info sheet, where there is room to
+ * say which of the two ways it came and what that implies.
+ */
+internal fun arrivalLabel(hops: Int?): String? = when {
+    hops == null -> null
+    hops < 0 -> "Routed — the sender had a path, so no hop count was recorded"
+    hops == 0 -> "Flooded — heard directly, no repeater in between"
+    hops == 1 -> "Flooded — 1 hop"
+    else -> "Flooded — $hops hops"
+}
+
+/**
+ * "Delivered 6 times" — null for the ordinary single delivery.
+ *
+ * Says DELIVERED, not "received" or "sent": each copy is one the radio
+ * handed us, which is a fact about this end. How many the sender
+ * transmitted is a different number that nobody here can see.
+ */
+internal fun copiesLabel(copies: Int): String? =
+    if (copies > 1) "Delivered $copies times" else null
 
 /** Newest-N window; "Load older" grows it. */
 private const val PAGE_SIZE = 50
