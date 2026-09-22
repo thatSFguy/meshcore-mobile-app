@@ -20,6 +20,7 @@ import android.hardware.usb.UsbDevice
 import android.os.IBinder
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import io.github.thatsfguy.meshcore.presentation.UnitSystem
 import io.github.thatsfguy.meshcore.android.service.MeshCoreService
 import io.github.thatsfguy.meshcore.android.storage.ChannelEntity
 import io.github.thatsfguy.meshcore.android.storage.ContactEntity
@@ -86,9 +87,38 @@ data class ConversationRow(
 )
 
 @OptIn(ExperimentalCoroutinesApi::class)
+/**
+ * The device's country, for the default choice of units.
+ *
+ * Read off the configuration rather than `Locale.getDefault()` so it
+ * tracks the per-app locale a user may have set, and re-read on every
+ * call because it can change while the app is alive.
+ */
+private fun deviceCountry(app: Application): String? =
+    app.resources.configuration.locales
+        .takeIf { !it.isEmpty }
+        ?.get(0)
+        ?.country
+
 class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
 
     val prefs = Preferences(app)
+
+    /**
+     * Which units to render in, resolved against the device's country.
+     *
+     * Derived rather than stored: the preference keeps the word
+     * "system", and what that means is answered here, every time it is
+     * read. A user whose phone locale changes gets the new answer
+     * without having to know this setting exists.
+     */
+    val unitSystem: StateFlow<UnitSystem> = prefs.unitsFlow
+        .map { UnitSystem.resolve(it, deviceCountry(app)) }
+        .stateIn(
+            viewModelScope,
+            SharingStarted.Eagerly,
+            UnitSystem.resolve(prefs.units, deviceCountry(app)),
+        )
 
     // MeshCoreService opens the encrypted database first and the handle
     // is a singleton; resolving the key here too keeps the VM correct if
@@ -2243,7 +2273,7 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
                     IdentityKeygen.KnownNode(
                         publicKeyHex = contact.keyHex,
                         label = (contact.name.ifBlank { contact.keyHex.take(12) }) + ", " +
-                            IdentityKeygen.Remoteness.describe(distance, hops),
+                            IdentityKeygen.Remoteness.describe(distance, hops, unitSystem.value),
                         remoteness = IdentityKeygen.Remoteness.of(
                             distance, hops, isInfrastructure,
                         ),

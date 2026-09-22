@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.dp
 import io.github.thatsfguy.meshcore.android.ui.MeshCoreViewModel
 import io.github.thatsfguy.meshcore.protocol.RepeaterStatus
 import io.github.thatsfguy.meshcore.protocol.StatusCodec
+import io.github.thatsfguy.meshcore.presentation.Units
 import io.github.thatsfguy.meshcore.protocol.TelemetryReading
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -42,6 +43,7 @@ fun RepeaterStatusPanel(vm: MeshCoreViewModel, keyHex: String) {
     val scope = rememberCoroutineScope()
     var status by remember(keyHex) { mutableStateOf<RepeaterStatus?>(null) }
     var telemetry by remember(keyHex) { mutableStateOf<List<TelemetryReading>>(emptyList()) }
+    val units by vm.unitSystem.collectAsState()
     var loading by remember { mutableStateOf(false) }
     var note by remember { mutableStateOf<String?>(null) }
 
@@ -126,9 +128,12 @@ fun RepeaterStatusPanel(vm: MeshCoreViewModel, keyHex: String) {
             HorizontalDivider(Modifier.padding(vertical = 6.dp))
             Text("Telemetry", style = MaterialTheme.typography.titleSmall)
             for (t in telemetry) {
+                // Converted for display only; the reading keeps the
+                // unit the sensor encoded.
+                val (value, unit) = Units.reading(t.value, t.unit, units)
                 StatField(
                     "${t.label} (ch ${t.channel})",
-                    if (t.unit.isEmpty()) "%.2f".format(t.value) else "%.2f %s".format(t.value, t.unit),
+                    if (unit.isEmpty()) "%.2f".format(value) else "%.2f %s".format(value, unit),
                 )
             }
         }

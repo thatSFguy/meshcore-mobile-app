@@ -7,6 +7,7 @@ import io.github.thatsfguy.meshcore.protocol.Regions
 import io.github.thatsfguy.meshcore.protocol.Retention
 import io.github.thatsfguy.meshcore.transport.ConnectionMemory
 import io.github.thatsfguy.meshcore.transport.SavedNode
+import io.github.thatsfguy.meshcore.presentation.UnitSystem
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import io.github.thatsfguy.meshcore.presentation.NodeListModel
@@ -185,6 +186,28 @@ class Preferences(context: Context) {
         set(v) {
             prefs.edit().putString("theme", v).apply()
             themeFlow.value = v
+        }
+
+    /**
+     * "system" | "metric" | "imperial" — which units distances,
+     * temperatures and altitudes are shown in.
+     *
+     * Stored unresolved, so "system" keeps following the phone rather
+     * than freezing whatever the phone said the day it was first read.
+     * A user who moves, or changes their device locale, gets the new
+     * answer without touching this.
+     *
+     * [unitsFlow] mirrors it for the same reason [themeFlow] exists:
+     * the change has to reach every screen already composed, not just
+     * the next one opened.
+     */
+    val unitsFlow: MutableStateFlow<String> by lazy { MutableStateFlow(units) }
+
+    var units: String
+        get() = prefs.getString("units", UnitSystem.FOLLOW_SYSTEM)!!
+        set(v) {
+            prefs.edit().putString("units", v).apply()
+            unitsFlow.value = v
         }
 
     /**
@@ -524,7 +547,7 @@ class Preferences(context: Context) {
      */
     private val EXPORTABLE_KEYS = listOf(
         "transport_ble_enabled", "transport_usb_enabled", "transport_tcp_enabled",
-        "auto_reconnect", "theme", "diagnostics_enabled",
+        "auto_reconnect", "theme", "units", "diagnostics_enabled",
         "map_tiles_enabled", "notifications_enabled",
         "nodes_tab",
     )
@@ -580,6 +603,7 @@ class Preferences(context: Context) {
         }
         editor.apply()
         themeFlow.value = theme
+        unitsFlow.value = units
         return applied
     }
 

@@ -11,6 +11,26 @@ Every entry describes what is in **that tagged build**. A feature that landed af
 belongs in the next section, not this one — 0.3.0 was once credited with four features that
 shipped after it, which misled nobody so much as the author, three months later.
 
+## 0.9.4
+
+**Distances, temperatures and altitudes can now be shown in miles, feet and °F.** Settings →
+Appearance and alerts → Units, with three choices: System, Metric, Imperial.
+
+- **"System" means the phone's region, answered every time it is read.** The preference stores
+  the word, not the answer, so a user who travels or changes their device locale gets the new
+  units without touching this. The United States, Liberia and Myanmar get imperial; everywhere
+  else gets metric; anything unrecognised follows the device rather than picking a side.
+- **What converts:** the "Distance away" row on a node, the distance in the identity-generator's
+  node list, and the temperature and altitude in both telemetry panels.
+- **What deliberately does not:** pressure stays in hPa, and every radio figure stays put —
+  frequency in MHz, signal in dB and dBm. None of those has a US customary form a mesh operator
+  would rather read, and inHg would make a pressure reading harder to compare against the node
+  next to it than easier.
+- **Nothing is stored converted.** A reading is kept in the units the node actually sent — a
+  Cayenne temperature is tenths of a degree Celsius because the sensor encoding says so — and the
+  conversion happens as it is drawn. Switching back and forth loses nothing, and a stored record
+  never carries a preference that was true on the day it was written.
+
 ## 0.9.3
 
 **A message sent to you once no longer arrives nine times.** Reported from the field: a contact

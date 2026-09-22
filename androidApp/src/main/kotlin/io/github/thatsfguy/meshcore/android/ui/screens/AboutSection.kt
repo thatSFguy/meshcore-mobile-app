@@ -90,6 +90,20 @@ fun AboutSection(vm: MeshCoreViewModel) {
  * is a changelog you can't read in the field.
  */
 private val CHANGELOG: List<Pair<String, List<String>>> = listOf(
+    "0.9.4" to listOf(
+        "Distances, temperatures and altitudes can now be shown in miles, feet and °F. " +
+            "Settings -> Appearance and alerts -> Units, with three choices: System, Metric, " +
+            "Imperial.",
+        "\"System\" means the phone's region, answered every time it is read — so travelling " +
+            "or changing your device locale gives you the new units without touching this " +
+            "setting.",
+        "Converted: the \"Distance away\" row on a node, the distance in the identity " +
+            "generator's node list, and the temperature and altitude in both telemetry panels.",
+        "Not converted, on purpose: pressure stays in hPa, and every radio figure stays put — " +
+            "frequency in MHz, signal in dB and dBm.",
+        "Nothing is stored converted. A reading is kept in the units the node actually sent and " +
+            "converted as it is drawn, so switching back and forth loses nothing.",
+    ),
     "0.9.3" to listOf(
         "A message sent to you once no longer arrives nine times. A contact 4-11 hops away " +
             "delivered the same direct message nine times, some copies showing different hop " +

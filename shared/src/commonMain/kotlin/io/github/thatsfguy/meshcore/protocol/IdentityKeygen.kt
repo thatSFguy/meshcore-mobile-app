@@ -1,7 +1,8 @@
 package io.github.thatsfguy.meshcore.protocol
 
 import io.github.thatsfguy.meshcore.crypto.CryptoProvider
-import io.github.thatsfguy.meshcore.util.fixed
+import io.github.thatsfguy.meshcore.presentation.UnitSystem
+import io.github.thatsfguy.meshcore.presentation.Units
 import io.github.thatsfguy.meshcore.util.isHexString
 import io.github.thatsfguy.meshcore.util.toHex
 
@@ -155,12 +156,13 @@ object IdentityKeygen {
          * with a node we cannot place is the one the operator most needs
          * to go and check.
          */
-        fun describe(distanceMetres: Double?, hops: Int?): String = when {
-            distanceMetres != null && distanceMetres >= 0 -> when {
-                distanceMetres < 1_000 -> "${fixed(distanceMetres, 0)} m away"
-                distanceMetres < 100_000 -> "${fixed(distanceMetres / 1000, 1)} km away"
-                else -> "${fixed(distanceMetres / 1000, 0)} km away"
-            }
+        fun describe(
+            distanceMetres: Double?,
+            hops: Int?,
+            units: UnitSystem = UnitSystem.Metric,
+        ): String = when {
+            distanceMetres != null && distanceMetres >= 0 ->
+                "${Units.distance(distanceMetres, units)} away"
             hops != null && hops >= 0 ->
                 if (hops == 1) "1 hop away" else "$hops hops away"
             else -> "distance unknown"

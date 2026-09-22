@@ -38,6 +38,8 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import io.github.thatsfguy.meshcore.android.storage.ChannelEntity
 import io.github.thatsfguy.meshcore.android.ui.MeshCoreViewModel
+import io.github.thatsfguy.meshcore.presentation.Units
+import io.github.thatsfguy.meshcore.presentation.UnitSystem
 import io.github.thatsfguy.meshcore.engine.EngineState
 import io.github.thatsfguy.meshcore.firmware.deviceIdentityLine
 import io.github.thatsfguy.meshcore.protocol.Codes
@@ -620,6 +622,40 @@ internal fun AppearanceSection(vm: MeshCoreViewModel) {
         }
     }
     HintText("\"System\" follows the phone's light/dark setting.")
+
+    Spacer(Modifier.height(16.dp))
+    Text("Units", style = MaterialTheme.typography.labelLarge)
+    var units by remember { mutableStateOf(vm.prefs.units) }
+    val resolved by vm.unitSystem.collectAsState()
+    ButtonFlowRow {
+        for ((value, label) in listOf(
+            UnitSystem.FOLLOW_SYSTEM to "System",
+            UnitSystem.METRIC to "Metric",
+            UnitSystem.IMPERIAL to "Imperial",
+        )) {
+            OutlinedButton(
+                onClick = {
+                    units = value
+                    vm.prefs.units = value
+                },
+                enabled = units != value,
+            ) { Text(label) }
+        }
+    }
+    // Says what is in force, not just what was chosen: "System" on its
+    // own does not tell you which way it went, and that is the only
+    // thing the reader actually wants to know.
+    HintText("Showing ${Units.label(resolved)}. \"System\" follows the phone's region.")
+    ExpandableHint("Distances, temperatures and altitudes only.") {
+        Text(
+            "Radio figures never change: frequency stays in MHz, signal in dB, and " +
+                "pressure in hPa — none of those has a US customary form a mesh operator " +
+                "would rather read. What a node sent is stored as it was sent; this only " +
+                "changes how it is shown, so switching back and forth loses nothing.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
 }
 
 @Composable

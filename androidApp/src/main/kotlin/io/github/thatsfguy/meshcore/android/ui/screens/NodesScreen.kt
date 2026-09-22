@@ -65,6 +65,7 @@ import io.github.thatsfguy.meshcore.presentation.encodePrefill
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import io.github.thatsfguy.meshcore.util.RelativeTime
+import io.github.thatsfguy.meshcore.presentation.Units
 import io.github.thatsfguy.meshcore.util.haversineMetres
 import io.github.thatsfguy.meshcore.util.isPlausiblePosition
 import io.github.thatsfguy.meshcore.protocol.BlockList
@@ -554,6 +555,7 @@ fun ContactDetailSheet(
     var updateModeOpen by remember { mutableStateOf(false) }
     var updateModeNote by remember { mutableStateOf<String?>(null) }
     var updateModeBusy by remember { mutableStateOf(false) }
+    val units by vm.unitSystem.collectAsState()
     var permissionsOpen by remember { mutableStateOf(false) }
     var telemetryOpen by remember { mutableStateOf(false) }
     // Sensors run the same CLI (PARITY §7): login, settings, telemetry.
@@ -613,7 +615,10 @@ fun ContactDetailSheet(
                 val distance = if (isPlausiblePosition(selfLat, selfLon) &&
                     isPlausiblePosition(theirLat, theirLon)
                 ) {
-                    formatDistance(haversineMetres(selfLat!!, selfLon!!, theirLat!!, theirLon!!))
+                    Units.distance(
+                        haversineMetres(selfLat!!, selfLon!!, theirLat!!, theirLon!!),
+                        units,
+                    )
                 } else {
                     "Unknown"
                 }
@@ -888,12 +893,6 @@ private fun DetailRow(label: String, value: String, mono: Boolean = false) {
     }
 }
 
-private fun formatDistance(metres: Double): String = when {
-    metres < 1000 -> "%.0f m".format(metres)
-    metres < 100_000 -> "%.1f km".format(metres / 1000)
-    else -> "%.0f km".format(metres / 1000)
-}
-
 /** "9 hours ago" — wording shared with the heard-repeats list. */
 internal fun relativeAge(epochSeconds: Long): String =
     RelativeTime.ago(System.currentTimeMillis() / 1000 - epochSeconds)
@@ -917,6 +916,7 @@ private fun ContactTelemetryDialog(
     }
     var loading by remember { mutableStateOf(true) }
     var attempt by remember { mutableIntStateOf(0) }
+    val units by vm.unitSystem.collectAsState()
     LaunchedEffect(contact.keyHex, attempt) {
         loading = true
         readings = vm.repeaterTelemetry(contact.keyHex)
@@ -948,7 +948,11 @@ private fun ContactTelemetryDialog(
                                 modifier = Modifier.weight(1f),
                             )
                             Text(
-                                formatReading(r.value) + (if (r.unit.isBlank()) "" else " ${r.unit}"),
+                                // Converted here and only here: the reading
+                                // keeps the unit the sensor encoded.
+                                Units.reading(r.value, r.unit, units).let { (v, u) ->
+                                    formatReading(v) + (if (u.isBlank()) "" else " $u")
+                                },
                                 style = MaterialTheme.typography.bodySmall,
                                 fontFamily = FontFamily.Monospace,
                             )
