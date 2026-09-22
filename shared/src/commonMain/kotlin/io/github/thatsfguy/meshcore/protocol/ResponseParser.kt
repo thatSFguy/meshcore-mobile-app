@@ -103,6 +103,31 @@ object ResponseParser {
             DeviceEvent.Stats(type, r.readRemainingBytes())
         }
 
+        Codes.RESP_CODE_CHANNEL_DATA_RECV -> {
+            // [0]=code [1]=snr [2..3]=reserved [4]=channel [5]=path_len
+            // [6..7]=data_type u16 LE [8]=data_len [9..]=payload
+            val r = BufferReader(frame)
+            r.skipBytes(1)
+            val snr = r.readInt8() / 4.0
+            r.skipBytes(2) // reserved — "clients MUST ignore"
+            val channelIdx = r.readByte()
+            val arrival = PathCodec.decodeArrival(r.readByte())
+            val dataType = r.readByte() or (r.readByte() shl 8)
+            // The declared length is attacker-influenced: honour it only
+            // as far as the frame actually goes, and never read past it
+            // either, so trailing bytes cannot be smuggled into a
+            // payload an application will act on.
+            val declared = r.readByte()
+            val available = minOf(declared, r.remaining)
+            DeviceEvent.ChannelDatagram(
+                channelIndex = channelIdx,
+                dataType = dataType,
+                payload = r.readBytes(available),
+                snr = snr,
+                hops = arrival.storedHops,
+            )
+        }
+
         Codes.RESP_CODE_AUTO_ADD_CONFIG -> {
             val r = BufferReader(frame)
             r.skipBytes(1)
@@ -321,27 +346,29 @@ object ResponseParser {
         val channelIdx: Int
         val pathLen: Int
         val txtType: Int
-        var pathBytes = ByteArray(0)
         var pathHashWidth: Int? = null
         if (code == Codes.RESP_CODE_CHANNEL_MSG_RECV_V3) {
-            r.skipBytes(1) // SNR
-            val flags = r.readByte()
-            val hasPath = (flags and 0x01) != 0
-            r.skipBytes(1) // reserved
+            // SNR, then TWO RESERVED BYTES. The firmware writes them as
+            // literal zeros:
+            //   out_frame[i++] = 0; // reserved1
+            //   out_frame[i++] = 0; // reserved2
+            // (MyMesh::onChannelMessageRecv), and docs/companion_protocol.md
+            // says clients MUST ignore them. This branch used to read the
+            // first as a flags byte whose bit 0 meant "a path follows",
+            // and then consume path bytes — an invention that happened to
+            // work only because reserved1 is always 0. No path is ever
+            // forwarded to the host on any receive frame; only path_len
+            // is. Found 2026-09-22.
+            r.skipBytes(3) // SNR + reserved1 + reserved2
             channelIdx = r.readByte()
+            // Top 2 bits = hash-width mode, low 6 bits = hop count — but
+            // ONLY on a flooded arrival. 0xFF means the packet came down
+            // a stored route; reading it as a width and a count yields
+            // "63 hops at 4 bytes". See decodeArrival.
             val pathByte = r.readByte()
-            // Top 2 bits = hash-width mode, low 6 bits = hop count —
-            // but ONLY on a flooded arrival. 0xFF means the packet came
-            // down a stored route, and reading it as a width and a
-            // count yields "63 hops at 4 bytes" and an attempt to read
-            // 252 bytes of path that is not there. See decodeArrival.
             val arrival = PathCodec.decodeArrival(pathByte)
-            val hopCount = arrival.hops ?: 0
             pathHashWidth = if (arrival.flooded) ((pathByte and 0xC0) shr 6) + 1 else null
             pathLen = arrival.storedHops
-            if (hasPath && hopCount > 0 && pathHashWidth != null) {
-                pathBytes = r.readBytes(hopCount * pathHashWidth)
-            }
             txtType = r.readByte()
         } else {
             channelIdx = r.readByte()
@@ -360,7 +387,6 @@ object ResponseParser {
             text = body,
             timestamp = timestamp,
             pathLen = pathLen,
-            pathBytes = pathBytes,
             pathHashWidth = pathHashWidth,
         )
     }

@@ -90,6 +90,22 @@ fun AboutSection(vm: MeshCoreViewModel) {
  * is a changelog you can't read in the field.
  */
 private val CHANGELOG: List<Pair<String, List<String>>> = listOf(
+    "0.9.5" to listOf(
+        "MeshCore publishes protocol specs and this app had never read them. A systematic " +
+            "cross-check found no disagreement on any code value, and three things worth " +
+            "fixing.",
+        "Node names could have been corrupted by an advert this app has never seen. An " +
+            "advert carries two optional \"feature\" fields between the coordinates and the " +
+            "name; both are reserved, so skipping them was invisible — until firmware starts " +
+            "setting them and every such name gains binary at the front.",
+        "A flags byte that never existed: the V3 channel frame's reserved bytes were being " +
+            "read as a flag meaning \"a path follows\". It worked only because the firmware " +
+            "writes zeros there. No path is ever sent to a client on any receive frame.",
+        "Channel data datagrams now work in both directions — binary payloads addressed to a " +
+            "channel and tagged with a 16-bit type naming the sending application.",
+        "Inbound datagrams are logged as hex in the diagnostics log, never rendered as text: " +
+            "the bytes belong to another application and are chosen by whoever sent them.",
+    ),
     "0.9.4" to listOf(
         "Distances, temperatures and altitudes can now be shown in miles, feet and °F. " +
             "Settings -> Appearance and alerts -> Units, with three choices: System, Metric, " +

@@ -86,10 +86,38 @@ sealed class DeviceEvent {
         val text: String,
         val timestamp: Long,
         val pathLen: Int,
-        val pathBytes: ByteArray,
         val pathHashWidth: Int?,
     ) : DeviceEvent() {
         override val isPush get() = false
+    }
+
+    /**
+     * A binary datagram heard on a channel (`RESP_CODE_CHANNEL_DATA_RECV`).
+     *
+     * [dataType] identifies the APPLICATION that sent it, not the shape
+     * of [payload] — the firmware never inspects the bytes and neither
+     * do we. This app is a chat client, so an inbound datagram is
+     * surfaced (diagnostics log) rather than interpreted: another
+     * application's private format is not ours to guess at, and
+     * rendering it as text would put attacker-chosen bytes on screen.
+     */
+    data class ChannelDatagram(
+        val channelIndex: Int,
+        val dataType: Int,
+        val payload: ByteArray,
+        val snr: Double?,
+        /** Repeaters that relayed it, or [PathCodec.HOPS_ROUTED]. */
+        val hops: Int,
+    ) : DeviceEvent() {
+        override val isPush get() = false
+
+        override fun equals(other: Any?): Boolean =
+            other is ChannelDatagram && channelIndex == other.channelIndex &&
+                dataType == other.dataType && payload.contentEquals(other.payload) &&
+                snr == other.snr && hops == other.hops
+
+        override fun hashCode(): Int =
+            (channelIndex * 31 + dataType) * 31 + payload.contentHashCode()
     }
 
     data class CurrentTime(val timestamp: Long) : DeviceEvent() {

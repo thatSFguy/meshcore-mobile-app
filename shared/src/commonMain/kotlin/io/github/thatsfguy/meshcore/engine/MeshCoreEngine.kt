@@ -35,6 +35,7 @@ import io.github.thatsfguy.meshcore.protocol.TelemetryReading
 import io.github.thatsfguy.meshcore.protocol.ResponseParser
 import io.github.thatsfguy.meshcore.transport.Transport
 import io.github.thatsfguy.meshcore.transport.TransportState
+import io.github.thatsfguy.meshcore.util.hexPadded
 import io.github.thatsfguy.meshcore.util.toHex
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
@@ -138,6 +139,27 @@ sealed class MeshEvent {
      * key — the same message can arrive via both the companion sync
      * path and the RX log.
      */
+    /**
+     * A binary datagram heard on a channel. Surfaced so the app can
+     * show that one arrived; deliberately NOT interpreted — see
+     * [DeviceEvent.ChannelDatagram].
+     */
+    data class ChannelDatagramReceived(
+        val channelIndex: Int,
+        val dataType: Int,
+        val payload: ByteArray,
+        val snr: Double?,
+        val hops: Int,
+    ) : MeshEvent() {
+        override fun equals(other: Any?): Boolean =
+            other is ChannelDatagramReceived && channelIndex == other.channelIndex &&
+                dataType == other.dataType && payload.contentEquals(other.payload) &&
+                snr == other.snr && hops == other.hops
+
+        override fun hashCode(): Int =
+            (channelIndex * 31 + dataType) * 31 + payload.contentHashCode()
+    }
+
     data class ChannelMessageReceived(
         val channelIndex: Int,
         val senderName: String,
@@ -640,6 +662,30 @@ class MeshCoreEngine(
                             txtType = event.txtType,
                             text = event.text,
                         ),
+                    ),
+                )
+            }
+
+            is DeviceEvent.ChannelDatagram -> {
+                // Logged, not interpreted. The data type names another
+                // application, whose payload format is its own business
+                // and whose bytes are attacker-chosen; rendering them as
+                // text would be the §12 mistake in a new costume. The
+                // hex is here so an operator can tell the feature works
+                // and pass the bytes to whoever owns that data type.
+                log(
+                    "[Datagram] channel=${event.channelIndex} " +
+                        "type=0x${hexPadded(event.dataType, 4)} " +
+                        "bytes=${event.payload.size} hops=${event.hops} " +
+                        "payload=${event.payload.toHex()}",
+                )
+                emitMeshEvent(
+                    MeshEvent.ChannelDatagramReceived(
+                        channelIndex = event.channelIndex,
+                        dataType = event.dataType,
+                        payload = event.payload,
+                        snr = event.snr,
+                        hops = event.hops,
                     ),
                 )
             }
@@ -1235,6 +1281,31 @@ class MeshCoreEngine(
                 log("Flood scope restore failed — radio may still be scoped to #$scoped")
             }
         }
+    }
+
+    /**
+     * Send a binary datagram to a channel (`CMD_SEND_CHANNEL_DATA`).
+     *
+     * Floods, like every datagram this app sends — see
+     * [Frames.sendChannelData]. Returns false when the frame would be
+     * refused (reserved data type, bad channel, empty or oversized
+     * payload) without putting it on the air, and when the radio
+     * answers `RESP_CODE_ERR`.
+     *
+     * No retry and no delivery report: a group datagram is not
+     * acknowledged by anyone, so "sent" here means the radio accepted
+     * it, which is the whole of what can be known.
+     */
+    suspend fun sendChannelDatagram(
+        channelIndex: Int,
+        dataType: Int,
+        payload: ByteArray,
+    ): Boolean {
+        val frame = Frames.sendChannelData(channelIndex, dataType, payload) ?: return false
+        val ev = sendAndAwait(frame, timeoutMs = 10_000) {
+            it is DeviceEvent.Ok || it is DeviceEvent.Err
+        }
+        return ev is DeviceEvent.Ok
     }
 
     private suspend fun rawChannelSend(

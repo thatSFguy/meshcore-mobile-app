@@ -313,16 +313,39 @@ nice-to-have, and it has repeatedly paid for itself:
 
 **Order of authority**, highest first:
 
-1. **Firmware source and docs — `github.com/meshcore-dev/MeshCore`** (`src/`, `docs/faq.md`,
-   merged PRs). This is what the hardware actually does.
-2. **`MESHCORE_PROTOCOL.md`** here, which cites its evidence — but is reverse-engineered,
-   so it loses to (1).
-3. **A client** — any of them. Useful for *how* something is presented; not authoritative
+1. **Firmware source — `github.com/meshcore-dev/MeshCore/src/` and `examples/`**, plus
+   merged PRs. This is what the hardware actually does.
+2. **The project's own `docs/`** in that same repo, mirrored at docs.meshcore.io. These
+   are written by the firmware authors and are the nearest thing to a spec — but they
+   **lag the source**, so they lose to (1). See below.
+3. **`MESHCORE_PROTOCOL.md`** here, which cites its evidence — but is reverse-engineered,
+   so it loses to both.
+4. **A client** — any of them. Useful for *how* something is presented; not authoritative
    on *what* the protocol or the defaults are.
+
+**There ARE published specs, and this file did not say so until 2026-09-22.** The
+app-relevant ones are `companion_protocol.md` (the BLE companion protocol),
+`packet_format.md`, `payloads.md`, `stats_binary_frames.md`, `number_allocations.md`,
+`qr_codes.md` and `cli_commands.md`. They have existed since early 2026 — `payloads.md`
+since May 2025 — which is *before* most of the reverse-engineering in
+`MESHCORE_PROTOCOL.md`. `ShareUri.kt` cites `docs/qr_codes.md` and got the QR formats
+exactly right; nothing else consulted them, and the cost was real: the arrival `path_len`
+inversion fixed in 0.9.3 is spelled out in `companion_protocol.md` in a table, using the
+word "inverted". **Read the official doc for the area you are touching before deriving
+anything from source.**
+
+What they are NOT: complete. `companion_protocol.md` is BLE-only — it documents no USB or
+serial framing at all — assigns a byte to 8 commands where this app implements 40, carries
+its own "still in development, some information may be inaccurate" warning, and was last
+updated 2026-03-08 against firmware v1.12.0+. `payloads.md` still documents a **4-byte**
+ACK checksum; PR #2594 widened it to 6 and current `main` passes `ack_len` 6. That is the
+proof of (2) losing to (1), and the reason to keep deriving from source when the two differ.
 
 `liamcottle/meshcore.js` is a good cross-check and worth consulting, but it is a protocol
 layer only (advert/packet/buffers/constants) with no retry or routing policy — which is
-itself an answer: policy belongs to the app, not the wire.
+itself an answer: policy belongs to the app, not the wire. Note the official libraries are
+now `meshcore-dev/meshcore.js` and `meshcore-dev/meshcore_py`, linked from
+`companion_protocol.md`.
 
 Always separate **merged** from **proposed**. PR #2594 (6-byte ACKs) is merged and shipped;
 issues #1342 / #1397 / #1489 are open proposals and must not be built against.

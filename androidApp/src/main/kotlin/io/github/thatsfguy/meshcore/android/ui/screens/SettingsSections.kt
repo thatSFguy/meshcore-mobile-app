@@ -36,6 +36,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
+import androidx.compose.material3.Button
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import io.github.thatsfguy.meshcore.android.storage.ChannelEntity
 import io.github.thatsfguy.meshcore.android.ui.MeshCoreViewModel
 import io.github.thatsfguy.meshcore.presentation.Units
@@ -735,6 +738,104 @@ internal fun DiagnosticsSection(vm: MeshCoreViewModel) {
     if (diagnostics) {
         DiagnosticsViewer(vm)
     }
+    Spacer(Modifier.height(16.dp))
+    ChannelDatagramTool(vm)
+}
+
+/**
+ * Send a binary datagram to a channel — a developer tool, and labelled
+ * as one.
+ *
+ * This app is a chat client and has no use for datagrams of its own.
+ * What it now has is the ability to carry them, and the only honest way
+ * to show that works is to let someone send one and watch another
+ * client receive it. Inbound datagrams are written to the diagnostics
+ * log rather than rendered: the payload belongs to whichever
+ * application owns its data type, and drawing another app's bytes as
+ * text is the mistake PARITY §12 exists to prevent.
+ */
+@Composable
+private fun ChannelDatagramTool(vm: MeshCoreViewModel) {
+    val channels by vm.dbChannels.collectAsState()
+    val connected by vm.engineState.collectAsState()
+    var channelIdx by remember { mutableStateOf("0") }
+    var dataType by remember { mutableStateOf("FF00") }
+    var payloadHex by remember { mutableStateOf("") }
+    var note by remember { mutableStateOf<String?>(null) }
+    var busy by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+
+    Text("Channel datagram (developer)", style = MaterialTheme.typography.labelLarge)
+    ExpandableHint("Sends raw bytes to a channel. Nothing in this app reads them.") {
+        Text(
+            "A datagram names an application by its 16-bit data type, not a person — see " +
+                "the firmware's docs/number_allocations.md. FF00-FFFF needs no registration " +
+                "and is the range to test with. Received datagrams appear in the " +
+                "diagnostics log above with their type and payload in hex; they are never " +
+                "shown as text, because the bytes belong to another application and are " +
+                "chosen by whoever sent them.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        OutlinedTextField(
+            value = channelIdx,
+            onValueChange = { channelIdx = it.filter(Char::isDigit).take(1) },
+            label = { Text("Channel") },
+            singleLine = true,
+            modifier = Modifier.weight(1f),
+        )
+        Spacer(Modifier.width(8.dp))
+        OutlinedTextField(
+            value = dataType,
+            onValueChange = { dataType = it.filter { c -> c.isDigit() || c in "abcdefABCDEF" }.take(4) },
+            label = { Text("Type (hex)") },
+            singleLine = true,
+            modifier = Modifier.weight(1.4f),
+        )
+    }
+    OutlinedTextField(
+        value = payloadHex,
+        onValueChange = { payloadHex = it.filter { c -> c.isDigit() || c in "abcdefABCDEF" } },
+        label = { Text("Payload (hex)") },
+        singleLine = true,
+        modifier = Modifier.fillMaxWidth(),
+    )
+    val idx = channelIdx.toIntOrNull()
+    val type = dataType.toIntOrNull(16)
+    val named = channels.firstOrNull { it.idx == idx }?.name?.takeIf { it.isNotBlank() }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Button(
+            onClick = {
+                busy = true
+                note = null
+                scope.launch {
+                    val bytes = io.github.thatsfguy.meshcore.util.hexToBytesOrNull(payloadHex)
+                    note = when {
+                        bytes == null -> "Payload must be an even number of hex digits."
+                        else -> {
+                            val ok = vm.sendChannelDatagram(idx ?: -1, type ?: 0, bytes)
+                            if (ok) {
+                                "Sent ${bytes.size} bytes to channel $idx."
+                            } else {
+                                "Refused. Check the channel exists, the type is not 0000, " +
+                                    "and the payload is 1-163 bytes."
+                            }
+                        }
+                    }
+                    busy = false
+                }
+            },
+            enabled = !busy && connected == EngineState.Ready &&
+                idx != null && type != null && payloadHex.isNotBlank(),
+        ) { Text(if (busy) "Sending…" else "Send datagram") }
+        if (named != null) {
+            Spacer(Modifier.width(8.dp))
+            Text("→ $named", style = MaterialTheme.typography.bodySmall)
+        }
+    }
+    note?.let { HintText(it) }
 }
 
 // ----------------------------------------------------------------------

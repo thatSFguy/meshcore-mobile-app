@@ -90,6 +90,40 @@ object Frames {
         return w.toBytes()
     }
 
+    /**
+     * CMD_SEND_CHANNEL_DATA: `[cmd][channel_idx][path_len][path…]?[data_type u16 LE][payload]`
+     *
+     * A binary datagram to a channel. `path_len` 0xFF floods, which is
+     * the only mode this app offers: the alternative is a stored route,
+     * and a datagram has no reply to teach us one.
+     *
+     * Note the u16 is **little-endian** like every other multi-byte
+     * field in the companion protocol — the Cayenne readings inside a
+     * telemetry payload are the exception, not this.
+     *
+     * Returns null rather than a frame the radio will refuse: a
+     * reserved data type (0) and an oversized payload are both
+     * ERR_CODE_ILLEGAL_ARG, and finding that out from an error push is
+     * strictly worse than not sending.
+     */
+    fun sendChannelData(
+        channelIndex: Int,
+        dataType: Int,
+        payload: ByteArray,
+    ): ByteArray? {
+        if (dataType == Codes.DATA_TYPE_RESERVED || dataType !in 0..0xFFFF) return null
+        if (channelIndex !in 0..7) return null
+        if (payload.isEmpty() || payload.size > Codes.MAX_CHANNEL_DATA_LENGTH) return null
+        val w = BufferWriter()
+        w.writeByte(Codes.CMD_SEND_CHANNEL_DATA)
+        w.writeByte(channelIndex)
+        w.writeByte(PathCodec.PATH_LEN_FLOOD)
+        w.writeByte(dataType and 0xFF)
+        w.writeByte((dataType shr 8) and 0xFF)
+        w.writeBytes(payload)
+        return w.toBytes()
+    }
+
     /** CMD_GET_CONTACTS: [cmd][since x4]? */
     fun getContacts(since: Long? = null): ByteArray {
         val w = BufferWriter()

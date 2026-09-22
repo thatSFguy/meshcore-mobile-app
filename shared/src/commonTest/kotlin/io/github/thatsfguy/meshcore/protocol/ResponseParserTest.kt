@@ -166,14 +166,18 @@ class ResponseParserTest {
         assertEquals("bob", m.senderName)
         assertEquals("hi there", m.text)
 
+        // The V3 frame as the FIRMWARE writes it: snr, then two
+        // reserved bytes it sets to literal zero, then channel and
+        // path_len. No flags byte and no path — this test used to build
+        // a frame with both, which is why the parser grew code to read
+        // them. See ChannelV3ReservedBytesTest.
         val v3 = BufferWriter()
         v3.writeByte(Codes.RESP_CODE_CHANNEL_MSG_RECV_V3)
         v3.writeByte(20)             // snr
-        v3.writeByte(0x01)           // flags: has path
-        v3.writeByte(0)              // reserved
+        v3.writeByte(0)              // reserved1
+        v3.writeByte(0)              // reserved2
         v3.writeByte(4)              // channel idx
         v3.writeByte(0x42)           // path byte: width mode 1 (2 bytes/hop), 2 hops
-        v3.writeBytes(byteArrayOf(0xAA.toByte(), 0xBB.toByte(), 0xCC.toByte(), 0xDD.toByte()))
         v3.writeByte(Codes.TXT_TYPE_PLAIN)
         v3.writeUInt32LE(43L)
         v3.writeString("eve:no-space")
@@ -182,7 +186,6 @@ class ResponseParserTest {
         assertEquals(4, m3.channelIndex)
         assertEquals(2, m3.pathHashWidth)
         assertEquals(2, m3.pathLen)
-        assertEquals(4, m3.pathBytes.size)
         assertEquals("eve", m3.senderName)
         assertEquals("no-space", m3.text)
     }

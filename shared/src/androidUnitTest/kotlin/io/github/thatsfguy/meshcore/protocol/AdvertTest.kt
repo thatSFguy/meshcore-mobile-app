@@ -102,3 +102,110 @@ class AdvertTest {
         assertNull(info.longitude)
     }
 }
+
+/**
+ * The two optional "feature" fields in an advert's app_data.
+ *
+ * `docs/payloads.md` ("Node advertisement" → Appdata) puts `feature1`
+ * and `feature2` — 2 bytes each, flags 0x20 and 0x40 — BETWEEN the
+ * coordinates and the name. Both are reserved for future use, so
+ * nothing sets them, so a parser that skips straight from the
+ * coordinates to the name is correct right up until the day firmware
+ * starts using them. Then every name from such a node gains two or
+ * four bytes of binary at the front, and it looks like a broken mesh
+ * rather than a broken client.
+ *
+ * Found 2026-09-22 cross-checking against docs that have said this
+ * since May 2025.
+ */
+class AdvertFeatureFieldsTest {
+
+    private val crypto = AndroidCryptoProvider()
+
+    private fun parsed(flags: Int, body: ByteArray): AdvertInfo? {
+        val id = MeshIdentity.generate(crypto)
+        val appData = byteArrayOf(flags.toByte()) + body
+        val payload = Advert.build(crypto, id.seed, 1_700_000_000L, appData)
+        return Advert.parseVerified(crypto, payload)
+    }
+
+    private fun latLon(lat: Int, lon: Int): ByteArray {
+        val w = BufferWriter()
+        w.writeUInt32LE(lat.toLong() and 0xFFFFFFFFL)
+        w.writeUInt32LE(lon.toLong() and 0xFFFFFFFFL)
+        return w.toBytes()
+    }
+
+    @Test
+    fun aNameAfterFeature1IsReadFromTheRightOffset() {
+        // THE REGRESSION. Before the fix the name came back with two
+        // bytes of feature data eaten as its first characters.
+        val info = parsed(
+            flags = Codes.ADV_TYPE_REPEATER or 0x20 or 0x80,
+            body = byteArrayOf(0x01, 0x02) + "Sparta".encodeToByteArray(),
+        )
+        assertNotNull(info)
+        assertEquals("Sparta", info.name)
+        assertEquals(Codes.ADV_TYPE_REPEATER, info.type)
+    }
+
+    @Test
+    fun bothFeatureFieldsAreSkippedInOrder() {
+        val info = parsed(
+            flags = Codes.ADV_TYPE_CHAT or 0x20 or 0x40 or 0x80,
+            body = byteArrayOf(0x01, 0x02, 0x03, 0x04) + "Both".encodeToByteArray(),
+        )
+        assertNotNull(info)
+        assertEquals("Both", info.name)
+    }
+
+    @Test
+    fun featuresSitAfterTheCoordinatesNotBeforeThem() {
+        // Order matters: lat/lon, THEN features, THEN name. Skipping in
+        // the wrong order reads the coordinates as feature bytes and
+        // moves the node.
+        val info = parsed(
+            flags = Codes.ADV_TYPE_CHAT or 0x10 or 0x40 or 0x80,
+            body = latLon(43_160_040, -85_639_590) + byteArrayOf(0x09, 0x09) +
+                "Placed".encodeToByteArray(),
+        )
+        assertNotNull(info)
+        assertEquals("Placed", info.name)
+        assertEquals(43.16004, info.latitude!!, 1e-5)
+        assertEquals(-85.63959, info.longitude!!, 1e-5)
+    }
+
+    @Test
+    fun anAdvertStillParsesWhenNoFeatureFlagsAreSet() {
+        // The positive control: the ordinary advert, which is every
+        // advert on the air today, must be unaffected.
+        val info = parsed(
+            flags = Codes.ADV_TYPE_CHAT or 0x10 or 0x80,
+            body = latLon(43_160_040, -85_639_590) + "Plain".encodeToByteArray(),
+        )
+        assertNotNull(info)
+        assertEquals("Plain", info.name)
+        assertEquals(43.16004, info.latitude!!, 1e-5)
+    }
+
+    @Test
+    fun aClaimedFeatureFieldWithNoBytesLeftIsRejected() {
+        // Same rule the coordinates already follow: a claimed field the
+        // advert does not carry is malformed, not a licence to read the
+        // next field as this one.
+        assertNull(parsed(flags = Codes.ADV_TYPE_CHAT or 0x20 or 0x80, body = byteArrayOf(0x01)))
+        assertNull(parsed(flags = Codes.ADV_TYPE_CHAT or 0x40, body = ByteArray(0)))
+    }
+
+    @Test
+    fun featureBytesAreNotLeakedIntoAnyField() {
+        // They are skipped, never surfaced: this app has nothing to say
+        // about reserved contents.
+        val info = parsed(
+            flags = Codes.ADV_TYPE_CHAT or 0x20 or 0x80,
+            body = byteArrayOf(0x7F, 0x7F) + "Clean".encodeToByteArray(),
+        )
+        assertNotNull(info)
+        assertFalse(info.name.any { it.code == 0x7F })
+    }
+}

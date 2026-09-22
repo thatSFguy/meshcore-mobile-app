@@ -87,3 +87,70 @@ class ArrivalPathLenTest {
         }
     }
 }
+
+/**
+ * The V3 channel frame's reserved bytes, and the invention that used to
+ * read one of them as a flags byte.
+ *
+ * The firmware writes them as literal zeros —
+ * `out_frame[i++] = 0; // reserved1` / `reserved2` in
+ * `MyMesh::onChannelMessageRecv` — and `docs/companion_protocol.md`
+ * says clients MUST ignore them. This app used to read reserved1 as
+ * flags whose bit 0 meant "an encoded path follows", and consume path
+ * bytes accordingly. It worked only because reserved1 is always 0, and
+ * a test built the invented frame and asserted the parser read it back:
+ * the same assumption twice, with no firmware on either side.
+ */
+class ChannelV3ReservedBytesTest {
+
+    private fun v3Frame(reserved1: Int, pathByte: Int = 0x42): ByteArray {
+        val w = BufferWriter()
+        w.writeByte(Codes.RESP_CODE_CHANNEL_MSG_RECV_V3)
+        w.writeByte(20)          // snr
+        w.writeByte(reserved1)
+        w.writeByte(0)           // reserved2
+        w.writeByte(4)           // channel idx
+        w.writeByte(pathByte)
+        w.writeByte(Codes.TXT_TYPE_PLAIN)
+        w.writeUInt32LE(43L)
+        w.writeString("eve: no-space")
+        w.writeByte(0)
+        return w.toBytes()
+    }
+
+    @Test
+    fun theFrameTheFirmwareActuallyWritesParses() {
+        val m = ResponseParser.parse(v3Frame(reserved1 = 0))
+        val ch = m as DeviceEvent.ChannelMessage
+        assertEquals(4, ch.channelIndex)
+        assertEquals(2, ch.pathLen, "0x42 is width mode 1, 2 hops")
+        assertEquals(2, ch.pathHashWidth)
+        assertEquals("eve", ch.senderName)
+        assertEquals("no-space", ch.text)
+    }
+
+    @Test
+    fun aNonZeroReservedByteChangesNothing() {
+        // THE REGRESSION GUARD. Under the old parser, bit 0 here meant
+        // "a path follows" and four bytes of the message were eaten as
+        // route. The doc says ignore these bytes; ignoring them means
+        // the message parses identically whatever they contain.
+        for (reserved in listOf(0x00, 0x01, 0x03, 0xFF)) {
+            val ch = ResponseParser.parse(v3Frame(reserved1 = reserved))
+                as DeviceEvent.ChannelMessage
+            assertEquals("eve", ch.senderName, "reserved1=$reserved changed the parse")
+            assertEquals("no-space", ch.text, "reserved1=$reserved changed the parse")
+            assertEquals(2, ch.pathLen)
+        }
+    }
+
+    @Test
+    fun aRoutedChannelArrivalDoesNotTryToReadAPath() {
+        // 0xFF used to decode as "63 hops at 4 bytes" and attempt to
+        // read 252 bytes that are not there.
+        val ch = ResponseParser.parse(v3Frame(reserved1 = 0x01, pathByte = 0xFF))
+            as DeviceEvent.ChannelMessage
+        assertEquals(PathCodec.HOPS_ROUTED, ch.pathLen)
+        assertEquals("no-space", ch.text)
+    }
+}

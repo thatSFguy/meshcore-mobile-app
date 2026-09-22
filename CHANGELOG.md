@@ -11,6 +11,36 @@ Every entry describes what is in **that tagged build**. A feature that landed af
 belongs in the next section, not this one — 0.3.0 was once credited with four features that
 shipped after it, which misled nobody so much as the author, three months later.
 
+## 0.9.5
+
+**MeshCore publishes protocol specs, and this app had never read them.** The firmware repo
+carries `companion_protocol.md`, `packet_format.md`, `payloads.md` and four more — some
+since May 2025, all of them before most of this app's reverse-engineering. A systematic
+cross-check found no disagreement on any code value, and three things worth fixing.
+
+- **Node names could have been corrupted by an advert this app has never seen.** An advert's
+  app_data has two optional 2-byte "feature" fields sitting between the coordinates and the
+  name. Both are reserved for future use, so nothing sets them, so skipping straight to the
+  name was correct — right up until the day firmware starts using them, at which point every
+  name from such a node gains two or four bytes of binary at the front and it looks like a
+  broken mesh rather than a broken client. They are now skipped properly, with the same
+  guard the coordinates already had.
+- **A flags byte that never existed.** The V3 channel frame's bytes 2-3 are reserved and the
+  firmware writes literal zeros into them; this app read the first as flags whose bit 0 meant
+  "an encoded path follows", and consumed path bytes accordingly. It worked only because that
+  byte is always zero. No path is ever forwarded to a client on any receive frame — only a
+  hop count — so the reading is gone, along with the field it filled that nothing ever read.
+- **Channel data datagrams now work, in both directions.** `CMD_SEND_CHANNEL_DATA` out,
+  `RESP_CODE_CHANNEL_DATA_RECV` in — binary payloads addressed to a channel and tagged with a
+  16-bit type that names the sending *application*. Frames this radio would refuse are refused
+  here first, and a declared payload length is clamped to the frame in both directions so a
+  short frame cannot over-read and a long one cannot smuggle trailing bytes.
+- **Inbound datagrams are logged, never rendered.** They appear in the diagnostics log as hex
+  with their type and hop count. The payload belongs to another application and its bytes are
+  chosen by whoever sent them; drawing them as text is the mistake the channel-sender-name
+  rule already exists to prevent. Settings → Appearance and alerts has a developer control for
+  sending one.
+
 ## 0.9.4
 
 **Distances, temperatures and altitudes can now be shown in miles, feet and °F.** Settings →

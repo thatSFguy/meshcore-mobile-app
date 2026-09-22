@@ -2982,6 +2982,18 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /**
+     * Send a binary datagram to a channel (developer tool — see
+     * `ChannelDatagramTool`). False when the radio is absent or the
+     * frame would be refused; the caller says so rather than pretending.
+     */
+    suspend fun sendChannelDatagram(channelIndex: Int, dataType: Int, payload: ByteArray): Boolean {
+        val svc = _service.value ?: return false
+        return runCatching {
+            svc.engine.sendChannelDatagram(channelIndex, dataType, payload)
+        }.getOrDefault(false)
+    }
+
     fun syncContactsNow() {
         val svc = _service.value ?: return
         viewModelScope.launch { runCatching { svc.engine.syncContacts() } }

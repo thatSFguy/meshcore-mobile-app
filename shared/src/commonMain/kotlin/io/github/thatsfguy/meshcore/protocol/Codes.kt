@@ -75,6 +75,7 @@ object Codes {
     const val RESP_CODE_CUSTOM_VARS = 21
     const val RESP_CODE_STATS = 24
     const val RESP_CODE_AUTO_ADD_CONFIG = 25
+    const val RESP_CODE_CHANNEL_DATA_RECV = 27
 
     const val STATS_TYPE_CORE = 0
     const val STATS_TYPE_RADIO = 1
@@ -156,8 +157,46 @@ object Codes {
     const val AUTO_ADD_ROOM = 0x08
     const val AUTO_ADD_SENSOR = 0x10
 
+    /**
+     * A binary datagram addressed to a channel rather than a person —
+     * `PAYLOAD_TYPE_GRP_DATA` on the air, `CMD_SEND_CHANNEL_DATA` here.
+     *
+     * Unlike a channel text message it carries no sender name and no
+     * timestamp; an application that wants either encodes them itself.
+     * The 16-bit `data_type` names the APPLICATION, not the payload
+     * format — the firmware never inspects the bytes — and values are
+     * allocated in `docs/number_allocations.md`.
+     */
+    const val CMD_SEND_CHANNEL_DATA = 62
+
+    /** Invalid on send; the firmware answers ERR_CODE_ILLEGAL_ARG. */
+    const val DATA_TYPE_RESERVED = 0x0000
+
+    /** The developer namespace. FF00–FFFE need no registration either. */
+    const val DATA_TYPE_DEV = 0xFFFF
+
+    /** First value an application may register (0x0001–0x00FF are internal). */
+    const val DATA_TYPE_FIRST_APP = 0x0100
+
+    /** Start of the range reserved for testing, which needs no PR. */
+    const val DATA_TYPE_FIRST_TEST = 0xFF00
+
+    // Error codes the firmware returns in RESP_CODE_ERR.
+    const val ERR_CODE_NOT_FOUND = 2
+    const val ERR_CODE_TABLE_FULL = 3
+    const val ERR_CODE_ILLEGAL_ARG = 6
+
     // Sizes / protocol constants
     const val MAX_FRAME_SIZE = 172
+
+    /**
+     * `MAX_CHANNEL_DATA_LENGTH = MAX_FRAME_SIZE - 9` — the nine bytes
+     * are the send frame's own header (cmd, channel, path_len, u16
+     * data_type) plus the receive frame's (code, snr, 2 reserved,
+     * channel, path_len, u16 data_type, data_len). Anything longer is
+     * refused with ERR_CODE_ILLEGAL_ARG rather than truncated.
+     */
+    const val MAX_CHANNEL_DATA_LENGTH = MAX_FRAME_SIZE - 9
     const val MAX_TEXT_PAYLOAD_BYTES = 160 // firmware MAX_TEXT_LEN
     const val APP_PROTOCOL_VERSION = 4
     const val CIPHER_BLOCK_SIZE = 16

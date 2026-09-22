@@ -34,6 +34,26 @@ object Advert {
 
     private const val FLAG_TYPE_MASK = 0x0F
     private const val FLAG_HAS_LOCATION = 0x10
+
+    /**
+     * Two optional 2-byte fields that sit BETWEEN the coordinates and
+     * the name (`docs/payloads.md`, "Node advertisement" → Appdata).
+     *
+     * Both are "reserved for future use" and nothing sets them yet,
+     * which is exactly why skipping them was invisible: a parser that
+     * jumps from the coordinates straight to the name is correct until
+     * the day firmware starts using these, and then every name from
+     * such a node gains two or four bytes of binary at the front. The
+     * name is what a person identifies a node by, so it would look like
+     * a corrupted mesh rather than a client bug.
+     *
+     * Found 2026-09-22 cross-checking against the official docs, which
+     * have documented them since May 2025.
+     */
+    private const val FLAG_HAS_FEATURE1 = 0x20
+    private const val FLAG_HAS_FEATURE2 = 0x40
+    private const val FEATURE_SIZE = 2
+
     private const val FLAG_HAS_NAME = 0x80
 
     /**
@@ -74,6 +94,17 @@ object Advert {
                 lon = r.readInt32LE() / 1e6
             }
             val plausible = isPlausiblePosition(lat, lon)
+            // Skipped, not read: they are reserved, so this app has
+            // nothing to say about their contents — only about where
+            // the name starts. Same guard as the coordinates: a claimed
+            // field with too few bytes left is a malformed advert, not
+            // a licence to read the next field as this one.
+            for (flag in intArrayOf(FLAG_HAS_FEATURE1, FLAG_HAS_FEATURE2)) {
+                if ((flags and flag) != 0) {
+                    if (r.remaining < FEATURE_SIZE) return null
+                    r.skipBytes(FEATURE_SIZE)
+                }
+            }
             val name = if ((flags and FLAG_HAS_NAME) != 0 && r.remaining > 0) {
                 sanitizeDisplayName(r.readCString(Codes.MAX_NAME_SIZE))
             } else {

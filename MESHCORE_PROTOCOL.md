@@ -4,6 +4,19 @@ A distilled reference for implementing a MeshCore **companion client** (phone �
 and for decoding the small amount of **over-the-air** packet structure a client needs
 (channel messages and adverts it sniffs via the radio's RX log).
 
+**⚠ There are official docs — read them first (added 2026-09-22).** The firmware repo
+carries `docs/companion_protocol.md`, `packet_format.md`, `payloads.md`,
+`stats_binary_frames.md`, `number_allocations.md`, `qr_codes.md` and `cli_commands.md`
+(mirrored at docs.meshcore.io). They are written by the firmware authors and outrank this
+file; a systematic cross-check on 2026-09-22 found **no numeric disagreement** on any code
+value, and this file remains a strict superset (45 response/push codes documented here
+against 21 there, 40 commands against 8, plus all of USB/serial framing, repeater admin,
+trace, telemetry and firmware update — none of which they cover). But where they DO cover
+something, they got there first: the arrival `path_len` inversion corrected in §8 below was
+documented in their table, with the word "inverted", months before this file got it wrong.
+They also lag the firmware — `payloads.md` still says the ACK checksum is 4 bytes when PR
+ #2594 widened it to 6 — so source still wins over both.
+
 **Provenance & status.** Reverse-engineered from the MeshCore Open client
 (`meshcore_open`, Flutter) during a security review, cross-checked in places against the
 MeshCore firmware wire notes and `michaelhart/meshcore-decoder`. Byte layouts here match
@@ -164,6 +177,7 @@ radio and cannot read its output.
 | 5 | `RESP_CODE_SELF_INFO` |
 | 6 | `RESP_CODE_SENT` (`[1]`=is_flood, `[2..5]`=ack_hash u32, `[6..9]`=timeout_ms u32) |
 | 7 | `RESP_CODE_CONTACT_MSG_RECV` (§9) |
+| 8 | `RESP_CODE_CHANNEL_MSG_RECV` (§9) |
 | 9 | `RESP_CODE_CURR_TIME` |
 | 10 | `RESP_CODE_NO_MORE_MESSAGES` |
 | 11 | `RESP_CODE_EXPORT_CONTACT` (advert blob ≥ 98 bytes) |
@@ -182,7 +196,7 @@ radio and cannot read its output.
 | 23 | `RESP_CODE_TUNING_PARAMS` |
 | 25 | `RESP_CODE_AUTOADD_CONFIG` |
 | 26 | `RESP_ALLOWED_REPEAT_FREQ` |
-| 27 | `RESP_CODE_CHANNEL_DATA_RECV` |
+| 27 | `RESP_CODE_CHANNEL_DATA_RECV` (§9 — channel data datagram) |
 | 28 | `RESP_CODE_DEFAULT_FLOOD_SCOPE` |
 
 (`RESP_CODE_CHANNEL_MSG_RECV` = 8 exists alongside its V3 form 17.)
@@ -419,6 +433,8 @@ Validation: reject all-zero (or mostly-zero, >16/32) pubkeys and all-non-printab
 (v3 only) [1..3] snr + reserved (skip 3)
 [+0..5]  sender pubkey prefix (6)
 [+6]     path_len        // 0xFF = ROUTED (see below); else a flooded packet's hop count
+                         // corroborated by docs/companion_protocol.md, "Path Length
+                         // semantics differ between send and receive"
 [+7]     txt_type
 [+8..11] timestamp u32
 [+12..15] signature (4)   // only if txt_type indicates signed ((type>>2)==2 or type==2)
@@ -452,6 +468,32 @@ text…\0
 > `queueMessage` → `addToOfflineQueue`, no duplicate check in any of them) and the attempt
 > byte is stripped before the frame reaches the app. **A client that does not de-duplicate
 > shows one message N times.**
+
+### Channel data datagram (`CMD_SEND_CHANNEL_DATA` = 62 / `RESP_CODE_CHANNEL_DATA_RECV` = 27)
+
+A binary datagram addressed to a channel — `PAYLOAD_TYPE_GRP_DATA` (0x06) on the air. No
+sender name, no timestamp: an application that wants either encodes them itself.
+
+```
+send:    [cmd][channel_idx][path_len][path…]?[data_type u16 LE][payload]
+receive: [0]=code [1]=snr/4 [2..3]=reserved [4]=channel [5]=path_len
+         [6..7]=data_type u16 LE [8]=data_len [9..]=payload
+```
+
+`data_type` names the **application**, not the payload format — the firmware never
+inspects the bytes. 0x0000 is reserved and refused; 0x0001–0x00FF internal; 0x0100–0xFEFF
+registered in `docs/number_allocations.md`; **0xFF00–0xFFFF needs no registration and is
+what to test with**. Payload is 1–163 bytes (`MAX_FRAME_SIZE - 9`); longer is refused with
+`ERR_CODE_ILLEGAL_ARG` (6), an unknown channel with `ERR_CODE_NOT_FOUND` (2), a full queue
+with `ERR_CODE_TABLE_FULL` (3).
+
+Receive-side `path_len` follows the arrival rule above: 0xFF = routed, anything else = a
+flooded packet's encoded hop count. **No path bytes are ever forwarded on any receive
+frame**, on this or any other message type.
+
+This app carries datagrams but does not interpret them: inbound ones go to the diagnostics
+log as hex, because another application's payload format is not ours to guess and the bytes
+are chosen by whoever sent them (§12).
 
 ### Channel message (`RESP_CODE_CHANNEL_MSG_RECV` = 8 / `…_V3` = 17)
 Text body is `"<sender_name>: <message>"` — **the sender name is unauthenticated**
@@ -506,9 +548,17 @@ Correlating an RX-log packet with the message it carried:
 ### ADVERT payload (0x04) — signed node identity
 ```
 [32] pub_key | u32 timestamp | [64] signature | app_data
-app_data = [1] flags [ i32 lat | i32 lon ]? [ name… ]?
-           flags: bits0-3 type; 0x10 has_location; 0x80 has_name
+app_data = [1] flags [ i32 lat | i32 lon ]? [ u16 feature1 ]? [ u16 feature2 ]? [ name… ]?
+           flags: bits0-3 type (1 chat / 2 repeater / 3 room / 4 sensor)
+                  0x10 has_location; 0x20 has_feature1; 0x40 has_feature2; 0x80 has_name
 ```
+⚠ **The two feature fields are real and this file omitted them until 2026-09-22**
+(`docs/payloads.md`, "Node advertisement" → Appdata). They sit *between* the coordinates
+and the name, so an advert with `0x20` or `0x40` set makes a parser that skips straight to
+the name read two or four bytes of feature data as the first characters of the node's name.
+Both are "reserved for future use", which is exactly why nothing has broken yet and why it
+will break silently when firmware starts setting them. `Advert.parse` handles only `0x10`
+and `0x80` and has the same gap.
 **Signature = Ed25519 over `pub_key ‖ timestamp ‖ app_data`** — i.e. the whole payload
 with the 64-byte signature spliced out. Verify with `pub_key` as the key. (Confirmed
 against `michaelhart/meshcore-decoder`.) **A client MUST verify this** before trusting an
