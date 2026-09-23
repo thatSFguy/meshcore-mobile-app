@@ -11,6 +11,45 @@ Every entry describes what is in **that tagged build**. A feature that landed af
 belongs in the next section, not this one — 0.3.0 was once credited with four features that
 shipped after it, which misled nobody so much as the author, three months later.
 
+## 0.9.7
+
+**The contact list now stays in step with the radio.** The radio holds a fixed number of
+contacts and drops the oldest to make room when it is set to. This app never heard about it:
+a dropped node stayed in the Nodes list and on the map for good — listed, but impossible to
+message, because the radio no longer had its key.
+
+- **The radio says when it drops a contact, and the app now listens.** The node leaves the
+  list, and its neighbour lines leave the map.
+- **Drops made while no phone was connected are caught on the next connect.** The radio only
+  announces a drop to a connected phone, so after each complete read of its contact list the
+  app forgets any node the radio no longer holds. A read that is cut short never removes
+  anything.
+- **A node you have started a firmware update on is kept even so.** Its recorded Bluetooth
+  address is how a node stuck in its bootloader is found again, and a stuck node stops
+  advertising — which is exactly how it gets dropped. Removing a node yourself still removes
+  everything.
+- **Conversations are kept.** Message history does not depend on the contact row.
+
+**Adding a node from the New tab works.** It never did: the button replayed a copy of the
+node's advert that the radio could not read — reported as "bad signature?", which was never
+the reason — and even the right bytes would have gone back through the same auto-add rule
+that sent the node to New in the first place. Add now checks the advert's signature on the
+phone and writes the contact to the radio directly.
+
+- **A full radio is said so**, on the New tab and when Add is refused, instead of failing
+  silently.
+- **Nodes the radio declined no longer become contacts behind its back.** Since firmware 1.12
+  the radio announces a node it chose NOT to add in the same shape as a contact record, and
+  this app took it for one. Every declined node became an app-only contact — and vanished from
+  New at the same moment, which is why the tab looked empty. The app now asks the radio
+  whether it holds the node, which is right on old firmware and new.
+
+**"Sync contacts" is gone** from the Nodes and Map menus. It re-read the radio but never removed
+anything you could see; everything it was for now happens by itself.
+
+**Auto-add settings say that favourites are never overwritten.** The radio has always kept
+them when it makes room; the screen now says so.
+
 ## 0.9.6
 
 **Conversations now say what day a message was sent.** Reported by a user: a bubble shows a

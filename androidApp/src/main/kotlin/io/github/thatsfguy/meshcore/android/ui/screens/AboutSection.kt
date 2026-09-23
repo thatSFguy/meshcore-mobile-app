@@ -90,6 +90,23 @@ fun AboutSection(vm: MeshCoreViewModel) {
  * is a changelog you can't read in the field.
  */
 private val CHANGELOG: List<Pair<String, List<String>>> = listOf(
+    "0.9.7" to listOf(
+        "The contact list now stays in step with the radio. When the radio drops a contact " +
+            "to make room, the app removes it too — including drops made while no phone was " +
+            "connected, which are caught on the next connect.",
+        "A node you have started a firmware update on is kept even so: its recorded " +
+            "Bluetooth address is how a node stuck in its bootloader is found again. " +
+            "Conversations are always kept.",
+        "Adding a node from the New tab works. It never did — the button sent the radio a " +
+            "copy of the advert it could not read, and blamed the signature.",
+        "Nodes the radio declined no longer become contacts behind its back. Since firmware " +
+            "1.12 the radio announces a declined node in the shape of a contact record, and " +
+            "the app took it for one; it now asks the radio.",
+        "A full radio is said so, on the New tab and when Add is refused.",
+        "\"Sync contacts\" is gone from the Nodes and Map menus: it never removed anything " +
+            "you could see, and what it was for now happens by itself.",
+        "Auto-add settings now say that favourites are never overwritten.",
+    ),
     "0.9.6" to listOf(
         "Conversations now say what day a message was sent. A bubble showed a time and " +
             "nothing else, so a thread read cold gave no way to tell this morning's message " +
