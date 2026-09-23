@@ -105,6 +105,31 @@ object Frames {
      * reserved data type (0) and an oversized payload are both
      * ERR_CODE_ILLEGAL_ARG, and finding that out from an error push is
      * strictly worse than not sending.
+     *
+     * ## Sending identical bytes twice is a no-op on the mesh
+     *
+     * **A datagram carries no timestamp and no nonce.** A channel text
+     * message has a timestamp, and a direct message has an attempt
+     * byte; this has neither, and the channel cipher is deterministic,
+     * so the same `(dataType, payload)` produces a byte-identical
+     * packet every time. `Packet::calculatePacketHash` hashes the
+     * payload type and the payload, so every node that already heard
+     * those bytes drops the repeat from its seen-table — silently,
+     * because datagrams are never acknowledged.
+     *
+     * The sender sees `RESP_CODE_OK` either way: the radio accepted the
+     * frame and transmitted it. It just never arrives.
+     *
+     * Observed 2026-09-22 between two of the author's own radios. The
+     * same payload failed twice under one data type and arrived
+     * instantly under another, which is what identified it — and it had
+     * already silently wrecked a test against a third node, where the
+     * second batch of datagrams was byte-identical to the first.
+     *
+     * **An application built on this must vary its own payload** — a
+     * counter, a timestamp, a nonce, anything. This function cannot do
+     * it for you: the payload is the application's, and quietly
+     * appending bytes to it would corrupt a format we do not own.
      */
     fun sendChannelData(
         channelIndex: Int,

@@ -90,6 +90,22 @@ fun AboutSection(vm: MeshCoreViewModel) {
  * is a changelog you can't read in the field.
  */
 private val CHANGELOG: List<Pair<String, List<String>>> = listOf(
+    "0.9.6" to listOf(
+        "Conversations now say what day a message was sent. A bubble showed a time and " +
+            "nothing else, so a thread read cold gave no way to tell this morning's message " +
+            "from one three weeks back. Days are separated by a heading: Today, Yesterday, a " +
+            "weekday name inside the last week, and a spelled-out date beyond that.",
+        "The heading uses the sender's timestamp, because that is what the bubble underneath " +
+            "prints and what the thread is sorted by.",
+        "The weekday window stops at six days: seven days ago shares its name with today, so " +
+            "that one gets a date instead. A message stamped in the future gets a date too, " +
+            "rather than being disguised as something familiar.",
+        "The oldest message on screen always gets a heading — the top of the scrollback is " +
+            "where you least know what you are looking at.",
+        "Sending the same datagram bytes twice does nothing: a datagram carries no timestamp, " +
+            "so an identical type and payload make a packet the mesh drops as one it has " +
+            "already seen. It still says \"Sent\". Vary the payload.",
+    ),
     "0.9.5" to listOf(
         "MeshCore publishes protocol specs and this app had never read them. A systematic " +
             "cross-check found no disagreement on any code value, and three things worth " +

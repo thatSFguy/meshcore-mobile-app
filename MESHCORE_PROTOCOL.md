@@ -495,6 +495,21 @@ This app carries datagrams but does not interpret them: inbound ones go to the d
 log as hex, because another application's payload format is not ours to guess and the bytes
 are chosen by whoever sent them (§12).
 
+> **⚠ Sending the same bytes twice is a silent no-op.** A datagram has no timestamp and no
+> nonce — a channel text message has a timestamp and a DM has an attempt byte, but this has
+> neither — and the channel cipher is deterministic, so identical `(data_type, payload)`
+> produces a byte-identical packet. `Packet::calculatePacketHash` covers the payload type and
+> payload (§9), so every node that already heard those bytes drops the repeat from its
+> seen-table. The sender still gets `RESP_CODE_OK`, because the radio did accept and transmit
+> it. **An application using datagrams must vary its own payload** — a counter or nonce —
+> or its second message and every one after it will vanish.
+>
+> Found 2026-09-22 on hardware: the same payload failed twice under data type `FF01` and
+> arrived instantly under `FF02`. It had already invalidated a test against a third node,
+> where a second batch of datagrams was byte-identical to the first and was discarded before
+> reaching that radio at all. Nothing anywhere reports an error; this is only visible as
+> "it worked once and then stopped".
+
 ### Channel message (`RESP_CODE_CHANNEL_MSG_RECV` = 8 / `…_V3` = 17)
 Text body is `"<sender_name>: <message>"` — **the sender name is unauthenticated**
 (see §12). channel_idx identifies the slot.

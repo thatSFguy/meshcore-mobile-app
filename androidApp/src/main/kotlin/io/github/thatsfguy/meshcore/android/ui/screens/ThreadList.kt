@@ -4,7 +4,12 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -16,7 +21,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.style.TextAlign
 import io.github.thatsfguy.meshcore.android.storage.MessageEntity
+import io.github.thatsfguy.meshcore.presentation.DayLabel
+import io.github.thatsfguy.meshcore.presentation.DaySeparator
+import java.text.DateFormat
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import kotlinx.datetime.TimeZone
 
 /**
  * The message list, and every rule about where it sits.
@@ -99,7 +112,20 @@ fun ThreadList(
         verticalArrangement = Arrangement.spacedBy(4.dp, Alignment.Bottom), // rule 2
         reverseLayout = true, // rule 1
     ) {
-        items(messages, key = { it.id }) { m -> row(m) }
+        itemsIndexed(messages, key = { _, m -> m.id }) { index, m ->
+            // The heading is drawn INSIDE the item, above the bubble.
+            // reverseLayout flips the order of items, not the content
+            // within one — so "above the bubble" here is above it on
+            // screen, and the item that owns the heading is the oldest
+            // message of its day, which is the one nearest the top.
+            Column {
+                val stamps = remember(messages) { messages.map { it.timestamp } }
+                if (DaySeparator.startsNewDay(stamps, index, TimeZone.currentSystemDefault())) {
+                    DayHeading(m.timestamp)
+                }
+                row(m)
+            }
+        }
         // Rule 4. Last item in a reversed list == top of the screen.
         if (total > messages.size && messages.isNotEmpty()) {
             item(key = "load_older") {
@@ -108,5 +134,46 @@ fun ThreadList(
                 }
             }
         }
+    }
+}
+
+/**
+ * "Today" / "Yesterday" / "Wednesday" / "17 September 2026".
+ *
+ * [DaySeparator] decides which of those four this is; the words come
+ * from the phone, so the date reads the way the reader's locale writes
+ * dates rather than the way this file would have hardcoded them.
+ */
+@Composable
+private fun DayHeading(epochSeconds: Long) {
+    val now = remember { System.currentTimeMillis() / 1000 }
+    val label = DaySeparator.labelFor(epochSeconds, now, TimeZone.currentSystemDefault())
+        ?: return
+    val text = when (label) {
+        DayLabel.Today -> "Today"
+        DayLabel.Yesterday -> "Yesterday"
+        DayLabel.Weekday ->
+            SimpleDateFormat("EEEE", Locale.getDefault()).format(Date(epochSeconds * 1000))
+        DayLabel.FullDate ->
+            DateFormat.getDateInstance(DateFormat.LONG).format(Date(epochSeconds * 1000))
+    }
+    // A quiet band rather than a divider with a word on it: the heading
+    // separates days, and a chat already has plenty of lines in it.
+    // Centred in its own Box so the bubbles either side keep their own
+    // left/right alignment.
+    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        shape = MaterialTheme.shapes.small,
+        modifier = Modifier.padding(vertical = 8.dp),
+    ) {
+        Text(
+            text,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp),
+        )
+    }
     }
 }

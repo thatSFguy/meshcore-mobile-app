@@ -141,6 +141,12 @@ dependencies {
     ksp("androidx.room:room-compiler:2.6.1")
 
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
+    // Already inside the APK via :shared, which declares it as an
+    // implementation dependency and so does not expose the types. The
+    // conversation's date headings are decided in shared and need to
+    // name a TimeZone at the call site; this puts the type on the
+    // compile classpath without adding an artifact.
+    implementation("org.jetbrains.kotlinx:kotlinx-datetime:0.6.1")
 
     debugImplementation("androidx.compose.ui:ui-tooling:1.7.6")
 

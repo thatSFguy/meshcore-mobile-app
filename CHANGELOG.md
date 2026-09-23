@@ -11,6 +11,33 @@ Every entry describes what is in **that tagged build**. A feature that landed af
 belongs in the next section, not this one — 0.3.0 was once credited with four features that
 shipped after it, which misled nobody so much as the author, three months later.
 
+## 0.9.6
+
+**Conversations now say what day a message was sent.** Reported by a user: a bubble shows a
+time and nothing else, so a thread read cold gave no way to tell this morning's message from
+one three weeks back. Days are now separated by a heading, the way every other chat app does
+it — "Today", "Yesterday", a weekday name inside the last week, and a spelled-out date beyond
+that.
+
+- **The heading uses the sender's timestamp**, because that is what the bubble underneath
+  prints and what the thread is sorted by. Dating by arrival time instead would put a message
+  under "Today" while the bubble beneath it read 11:58 PM.
+- **The weekday window stops at six days, not seven.** Seven days ago shares its name with
+  today, so "Monday" on a Monday would be ambiguous; that one gets a date instead.
+- **The oldest message on screen always gets a heading**, because the top of the scrollback is
+  exactly where you least know what you are looking at, and "Load older" does not say when.
+- **A message stamped in the future** — a sender whose clock runs ahead — gets a spelled-out
+  date rather than "Tomorrow" or a bare weekday, so the oddity is visible instead of disguised
+  as something familiar.
+- The wording comes from the phone, so dates read the way your region writes them.
+
+**Also: sending the same datagram bytes twice does nothing, and that is now written down.** A
+channel datagram carries no timestamp and no nonce, and the channel cipher is deterministic, so
+an identical type and payload make a byte-identical packet that the mesh drops as one it has
+already seen. The sender is still told "Sent", because the radio really did transmit it. This
+cost a full round of testing before it was understood; an application built on datagrams must
+vary its own payload.
+
 ## 0.9.5
 
 **MeshCore publishes protocol specs, and this app had never read them.** The firmware repo

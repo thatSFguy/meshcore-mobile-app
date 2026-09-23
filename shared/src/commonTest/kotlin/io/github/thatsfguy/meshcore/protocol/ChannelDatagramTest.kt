@@ -148,3 +148,48 @@ class ChannelDatagramTest {
         assertEquals(0, e.payload.size)
     }
 }
+
+/**
+ * Why an application must vary its own datagram payload.
+ *
+ * A datagram has no timestamp and no attempt byte — the two things that
+ * make a channel message and a direct message differ from their own
+ * repeats — and the channel cipher is deterministic. So identical
+ * arguments make an identical packet, `Packet::calculatePacketHash`
+ * gives it the hash the mesh already has, and every node that heard the
+ * first copy drops the second from its seen-table. Silently: datagrams
+ * are unacknowledged, and the sender still gets RESP_CODE_OK because
+ * the radio did accept and transmit it.
+ *
+ * Observed 2026-09-22 between two of the author's radios — the same
+ * payload failed twice under one data type and arrived instantly under
+ * another. The property below is the cause, so it is pinned here; the
+ * consequence is documented on [Frames.sendChannelData], because only
+ * the calling application can fix it.
+ */
+class ChannelDatagramDeterminismTest {
+
+    @Test
+    fun theSameArgumentsProduceTheSameBytesEveryTime() {
+        // This is not a nice-to-have property being confirmed — it is
+        // the hazard being written down. Nothing here can fix it: the
+        // payload belongs to the application, and appending a nonce
+        // would corrupt a format this app does not own.
+        val a = Frames.sendChannelData(0, 0xFF00, byteArrayOf(1, 2, 3))
+        val b = Frames.sendChannelData(0, 0xFF00, byteArrayOf(1, 2, 3))
+        assertNotNull(a)
+        assertNotNull(b)
+        assertContentEquals(a, b)
+    }
+
+    @Test
+    fun varyingEitherTheTypeOrThePayloadIsEnoughToDiffer() {
+        // Both are inside the encrypted payload, so either one changes
+        // the packet hash. A counter in the payload is the usual fix.
+        val base = Frames.sendChannelData(0, 0xFF00, byteArrayOf(1, 2, 3))!!
+        val otherType = Frames.sendChannelData(0, 0xFF01, byteArrayOf(1, 2, 3))!!
+        val otherPayload = Frames.sendChannelData(0, 0xFF00, byteArrayOf(1, 2, 4))!!
+        assertTrue(!base.contentEquals(otherType))
+        assertTrue(!base.contentEquals(otherPayload))
+    }
+}

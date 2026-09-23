@@ -773,7 +773,11 @@ private fun ChannelDatagramTool(vm: MeshCoreViewModel) {
                 "and is the range to test with. Received datagrams appear in the " +
                 "diagnostics log above with their type and payload in hex; they are never " +
                 "shown as text, because the bytes belong to another application and are " +
-                "chosen by whoever sent them.",
+                "chosen by whoever sent them.\n\n" +
+                "Change the payload every time. A datagram carries no timestamp, so the " +
+                "same type and payload make an identical packet, and the mesh drops it as " +
+                "one it has already seen. It still says \"Sent\" — the radio did transmit " +
+                "it — but nothing receives it.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
