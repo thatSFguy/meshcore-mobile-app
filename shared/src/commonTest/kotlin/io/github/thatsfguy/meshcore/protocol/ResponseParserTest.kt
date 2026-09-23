@@ -3,6 +3,7 @@ package io.github.thatsfguy.meshcore.protocol
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
@@ -72,7 +73,7 @@ class ResponseParserTest {
     fun parsesContactRecord() {
         val e = ResponseParser.parse(contactFrame())
         val c = assertIs<DeviceEvent.ContactReceived>(e)
-        assertEquals(false, c.fromPush)
+        assertFalse(c.isPush)
         assertEquals("alice", c.contact.name)
         assertEquals(2, c.contact.pathLen)
         assertEquals(1.0, c.contact.latitude!!, 1e-9)
@@ -82,10 +83,12 @@ class ResponseParserTest {
     }
 
     @Test
-    fun newAdvertPushSharesContactLayout() {
+    fun newAdvertPushSharesContactLayoutButIsNotAContact() {
+        // Same layout as RESP_CODE_CONTACT (writeContactRespFrame), but on
+        // v1.12+ it is sent ONLY for a node the radio did not add.
         val e = ResponseParser.parse(contactFrame(code = Codes.PUSH_CODE_NEW_ADVERT))
-        val c = assertIs<DeviceEvent.ContactReceived>(e)
-        assertTrue(c.fromPush)
+        val c = assertIs<DeviceEvent.NewAdvert>(e)
+        assertEquals("alice", c.contact.name)
         assertTrue(c.isPush)
     }
 

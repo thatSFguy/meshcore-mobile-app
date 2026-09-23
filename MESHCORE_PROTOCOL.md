@@ -239,7 +239,7 @@ radio and cannot read its output.
 > traffic" answerable at all — see PARITY §2. Verified against firmware
 > v1.16.0 on 2026-08-06.
 | 0x89 | `PUSH_CODE_TRACE_DATA` | Path-trace result |
-| 0x8A | `PUSH_CODE_NEW_ADVERT` | New contact advert (same layout as `RESP_CODE_CONTACT`) |
+| 0x8A | `PUSH_CODE_NEW_ADVERT` | Advert in the `RESP_CODE_CONTACT` layout — **not a contact**. Since firmware v1.12 sent only for a node the radio did NOT add (`is_new` = "not in contacts[]", `BaseChatMesh::onAdvertRecv`); up to v1.11 also after an auto-add. Ask with `CMD_GET_CONTACT_BY_KEY` (verified 2026-09-23) |
 | 0x8B | `PUSH_CODE_TELEMETRY_RESPONSE` | Telemetry (Cayenne LPP) |
 | 0x8C | `PUSH_CODE_BINARY_RESPONSE` | Response to `CMD_SEND_BINARY_REQ` |
 | 0x8E | `PUSH_CODE_CONTROL_DATA` | Discovery/control response |

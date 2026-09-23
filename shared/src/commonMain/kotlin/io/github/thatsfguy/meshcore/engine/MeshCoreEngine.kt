@@ -598,7 +598,7 @@ class MeshCoreEngine(
                 val syncing = syncingContacts
                 val cap = (_deviceInfo.value?.maxContacts?.takeIf { it > 0 } ?: MAX_TRACKED_CONTACTS)
                     .coerceAtMost(MAX_TRACKED_CONTACTS)
-                if (syncing != null && !event.fromPush) {
+                if (syncing != null) {
                     // A hostile link can stream contact records forever;
                     // stop accumulating past what the radio can hold.
                     if (syncing.size >= cap) {
@@ -610,8 +610,7 @@ class MeshCoreEngine(
                 } else if (_contacts.value.size >= cap && !_contacts.value.containsKey(c.publicKeyHex)) {
                     log("Contact map at capacity ($cap) — dropping ${c.publicKeyHex.take(12)}")
                 } else {
-                    // Single fetch, or a NEW_ADVERT push (the radio has
-                    // already accepted it as a contact record).
+                    // A single by-key read: the radio holds this one.
                     _contacts.value = _contacts.value + (c.publicKeyHex to c)
                 }
             }
@@ -743,6 +742,15 @@ class MeshCoreEngine(
             )
 
             is DeviceEvent.AdvertReheard -> refreshContactDebounced(event.publicKey)
+
+            // Taken as "added" until 2026-09-23, which turned every node
+            // the radio DECLINED into an app-side contact the radio did
+            // not have — unmessageable, and pulled out of the New tab at
+            // the same moment. Found on hardware with Companions auto-add
+            // off. The radio answers a by-key read with the record if it
+            // holds one and ERR_CODE_NOT_FOUND if not, which is right on
+            // every firmware version.
+            is DeviceEvent.NewAdvert -> refreshContactDebounced(event.contact.publicKey)
 
             is DeviceEvent.ContactDeleted -> {
                 val keyHex = event.publicKey.toHex()

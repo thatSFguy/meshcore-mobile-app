@@ -42,11 +42,11 @@ object ResponseParser {
         }
 
         Codes.RESP_CODE_CONTACT ->
-            parseContact(frame)?.let { DeviceEvent.ContactReceived(it, fromPush = false) }
+            parseContact(frame)?.let { DeviceEvent.ContactReceived(it) }
                 ?: DeviceEvent.Unknown(code, frame)
 
         Codes.PUSH_CODE_NEW_ADVERT ->
-            parseContact(frame)?.let { DeviceEvent.ContactReceived(it, fromPush = true) }
+            parseContact(frame)?.let { DeviceEvent.NewAdvert(it) }
                 ?: DeviceEvent.Unknown(code, frame)
 
         Codes.RESP_CODE_END_OF_CONTACTS -> DeviceEvent.EndOfContacts

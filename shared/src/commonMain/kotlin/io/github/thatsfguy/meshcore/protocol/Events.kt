@@ -31,8 +31,9 @@ sealed class DeviceEvent {
         override val isPush get() = false
     }
 
-    data class ContactReceived(val contact: Contact, val fromPush: Boolean) : DeviceEvent() {
-        override val isPush get() = fromPush
+    /** RESP_CODE_CONTACT — a record the radio HOLDS (sweep or by-key read). */
+    data class ContactReceived(val contact: Contact) : DeviceEvent() {
+        override val isPush get() = false
     }
 
     object EndOfContacts : DeviceEvent() {
@@ -154,6 +155,19 @@ sealed class DeviceEvent {
     }
 
     // --- Pushes ---
+
+    /**
+     * PUSH_CODE_NEW_ADVERT — an advert from a node, in the contact
+     * record's layout. **Not a contact.** Since firmware v1.12 it means
+     * the opposite: sent only when the node is NOT in the radio's table
+     * (`is_new` — "true = not in contacts[]", `BaseChatMesh::onAdvertRecv`),
+     * i.e. the auto-add filter, hop limit or a full table turned it away.
+     * Up to v1.11 it was also sent for a node just auto-added. Either
+     * way the push cannot say which, so only the radio can: ask it.
+     */
+    data class NewAdvert(val contact: Contact) : DeviceEvent() {
+        override val isPush get() = true
+    }
 
     /** PUSH_CODE_ADVERT — a known contact was re-heard. */
     data class AdvertReheard(val publicKey: ByteArray) : DeviceEvent() {

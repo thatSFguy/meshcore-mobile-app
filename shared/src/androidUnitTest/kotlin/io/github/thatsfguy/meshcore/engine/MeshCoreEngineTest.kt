@@ -2428,6 +2428,68 @@ class MeshCoreEngineTest {
         assertTrue(lists.isEmpty(), "got ${lists.map { it.size }}")
     }
 
+    // --- PUSH_CODE_NEW_ADVERT is not "added" ----------------------------
+
+    private val strangerKey = ByteArray(32) { (it + 150).toByte() }
+
+    /** The push: writeContactRespFrame(PUSH_CODE_NEW_ADVERT, contact). */
+    private fun newAdvertPush(key: ByteArray, name: String): ByteArray =
+        contactFrame(key, name).also { it[0] = Codes.PUSH_CODE_NEW_ADVERT.toByte() }
+
+    /** A radio answering CMD_GET_CONTACT_BY_KEY the way the firmware does. */
+    private fun byKeyResponder(radio: FakeRadio, holds: Set<String>): (ByteArray) -> List<ByteArray> {
+        val base = standardResponder(radio)
+        return { frame ->
+            if ((frame[0].toInt() and 0xFF) == Codes.CMD_GET_CONTACT_BY_KEY) {
+                val key = frame.copyOfRange(1, 33)
+                if (key.toHex() in holds) listOf(contactFrame(key, "held"))
+                else listOf(byteArrayOf(Codes.RESP_CODE_ERR.toByte(), Codes.ERR_CODE_NOT_FOUND.toByte()))
+            } else {
+                base(frame)
+            }
+        }
+    }
+
+    @Test
+    fun aNodeTheRadioDeclinedDoesNotBecomeAContact() = runTest {
+        // Since v1.12 this push is sent ONLY for a node the radio did not
+        // add (`is_new` — "true = not in contacts[]"). Taking it as a
+        // contact made every declined node an app-side contact the radio
+        // did not have, and pulled it out of the New tab. Found on
+        // hardware with Companions auto-add turned off.
+        val radio = FakeRadio()
+        radio.responder = byKeyResponder(radio, holds = emptySet())
+        val engine = readyEngine(radio)
+        radio.sentFrames.clear()
+
+        radio.push(newAdvertPush(strangerKey, "stranger"))
+        withTimeout(5_000) {
+            while (radio.sentFrames.none { (it[0].toInt() and 0xFF) == Codes.CMD_GET_CONTACT_BY_KEY }) yield()
+        }
+        yield()
+
+        val asked = radio.sentFrames.first { (it[0].toInt() and 0xFF) == Codes.CMD_GET_CONTACT_BY_KEY }
+        assertContentEquals(strangerKey, asked.copyOfRange(1, 33), "the radio is asked about THIS node")
+        assertNull(engine.contacts.value[strangerKey.toHex()])
+        assertEquals(1, engine.contacts.value.size, "and nothing else changed")
+    }
+
+    @Test
+    fun aNodeTheRadioDidAddIsPickedUpOnOlderFirmware() = runTest {
+        // The positive control, and the pre-1.12 meaning: the same push
+        // followed a successful auto-add. Asking the radio gets that
+        // right too — the declined test alone would pass against an
+        // engine that ignored the push entirely.
+        val radio = FakeRadio()
+        radio.responder = byKeyResponder(radio, holds = setOf(strangerKey.toHex()))
+        val engine = readyEngine(radio)
+
+        radio.push(newAdvertPush(strangerKey, "stranger"))
+
+        val added = withTimeout(5_000) { engine.contacts.first { strangerKey.toHex() in it } }
+        assertEquals("held", added[strangerKey.toHex()]?.name, "the RADIO's record, not the push's")
+    }
+
 }
 
 /** Lowercase hex, local to the tests. */
