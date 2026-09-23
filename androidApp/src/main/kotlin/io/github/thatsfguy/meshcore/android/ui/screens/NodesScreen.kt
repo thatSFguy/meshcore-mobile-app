@@ -113,7 +113,6 @@ fun NodesScreen(vm: MeshCoreViewModel, nav: NavController) {
                         vm.importPastedText(clipboard.getText()?.text)
                     },
                     MenuAction("Share my node QR…") { showSelfQr = true },
-                    MenuAction("Sync contacts") { vm.syncContactsNow() },
                     // Active discovery (PARITY §2): a broadcast asking
                     // nearby repeaters to speak up, as opposed to the
                     // passive advert inbox on the New tab.
@@ -212,6 +211,19 @@ fun NodesScreen(vm: MeshCoreViewModel, nav: NavController) {
             }
 
             if (tab == 4) {
+                // A full radio is why most of this tab fills up, and
+                // Add cannot succeed until something is removed. Say so
+                // before the user finds out one node at a time.
+                val radioFull by vm.contactsFull.collectAsState()
+                if (radioFull) {
+                    Text(
+                        "The radio's contact list is full, so it isn't adding new nodes. " +
+                            "Remove some (⋮ → Remove stale nodes) to make room.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    )
+                }
                 // Discovery inbox — heard over the air, not yet contacts.
                 if (discovered.isEmpty()) {
                     EmptyHint(

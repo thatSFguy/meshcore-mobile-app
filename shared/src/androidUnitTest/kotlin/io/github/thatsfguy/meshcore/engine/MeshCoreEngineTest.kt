@@ -2120,6 +2120,314 @@ class MeshCoreEngineTest {
         assertFalse(engine.syncContactsChangedOnly())
     }
 
+    // --- the radio changing its contact table under us -----------------
+
+    private fun contactDeletedPush(key: ByteArray) =
+        byteArrayOf(Codes.PUSH_CODE_CONTACT_DELETED.toByte()) + key
+
+    @Test
+    fun aContactTheRadioOverwroteLeavesTheList() = runTest {
+        // onContactOverwrite pushes the key and nothing else ever tells
+        // us: an incremental re-read returns what changed, never what
+        // went. The other contact is the control — a handler that
+        // cleared the whole map would pass a single-contact test.
+        val radio = FakeRadio()
+        radio.responder = twoContactResponder(radio)
+        val engine = readyEngine(radio)
+        assertEquals(2, engine.contacts.value.size)
+
+        val told = async(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
+            withTimeout(5_000) { engine.meshEvents.first { it is MeshEvent.ContactDeletedByRadio } }
+        }
+        radio.push(contactDeletedPush(peerKey))
+
+        val ev = told.await() as MeshEvent.ContactDeletedByRadio
+        assertEquals(peerKey.toHex(), ev.publicKeyHex, "the store is told which one")
+        assertNull(engine.contacts.value[peerKey.toHex()])
+        assertNotNull(engine.contacts.value[otherKey.toHex()], "and only that one")
+    }
+
+    @Test
+    fun aDeletionDuringAFullSweepIsNotUndoneByTheSweep() = runTest {
+        // Pushes interleave with the contact stream (PR #3403, open, is
+        // the firmware fix). A full sweep REPLACES the map at the end, so
+        // a record that streamed past before its deletion would come back
+        // with the replacement.
+        val radio = FakeRadio()
+        radio.responder = twoContactResponder(radio)
+        val engine = readyEngine(radio)
+
+        val base = standardResponder(radio)
+        radio.responder = { frame ->
+            if ((frame[0].toInt() and 0xFF) == Codes.CMD_GET_CONTACTS) {
+                listOf(
+                    byteArrayOf(Codes.RESP_CODE_CONTACTS_START.toByte(), 2, 0, 0, 0),
+                    contactFrame(peerKey, "peer", lastModified = 500L),
+                    contactDeletedPush(peerKey),
+                    contactFrame(otherKey, "other", lastModified = 700L),
+                    byteArrayOf(Codes.RESP_CODE_END_OF_CONTACTS.toByte()),
+                )
+            } else {
+                base(frame)
+            }
+        }
+        engine.syncContacts()
+
+        assertNull(engine.contacts.value[peerKey.toHex()], "the sweep resurrected it")
+        assertNotNull(engine.contacts.value[otherKey.toHex()])
+    }
+
+    @Test
+    fun aRecordAfterItsDeletionInTheSameSweepIsKept() = runTest {
+        // The other order. A record streamed AFTER the deletion is the
+        // radio's current state, and dropping it would hide a contact
+        // the radio holds until the next full sweep.
+        val radio = FakeRadio()
+        radio.responder = standardResponder(radio)
+        val engine = readyEngine(radio)
+
+        val base = standardResponder(radio)
+        radio.responder = { frame ->
+            if ((frame[0].toInt() and 0xFF) == Codes.CMD_GET_CONTACTS) {
+                listOf(
+                    byteArrayOf(Codes.RESP_CODE_CONTACTS_START.toByte(), 1, 0, 0, 0),
+                    contactDeletedPush(peerKey),
+                    contactFrame(peerKey, "peer-again", lastModified = 800L),
+                    byteArrayOf(Codes.RESP_CODE_END_OF_CONTACTS.toByte()),
+                )
+            } else {
+                base(frame)
+            }
+        }
+        engine.syncContacts()
+
+        assertEquals("peer-again", engine.contacts.value[peerKey.toHex()]?.name)
+    }
+
+    @Test
+    fun theFullFlagIsSetByThePushAndClearedByARemoval() = runTest {
+        val radio = FakeRadio()
+        radio.responder = standardResponder(radio)
+        val engine = readyEngine(radio)
+        assertFalse(engine.contactsFull.value)
+
+        radio.push(byteArrayOf(Codes.PUSH_CODE_CONTACTS_FULL.toByte()))
+        withTimeout(5_000) { engine.contactsFull.first { it } }
+
+        // Removing a contact is the one thing we do that frees a slot.
+        assertTrue(engine.removeContact(peerKey))
+        assertFalse(engine.contactsFull.value)
+    }
+
+    // --- adding a node from the New tab --------------------------------
+
+    private fun locatedAdvert(identity: MeshIdentity, name: String): ByteArray =
+        Advert.build(
+            crypto,
+            identity.seed,
+            timestamp = now - 3_600,
+            appData = Advert.buildAppData(Codes.ADV_TYPE_REPEATER, name, 42.9634, -85.6681),
+        )
+
+    @Test
+    fun addingFromTheInboxWritesTheRecordDirectly() = runTest {
+        // The positive control, pinned against the firmware's READER
+        // (`updateContactFromFrame`): pubkey, type, flags, path_len,
+        // path x64, name x32, last_advert_timestamp, then lat/lon as
+        // i32 micro-degrees.
+        val radio = FakeRadio()
+        radio.responder = standardResponder(radio)
+        val engine = readyEngine(radio)
+        val them = MeshIdentity.generate(crypto)
+        val payload = locatedAdvert(them, "Kent Hill")
+
+        assertEquals(MeshCoreEngine.AddOutcome.Added, engine.addContactFromAdvert(payload))
+
+        assertTrue(
+            radio.sentFrames.none { (it[0].toInt() and 0xFF) == Codes.CMD_IMPORT_CONTACT },
+            "import replays through the auto-add filter that put this node in the inbox",
+        )
+        val sent = radio.sentFrames.last { (it[0].toInt() and 0xFF) == Codes.CMD_ADD_UPDATE_CONTACT }
+        assertContentEquals(them.publicKey, sent.copyOfRange(1, 33))
+        assertEquals(Codes.ADV_TYPE_REPEATER, sent[33].toInt())
+        assertEquals(0, sent[34].toInt(), "flags")
+        assertEquals(0xFF, sent[35].toInt() and 0xFF, "no route known: flood")
+        assertEquals("Kent Hill", sent.copyOfRange(100, 132).decodeToString().trimEnd('\u0000'))
+        assertEquals(now - 3_600, advertTimestampOf(sent), "the advert's own time, not now()")
+        val lat = java.nio.ByteBuffer.wrap(sent, 136, 4).order(java.nio.ByteOrder.LITTLE_ENDIAN).int
+        val lon = java.nio.ByteBuffer.wrap(sent, 140, 4).order(java.nio.ByteOrder.LITTLE_ENDIAN).int
+        assertEquals(42_963_400, lat)
+        assertEquals(-85_668_100, lon)
+    }
+
+    @Test
+    fun theInboxStoresAPayloadThatImportCouldNeverTake() {
+        // Why Add never worked, pinned so it cannot quietly come back:
+        // the inbox keeps the advert PAYLOAD, and the import path needs
+        // a whole packet.
+        val payload = signedAdvert(MeshIdentity.generate(crypto), "Someone")
+        assertNull(MeshCoreEngine.extractAdvertPayload(payload))
+    }
+
+    @Test
+    fun aFullRadioSaysSo() = runTest {
+        // `addContact` fails → writeErrFrame(ERR_CODE_TABLE_FULL).
+        val radio = FakeRadio()
+        val base = standardResponder(radio)
+        radio.responder = { frame ->
+            if ((frame[0].toInt() and 0xFF) == Codes.CMD_ADD_UPDATE_CONTACT) {
+                listOf(byteArrayOf(Codes.RESP_CODE_ERR.toByte(), Codes.ERR_CODE_TABLE_FULL.toByte()))
+            } else {
+                base(frame)
+            }
+        }
+        val engine = readyEngine(radio)
+        val payload = locatedAdvert(MeshIdentity.generate(crypto), "Kent Hill")
+
+        assertEquals(MeshCoreEngine.AddOutcome.TableFull, engine.addContactFromAdvert(payload))
+        assertTrue(engine.contactsFull.value)
+    }
+
+    @Test
+    fun aForgedAdvertIsNeverSent() = runTest {
+        // This command takes our word for every field — the radio will
+        // not check the signature, so we must.
+        val radio = FakeRadio()
+        radio.responder = standardResponder(radio)
+        val engine = readyEngine(radio)
+        val payload = locatedAdvert(MeshIdentity.generate(crypto), "Kent Hill").copyOf()
+        payload[35] = (payload[35] + 1).toByte()
+        radio.sentFrames.clear()
+
+        assertEquals(MeshCoreEngine.AddOutcome.Unverified, engine.addContactFromAdvert(payload))
+        assertTrue(radio.sentFrames.isEmpty())
+        // And truncated junk is refused rather than thrown.
+        assertEquals(
+            MeshCoreEngine.AddOutcome.Unverified,
+            engine.addContactFromAdvert(payload.copyOf(40)),
+        )
+    }
+
+    // --- "this is everything the radio holds" -------------------------
+
+    /** Every ContactListComplete the engine emits, in order. */
+    private fun TestScope.completeLists(engine: MeshCoreEngine): List<Set<String>> {
+        val seen = ArrayList<Set<String>>()
+        backgroundScope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
+            engine.meshEvents.collect { if (it is MeshEvent.ContactListComplete) seen.add(it.publicKeysHex) }
+        }
+        return seen
+    }
+
+    @Test
+    fun aFullSweepReportsTheRadiosWholeList() = runTest {
+        // The positive control for everything below: the store prunes on
+        // this, and a suite that only asserts "not emitted" would pass
+        // against an engine that never emits it at all.
+        val radio = FakeRadio()
+        radio.responder = twoContactResponder(radio)
+        val engine = readyEngine(radio)
+        val lists = completeLists(engine)
+
+        engine.syncContacts()
+
+        assertEquals(listOf(setOf(peerKey.toHex(), otherKey.toHex())), lists)
+    }
+
+    @Test
+    fun anIncrementalReadIsNeverTakenAsTheWholeList() = runTest {
+        // It returns only what changed. Taken as complete, the store
+        // would delete every contact that simply had not moved.
+        val radio = FakeRadio()
+        radio.responder = twoContactResponder(radio)
+        val engine = readyEngine(radio)
+        val lists = completeLists(engine)
+
+        assertTrue(engine.syncContactsChangedOnly())
+
+        assertTrue(lists.isEmpty(), "got $lists")
+    }
+
+    @Test
+    fun aSweepThatNeverFinishesReportsNothing() = runTest {
+        // A dropped link mid-sweep has told us about some contacts, not
+        // all of them. Pruning on it would delete the rest.
+        val radio = FakeRadio()
+        radio.responder = standardResponder(radio)
+        val engine = readyEngine(radio)
+        val lists = completeLists(engine)
+        val base = standardResponder(radio)
+        radio.responder = { frame ->
+            if ((frame[0].toInt() and 0xFF) == Codes.CMD_GET_CONTACTS) {
+                listOf(
+                    byteArrayOf(Codes.RESP_CODE_CONTACTS_START.toByte(), 2, 0, 0, 0),
+                    contactFrame(peerKey, "peer"),
+                    // ...and END never comes.
+                )
+            } else {
+                base(frame)
+            }
+        }
+
+        runCatching { engine.syncContacts() }
+
+        assertTrue(lists.isEmpty(), "got $lists")
+    }
+
+    @Test
+    fun aRadioThatReportsNoContactsReportsAnEmptyList() = runTest {
+        // Empty is an answer, not an absence of one — a radio that was
+        // reset holds nothing, and the store should say so. (Channels
+        // were once gated on non-empty and kept stale rows for ever.)
+        val radio = FakeRadio()
+        radio.responder = standardResponder(radio)
+        val engine = readyEngine(radio)
+        val lists = completeLists(engine)
+        val base = standardResponder(radio)
+        radio.responder = { frame ->
+            if ((frame[0].toInt() and 0xFF) == Codes.CMD_GET_CONTACTS) {
+                listOf(
+                    byteArrayOf(Codes.RESP_CODE_CONTACTS_START.toByte(), 0, 0, 0, 0),
+                    byteArrayOf(Codes.RESP_CODE_END_OF_CONTACTS.toByte()),
+                )
+            } else {
+                base(frame)
+            }
+        }
+
+        engine.syncContacts()
+
+        assertEquals(listOf(emptySet<String>()), lists)
+    }
+
+    @Test
+    fun aSweepAbandonedForRunningLongReportsNothingEvenWhenItEnds() = runTest {
+        // The engine stops accumulating past what the radio can hold (a
+        // hostile link can stream records for ever) — and then END may
+        // still arrive. What came before it is a fragment. This radio
+        // reports 100 * 2 = 200 slots; send one more than that.
+        val radio = FakeRadio()
+        radio.responder = standardResponder(radio)
+        val engine = readyEngine(radio)
+        val lists = completeLists(engine)
+        val base = standardResponder(radio)
+        radio.responder = { frame ->
+            if ((frame[0].toInt() and 0xFF) == Codes.CMD_GET_CONTACTS) {
+                listOf(byteArrayOf(Codes.RESP_CODE_CONTACTS_START.toByte(), 0xC9.toByte(), 0, 0, 0)) +
+                    (0 until 201).map { i ->
+                        contactFrame(ByteArray(32) { b -> (b + i).toByte() }.also { it[31] = i.toByte() }, "n$i")
+                    } +
+                    listOf(byteArrayOf(Codes.RESP_CODE_END_OF_CONTACTS.toByte()))
+            } else {
+                base(frame)
+            }
+        }
+
+        engine.syncContacts()
+
+        assertTrue(lists.isEmpty(), "got ${lists.map { it.size }}")
+    }
+
 }
 
 /** Lowercase hex, local to the tests. */

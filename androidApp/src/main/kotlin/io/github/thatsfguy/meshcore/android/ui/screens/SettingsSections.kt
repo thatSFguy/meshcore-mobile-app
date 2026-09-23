@@ -531,6 +531,12 @@ internal fun AutoAddSection(vm: MeshCoreViewModel) {
     SettingRow("Overwrite oldest when full", current and Codes.AUTO_ADD_OVERWRITE_OLDEST != 0) {
         toggle(Codes.AUTO_ADD_OVERWRITE_OLDEST, it)
     }
+    // The radio does this, not the app (BaseChatMesh.cpp,
+    // allocateContactSlot skips flags & 0x01) — but the toggle alone
+    // reads as though a favourite could be the one that goes.
+    HintText(
+        "Favourites are never overwritten. \"Oldest\" is the node heard from least recently.",
+    )
 }
 
 @Composable

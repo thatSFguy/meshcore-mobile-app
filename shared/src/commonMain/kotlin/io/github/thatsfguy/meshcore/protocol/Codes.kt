@@ -95,6 +95,14 @@ object Codes {
     const val PUSH_CODE_TELEMETRY_RESPONSE = 0x8B
     const val PUSH_CODE_BINARY_RESPONSE = 0x8C
     const val PUSH_CODE_CONTROL_DATA = 0x8E
+    /**
+     * `[code][pubkey x32]` — the radio dropped this contact to make room
+     * for a new one (auto-add with overwrite-oldest). Sent from
+     * `onContactOverwrite`, `companion_radio/MyMesh.cpp`.
+     */
+    const val PUSH_CODE_CONTACT_DELETED = 0x8F
+    /** `[code]` — a node could not be added because the table is full. */
+    const val PUSH_CODE_CONTACTS_FULL = 0x90
 
     // Contact / advert node types
     const val ADV_TYPE_CHAT = 1

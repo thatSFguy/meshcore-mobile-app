@@ -215,6 +215,20 @@ sealed class DeviceEvent {
         override val isPush get() = true
     }
 
+    /**
+     * PUSH_CODE_CONTACT_DELETED — the radio overwrote this contact to
+     * make room for a new one. The only way we learn of it: an
+     * incremental re-read returns what changed, never what went.
+     */
+    data class ContactDeleted(val publicKey: ByteArray) : DeviceEvent() {
+        override val isPush get() = true
+    }
+
+    /** PUSH_CODE_CONTACTS_FULL — a node went unadded for lack of room. */
+    object ContactsFull : DeviceEvent() {
+        override val isPush get() = true
+    }
+
     /** Anything with an unrecognized or unparseable code — kept for diagnostics. */
     data class Unknown(val code: Int, val frame: ByteArray) : DeviceEvent() {
         override val isPush get() = code >= 0x80

@@ -184,6 +184,13 @@ object ResponseParser {
         Codes.PUSH_CODE_CONTROL_DATA ->
             DeviceEvent.ControlData(frame.copyOfRange(1, frame.size))
 
+        Codes.PUSH_CODE_CONTACT_DELETED -> {
+            val r = BufferReader(frame)
+            r.skipBytes(1)
+            DeviceEvent.ContactDeleted(r.readBytes(Codes.PUB_KEY_SIZE))
+        }
+        Codes.PUSH_CODE_CONTACTS_FULL -> DeviceEvent.ContactsFull
+
         else -> DeviceEvent.Unknown(code, frame)
     }
 

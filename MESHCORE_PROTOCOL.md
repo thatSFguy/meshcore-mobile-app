@@ -111,7 +111,7 @@ outstanding commands and matches `RESP_CODE_OK`/`RESP_CODE_ERR` to the oldest.
 | 15 | `CMD_REMOVE_CONTACT` | Delete a contact | |
 | 16 | `CMD_SHARE_CONTACT` | Zero-hop share of a contact | |
 | 17 | `CMD_EXPORT_CONTACT` | Export a contact (or self if empty key) | |
-| 18 | `CMD_IMPORT_CONTACT` | Import a contact from an advert blob | |
+| 18 | `CMD_IMPORT_CONTACT` | Import a contact from an advert blob — the whole PACKET, not the payload. Replayed through the receive path, so the **auto-add filter applies**: a node the radio declined to auto-add is declined again, with an `OK`. Use `CMD_ADD_UPDATE_CONTACT` to add one deliberately (`BaseChatMesh::importContact`, verified 2026-09-23). | |
 | 19 | `CMD_REBOOT` | Reboot radio (payload `"reboot"`) | |
 | 20 | `CMD_GET_BATT_AND_STORAGE` | Battery + storage stats | |
 | 21 | `CMD_SET_TUNING_PARAMS` | Radio tuning parameters | ✗ |
@@ -245,8 +245,8 @@ radio and cannot read its output.
 | 0x8E | `PUSH_CODE_CONTROL_DATA` | Discovery/control response |
 | 0x84 | `PUSH_CODE_RAW_DATA` | Raw payload received |
 | 0x8D | `PUSH_CODE_PATH_DISCOVERY_RESPONSE` | Reply to `CMD_SEND_PATH_DISCOVERY_REQ` |
-| 0x8F | `PUSH_CODE_CONTACT_DELETED` | A contact was evicted (storage full) |
-| 0x90 | `PUSH_CODE_CONTACTS_FULL` | Contact storage is full |
+| 0x8F | `PUSH_CODE_CONTACT_DELETED` | `[pubkey x32]` — evicted by auto-add overwrite-oldest (`onContactOverwrite`). Can arrive mid-`GET_CONTACTS` stream |
+| 0x90 | `PUSH_CODE_CONTACTS_FULL` | `[code]` only — a node went unadded for lack of a slot (never sent when overwrite-oldest succeeds) |
 
 ---
 

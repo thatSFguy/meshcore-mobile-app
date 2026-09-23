@@ -207,8 +207,9 @@ sealed class MeshEvent {
 
     /**
      * A signature-verified advert heard over the air. [payload] is the
-     * raw advert payload, kept so the node can be imported as a contact
-     * later (CMD_IMPORT_CONTACT) without waiting to hear it again.
+     * advert PAYLOAD, not the packet — kept so the node can be added as
+     * a contact later ([MeshCoreEngine.addContactFromAdvert]) without
+     * waiting to hear it again.
      */
     data class VerifiedAdvertHeard(
         val advert: AdvertInfo,
@@ -223,6 +224,20 @@ sealed class MeshEvent {
         val pubKeyPrefixHex: String?,
         val permissions: Int?,
     ) : MeshEvent()
+
+    /**
+     * The radio dropped a contact on its own — overwrite-oldest making
+     * room for a newcomer. The store must forget it too; nothing else
+     * will tell it.
+     */
+    data class ContactDeletedByRadio(val publicKeyHex: String) : MeshEvent()
+
+    /**
+     * A FULL contact sweep finished: [publicKeysHex] is everything the
+     * radio holds. Never sent for an incremental re-read, which by
+     * design omits whatever did not change.
+     */
+    data class ContactListComplete(val publicKeysHex: Set<String>) : MeshEvent()
 
     /** Contact list fully (re)synced. */
     object ContactsSynced : MeshEvent()
@@ -272,6 +287,16 @@ class MeshCoreEngine(
     /** CMD_GET_AUTO_ADD_CONFIG flags (Codes.AUTO_ADD_*), null until read. */
     private val _autoAddFlags = MutableStateFlow<Int?>(null)
     val autoAddFlags: StateFlow<Int?> = _autoAddFlags.asStateFlow()
+
+    /**
+     * The radio said its contact table is full — by push, or by refusing
+     * an add. Cleared when we remove a contact, which is the only thing
+     * this app does that frees a slot. A radio that overwrites its oldest
+     * contact never sends the push, so this means new nodes are being
+     * turned away, not merely that the table is at capacity.
+     */
+    private val _contactsFull = MutableStateFlow(false)
+    val contactsFull: StateFlow<Boolean> = _contactsFull.asStateFlow()
 
     /** Last flood-scope region set through this app ("" = cleared; the
      *  radio can't be queried for it, so this is app-side memory only). */
@@ -424,6 +449,7 @@ class MeshCoreEngine(
         _plaintextLink.value = false
         syncingContacts = null
         syncingIsIncremental = false
+        _contactsFull.value = false
         contactRefreshJob?.cancel(); contactRefreshJob = null
         drainingQueue = false
         // The next radio's slots are unknown until we read them, even
@@ -597,6 +623,12 @@ class MeshCoreEngine(
                     // everyone every few minutes.
                     _contacts.value =
                         if (syncingIsIncremental) _contacts.value + swept else swept.toMap()
+                    // Only from inside this `let`: a sweep abandoned for
+                    // running long, or one that never reached END, must
+                    // never be taken as the radio's whole list.
+                    if (!syncingIsIncremental) {
+                        _meshEvents.tryEmit(MeshEvent.ContactListComplete(swept.keys.toSet()))
+                    }
                 }
                 syncingContacts = null
                 syncingIsIncremental = false
@@ -711,6 +743,21 @@ class MeshCoreEngine(
             )
 
             is DeviceEvent.AdvertReheard -> refreshContactDebounced(event.publicKey)
+
+            is DeviceEvent.ContactDeleted -> {
+                val keyHex = event.publicKey.toHex()
+                _contacts.value = _contacts.value - keyHex
+                // Pushes interleave with the contact stream (PR #3403,
+                // open, is the firmware fix), so this can land between
+                // START and END. A full sweep REPLACES the map at the
+                // end: a record that had already streamed past would
+                // come back with it unless the sweep forgets it too. A
+                // record streamed AFTER this is the radio's current
+                // state and is rightly kept.
+                syncingContacts?.remove(keyHex)
+                _meshEvents.tryEmit(MeshEvent.ContactDeletedByRadio(keyHex))
+            }
+            DeviceEvent.ContactsFull -> _contactsFull.value = true
             is DeviceEvent.PathUpdated -> refreshContactDebounced(event.publicKey)
 
             is DeviceEvent.LogRxData -> handleRxLog(event)
@@ -1672,6 +1719,7 @@ class MeshCoreEngine(
         val ev = sendAndAwait(Frames.removeContact(pubKey)) { it is DeviceEvent.Ok }
         if (ev is DeviceEvent.Ok) {
             _contacts.value = _contacts.value - pubKey.toHex()
+            _contactsFull.value = false
             return true
         }
         return false
@@ -1957,6 +2005,57 @@ class MeshCoreEngine(
         )
         if (ok) syncContacts()
         return ok
+    }
+
+    enum class AddOutcome { Added, TableFull, Unverified, Failed }
+
+    /**
+     * Add a node we heard advertise, from its stored advert PAYLOAD.
+     *
+     * This is the discovery inbox's Add, and it cannot go through
+     * [importContact]. `CMD_IMPORT_CONTACT` replays the advert through
+     * the firmware's receive path as if heard again
+     * (`BaseChatMesh::importContact` → `_pendingLoopback`), and that path
+     * applies the auto-add filter (`onAdvertRecv`, `shouldAutoAddContactType`
+     * and the hop limit). The inbox holds exactly the nodes that filter
+     * turned away, so an import would be turned away again — silently,
+     * with an OK. `CMD_ADD_UPDATE_CONTACT` writes the record directly
+     * and answers `ERR_CODE_TABLE_FULL` when there is no slot
+     * (`companion_radio/MyMesh.cpp`, CMD_ADD_UPDATE_CONTACT).
+     *
+     * The signature is checked here, because the radio will not check
+     * it: this command takes our word for every field.
+     *
+     * The timestamp is the advert's own. That is what the firmware would
+     * have stored on hearing it (`populateContactFromAdvert`), and it is
+     * the replay guard — see [Frames.addUpdateContact].
+     */
+    suspend fun addContactFromAdvert(advertPayload: ByteArray): AddOutcome {
+        val info = Advert.parseVerified(crypto, advertPayload) ?: return AddOutcome.Unverified
+        val ev = sendAndAwait(
+            Frames.addUpdateContact(
+                pubKey = info.publicKey,
+                type = info.type,
+                flags = 0,
+                pathLen = PathCodec.PATH_LEN_FLOOD,
+                path = ByteArray(0),
+                name = info.name,
+                timestampSeconds = info.timestamp,
+                lat = info.latitude,
+                lon = info.longitude,
+            ),
+        ) { it is DeviceEvent.Ok }
+        return when {
+            ev is DeviceEvent.Ok -> {
+                runCatching { if (!syncContactsChangedOnly()) syncContacts() }
+                AddOutcome.Added
+            }
+            ev is DeviceEvent.Err && ev.errorCode == Codes.ERR_CODE_TABLE_FULL -> {
+                _contactsFull.value = true
+                AddOutcome.TableFull
+            }
+            else -> AddOutcome.Failed
+        }
     }
 
     // ------------------------------------------------------------------

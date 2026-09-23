@@ -250,4 +250,122 @@ class MessageRepositoryGuardsTest {
             assertEquals(0, db.messages().countAll(""))
         }
     }
+
+    // ------------------------------------------------------------------
+    // The radio dropping a contact on its own
+    // ------------------------------------------------------------------
+
+    private fun contactRow(keyHex: String, name: String) = ContactEntity(
+        selfKey = selfHex, keyHex = keyHex, name = name, type = Codes.ADV_TYPE_REPEATER,
+        flags = 0, pathLen = 0, latitude = null, longitude = null,
+        lastSeen = 1_700_000_000L, lastModified = 1_700_000_000L,
+    )
+
+    private fun neighbourRow(repeaterKey: String) = NeighbourEntity(
+        selfKey = selfHex, repeaterKey = repeaterKey, keyPrefixHex = "b389",
+        snr = 12.0, heardSecondsAgo = 60, collectedAt = 1L,
+    )
+
+    @Test
+    fun aContactTheRadioOverwroteLeavesTheStoreAndTakesItsLinesWithIt() = runTest {
+        // The contacts collector only ever upserts, so a row the radio
+        // dropped would outlive the contact — on the Nodes list, and as
+        // neighbour lines on the map from a node with no pin. The other
+        // row is the control: a handler that cleared the table passes
+        // a one-row test.
+        val gone = peer.joinToString("") { "%02x".format(it) }
+        val kept = ByteArray(32) { 0x55 }.joinToString("") { "%02x".format(it) }
+        db.contacts().upsertAll(listOf(contactRow(gone, "gone"), contactRow(kept, "kept")))
+        db.neighbours().upsertAll(listOf(neighbourRow(gone), neighbourRow(kept)))
+        val repository = repo(backgroundScope)
+        repository.selfKey = selfHex
+        val engine = MeshCoreEngine(backgroundScope, AndroidCryptoProvider(), { 1_700_000_000L })
+
+        repository.handle(engine, MeshEvent.ContactDeletedByRadio(gone))
+
+        assertEquals(listOf("kept"), db.contacts().allOnce(selfHex).map { it.name })
+        assertTrue(db.neighbours().forRepeater(selfHex, gone).isEmpty())
+        assertEquals(1, db.neighbours().forRepeater(selfHex, kept).size)
+    }
+
+    @Test
+    fun aCompleteListPrunesWhatTheRadioNoLongerHolds() = runTest {
+        // Overwrites made while no phone was connected send no push, so
+        // a complete sweep is the only way the store finds out. Three
+        // rows: one the radio still holds (kept), one it dropped
+        // (pruned, with its neighbour lines), and one it dropped that
+        // carries an OTA address (kept — see the next test).
+        val held = "aa".repeat(32)
+        val dropped = "bb".repeat(32)
+        val flashed = "cc".repeat(32)
+        db.contacts().upsertAll(
+            listOf(
+                contactRow(held, "held"),
+                contactRow(dropped, "dropped"),
+                contactRow(flashed, "flashed").copy(otaAddress = "C8:2E:18:0A:11:22"),
+            ),
+        )
+        db.neighbours().upsertAll(listOf(neighbourRow(dropped), neighbourRow(held)))
+        val repository = repo(backgroundScope)
+        repository.selfKey = selfHex
+        val engine = MeshCoreEngine(backgroundScope, AndroidCryptoProvider(), { 1_700_000_000L })
+
+        repository.handle(engine, MeshEvent.ContactListComplete(setOf(held)))
+
+        assertEquals(
+            setOf("held", "flashed"),
+            db.contacts().allOnce(selfHex).map { it.name }.toSet(),
+        )
+        assertTrue(db.neighbours().forRepeater(selfHex, dropped).isEmpty())
+        assertEquals(1, db.neighbours().forRepeater(selfHex, held).size)
+    }
+
+    @Test
+    fun aNodeWithAnOtaAddressOutlivesItsEviction() = runTest {
+        // A node stuck in its bootloader has stopped advertising, which
+        // is exactly how it gets evicted — and the recorded address is
+        // how it is found again. Both radio-side paths must keep it,
+        // with everything else on the row.
+        val flashed = "cc".repeat(32)
+        val row = contactRow(flashed, "flashed")
+            .copy(otaAddress = "C8:2E:18:0A:11:22", updateModeSince = 1_700_000_050L)
+        db.contacts().upsertAll(listOf(row))
+        val repository = repo(backgroundScope)
+        repository.selfKey = selfHex
+        val engine = MeshCoreEngine(backgroundScope, AndroidCryptoProvider(), { 1_700_000_000L })
+
+        repository.handle(engine, MeshEvent.ContactDeletedByRadio(flashed))
+        repository.handle(engine, MeshEvent.ContactListComplete(emptySet()))
+
+        assertEquals(listOf(row), db.contacts().allOnce(selfHex))
+    }
+
+    @Test
+    fun anEmptyCompleteListEmptiesTheStore() = runTest {
+        // A reset radio holds nothing. Gating on a non-empty list is how
+        // channels once kept stale rows for ever.
+        db.contacts().upsertAll(listOf(contactRow("aa".repeat(32), "a"), contactRow("bb".repeat(32), "b")))
+        val repository = repo(backgroundScope)
+        repository.selfKey = selfHex
+        val engine = MeshCoreEngine(backgroundScope, AndroidCryptoProvider(), { 1_700_000_000L })
+
+        repository.handle(engine, MeshEvent.ContactListComplete(emptySet()))
+
+        assertTrue(db.contacts().allOnce(selfHex).isEmpty())
+    }
+
+    @Test
+    fun anotherRadiosContactsAreNotPruned() = runTest {
+        // Rows are scoped by the attached radio. Reconciling one radio's
+        // list must not touch a second radio's cache.
+        val otherRadio = "ee".repeat(32)
+        db.contacts().upsertAll(listOf(contactRow("aa".repeat(32), "mine").copy(selfKey = otherRadio)))
+        val repository = repo(backgroundScope)
+        repository.selfKey = selfHex
+        val engine = MeshCoreEngine(backgroundScope, AndroidCryptoProvider(), { 1_700_000_000L })
+
+        repository.handle(engine, MeshEvent.ContactListComplete(emptySet()))
+
+        assertEquals(1, db.contacts().allOnce(otherRadio).size)
+    }
 }

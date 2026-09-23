@@ -124,7 +124,6 @@ fun MapScreen(vm: MeshCoreViewModel, nav: NavController) {
                         }
                         vm.transientMessage.value = "Tile cache cleared"
                     },
-                    MenuAction("Sync contacts") { vm.syncContactsNow() },
                 ),
             )
         },

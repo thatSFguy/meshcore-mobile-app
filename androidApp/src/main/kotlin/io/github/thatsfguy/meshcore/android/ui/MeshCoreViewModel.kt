@@ -1,6 +1,7 @@
 package io.github.thatsfguy.meshcore.android.ui
 
 import io.github.thatsfguy.meshcore.presentation.Inbox
+import io.github.thatsfguy.meshcore.presentation.DiscoveredAdd
 import io.github.thatsfguy.meshcore.model.ChannelList
 import io.github.thatsfguy.meshcore.presentation.AdminSession
 import io.github.thatsfguy.meshcore.presentation.ChannelScopeJoin
@@ -30,6 +31,7 @@ import io.github.thatsfguy.meshcore.android.storage.MessageRepository
 import io.github.thatsfguy.meshcore.android.storage.NeighbourEntity
 import io.github.thatsfguy.meshcore.android.storage.Preferences
 import io.github.thatsfguy.meshcore.engine.EngineState
+import io.github.thatsfguy.meshcore.engine.MeshCoreEngine
 import io.github.thatsfguy.meshcore.engine.MeshEvent
 import io.github.thatsfguy.meshcore.model.BatteryAndStorage
 import io.github.thatsfguy.meshcore.model.Channel
@@ -462,19 +464,41 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
             if (key.isEmpty()) flowOf(emptyList()) else db.discovered().all(key)
         }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
-    /** Add a discovered node as a contact by replaying its advert. */
+    /**
+     * The radio has said it is turning new nodes away. Shown on the New
+     * tab, which is where those nodes end up.
+     */
+    val contactsFull: StateFlow<Boolean> = _service.flatMapLatest { svc ->
+        svc?.engine?.contactsFull ?: flowOf(false)
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    /**
+     * Add a discovered node as a contact, from the advert we stored.
+     *
+     * This used to replay the advert with CMD_IMPORT_CONTACT and could
+     * never work: the stored bytes are the advert payload, where import
+     * needs the whole packet — and even the right bytes would have gone
+     * back through the auto-add filter that put the node here. See
+     * [io.github.thatsfguy.meshcore.engine.MeshCoreEngine.addContactFromAdvert].
+     */
     fun addDiscovered(keyHex: String) {
-        val svc = _service.value ?: return
+        val svc = _service.value ?: run {
+            transientMessage.value = "Connect a radio to add contacts"
+            return
+        }
         viewModelScope.launch {
             val row = db.discovered().get(selfKey.value, keyHex) ?: return@launch
-            val blob = hexToBytesOrNull(row.advertHex)
-            val ok = blob != null &&
-                runCatching { svc.engine.importContact(blob) }.getOrDefault(false)
-            if (ok) {
-                db.discovered().delete(selfKey.value, keyHex)
-                transientMessage.value = "Added ${row.name.ifBlank { keyHex.take(12) }}"
+            val name = row.name.ifBlank { keyHex.take(12) }
+            val payload = hexToBytesOrNull(row.advertHex)
+            val outcome = if (payload == null) {
+                MeshCoreEngine.AddOutcome.Unverified
             } else {
-                transientMessage.value = "Import failed (bad signature?)"
+                runCatching { svc.engine.addContactFromAdvert(payload) }
+                    .getOrDefault(MeshCoreEngine.AddOutcome.Failed)
+            }
+            transientMessage.value = DiscoveredAdd.message(outcome, name)
+            if (outcome == MeshCoreEngine.AddOutcome.Added) {
+                db.discovered().delete(selfKey.value, keyHex)
             }
         }
     }
@@ -2992,11 +3016,6 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
         return runCatching {
             svc.engine.sendChannelDatagram(channelIndex, dataType, payload)
         }.getOrDefault(false)
-    }
-
-    fun syncContactsNow() {
-        val svc = _service.value ?: return
-        viewModelScope.launch { runCatching { svc.engine.syncContacts() } }
     }
 
     fun clearThread(kind: String, peerKey: String) {

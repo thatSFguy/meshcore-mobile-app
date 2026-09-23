@@ -160,6 +160,30 @@ class MessageRepository(
     }
 
     /**
+     * Forget the rows the RADIO dropped, which [dropped] selects.
+     *
+     * A row carrying a recorded OTA address is kept even so. That
+     * address is learned once, from `start ota`, and is how a node stuck
+     * in its bootloader is found again — and a node sitting in its
+     * bootloader has stopped advertising, which is exactly how it comes
+     * to be evicted. Deleting the row would take the recovery path with
+     * it, at the moment it is needed. (Removing a node by hand still
+     * deletes everything: that is the operator deciding.)
+     *
+     * Message history is untouched — it is keyed by peer, not by row.
+     */
+    private suspend fun forgetDroppedContacts(
+        self: String,
+        dropped: (ContactEntity) -> Boolean,
+    ) {
+        for (row in db.contacts().allOnce(self)) {
+            if (!dropped(row) || row.otaAddress != null) continue
+            db.contacts().delete(self, row.keyHex)
+            db.neighbours().clear(self, row.keyHex)
+        }
+    }
+
+    /**
      * The attached radio's key, preferring the engine's own SELF_INFO
      * over [selfKey].
      *
@@ -449,6 +473,24 @@ class MessageRepository(
             is MeshEvent.MessageDelivered -> {
                 db.messages().updateStatusByAck(self, event.ackHash, MessageStatus.Delivered.ordinal)
                 scorePath(event.ackHash, delivered = true)
+            }
+
+            // The radio made room for a newcomer. The contacts collector
+            // only ever upserts, so without this the row — and its
+            // neighbour lines on the map — would outlive the contact
+            // indefinitely. Same cleanup as removing one by hand.
+            is MeshEvent.ContactDeletedByRadio -> forgetDroppedContacts(self) {
+                it.keyHex == event.publicKeyHex
+            }
+
+            // The pushes above only cover what happens while we are
+            // connected: the firmware sends CONTACT_DELETED only
+            // `if (_serial->isConnected())`. A radio left running on its
+            // own overwrites contacts unseen, so a complete sweep is the
+            // one moment we can reconcile — the same rule channels
+            // already follow (`deleteAbsent`).
+            is MeshEvent.ContactListComplete -> forgetDroppedContacts(self) {
+                it.keyHex !in event.publicKeysHex
             }
 
             else -> Unit
