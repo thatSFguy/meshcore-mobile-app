@@ -13,10 +13,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.sp
 
 /**
  * Palette ported from the webclient's css/style.css. Light theme is the
@@ -114,14 +111,17 @@ private val DarkColors = darkColorScheme(
     error = DarkError,
 )
 
-private val ReticulumTypography = Typography(
-    bodyLarge   = TextStyle(fontSize = 14.sp, lineHeight = 20.sp),
-    bodyMedium  = TextStyle(fontSize = 13.sp, lineHeight = 18.sp),
-    bodySmall   = TextStyle(fontSize = 12.sp, lineHeight = 16.sp),
-    labelMedium = TextStyle(fontSize = 11.sp, fontWeight = FontWeight.Medium),
-    titleMedium = TextStyle(fontSize = 16.sp, fontWeight = FontWeight.Medium),
-    titleLarge  = TextStyle(fontSize = 18.sp, fontWeight = FontWeight.Medium),
-)
+/**
+ * Material's own type scale, unmodified.
+ *
+ * This used to be a compacted copy carried over from the Reticulum app:
+ * body text at 14 sp where every other Material app uses 16, titles at 18
+ * instead of 22. It was in sp, so it followed the system font-size
+ * setting — but from a smaller starting point, so at any setting this app
+ * read smaller than everything else on the phone (issue #2, a Pixel 10
+ * Pro user). Whoever sets their phone's text size gets that size here too.
+ */
+internal val MeshCoreTypography = Typography()
 
 @Composable
 fun MeshCoreTheme(
@@ -151,7 +151,7 @@ fun MeshCoreTheme(
             }
         }
     }
-    MaterialTheme(colorScheme = scheme, typography = ReticulumTypography, content = content)
+    MaterialTheme(colorScheme = scheme, typography = MeshCoreTypography, content = content)
 }
 
 /** Monospace for hashes and the diagnostics log. */

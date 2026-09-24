@@ -11,6 +11,18 @@ Every entry describes what is in **that tagged build**. A feature that landed af
 belongs in the next section, not this one — 0.3.0 was once credited with four features that
 shipped after it, which misled nobody so much as the author, three months later.
 
+## 0.10.1
+
+**Text is the size you set on your phone.** The app's type scale was a compacted copy carried over
+from its Reticulum sibling — message and list text at 14 sp where every other Android app uses 16,
+titles at 18 instead of 22. It did follow the system font-size setting, but from a smaller starting
+point, so at any setting it read smaller than everything else on the phone (issue #2). It now uses
+Android's standard sizes, and checked at the default size and at 130%, long names shorten with an
+ellipsis rather than clipping.
+
+- **A message shown while the app was in the background is no longer lost.** It appears when you
+  come back, instead of being displayed to nobody. (PR #4, from Verlintas.)
+
 ## 0.10.0
 
 Firmware updates and the Nodes screen, both reworked after a day of driving them on real
