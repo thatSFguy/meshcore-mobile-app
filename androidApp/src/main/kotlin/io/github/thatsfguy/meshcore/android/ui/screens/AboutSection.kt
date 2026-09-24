@@ -90,7 +90,7 @@ fun AboutSection(vm: MeshCoreViewModel) {
  * is a changelog you can't read in the field.
  */
 private val CHANGELOG: List<Pair<String, List<String>>> = listOf(
-    "0.9.9" to listOf(
+    "0.10.0" to listOf(
         "A repeater that doesn't answer is asked again. Commands to a repeater carry no " +
             "delivery receipt, so a lost answer looked like a lost command and a firmware " +
             "update could stall on an unanswered ver.",

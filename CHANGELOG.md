@@ -11,7 +11,11 @@ Every entry describes what is in **that tagged build**. A feature that landed af
 belongs in the next section, not this one — 0.3.0 was once credited with four features that
 shipped after it, which misled nobody so much as the author, three months later.
 
-## 0.9.9
+## 0.10.0
+
+Firmware updates and the Nodes screen, both reworked after a day of driving them on real
+hardware. This builds on 0.9.8, released the same morning, which taught firmware updates to
+tell the standard and OTAFIX bootloaders apart.
 
 **A repeater that doesn't answer is asked again.** A command sent to a repeater has no
 delivery receipt, so an answer lost on the air looked exactly like a command that never got
