@@ -90,6 +90,11 @@ fun AboutSection(vm: MeshCoreViewModel) {
  * is a changelog you can't read in the field.
  */
 private val CHANGELOG: List<Pair<String, List<String>>> = listOf(
+    "0.10.2" to listOf(
+        "The app icon no longer carries a badge all the time. The ongoing connection " +
+            "notification counted toward it, so it never went away; now only messages badge " +
+            "the icon.",
+    ),
     "0.10.1" to listOf(
         "Text is the size you set on your phone. The app used a compacted type scale — body " +
             "text at 14 sp where other apps use 16 — so it read smaller than everything else at " +

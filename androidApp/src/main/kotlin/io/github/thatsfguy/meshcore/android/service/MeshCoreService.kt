@@ -431,10 +431,21 @@ class MeshCoreService : Service() {
 
     private fun startAsForeground() {
         val manager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
+        // No launcher badge for the connection status. It is an ongoing
+        // notification that exists for as long as the service runs — which
+        // is always — so with the default (badges on) the app icon carried
+        // a badge permanently, saying nothing. The Messages channel keeps
+        // its badge: that one means something.
+        //
+        // A NEW channel id, because a channel's badge setting cannot be
+        // changed once the channel exists: createNotificationChannel only
+        // updates the name, description and a lowered importance. The old
+        // channel is deleted so it does not linger in system settings.
+        manager.deleteNotificationChannel(LEGACY_NOTIF_CHANNEL)
         manager.createNotificationChannel(
             NotificationChannel(
                 NOTIF_CHANNEL, "Connection status", NotificationManager.IMPORTANCE_LOW,
-            ),
+            ).apply { setShowBadge(false) },
         )
         manager.createNotificationChannel(
             NotificationChannel(
@@ -586,7 +597,10 @@ class MeshCoreService : Service() {
     }
 
     companion object {
-        private const val NOTIF_CHANNEL = "meshcore_connection"
+        private const val NOTIF_CHANNEL = "meshcore_connection_quiet"
+
+        /** Created with badges on, before 0.10.2; deleted on start. */
+        private const val LEGACY_NOTIF_CHANNEL = "meshcore_connection"
         private const val MSG_CHANNEL = "meshcore_messages"
         private const val NOTIF_ID = 1
         private const val MSG_NOTIF_BASE = 1000

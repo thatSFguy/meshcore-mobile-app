@@ -11,6 +11,19 @@ Every entry describes what is in **that tagged build**. A feature that landed af
 belongs in the next section, not this one — 0.3.0 was once credited with four features that
 shipped after it, which misled nobody so much as the author, three months later.
 
+## 0.10.2
+
+**The app icon no longer carries a badge all the time.** While the app is connected it keeps an
+ongoing "Connection status" notification — Android requires one for a service that holds a radio
+link — and that notification counted toward the launcher badge. Since the app is connected
+whenever it is useful, the badge never went away and said nothing. The connection notification no
+longer badges the icon; message notifications still do, so a badge now means there is something
+to read.
+
+- **Message notifications still badge the icon**, and clear it when read, as before.
+- **The old notification channel is removed**, so Settings → Apps → Notifications shows one
+  "Connection status" entry, with badges off.
+
 ## 0.10.1
 
 **Text is the size you set on your phone.** The app's type scale was a compacted copy carried over
