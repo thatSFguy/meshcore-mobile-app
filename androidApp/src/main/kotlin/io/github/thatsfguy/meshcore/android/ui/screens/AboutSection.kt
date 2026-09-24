@@ -90,6 +90,14 @@ fun AboutSection(vm: MeshCoreViewModel) {
  * is a changelog you can't read in the field.
  */
 private val CHANGELOG: List<Pair<String, List<String>>> = listOf(
+    "0.9.9" to listOf(
+        "A repeater that doesn't answer is asked again. Commands to a repeater carry no " +
+            "delivery receipt, so a lost answer looked like a lost command and a firmware " +
+            "update could stall on an unanswered ver.",
+        "board and ver are asked again after 10 seconds of silence, up to three times. " +
+            "start ota is resent once only: a second one answers \"Error\" when the first " +
+            "worked, and the app now says so instead of reporting a refusal.",
+    ),
     "0.9.8" to listOf(
         "Firmware updates now tell the two nRF52 bootloaders apart, because they fail in " +
             "opposite ways. Once an update has begun the old firmware is gone: restarted, " +

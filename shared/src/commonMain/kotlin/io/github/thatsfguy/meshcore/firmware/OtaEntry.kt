@@ -39,7 +39,19 @@ object OtaEvidence {
      * between "this firmware is too old" and "go closer to it", and the
      * caller needs both.
      */
-    fun answerTo(command: String, rows: List<ConsoleRow>, sentAfter: Long): String? {
+    fun answerTo(
+        command: String,
+        rows: List<ConsoleRow>,
+        sentAfter: Long,
+        /**
+         * Incoming rows that cannot be this command's answer and are
+         * skipped rather than allowed to break the pair. Used for the late
+         * second answer to a RESENT `ver`, which can land after `start
+         * ota` has gone out and would otherwise be read as its answer.
+         */
+        notAnAnswer: (String) -> Boolean = { false },
+    ): String? {
+        val rows = rows.filter { it.outgoing || !notAnAnswer(it.text) }
         if (rows.size < 2) return null
         val asked = rows[rows.size - 2]
         val answer = rows[rows.size - 1]
@@ -113,11 +125,26 @@ sealed class OtaEntry {
      */
     data class Queued(val since: Long) : OtaEntry()
 
-    /** `ver` has gone out; waiting to see whether the node is there. */
-    data class ProvingTheNodeAnswers(val sentAt: Long) : OtaEntry()
+    /**
+     * `ver` has gone out; waiting to see whether the node is there.
+     *
+     * [sentAt] is the latest send — a new value is the caller's cue to
+     * send again (see [CliResend]). [firstSentAt] bounds the whole wait,
+     * and an answer to ANY of the sends counts.
+     */
+    data class ProvingTheNodeAnswers(
+        val sentAt: Long,
+        val sends: Int = 1,
+        val firstSentAt: Long = sentAt,
+    ) : OtaEntry()
 
-    /** The node answered; `start ota` has gone out. */
-    data class AwaitingUpdateMode(val version: String, val sentAt: Long) : OtaEntry()
+    /** The node answered; `start ota` has gone out. Fields as above. */
+    data class AwaitingUpdateMode(
+        val version: String,
+        val sentAt: Long,
+        val sends: Int = 1,
+        val firstSentAt: Long = sentAt,
+    ) : OtaEntry()
 
     /**
      * The node reported that it is advertising for an update. [at] is
@@ -158,8 +185,29 @@ sealed class OtaEntry {
                 "is the firmware declining rather than a lost message — an older build may " +
                 "not have the command at all."
 
+        /** `start ota` is sent at most this many times; see [ERROR_AFTER_RESEND]. */
+        const val START_OTA_MAX_SENDS = 2
+
+        /**
+         * A resent `start ota` answered "Error".
+         *
+         * `NRF52Board::startOTAUpdate` returns false when
+         * `Bluefruit.begin()` does, and `begin()` fails when the
+         * SoftDevice is already enabled (`sd_softdevice_enable` under
+         * `VERIFY_STATUS`, Adafruit bluefruit.cpp) — which is exactly the
+         * state the FIRST `start ota` leaves the node in. So after an
+         * unanswered first send, "Error" most likely means the first one
+         * worked and only its answer was lost.
+         */
+        internal const val ERROR_AFTER_RESEND =
+            "The first `start ota` got no answer and the second got \"Error\". A node " +
+                "answers that way when its Bluetooth is already on — usually because the " +
+                "first one worked and only its answer was lost. It is probably advertising " +
+                "for an update now: use \"It is already in update mode\" to look for it."
+
         internal const val NO_VERSION_ANSWER =
-            "The node did not answer `ver`, so `start ota` was not sent and nothing on it " +
+            "The node did not answer `ver`, asked ${CliResend.MAX_SENDS} times, so " +
+                "`start ota` was not sent and nothing on it " +
                 "has changed. Get closer, or check it is still on the mesh, and try again."
 
         internal const val NO_UPDATE_MODE_ANSWER =
@@ -199,10 +247,16 @@ sealed class OtaEntry {
                 }
 
             is ProvingTheNodeAnswers -> {
-                val reply = OtaEvidence.answerTo("ver", rows, state.sentAt)
+                val reply = OtaEvidence.answerTo("ver", rows, state.firstSentAt)
                 when {
-                    reply == null ->
-                        if (timedOut(state.sentAt, now)) GaveUp(NO_VERSION_ANSWER) else state
+                    reply == null -> when {
+                        timedOut(state.firstSentAt, now) -> GaveUp(NO_VERSION_ANSWER)
+                        // `ver` changes nothing on the node, so asking
+                        // again costs only airtime.
+                        CliResend.due(state.sentAt, now, state.sends, CliResend.MAX_SENDS) ->
+                            state.copy(sentAt = now, sends = state.sends + 1)
+                        else -> state
+                    }
                     // A node that says anything at all is running its
                     // application firmware, so `??: ver` still proves
                     // the point — but it also means the console is not
@@ -215,12 +269,27 @@ sealed class OtaEntry {
             }
 
             is AwaitingUpdateMode -> {
-                val reply = OtaEvidence.answerTo("start ota", rows, state.sentAt)
+                val reply = OtaEvidence.answerTo(
+                    "start ota",
+                    rows,
+                    state.firstSentAt,
+                    notAnAnswer = NodeIdentityReplies::looksLikeVersionAnswer,
+                )
                 val address = OtaReply.advertisingAddress(reply)
                 when {
                     address != null -> Confirmed(state.version, address, rows.last().at)
-                    reply == null ->
-                        if (timedOut(state.sentAt, now)) GaveUp(NO_UPDATE_MODE_ANSWER) else state
+                    reply == null -> when {
+                        timedOut(state.firstSentAt, now) -> GaveUp(NO_UPDATE_MODE_ANSWER)
+                        // Once only. A second `start ota` on a node the
+                        // first one reached answers "Error" — see
+                        // [ERROR_AFTER_RESEND] — so more sends add
+                        // nothing but a misleading answer.
+                        CliResend.due(state.sentAt, now, state.sends, START_OTA_MAX_SENDS) ->
+                            state.copy(sentAt = now, sends = state.sends + 1)
+                        else -> state
+                    }
+                    state.sends > 1 && reply.trim().equals("Error", ignoreCase = true) ->
+                        GaveUp(ERROR_AFTER_RESEND)
                     !NodeIdentityReplies.isRealAnswer(reply) -> GaveUp(refused("start ota", reply))
                     // Answered, accepted, and no usable address in it.
                     // An all-zero MAC is an nRF board that IS advertising
@@ -236,4 +305,35 @@ sealed class OtaEntry {
             else -> state
         }
     }
+}
+
+/**
+ * When to ask a repeater again.
+ *
+ * A CLI command has no delivery receipt: the companion sends it with no
+ * ACK expected (`sendCommandData`, `expected_ack = 0`), so the only sign
+ * it arrived is the answer, and an answer lost on the air looks exactly
+ * like a command that never got there. The operator's own fix — ask
+ * again — worked on the test RAK when a `ver` went unanswered.
+ *
+ * Asking again is safe for the node: the companion stamps each send
+ * with `getCurrentTimeUnique()` (companion_radio/MyMesh.cpp, firmware
+ * v1.12+), so a resend is a new command to the repeater, not the retry
+ * it would otherwise answer with nothing.
+ */
+object CliResend {
+    /**
+     * Silence before asking again. A direct reply on this mesh came back
+     * in 1.3-1.8 s — the repeater holds each CLI answer for 600 ms
+     * (`CLI_REPLY_DELAY_MILLIS`) — so ten seconds is several round trips
+     * even over a flood path; asking early costs only airtime.
+     */
+    const val RESEND_AFTER_MS = 10_000L
+
+    /** Sends in all, for a command that changes nothing on the node. */
+    const val MAX_SENDS = 3
+
+    /** True when a command last sent at [lastSentAt] should go again. */
+    fun due(lastSentAt: Long, now: Long, sends: Int, maxSends: Int): Boolean =
+        sends < maxSends && now - lastSentAt >= RESEND_AFTER_MS
 }

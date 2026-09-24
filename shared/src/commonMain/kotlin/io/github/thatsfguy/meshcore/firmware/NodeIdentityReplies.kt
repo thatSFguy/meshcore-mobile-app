@@ -168,6 +168,9 @@ data class NodeIdentityReplies(
         private fun looksLikeVersion(text: String) =
             VERSION_SHAPE.containsMatchIn(text.trim()) || BUILD.containsMatchIn(text)
 
+        /** True when [text] is shaped like an answer to `ver`. */
+        fun looksLikeVersionAnswer(text: String): Boolean = looksLikeVersion(text)
+
         /**
          * True when [text] is plainly not a `getManufacturerName()`.
          *

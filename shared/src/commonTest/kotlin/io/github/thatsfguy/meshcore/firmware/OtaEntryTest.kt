@@ -274,7 +274,9 @@ class OtaEntryTest {
         val state = OtaEntry.AwaitingUpdateMode(version = realVer, sentAt = 2_000_000L)
         val rows = listOf(sent("start ota", 2_000_000L))
         val still = OtaEntry.advance(state, rows, now = 2_000_000L + OtaEntry.ANSWER_TIMEOUT_MS - 1)
-        assertEquals(state, still)
+        // Still waiting — though no longer silently: it may have asked
+        // again (see CliResend), which is the point of waiting.
+        assertTrue(still is OtaEntry.AwaitingUpdateMode, "$still")
     }
 
     @Test
@@ -329,5 +331,114 @@ class OtaEntryTest {
         // reporting one.
         val rows = listOf(sent("OK - mac: FF:5C:EF:28:2A:92", 100L))
         assertNull(OtaEvidence.freshAdvertisingAddress(rows, 0L))
+    }
+
+    // --- asking again -----------------------------------------------------
+
+    @Test
+    fun `an unanswered ver is asked again and an answer to any send counts`() {
+        // The operator's report, 2026-09-24: `ver` went unanswered, and
+        // asking again by hand worked. A CLI command carries no receipt,
+        // so the sequence has to do what they did.
+        val t0 = 1_000_000L
+        var state: OtaEntry = OtaEntry.ProvingTheNodeAnswers(sentAt = t0)
+        val rows = mutableListOf(sent("ver", t0))
+
+        state = OtaEntry.advance(state, rows, now = t0 + CliResend.RESEND_AFTER_MS - 1)
+        assertEquals(1, (state as OtaEntry.ProvingTheNodeAnswers).sends, "asked again too soon")
+
+        val resendAt = t0 + CliResend.RESEND_AFTER_MS
+        state = OtaEntry.advance(state, rows, now = resendAt)
+        val again = state as OtaEntry.ProvingTheNodeAnswers
+        assertEquals(2, again.sends)
+        assertEquals(resendAt, again.sentAt, "the new sentAt is the caller's cue to send")
+        assertEquals(t0, again.firstSentAt)
+
+        rows += sent("ver", resendAt)
+        rows += heard(realVer, resendAt + 1_500L)
+        val next = OtaEntry.advance(state, rows, now = resendAt + 1_600L)
+        assertEquals(realVer, (next as OtaEntry.AwaitingUpdateMode).version)
+    }
+
+    @Test
+    fun `ver is sent at most three times and the wait is bounded from the first`() {
+        val t0 = 1_000_000L
+        var state: OtaEntry = OtaEntry.ProvingTheNodeAnswers(sentAt = t0)
+        val rows = listOf(sent("ver", t0))
+        var now = t0
+        while (now < t0 + OtaEntry.ANSWER_TIMEOUT_MS - 1_000L) {
+            now += 1_000L
+            state = OtaEntry.advance(state, rows, now)
+        }
+        assertEquals(CliResend.MAX_SENDS, (state as OtaEntry.ProvingTheNodeAnswers).sends)
+        val gaveUp = OtaEntry.advance(state, rows, now = t0 + OtaEntry.ANSWER_TIMEOUT_MS)
+        assertTrue(gaveUp is OtaEntry.GaveUp, "$gaveUp")
+    }
+
+    @Test
+    fun `start ota is resent once and no more`() {
+        val t0 = 2_000_000L
+        var state: OtaEntry = OtaEntry.AwaitingUpdateMode(realVer, sentAt = t0)
+        val rows = listOf(sent("ver", t0 - 2_000L), heard(realVer, t0 - 500L), sent("start ota", t0))
+        var now = t0
+        while (now < t0 + OtaEntry.ANSWER_TIMEOUT_MS - 1_000L) {
+            now += 1_000L
+            state = OtaEntry.advance(state, rows, now)
+        }
+        assertEquals(OtaEntry.START_OTA_MAX_SENDS, (state as OtaEntry.AwaitingUpdateMode).sends)
+    }
+
+    @Test
+    fun `error to a resent start ota is read as the first one having worked`() {
+        // Bluefruit.begin() fails once the SoftDevice is enabled — which
+        // the first `start ota` did — so the second answers "Error".
+        val t0 = 2_000_000L
+        val state = OtaEntry.AwaitingUpdateMode(realVer, sentAt = t0 + 10_000L, sends = 2, firstSentAt = t0)
+        val rows = listOf(
+            sent("start ota", t0),
+            sent("start ota", t0 + 10_000L),
+            heard("Error", t0 + 11_500L),
+        )
+        val gaveUp = OtaEntry.advance(state, rows, now = t0 + 11_600L) as OtaEntry.GaveUp
+        assertEquals(OtaEntry.ERROR_AFTER_RESEND, gaveUp.reason)
+        assertTrue(gaveUp.reason.contains("already in update mode"))
+        // The positive control: "Error" to a FIRST send is still the node
+        // declining, in its own words.
+        val first = OtaEntry.AwaitingUpdateMode(realVer, sentAt = t0)
+        val refused = OtaEntry.advance(
+            first,
+            listOf(sent("start ota", t0), heard("Error", t0 + 1_500L)),
+            now = t0 + 1_600L,
+        ) as OtaEntry.GaveUp
+        assertTrue(refused.reason.contains("\"Error\""), refused.reason)
+        assertTrue(refused.reason != OtaEntry.ERROR_AFTER_RESEND)
+    }
+
+    @Test
+    fun `a late answer to a resent ver is not taken for start ota's`() {
+        // Both `ver` sends were answered, the second after `start ota` had
+        // already gone out. Matched by position, that version string was
+        // start ota's "answer" — an OK with no address, read as the ESP32
+        // Wi-Fi route.
+        val t0 = 2_000_000L
+        val state = OtaEntry.AwaitingUpdateMode(realVer, sentAt = t0)
+        val rows = mutableListOf(
+            sent("ver", t0 - 12_000L),
+            sent("ver", t0 - 2_000L),
+            heard(realVer, t0 - 500L),
+            sent("start ota", t0),
+            heard(realVer, t0 + 300L),
+        )
+        assertEquals(state, OtaEntry.advance(state, rows, now = t0 + 400L), "the stray answer moved it")
+        rows += heard(realOta, t0 + 1_500L)
+        val done = OtaEntry.advance(state, rows, now = t0 + 1_600L) as OtaEntry.Confirmed
+        assertEquals("FF:5C:EF:28:2A:92", done.address)
+    }
+
+    @Test
+    fun `resending waits for the interval and stops at the cap`() {
+        assertTrue(!CliResend.due(0L, CliResend.RESEND_AFTER_MS - 1, sends = 1, maxSends = 3))
+        assertTrue(CliResend.due(0L, CliResend.RESEND_AFTER_MS, sends = 1, maxSends = 3))
+        assertTrue(!CliResend.due(0L, CliResend.RESEND_AFTER_MS * 5, sends = 3, maxSends = 3))
     }
 }

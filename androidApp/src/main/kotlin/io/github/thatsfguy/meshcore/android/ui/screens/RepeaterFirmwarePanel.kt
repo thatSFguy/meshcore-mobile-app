@@ -23,6 +23,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import io.github.thatsfguy.meshcore.android.ui.MeshCoreViewModel
+import io.github.thatsfguy.meshcore.firmware.CliResend
 import io.github.thatsfguy.meshcore.firmware.ConsoleRow
 import io.github.thatsfguy.meshcore.firmware.DfuTuning
 import io.github.thatsfguy.meshcore.firmware.NodeIdentityReplies
@@ -172,30 +173,37 @@ fun RepeaterFirmwarePanel(
     // with the version stored against the contact as its board name,
     // which is what the firmware picker and the bootloader scan both
     // work from.
-    var asked by remember(keyHex) { mutableStateOf(false) }
     // Timed, so a command that went unanswered cannot take later replies,
     // and a `ver` from before the last update-mode entry is not taken for
     // what the node runs now. See [NodeIdentityReplies.fromRows].
     val identity = remember(rows, storedContact?.otaReplyHandledAt) {
         NodeIdentityReplies.fromRows(rows, storedContact?.otaReplyHandledAt ?: 0L)
     }
-    LaunchedEffect(keyHex, storedContact?.boardName, inUpdateMode) {
-        val known = storedContact?.boardName != null
-        if (!asked && !known && !inUpdateMode) {
-            asked = true
+    // Asked again on silence — see [CliResend]: a CLI command has no
+    // delivery receipt, so a lost answer looks exactly like a lost
+    // command, and asking once meant a single lost `board` left the
+    // panel without a board or a version for the rest of the visit.
+    // Each loop ends the moment its answer lands (the effect is keyed on
+    // it), and neither runs while the update sequence is — one command
+    // in flight at a time, or answers are matched to the wrong question.
+    val boardKnown = identity.board != null || storedContact?.boardName != null
+    LaunchedEffect(keyHex, boardKnown, inUpdateMode, entry == OtaEntry.Idle) {
+        if (boardKnown || inUpdateMode || entry != OtaEntry.Idle) return@LaunchedEffect
+        repeat(CliResend.MAX_SENDS) {
             vm.sendCli(keyHex, "board")
+            delay(CliResend.RESEND_AFTER_MS)
         }
     }
-    // `ver` follows once `board` has been answered, so there is only
-    // ever one command outstanding. The update sequence sends its own
-    // `ver` and does not want a second one racing it.
-    var askedVersion by remember(keyHex) { mutableStateOf(false) }
-    LaunchedEffect(identity.board, identity.version, inUpdateMode, entry) {
-        if (!askedVersion && identity.board != null && identity.version == null &&
-            !inUpdateMode && entry == OtaEntry.Idle
-        ) {
-            askedVersion = true
+    // `ver` follows once the board is known, so there is only ever one
+    // command outstanding. The update sequence sends its own `ver` and
+    // does not want a second one racing it.
+    LaunchedEffect(keyHex, boardKnown, identity.version != null, inUpdateMode, entry == OtaEntry.Idle) {
+        if (!boardKnown || identity.version != null || inUpdateMode || entry != OtaEntry.Idle) {
+            return@LaunchedEffect
+        }
+        repeat(CliResend.MAX_SENDS) {
             vm.sendCli(keyHex, "ver")
+            delay(CliResend.RESEND_AFTER_MS)
         }
     }
     // Persist it: once this node is in its bootloader it can no longer

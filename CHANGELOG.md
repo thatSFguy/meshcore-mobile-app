@@ -11,6 +11,24 @@ Every entry describes what is in **that tagged build**. A feature that landed af
 belongs in the next section, not this one — 0.3.0 was once credited with four features that
 shipped after it, which misled nobody so much as the author, three months later.
 
+## 0.9.9
+
+**A repeater that doesn't answer is asked again.** A command sent to a repeater has no
+delivery receipt, so an answer lost on the air looked exactly like a command that never got
+there, and the app waited two minutes before giving up. A `ver` that went unanswered could
+stall a firmware update until you retried by hand.
+
+- **`board` and `ver` are asked again after 10 seconds of silence**, up to three times, and an
+  answer to any of them counts. Asking again is safe: the companion radio stamps every command
+  with its own always-increasing clock, so the repeater treats a resend as a new command rather
+  than a duplicate.
+- **`start ota` is resent once, and only once.** A second `start ota` to a node whose first one
+  worked answers "Error", because its Bluetooth is already on. After a resend the app now reads
+  "Error" that way and points you to "It is already in update mode", instead of reporting a
+  refusal.
+- **A late answer to a resent `ver` is no longer mistaken for the answer to `start ota`**, which
+  would have been reported as an ESP32 raising a Wi-Fi hotspot.
+
 ## 0.9.8
 
 **Firmware updates now know which bootloader they are talking to, and act on it.** An nRF52
