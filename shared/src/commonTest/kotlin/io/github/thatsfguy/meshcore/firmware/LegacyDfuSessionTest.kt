@@ -385,8 +385,9 @@ class LegacyDfuSessionTest {
 
     @Test
     fun `abort asks the node to boot what it already has`() {
+        // Only before the start step goes out — after it, the peer may be
+        // erasing, and a restart would bring an erased node up in USB mode.
         val s = session()
-        s.start()
         assertEquals(listOf(listOf<Byte>(6)), controls(s.abort()))
         assertEquals(DfuStage.Failed, s.stage)
     }

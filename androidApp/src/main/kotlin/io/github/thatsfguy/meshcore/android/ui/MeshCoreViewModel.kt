@@ -275,9 +275,13 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
      * took the jump and then lost the transfer before anything was
      * erased.
      *
-     * It cannot rescue a node whose application was already erased — a
-     * reset there simply re-enters the bootloader, which is the correct
-     * behaviour and the reason the OTAFIX bootloader exists.
+     * It cannot rescue a node whose application was already erased, and
+     * on a stock Adafruit bootloader it makes that node harder to reach:
+     * `main.c` brings Bluetooth DFU up only when `GPREGRET` carries an
+     * over-the-air magic value, a reset clears it, and a node with no
+     * valid application then starts in USB mode. OTAFIX starts in
+     * Bluetooth update mode instead ([BootloaderKind]). The explanation
+     * beside the button says so; this is the operator's call.
      */
     fun exitUpdateMode(keyHex: String, onResult: (String) -> Unit) {
         val svc = _service.value ?: return onResult("The radio service is not running.")
@@ -368,9 +372,15 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
                 onResult(
                     if (result.isSuccess) {
                         "Told ${peer.name ?: peer.address} (${peer.address}) to restart. If " +
-                            "its firmware is intact it will rejoin the mesh shortly; if it " +
-                            "was already erased it comes back in update mode, ready to be " +
-                            "flashed."
+                            "its firmware is intact it will rejoin the mesh shortly. If it " +
+                            "was already erased, " +
+                            if (peer.bootloaderKind.restartKeepsItReachable) {
+                                "its OTAFIX bootloader brings it back in update mode, ready " +
+                                    "to be flashed."
+                            } else {
+                                "it comes back as a USB drive rather than over Bluetooth, " +
+                                    "and needs flashing over a cable."
+                            }
                     } else {
                         "Reached ${peer.name ?: peer.address} (${peer.address}) but it " +
                             "refused the restart: " +

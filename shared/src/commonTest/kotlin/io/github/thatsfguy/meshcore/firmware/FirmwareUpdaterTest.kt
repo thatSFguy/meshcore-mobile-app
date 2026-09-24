@@ -88,6 +88,20 @@ class FirmwareUpdaterTest {
          * wait.
          */
         private val swallowsWritesAfter: Int? = null,
+        /**
+         * Never answer the start step. The real bootloader erases the
+         * bank inside the start handler and replies only afterwards, so
+         * a start that goes unanswered may have erased everything — it
+         * is not evidence that nothing happened.
+         */
+        private val silentAtStart: Boolean = false,
+        /**
+         * Throw from a packet write once this many image bytes have
+         * arrived, as `AndroidDfuGattClient` does when the stack keeps
+         * refusing — which is what switching Bluetooth off mid-image
+         * produced on the test RAK.
+         */
+        private val refusesWritesAfter: Int? = null,
     ) : DfuGattClient {
 
         override suspend fun readDfuRevision(): Int? = revision
@@ -226,6 +240,7 @@ class FirmwareUpdaterTest {
                     // boot ever puts that state back.
                     val latched = latchedFromAnEarlierSession && startsSeen == 0
                     startsSeen++
+                    if (silentAtStart) return
                     respond(
                         LegacyDfu.OP_START_DFU,
                         override = if (latched) LegacyDfu.RESP_INVALID_STATE else null,
@@ -239,6 +254,9 @@ class FirmwareUpdaterTest {
                         mode = Mode.None
                         respond(LegacyDfu.OP_RECEIVE_FW, LegacyDfu.RESP_OPER_FAILED)
                         return
+                    }
+                    if (refusesWritesAfter != null && imageReceived.size >= refusesWritesAfter) {
+                        throw IllegalStateException("The Bluetooth stack refused 244 bytes 5 times.")
                     }
                     if (swallowsWritesAfter != null && imageReceived.size >= swallowsWritesAfter) {
                         awaitCancellation()
@@ -483,16 +501,22 @@ class FirmwareUpdaterTest {
     }
 
     @Test
-    fun `a node that goes silent mid-transfer says it is still flashable`() = runTest {
-        // The commonest real failure: the phone walks out of range. The
-        // node stays in DFU mode waiting for another attempt, and saying
-        // otherwise sends someone up a tower.
+    fun `a node that goes silent mid-transfer is not called flashable over Bluetooth`() = runTest {
+        // The commonest real failure: the phone walks out of range. This
+        // test used to assert the opposite — that the node "stays in DFU
+        // mode waiting for another attempt" — and that was true of the
+        // link and false of the node: the stock bootloader stays latched
+        // out of IDLE, so the next attempt's start is refused, and the
+        // restart that would clear it puts an erased node in USB mode.
         val pkg = packageOf(512)
+        val resets = mutableListOf<ByteArray>()
         val silent = object : DfuGattClient {
             override val notifications: Flow<ByteArray> = emptyFlow()
             override suspend fun connect() {}
             override suspend fun subscribeToControlPoint() {}
-            override suspend fun writeControl(bytes: ByteArray) {}
+            override suspend fun writeControl(bytes: ByteArray) {
+                if (LegacyDfu.rebootsInsideTheHandler(bytes)) resets += bytes
+            }
             override suspend fun writePacket(bytes: ByteArray) {}
             override suspend fun close() {}
         }
@@ -502,7 +526,9 @@ class FirmwareUpdaterTest {
             updater.update(pkg, DfuTarget.WaitingInBootloader()).toList().last(),
         )
         assertEquals(Recovery.INTERRUPTED, failed.recovery)
-        assertTrue(failed.recovery.contains("waiting, not"))
+        assertTrue(failed.recovery.contains("USB cable"), failed.recovery)
+        assertTrue(!failed.recovery.contains("waiting, not"), "promised a Bluetooth retry")
+        assertTrue(resets.isEmpty(), "a node that may be erased was restarted")
     }
 
     @Test
@@ -513,6 +539,8 @@ class FirmwareUpdaterTest {
             Recovery.STALE_BOND,
             Recovery.NO_DFU_SERVICE,
             Recovery.INTERRUPTED,
+            Recovery.UNCHANGED,
+            Recovery.UNKNOWN_STAGE,
             Recovery.CRC,
             Recovery.REJECTED,
             Recovery.TOO_FAST,
@@ -889,31 +917,36 @@ class FirmwareUpdaterTest {
     }
 
     @Test
-    fun `a peer that is not a bootloader has its probe closed before the jump`() = runTest {
-        // The other half of the same rule: a connection that is not
-        // going to be used must not be left open either, or the jump
-        // that follows is the one racing a teardown.
+    fun `an app-mode peer is sent the jump on the connection it was probed on`() = runTest {
+        // This test used to pin the opposite — close the probe, then
+        // connect again for the jump — on the reasoning that an open
+        // connection left behind would race the jump's. The reconnect
+        // WAS the race: on the test RAK (2026-09-24) the jump's
+        // connection attached to a link the stack was still tearing
+        // down, dropped during the MTU request, and the update hung.
         val pkg = packageOf(1024)
         val appMode = FakeBootloader(
             pkg.imageSize,
             jumpKillsTheLink = true,
             revision = LegacyDfu.REVISION_APP_MODE,
         )
-        val clients = mutableListOf<DfuGattClient>()
         val scanner = FakeScanner(
             DfuPeer("AA:BB:CC:DD:EE:10", "ProMicro_OTA", rssi = -70),
             DfuPeer("AA:BB:CC:DD:EE:10", "ProMicro_OTA", rssi = -70),
         )
         val bootloader = FakeBootloader(pkg.imageSize)
+        val made = mutableListOf<FakeBootloader>()
         var call = 0
         val updater = FirmwareUpdater(scanner) {
-            (if (call++ < 2) appMode else bootloader).also { clients += it }
+            (if (call++ == 0) appMode else bootloader).also { made += it }
         }
 
-        updater.update(pkg, DfuTarget.AdvertisingForUpdate()).toList()
+        val progress = updater.update(pkg, DfuTarget.AdvertisingForUpdate()).toList()
 
-        assertTrue(appMode.closed, "the probe connection was left open behind the jump")
         assertTrue(appMode.jumped, "an app-mode peer was never told to jump")
+        assertEquals(1, made.count { it === appMode }, "the app-mode peer was connected to twice")
+        assertTrue(appMode.closed, "the jump connection was left open")
+        assertEquals(DfuProgress.Finished, progress.last())
     }
 
     @Test
@@ -931,8 +964,8 @@ class FirmwareUpdaterTest {
         )
         var call = 0
         val updater = FirmwareUpdater(scanner) {
-            // probe, then jump, then the transfer
-            if (call++ < 2) appMode else bootloader
+            // the probe (which also carries the jump), then the transfer
+            if (call++ == 0) appMode else bootloader
         }
 
         val progress = updater.update(pkg, DfuTarget.AdvertisingForUpdate()).toList()
@@ -967,7 +1000,12 @@ class FirmwareUpdaterTest {
             updater.update(pkg, DfuTarget.WaitingInBootloader()).toList().last(),
         )
         assertEquals(Recovery.TOO_FAST, failed.recovery)
-        assertTrue(failed.recovery.contains("more slowly"))
+        // It used to end "Retrying more slowly is the fix", beside a
+        // button that did so — against a node that, having failed after
+        // the start step, refuses any new start. The honest advice is
+        // the cable.
+        assertTrue(!failed.recovery.contains("more slowly"), failed.recovery)
+        assertTrue(failed.recovery.contains("USB cable"), failed.recovery)
     }
 
     @Test
@@ -978,12 +1016,14 @@ class FirmwareUpdaterTest {
             Recovery.REJECTED,
             Recovery.forFailure(
                 DfuFailure.Rejected(LegacyDfu.OP_START_DFU, LegacyDfu.RESP_OPER_FAILED),
+                applicationErased = true,
             ),
         )
         assertEquals(
             Recovery.CRC,
             Recovery.forFailure(
                 DfuFailure.Rejected(LegacyDfu.OP_RECEIVE_FW, LegacyDfu.RESP_CRC_ERROR),
+                applicationErased = true,
             ),
         )
     }
@@ -991,45 +1031,36 @@ class FirmwareUpdaterTest {
     // --- a bootloader latched out of an earlier session -------------------
 
     @Test
-    fun `a node stuck part-way through an earlier update is reset and flashed anyway`() =
-        runTest {
-            // Measured on 13 Mile, 2026-08-13: every attempt for days came
-            // back "The radio rejected the start step: invalid state",
-            // which the app blamed on the package and the bootloader
-            // version. Neither was the problem.
-            //
-            // dfu_single_bank.c ends dfu_start_pkt_handle with
-            // `if (DFU_STATE_IDLE != m_dfu_state) return
-            // NRF_ERROR_INVALID_STATE;`. Nothing puts that state back:
-            // dfu_transport_ble.c's BLE_GAP_EVT_DISCONNECTED handler only
-            // calls advertising_start(), and dfu_init() — the sole
-            // assignment of DFU_STATE_IDLE — runs once at boot. So one
-            // attempt that reaches the start step locks the node out of
-            // every later one until something resets it.
-            val pkg = packageOf(2048)
-            val latched = FakeBootloader(pkg.imageSize, latchedFromAnEarlierSession = true)
-            val fresh = FakeBootloader(pkg.imageSize)
-            val scanner = FakeScanner(
-                DfuPeer("AA:BB:CC:DD:EE:11", "AdaDFU", rssi = -70),
-                DfuPeer("AA:BB:CC:DD:EE:11", "AdaDFU", rssi = -70),
-            )
-            var call = 0
-            val updater = FirmwareUpdater(scanner) { if (call++ == 0) latched else fresh }
-
-            val progress = updater.update(pkg, DfuTarget.WaitingInBootloader()).toList()
-
-            assertEquals(1, latched.resets, "the latched node was never told to restart")
-            assertEquals(DfuProgress.Finished, progress.last())
-            assertContentEquals(pkg.image, fresh.imageReceived.toByteArray())
-            assertTrue(
-                latched.imageReceived.isEmpty(),
-                "sent an image to a node that had refused to start",
-            )
-            // The second scan looks for the same peer, by address: the
-            // node has no application left to boot, so it comes straight
-            // back to the same bootloader on the same address.
-            assertEquals("AA:BB:CC:DD:EE:11", scanner.expectations[1].exactAddress)
+    fun `a node stuck part-way through an earlier update is never reset`() = runTest {
+        // Measured on 13 Mile, 2026-08-13: every attempt for days came
+        // back "The radio rejected the start step: invalid state".
+        //
+        // dfu_single_bank.c ends dfu_start_pkt_handle with
+        // `if (DFU_STATE_IDLE != m_dfu_state) return
+        // NRF_ERROR_INVALID_STATE;`, and nothing but dfu_init() at boot
+        // puts that state back — so a reset would clear it. This test
+        // used to assert exactly that, and it was the most expensive
+        // assertion in the suite: the ONLY way out of IDLE is
+        // `dfu_prepare_func_app_erase`, so this refusal proves the bank
+        // is already erased, and a reset of an erased stock bootloader
+        // brings it up in USB mode. The refusal is reported, the node is
+        // left reachable, and nothing is tried twice.
+        val pkg = packageOf(2048)
+        val made = mutableListOf<FakeBootloader>()
+        val updater = FirmwareUpdater(FakeScanner(peer)) {
+            FakeBootloader(pkg.imageSize, latchedFromAnEarlierSession = true).also { made += it }
         }
+
+        val failed = assertIs<DfuProgress.Failed>(
+            updater.update(pkg, DfuTarget.WaitingInBootloader()).toList().last(),
+        )
+
+        assertEquals(1, made.size, "a latched node was connected to again")
+        assertEquals(0, made.single().resets, "a node proven erased was reset into USB mode")
+        assertTrue(made.single().imageReceived.isEmpty(), "sent an image to a node that refused")
+        assertEquals(Recovery.STALE_SESSION, failed.recovery)
+        assertTrue(!failed.recovery.contains("right file"), "a latched session read as a bad package")
+    }
 
     @Test
     fun `the link is asked for a short connection interval before anything is sent`() = runTest {
@@ -1056,58 +1087,28 @@ class FirmwareUpdaterTest {
     }
 
     @Test
-    fun `a node that cannot keep up is retried more slowly without being asked`() = runTest {
-        // `operation failed` during the image step is the one failure
-        // with a documented remedy — Nordic's own implementation reads it
-        // as "data sent too fast" and prescribes reducing the receipt
-        // interval. Leaving that to a button means the node sits with its
-        // application erased in the meantime, and the button in question
-        // was dead.
+    fun `a node that cannot keep up is not retried behind the operator's back`() = runTest {
+        // `operation failed` during the image step is the receive pool
+        // overflowing. This used to trigger an automatic retry at half
+        // the receipt interval and double the packet gap — against a
+        // fake that accepted the second start. A real stock bootloader
+        // does not: the failure leaves it latched out of IDLE, so the
+        // retry's start is refused with `invalid state` before a byte
+        // is sent. The fake that let it succeed was the same assumption
+        // twice.
         val pkg = packageOf(2048)
-        val choked = FakeBootloader(pkg.imageSize, chokesAbovePrn = 5)
-        val gentle = FakeBootloader(pkg.imageSize, receiptInterval = 5, chokesAbovePrn = 5)
-        var call = 0
-        val updater = FirmwareUpdater(FakeScanner(peer, peer)) {
-            if (call++ == 0) choked else gentle
-        }
-
-        val progress = updater.update(pkg, DfuTarget.WaitingInBootloader()).toList()
-
-        assertEquals(DfuProgress.Finished, progress.last())
-        assertContentEquals(pkg.image, gentle.imageReceived.toByteArray())
-        assertEquals(
-            listOf(LegacyDfu.DEFAULT_PRN_INTERVAL),
-            choked.prnRequests,
-            "the first attempt did not use the configured interval",
-        )
-        assertEquals(listOf(5), gentle.prnRequests, "the retry did not halve the interval")
-        // And it is NOT reset on the way out. That used to be asserted
-        // the other way round, on the reasoning that the bootloader
-        // keeps an abandoned transfer's state until it reboots — true,
-        // but incomplete, and the missing half costs a trip to the node:
-        // this failure happens after the start step, so the application
-        // bank is already erased, and a bootloader reset with no valid
-        // application comes back in USB mass-storage mode advertising
-        // nothing. See [LegacyDfuSession.abort].
-        assertEquals(0, choked.resets, "a node with an erased bank was reset onto a cable")
-    }
-
-    @Test
-    fun `the slower retry is tried once and not forever`() = runTest {
-        // A node that refuses at every interval must not become a loop of
-        // reboots and full flash erases.
-        val pkg = packageOf(1024)
         val made = mutableListOf<FakeBootloader>()
-        val updater = FirmwareUpdater(FakeScanner(peer)) {
-            FakeBootloader(pkg.imageSize, chokesAbovePrn = 0).also { made += it }
+        val updater = FirmwareUpdater(FakeScanner(peer, peer)) {
+            FakeBootloader(pkg.imageSize, chokesAbovePrn = 5).also { made += it }
         }
 
         val failed = assertIs<DfuProgress.Failed>(
             updater.update(pkg, DfuTarget.WaitingInBootloader()).toList().last(),
         )
 
-        assertEquals(2, made.size, "the transfer was attempted more than twice")
+        assertEquals(1, made.size, "the transfer was attempted again")
         assertEquals(Recovery.TOO_FAST, failed.recovery)
+        assertEquals(0, made.single().resets, "a node with an erased bank was reset onto a cable")
     }
 
     @Test
@@ -1121,24 +1122,18 @@ class FirmwareUpdaterTest {
         // 372,044 bytes.
         val pkg = packageOf(4096)
         val quiet = FakeBootloader(pkg.imageSize, goesQuietAfter = 400)
-        val fresh = FakeBootloader(pkg.imageSize, receiptInterval = 5)
-        var call = 0
-        val updater = FirmwareUpdater(FakeScanner(peer, peer)) {
-            if (call++ == 0) quiet else fresh
-        }
+        var connections = 0
+        val updater = FirmwareUpdater(FakeScanner(peer, peer)) { connections++; quiet }
 
         val progress = updater.update(pkg, DfuTarget.WaitingInBootloader()).toList()
 
-        // It gave up on the silence, handed the node back, and tried
-        // again at the recovery pace — Meshtastic's own response to a
-        // stream that dies mid-flight.
-        // Not reset: the stall happened mid-image, so the bank is
-        // erased and a reset would take the node off Bluetooth
-        // altogether. See [LegacyDfuSession.abort].
+        // It gave up on the silence, and said so. Not reset — the stall
+        // happened mid-image, so the bank is erased — and not retried:
+        // the latched bootloader would refuse the retry's start.
+        val failed = assertIs<DfuProgress.Failed>(progress.last())
+        assertEquals(Recovery.INTERRUPTED, failed.recovery)
         assertEquals(0, quiet.resets, "a node with an erased bank was reset onto a cable")
-        assertEquals(listOf(5), fresh.prnRequests, "the retry did not use the recovery interval")
-        assertEquals(DfuProgress.Finished, progress.last())
-        assertContentEquals(pkg.image, fresh.imageReceived.toByteArray())
+        assertEquals(1, connections, "a latched node was connected to again")
     }
 
     @Test
@@ -1208,62 +1203,95 @@ class FirmwareUpdaterTest {
     }
 
     @Test
-    fun `the gentler retry slows the packets down and not just the batches`() {
-        // The correction hardware forced. Halving the receipt interval
-        // is Meshtastic's recovery profile and it was copied verbatim —
-        // but a smaller batch does not reduce the RATE, and the rate is
-        // what overflows the peer's receive pool. On a live ProMicro the
-        // interval stepped 10 → 5 and the image step was refused with
-        // `operation failed` exactly as before.
-        val first = DfuOptions()
-        assertEquals(0L, first.packetDelayMs, "the first attempt derives its pause from the link")
-
-        val second = first.gentler()
-        assertEquals(DfuOptions.RECOVERY_PRN_INTERVAL, second.receiptInterval)
-        assertTrue(
-            second.packetDelayMs > LegacyDfu.STOCK_BOOTLOADER_PACKET_DELAY_MS,
-            "the retry sends at the same rate that just failed",
-        )
-        // And it keeps stepping down rather than stalling at one value.
-        assertTrue(second.gentler().packetDelayMs > second.packetDelayMs)
-    }
-
-    @Test
-    fun `the retry after an erased bank does not reset the node either`() = runTest {
-        // The hole the first version of this fix left, one attempt wide,
-        // and hardware fell into it immediately: attempt one erased the
-        // bank and correctly declined to reset, attempt two was refused
-        // with `invalid state` before it sent a byte — so ITS session had
-        // erased nothing, wrote the reset, and put the node back on a
-        // cable. "Has this node got an application" is a fact about the
-        // NODE, not about the session in hand.
+    fun `a second attempt at a node an earlier one erased does not reset it`() = runTest {
+        // The hole that survived the first two versions of this fix, and
+        // the one the operator could walk into from the screen: attempt
+        // one erased the bank and correctly declined to reset; attempt
+        // two — started fresh, from a button — was refused with `invalid
+        // state` before it sent a byte, so ITS session had erased nothing
+        // and wrote the reset. The fix was threaded through the
+        // updater's own retry, never through a new update().
+        //
+        // It needs no memory of the first attempt now: the refusal
+        // itself proves the erase (see [DfuFailure.StaleSession]).
         val pkg = packageOf(4096)
         val first = FakeBootloader(pkg.imageSize, goesQuietAfter = 400)
         val latched = FakeBootloader(pkg.imageSize, latchedFromAnEarlierSession = true)
-        var call = 0
-        val updater = FirmwareUpdater(FakeScanner(peer, peer)) {
-            if (call++ == 0) first else latched
-        }
 
-        updater.update(pkg, DfuTarget.WaitingInBootloader()).toList()
+        FirmwareUpdater(FakeScanner(peer)) { first }
+            .update(pkg, DfuTarget.WaitingInBootloader()).toList()
+        val again = FirmwareUpdater(FakeScanner(peer)) { latched }
+            .update(pkg, DfuTarget.WaitingInBootloader()).toList()
 
         assertEquals(0, first.resets)
-        assertEquals(0, latched.resets, "the retry reset a node with no application to boot")
+        assertEquals(0, latched.resets, "a fresh attempt reset a node with no application")
+        assertEquals(Recovery.STALE_SESSION, assertIs<DfuProgress.Failed>(again.last()).recovery)
     }
 
     @Test
-    fun `a node that never got as far as erasing itself is still reset`() {
-        // The positive control for the test above. Without it, "never
-        // reset anything" would pass both — and the reset is what
-        // clears a latched session on a node that still has firmware.
+    fun `a start step that goes unanswered counts as an erase`() = runTest {
+        // The bootloader erases inside the start handler and answers
+        // afterwards, so silence at the start step is no evidence that
+        // the bank survived. This used to be abandoned with a reset,
+        // because the session only counted a node as erased once the
+        // start had been ACKNOWLEDGED.
+        val pkg = packageOf(1024)
+        val silent = FakeBootloader(pkg.imageSize, silentAtStart = true)
+        val updater = FirmwareUpdater(FakeScanner(peer)) { silent }
+
+        val failed = assertIs<DfuProgress.Failed>(
+            updater.update(pkg, DfuTarget.WaitingInBootloader()).toList().last(),
+        )
+
+        assertEquals(0, silent.resets, "a node that may be mid-erase was restarted")
+        assertEquals(Recovery.INTERRUPTED, failed.recovery)
+    }
+
+    @Test
+    fun `a session that never sent the start step still offers the restart`() {
+        // The positive control for the tests above. Without it, "never
+        // reset anything" would pass them all — and the restart is what
+        // puts a node that still has its firmware back on the mesh.
         val session = LegacyDfuSession(byteArrayOf(1, 2, 3, 4), ByteArray(64))
-        session.start()
         assertTrue(!session.applicationErased)
         assertEquals(
             listOf(DfuAction.WriteControl(LegacyDfu.SYSTEM_RESET)),
             session.abort(),
             "a node that still has its application was not offered a restart",
         )
+    }
+
+    @Test
+    fun `sending the start step is what counts and not its answer`() {
+        val session = LegacyDfuSession(byteArrayOf(1, 2, 3, 4), ByteArray(64))
+        session.start()
+        assertTrue(session.applicationErased, "the start is out; the peer may be erasing")
+        assertEquals(emptyList(), session.abort())
+    }
+
+    @Test
+    fun `no refusal of the start step makes the node count as intact again`() {
+        // NOT_SUPPORTED and DATA_SIZE are returned before the erase — but
+        // also before the latch check, so a node an EARLIER attempt
+        // erased answers them too.
+        for (result in listOf(
+            LegacyDfu.RESP_NOT_SUPPORTED,
+            LegacyDfu.RESP_DATA_SIZE,
+            LegacyDfu.RESP_INVALID_STATE,
+            LegacyDfu.RESP_OPER_FAILED,
+        )) {
+            val session = LegacyDfuSession(byteArrayOf(1, 2, 3, 4), ByteArray(64))
+            session.start()
+            session.onNotification(
+                byteArrayOf(
+                    LegacyDfu.OP_RESPONSE.toByte(),
+                    LegacyDfu.OP_START_DFU.toByte(),
+                    result.toByte(),
+                ),
+            )
+            assertTrue(session.applicationErased, "result $result cleared the erase")
+            assertEquals(emptyList(), session.abort(), "result $result led to a reset")
+        }
     }
 
     @Test
@@ -1365,57 +1393,6 @@ class FirmwareUpdaterTest {
         for (stage in DfuStage.entries) {
             assertTrue(stallBudgetMs(stage) >= 30_000L, "$stage has too short a budget")
         }
-    }
-
-    @Test
-    fun `a node given a reset is looked for longer and not straight away`() = runTest {
-        // The scan after a reset starts while the peer is still
-        // rebooting — it tears the link down inside the handler, comes
-        // back up, runs its bootloader init and only then advertises
-        // again. Starting immediately spends the window watching an
-        // address that is not transmitting; on hardware a 30-second
-        // window from that point expired and reported "it did not come
-        // back" about a node that had.
-        val pkg = packageOf(1024)
-        val latched = FakeBootloader(pkg.imageSize, latchedFromAnEarlierSession = true)
-        val fresh = FakeBootloader(pkg.imageSize)
-        val scanner = FakeScanner(peer, peer)
-        var call = 0
-        val updater = FirmwareUpdater(scanner) { if (call++ == 0) latched else fresh }
-
-        updater.update(pkg, DfuTarget.WaitingInBootloader()).toList()
-
-        assertTrue(
-            scanner.timeouts.last() >= REBOOT_SCAN_TIMEOUT_MS,
-            "the rescan after a reset was no longer than a first scan: ${scanner.timeouts}",
-        )
-        assertTrue(REBOOT_SETTLE_MS > 0, "the rescan starts before the node can have rebooted")
-    }
-
-    @Test
-    fun `the recovery pace halves the receipt interval and also slows the packets`() {
-        // NORMAL 10 → RECOVERY 5, which is Meshtastic's recovery profile
-        // and was for a while the whole of ours — on the reasoning that
-        // what keeps a stock bootloader fed is the short connection
-        // interval rather than a delay between writes.
-        //
-        // That reasoning was borrowed rather than measured, and this
-        // radio does not agree with it. A live ProMicro refused the
-        // image step with `operation failed` at interval 10 and again at
-        // 5: the peer's receipt notification says a packet was RECEIVED,
-        // not that it reached flash, so a smaller batch changes nothing
-        // about the rate that is overflowing its pool. The recovery pace
-        // now slows the packets too.
-        val slower = DfuOptions().gentler()
-        assertEquals(DfuOptions.RECOVERY_PRN_INTERVAL, slower.receiptInterval)
-        assertEquals(5, slower.receiptInterval)
-        assertTrue(slower.packetDelayMs > 0, "the retry sends at the rate that just failed")
-        // One packet per receipt is as slow as the protocol goes; zero
-        // would switch flow control off, which is the opposite of what
-        // this is for.
-        var options = DfuOptions()
-        repeat(8) { options = options.gentler() }
-        assertEquals(1, options.receiptInterval)
     }
 
     @Test
@@ -1538,42 +1515,41 @@ class FirmwareUpdaterTest {
         // The status is a catch-all — `nrf_err_code_translate` maps
         // several errors onto it — so it means "too fast" only where the
         // receive pool is what fills up.
-        val options = DfuOptions()
-        assertTrue(
-            options.tooFast(DfuFailure.Rejected(LegacyDfu.OP_RECEIVE_FW, LegacyDfu.RESP_OPER_FAILED)),
+        fun recovery(f: DfuFailure) = Recovery.forFailure(f, applicationErased = true)
+        assertEquals(
+            Recovery.TOO_FAST,
+            recovery(DfuFailure.Rejected(LegacyDfu.OP_RECEIVE_FW, LegacyDfu.RESP_OPER_FAILED)),
         )
-        assertTrue(
-            !options.tooFast(
-                DfuFailure.Rejected(LegacyDfu.OP_VALIDATE, LegacyDfu.RESP_OPER_FAILED),
-            ),
+        assertEquals(
+            Recovery.REJECTED,
+            recovery(DfuFailure.Rejected(LegacyDfu.OP_VALIDATE, LegacyDfu.RESP_OPER_FAILED)),
         )
-        assertTrue(
-            !options.tooFast(
-                DfuFailure.Rejected(LegacyDfu.OP_RECEIVE_FW, LegacyDfu.RESP_CRC_ERROR),
-            ),
+        assertEquals(
+            Recovery.CRC,
+            recovery(DfuFailure.Rejected(LegacyDfu.OP_RECEIVE_FW, LegacyDfu.RESP_CRC_ERROR)),
         )
-        assertTrue(!options.tooFast(DfuFailure.StaleSession))
+        assertEquals(Recovery.STALE_SESSION, recovery(DfuFailure.StaleSession))
     }
 
     @Test
-    fun `the restart is tried once and not forever`() = runTest {
-        // A peer that answers `invalid state` for some other reason must
-        // not become a loop of reboots.
-        val pkg = packageOf(1024)
-        val stuck = { FakeBootloader(pkg.imageSize, latchedFromAnEarlierSession = true) }
-        val made = mutableListOf<FakeBootloader>()
-        val updater = FirmwareUpdater(FakeScanner(peer)) { stuck().also { made += it } }
-
-        val failed = assertIs<DfuProgress.Failed>(
-            updater.update(pkg, DfuTarget.WaitingInBootloader()).toList().last(),
+    fun `only a node that was never sent the start step is called safe to retry`() {
+        // Every message after the start step carries the cable, and the
+        // one before it does not — both halves, so neither can quietly
+        // become the other.
+        val failures = listOf(
+            DfuFailure.StaleSession,
+            DfuFailure.Stalled(400, 4096),
+            DfuFailure.ByteCountMismatch(10, 20),
+            DfuFailure.Rejected(LegacyDfu.OP_RECEIVE_FW, LegacyDfu.RESP_OPER_FAILED),
+            DfuFailure.Rejected(LegacyDfu.OP_VALIDATE, LegacyDfu.RESP_CRC_ERROR),
         )
-
-        assertEquals(2, made.size, "the transfer was attempted more than twice")
-        assertEquals(Recovery.STALE_SESSION, failed.recovery)
-        assertTrue(
-            !failed.recovery.contains("right file"),
-            "a latched session still reads as a bad package",
-        )
+        for (f in failures) {
+            assertTrue(Recovery.forFailure(f, true).contains("USB cable"), "$f")
+            assertEquals(Recovery.UNCHANGED, Recovery.forFailure(f, false))
+        }
+        assertTrue(!Recovery.UNCHANGED.contains("USB"))
+        assertTrue(Recovery.interrupted(true).contains("USB cable"))
+        assertEquals(Recovery.UNCHANGED, Recovery.interrupted(false))
     }
 
     @Test
@@ -1596,10 +1572,7 @@ class FirmwareUpdaterTest {
         )
 
         assertEquals(Recovery.TOO_FAST, failed.recovery)
-        // Two, because "too fast" is now retried once at half the
-        // interval before giving up — and the guarantee is per attempt:
-        // every one of them hands the node back able to start again.
-        // Zero, not two. The guarantee this test was written for —
+        // Zero. The guarantee this test was written for —
         // "every failure hands the node back able to start again" — was
         // the right instinct applied to the wrong half of the transfer.
         // Before the start step is accepted a reset does exactly that.
@@ -1649,5 +1622,195 @@ class FirmwareUpdaterTest {
 
         assertEquals(DfuProgress.Finished, progress.last())
         assertContentEquals(pkg.image, bootloader.imageReceived.toByteArray())
+    }
+
+    // --- an OTAFIX bootloader --------------------------------------------
+
+    private val otafix = DfuPeer("AA:BB:CC:DD:EE:12", "4631_DFU", rssi = -60)
+
+    @Test
+    fun `an OTAFIX node that fails mid-image is restarted and flashed again`() = runTest {
+        // OTAFIX starts in Bluetooth update mode when it has no valid
+        // application, so the restart that strands a stock node is, here,
+        // what clears the latched session. The second fake accepts a new
+        // start because the restart really did clear it — unlike the
+        // stock case, where a fake that accepted it was the defect.
+        val pkg = packageOf(4096)
+        val first = FakeBootloader(pkg.imageSize, goesQuietAfter = 400)
+        val second = FakeBootloader(pkg.imageSize)
+        var call = 0
+        val scanner = FakeScanner(otafix, otafix)
+        val updater = FirmwareUpdater(scanner) { if (call++ == 0) first else second }
+
+        val progress = updater.update(pkg, DfuTarget.WaitingInBootloader()).toList()
+
+        assertEquals(1, first.resets, "the OTAFIX node was not restarted")
+        assertTrue(progress.any { it is DfuProgress.Retrying }, "the retry was not said out loud")
+        assertEquals(DfuProgress.Finished, progress.last())
+        assertContentEquals(pkg.image, second.imageReceived.toByteArray())
+        assertEquals("AA:BB:CC:DD:EE:12", scanner.expectations.last().exactAddress)
+        assertTrue(scanner.timeouts.last() >= REBOOT_SCAN_TIMEOUT_MS)
+    }
+
+    @Test
+    fun `an OTAFIX node latched by an earlier attempt is restarted and flashed`() = runTest {
+        // The 2026-08-13 fix, right after all — on this bootloader.
+        val pkg = packageOf(2048)
+        val latched = FakeBootloader(pkg.imageSize, latchedFromAnEarlierSession = true)
+        val fresh = FakeBootloader(pkg.imageSize)
+        var call = 0
+        val updater = FirmwareUpdater(FakeScanner(otafix, otafix)) {
+            if (call++ == 0) latched else fresh
+        }
+
+        val progress = updater.update(pkg, DfuTarget.WaitingInBootloader()).toList()
+
+        assertEquals(1, latched.resets)
+        assertEquals(DfuProgress.Finished, progress.last())
+        assertContentEquals(pkg.image, fresh.imageReceived.toByteArray())
+    }
+
+    @Test
+    fun `an OTAFIX node is retried a bounded number of times`() = runTest {
+        val pkg = packageOf(2048)
+        val made = mutableListOf<FakeBootloader>()
+        val updater = FirmwareUpdater(FakeScanner(otafix)) {
+            FakeBootloader(pkg.imageSize, goesQuietAfter = 400).also { made += it }
+        }
+
+        val failed = assertIs<DfuProgress.Failed>(
+            updater.update(pkg, DfuTarget.WaitingInBootloader()).toList().last(),
+        )
+
+        assertEquals(1 + OTAFIX_RETRIES, made.size, "the attempts were not bounded")
+        // Restarted after the last failure too, so it is left ready.
+        assertTrue(made.all { it.resets == 1 }, "${made.map { it.resets }}")
+        assertTrue(failed.canFlashAgain, "an OTAFIX node was not offered another attempt")
+        assertTrue(!failed.recovery.contains("USB"), failed.recovery)
+    }
+
+    @Test
+    fun `a stock node is offered no retry once erased and an unchanged one is`() = runTest {
+        // Both halves, so "Try again" can neither vanish nor reappear
+        // where it would be refused by a latched bootloader.
+        val pkg = packageOf(2048)
+        val erased = assertIs<DfuProgress.Failed>(
+            FirmwareUpdater(FakeScanner(DfuPeer("AA:BB:CC:DD:EE:11", "AdaDFU", rssi = -60))) {
+                FakeBootloader(pkg.imageSize, goesQuietAfter = 400)
+            }.update(pkg, DfuTarget.WaitingInBootloader()).toList().last(),
+        )
+        assertTrue(!erased.canFlashAgain)
+        assertTrue(Recovery.canFlashAgain(applicationErased = false, BootloaderKind.Stock))
+        assertTrue(Recovery.canFlashAgain(applicationErased = true, BootloaderKind.Otafix))
+        assertTrue(!Recovery.canFlashAgain(applicationErased = true, BootloaderKind.Unknown))
+    }
+
+    @Test
+    fun `OTAFIX messages promise a restart and stock ones a cable`() {
+        val failures = listOf(
+            DfuFailure.StaleSession,
+            DfuFailure.Stalled(400, 4096),
+            DfuFailure.Rejected(LegacyDfu.OP_RECEIVE_FW, LegacyDfu.RESP_OPER_FAILED),
+            DfuFailure.Rejected(LegacyDfu.OP_VALIDATE, LegacyDfu.RESP_CRC_ERROR),
+        )
+        for (f in failures) {
+            val otafixText = Recovery.forFailure(f, true, BootloaderKind.Otafix)
+            assertTrue(!otafixText.contains("USB"), otafixText)
+            assertTrue(otafixText.endsWith(Recovery.AFTER_ERASE_OTAFIX), otafixText)
+            assertTrue(Recovery.forFailure(f, true, BootloaderKind.Stock).contains("USB cable"))
+        }
+        assertTrue(!Recovery.interrupted(true, BootloaderKind.Otafix).contains("USB"))
+    }
+
+    @Test
+    fun `a retry after the pool overflowed sends the packets further apart`() {
+        // The rate is what overflows the receive pool, so the retry has
+        // to slow the packets, not just shrink the batch.
+        val first = DfuOptions()
+        assertEquals(LegacyDfu.STOCK_BOOTLOADER_PACKET_DELAY_MS, first.slower().packetDelayMs)
+        assertTrue(first.slower().slower().packetDelayMs > first.slower().packetDelayMs)
+        assertTrue(Recovery.isTooFast(DfuFailure.Rejected(LegacyDfu.OP_RECEIVE_FW, 6)))
+        assertTrue(!Recovery.isTooFast(DfuFailure.Rejected(LegacyDfu.OP_VALIDATE, 6)))
+    }
+
+    @Test
+    fun `a restart that went down a dead link gets one more round`() = runTest {
+        // The run on the test RAK, 2026-09-24, in order: Bluetooth cut at
+        // 102 KB; the stall watchdog fired and the restart went down a
+        // link that no longer existed; the retry found the node still
+        // latched and was refused; the restart sent over THAT live
+        // connection worked; and the third attempt — which this test
+        // exists to guarantee — is what finishes the job.
+        val pkg = packageOf(4096)
+        val stalled = FakeBootloader(pkg.imageSize, goesQuietAfter = 400)
+        val stillLatched = FakeBootloader(pkg.imageSize, latchedFromAnEarlierSession = true)
+        val restarted = FakeBootloader(pkg.imageSize)
+        val sequence = listOf(stalled, stillLatched, restarted)
+        var call = 0
+        val updater = FirmwareUpdater(FakeScanner(otafix)) { sequence[call++] }
+
+        val progress = updater.update(pkg, DfuTarget.WaitingInBootloader()).toList()
+
+        assertEquals(DfuProgress.Finished, progress.last())
+        assertContentEquals(pkg.image, restarted.imageReceived.toByteArray())
+        assertEquals(1, stillLatched.resets, "the latched node was not restarted on the live link")
+        assertEquals(2, progress.count { it is DfuProgress.Retrying })
+    }
+
+    @Test
+    fun `a write the stack refuses mid-image is recovered like any other failure`() = runTest {
+        // Hardware, 2026-09-24: Bluetooth off at 119 KB surfaced as an
+        // exception rather than a refusal or a stall, and the OTAFIX
+        // recovery only ran for refusals — so it stopped and asked.
+        val pkg = packageOf(4096)
+        val refusing = FakeBootloader(pkg.imageSize, refusesWritesAfter = 400)
+        val stillLatched = FakeBootloader(pkg.imageSize, latchedFromAnEarlierSession = true)
+        val fresh = FakeBootloader(pkg.imageSize)
+        val sequence = listOf(refusing, stillLatched, fresh)
+        var call = 0
+        val updater = FirmwareUpdater(FakeScanner(otafix)) { sequence[call++] }
+
+        val progress = updater.update(pkg, DfuTarget.WaitingInBootloader()).toList()
+
+        assertEquals(DfuProgress.Finished, progress.last())
+        assertContentEquals(pkg.image, fresh.imageReceived.toByteArray())
+    }
+
+    @Test
+    fun `the same refusal on a stock node is reported and never restarted`() = runTest {
+        val pkg = packageOf(4096)
+        val refusing = FakeBootloader(pkg.imageSize, refusesWritesAfter = 400)
+        var connections = 0
+        val updater = FirmwareUpdater(
+            FakeScanner(DfuPeer("AA:BB:CC:DD:EE:11", "AdaDFU", rssi = -60)),
+        ) { connections++; refusing }
+
+        val failed = assertIs<DfuProgress.Failed>(
+            updater.update(pkg, DfuTarget.WaitingInBootloader()).toList().last(),
+        )
+
+        assertEquals(0, refusing.resets, "an erased stock node was restarted into USB mode")
+        assertEquals(1, connections)
+        assertEquals(Recovery.INTERRUPTED, failed.recovery)
+        assertTrue(!failed.canFlashAgain)
+    }
+
+    @Test
+    fun `an OTAFIX node not seen after its restart can still be flashed again`() = runTest {
+        // Hardware, 2026-09-24: the rescan after a restart found nothing
+        // (the phone's own Bluetooth was still starting). The node is
+        // OTAFIX, so wherever the restart went it is waiting in
+        // Bluetooth update mode — "Try again" has to be on offer.
+        val pkg = packageOf(4096)
+        val updater = FirmwareUpdater(FakeScanner(otafix, null)) {
+            FakeBootloader(pkg.imageSize, refusesWritesAfter = 400)
+        }
+
+        val failed = assertIs<DfuProgress.Failed>(
+            updater.update(pkg, DfuTarget.WaitingInBootloader()).toList().last(),
+        )
+
+        assertEquals(Recovery.NODE_NOT_FOUND, failed.recovery)
+        assertTrue(failed.canFlashAgain)
     }
 }

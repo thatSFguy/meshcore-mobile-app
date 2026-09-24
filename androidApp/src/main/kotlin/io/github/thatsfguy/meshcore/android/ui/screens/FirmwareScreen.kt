@@ -261,10 +261,11 @@ fun FirmwareScreen(
                             "Nodes on masts and roofs cannot be approached, and this is the " +
                                 "signal they have. A weak link often carries a whole image " +
                                 "regardless — the transfer is slow rather than doomed.\n\n" +
-                                "What it costs when it does not finish is another attempt " +
-                                "from the same spot, and the node waiting in update mode " +
-                                "until one succeeds. It does not become unrecoverable; it " +
-                                "becomes unreachable over the mesh until it is flashed.",
+                                "What it costs when it does not finish depends on the " +
+                                "bootloader. Its old firmware is erased as the transfer " +
+                                "begins. The OTAFIX bootloader then waits in update mode " +
+                                "for another attempt; the standard one will not start " +
+                                "another over Bluetooth, and finishing needs a USB cable.",
                         )
                         Spacer(Modifier.height(8.dp))
                         OutlinedButton(onClick = { vm.firmware.retryOverWeakSignal() }) {
@@ -281,12 +282,13 @@ fun FirmwareScreen(
                         HintText(it)
                     }
                     Spacer(Modifier.height(8.dp))
+                    // "Try again" only where it can work — see
+                    // [FirmwareUi.Failed.retry]. On a stock bootloader
+                    // with the firmware erased, a retry is refused by the
+                    // latched session, so the button would be a lie.
                     ButtonFlowRow {
-                        // Offered only for the failure it actually fixes.
-                        if (current.recovery == Recovery.TOO_FAST) {
-                            Button(onClick = { vm.firmware.retrySlowly() }) {
-                                Text("Retry more slowly")
-                            }
+                        if (current.retry != null) {
+                            Button(onClick = { vm.firmware.flash() }) { Text("Try again") }
                         }
                         OutlinedButton(onClick = { vm.firmware.reset() }) { Text("Back") }
                     }
@@ -568,8 +570,10 @@ private fun ConfirmPanel(
                         (boardName?.let { "a node reporting itself as \"$it\"" }
                             ?: "the node") +
                         ".\n\nKeep the phone next to it and this screen open until it " +
-                        "finishes. If it is interrupted the node stays in update mode " +
-                        "and has to be flashed again from close by.",
+                        "finishes. Its old firmware is erased as the transfer begins. If " +
+                        "it is interrupted, a node with the OTAFIX bootloader waits in " +
+                        "update mode to be flashed again; one with the standard " +
+                        "bootloader needs a USB cable to finish.",
                 )
             },
             confirmButton = {
@@ -598,12 +602,9 @@ private fun RunningPanel(progress: DfuProgress) {
         DfuProgress.Finished -> "Done"
         is DfuProgress.SignalTooWeak -> "Too far away"
         // Said out loud rather than hidden behind a progress bar that
-        // silently starts again: the node is erased at this point, and
-        // "it is trying again more slowly" is the difference between
-        // waiting and reaching for a cable.
+        // silently starts again.
         is DfuProgress.Retrying ->
-            "${progress.reason} Trying again at ${progress.receiptInterval} " +
-                "packets per acknowledgement…"
+            "${progress.reason} The node has been told to restart; trying again…"
 
         is DfuProgress.Failed -> progress.message
     }

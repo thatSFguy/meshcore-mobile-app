@@ -5,7 +5,9 @@ import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
 import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanResult
+import android.bluetooth.le.BluetoothLeScanner
 import android.bluetooth.le.ScanSettings
+import kotlin.time.TimeSource
 import android.content.Context
 import io.github.thatsfguy.meshcore.firmware.BootloaderExpectation
 import io.github.thatsfguy.meshcore.firmware.BootloaderPeer
@@ -65,7 +67,26 @@ class AndroidDfuScanner(
         timeoutMs: Long,
     ): DfuPeer? {
         val mgr = context.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
-        val scanner = mgr.adapter?.bluetoothLeScanner ?: return null
+        // Waited for, not assumed. With the adapter off or still coming
+        // back on there is no scanner at all, and returning null at once
+        // read as "the node did not come back" — reported on the test RAK
+        // (2026-09-24) five seconds after a restart, while the phone's
+        // own Bluetooth was still starting. The wait comes out of the
+        // same window the scan would have had.
+        val startedAt = TimeSource.Monotonic.markNow()
+        val scanner = withTimeoutOrNull(timeoutMs) {
+            var le: BluetoothLeScanner? = null
+            while (le == null) {
+                le = mgr.adapter?.takeIf { it.isEnabled }?.bluetoothLeScanner
+                if (le == null) delay(500)
+            }
+            le
+        } ?: run {
+            log("no scan: Bluetooth on this phone is off")
+            return null
+        }
+        val remainingMs = (timeoutMs - startedAt.elapsedNow().inWholeMilliseconds)
+            .coerceAtLeast(1_000L)
         val seen = LinkedHashMap<String, DfuPeer>()
         // Every address this node could be advertising on — its own and
         // its bootloader's. Asked of [BootloaderPeer] rather than worked
@@ -94,7 +115,7 @@ class AndroidDfuScanner(
 
         return try {
             scanner.startScan(null, settings, callback)
-            withTimeoutOrNull(timeoutMs) {
+            withTimeoutOrNull(remainingMs) {
                 while (true) {
                     // The address we expect settles it; anything else
                     // waits out the window in case the right node is

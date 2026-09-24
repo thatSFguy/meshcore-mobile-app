@@ -142,10 +142,35 @@ class OtaEntryTest {
 
     @Test
     fun `a console that is never answered does not queue forever`() {
+        // It used to give up here, reporting that the node "did not
+        // answer `ver`" — a command that was never sent. A command past
+        // its answer timeout went unanswered; it is not in flight, so
+        // the sequence goes ahead and asks `ver` for itself.
         val state = OtaEntry.Queued(since = 1_000_000L)
         val rows = listOf(sent("board", 999_000L))
-        val late = OtaEntry.advance(state, rows, now = 1_000_000L + OtaEntry.ANSWER_TIMEOUT_MS)
-        assertTrue(late is OtaEntry.GaveUp)
+        val late = OtaEntry.advance(state, rows, now = 999_000L + OtaEntry.ANSWER_TIMEOUT_MS)
+        assertTrue(late is OtaEntry.ProvingTheNodeAnswers, "$late")
+    }
+
+    @Test
+    fun `an unanswered start ota from an earlier session does not block the next`() {
+        // Found on the test RAK, 2026-09-24: `start ota` went unanswered
+        // at 07:45, the node was flashed another way, and at 08:03 the
+        // next attempt sat on "Waiting for the console" because that
+        // row was still the last one in the persisted thread.
+        val t0 = 1_000_000L
+        val rows = listOf(
+            sent("ver", t0),
+            heard("v1.17.1-d929643 (Build: 14-Aug-2026)", t0 + 36_000L),
+            sent("start ota", t0 + 36_100L),
+        )
+        val next = t0 + 18 * 60_000L
+        val state = OtaEntry.advance(OtaEntry.Queued(since = next), rows, now = next + 100L)
+        assertTrue(state is OtaEntry.ProvingTheNodeAnswers, "$state")
+        // The positive control: the same row a moment after it was sent
+        // IS owed an answer, and the sequence waits for it.
+        val fresh = OtaEntry.advance(OtaEntry.Queued(since = t0 + 36_200L), rows, now = t0 + 40_000L)
+        assertTrue(fresh is OtaEntry.Queued, "$fresh")
     }
 
     @Test
@@ -188,15 +213,24 @@ class OtaEntryTest {
     }
 
     @Test
-    fun `an all-zero mac is not proof of anything`() {
-        // What the firmware memsets before asking the stack for its
-        // address, so it is what a failed read leaves behind.
+    fun `an all-zero mac is update mode with the address unknown`() {
+        // The real reply from the test RAK on repeater-v1.17.0,
+        // 2026-09-24. It used to give up with "it is not advertising",
+        // which the firmware contradicts: `startOTAUpdate` starts
+        // advertising before it reads the address, and a Bluetooth stack
+        // that failed to start returns false rather than `OK`. The zeros
+        // are the memset the read failed to overwrite — not an address,
+        // and not a refusal.
         val state = OtaEntry.AwaitingUpdateMode(version = realVer, sentAt = 2_000_000L)
         val rows = listOf(
             sent("start ota", 2_000_000L),
             heard("OK - mac: 00:00:00:00:00:00", 2_000_700L),
         )
-        assertTrue(OtaEntry.advance(state, rows, now = 2_000_800L) is OtaEntry.GaveUp)
+        val done = OtaEntry.advance(state, rows, now = 2_000_800L) as OtaEntry.Confirmed
+        assertNull(done.address, "the zeros were taken for an address to scan for")
+        assertEquals(2_000_700L, done.at)
+        // And the zeros are still never an address in their own right.
+        assertNull(OtaReply.advertisingAddress("OK - mac: 00:00:00:00:00:00"))
     }
 
     @Test

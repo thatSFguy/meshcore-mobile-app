@@ -125,6 +125,17 @@ class AndroidDfuGattClient(
                     charWriteContinuation = null
                     readContinuation?.resume(null)
                     readContinuation = null
+                    // Every wait ends here, not just the ones that were
+                    // remembered. The MTU wait was missing, and on the
+                    // test RAK (2026-09-24) a link that dropped between
+                    // service discovery and `onMtuChanged` hung the whole
+                    // update with nothing left to time it out.
+                    mtuContinuation?.resume(negotiatedMtu)
+                    mtuContinuation = null
+                    descWriteContinuation?.resumeWithException(
+                        IllegalStateException("The node disconnected (status $status)."),
+                    )
+                    descWriteContinuation = null
                     // Nothing more can arrive. Ending the flow turns a
                     // link that died mid-transfer into "the node stopped
                     // responding" rather than a wait with no end.
@@ -238,6 +249,16 @@ class AndroidDfuGattClient(
                 // problem to the stack to retry in the background, which
                 // succeeds against peers a direct connect will not hold.
                 connectOnce(device, autoConnect = attempt >= 1)
+                // Inside the attempt, so a link that dies here is retried
+                // like any other failed connection. A bigger MTU means
+                // fewer writes, but the chunk size stays the caller's
+                // decision — see [maxWriteLength].
+                requestMtu(247)
+                if (disconnected) {
+                    throw IllegalStateException(
+                        "The link dropped while it was being set up.",
+                    )
+                }
                 break
             } catch (e: Exception) {
                 closeInternal()
@@ -247,10 +268,6 @@ class AndroidDfuGattClient(
                 delay(1_500L * attempt)
             }
         }
-        // A bigger MTU means fewer writes, but the chunk size stays the
-        // caller's decision — a stock bootloader will negotiate happily
-        // and then choke on the larger packets.
-        requestMtu(247)
         log("connected to ${peer.address}, MTU $negotiatedMtu")
         val service = gatt?.getService(SERVICE_UUID)
             ?: throw NoDfuServiceException(
@@ -458,7 +475,18 @@ class AndroidDfuGattClient(
         }
     }
 
+    /**
+     * Bounded, like every other wait on a vendor callback: an MTU answer
+     * that never comes leaves the default MTU, which is slow and not
+     * wrong.
+     */
     private suspend fun requestMtu(target: Int) {
+        withTimeoutOrNull(MTU_TIMEOUT_MS) { awaitMtu(target) }
+            ?: log("no MTU answer in ${MTU_TIMEOUT_MS}ms; staying at $negotiatedMtu")
+        mtuContinuation = null
+    }
+
+    private suspend fun awaitMtu(target: Int) {
         suspendCancellableCoroutine<Int> { cont ->
             mtuContinuation = cont
             if (gatt?.requestMtu(target) != true) {
@@ -548,6 +576,7 @@ class AndroidDfuGattClient(
         private const val BUFFER_CREDIT_TIMEOUT_MS = 400L
 
         private const val CONNECT_ATTEMPTS = 3
+        private const val MTU_TIMEOUT_MS = 5_000L
         private const val SETTLE_AFTER_SCAN_MS = 1_000L
         private const val DIRECT_TIMEOUT_MS = 12_000L
         private const val AUTO_CONNECT_TIMEOUT_MS = 25_000L

@@ -120,11 +120,20 @@ sealed class OtaEntry {
     data class AwaitingUpdateMode(val version: String, val sentAt: Long) : OtaEntry()
 
     /**
-     * The node reported the address it is advertising on. [at] is that
-     * reply's own arrival time, to be stamped as the watermark so the
-     * same row cannot be consumed a second time.
+     * The node reported that it is advertising for an update. [at] is
+     * that reply's own arrival time, to be stamped as the watermark so
+     * the same row cannot be consumed a second time.
+     *
+     * [address] is null when the node said so with an all-zero MAC. That
+     * is still proof: `NRF52Board::startOTAUpdate` calls
+     * `Bluefruit.Advertising.start(0)` BEFORE `Bluefruit.getAddr`, and a
+     * failed `Bluefruit.begin` returns false instead of `OK` — so `OK -
+     * mac: 00:…` is a node that is advertising and could not read back its
+     * own address. The flash step then finds it by name. (Seen on the test
+     * RAK on repeater-v1.17.0, 2026-09-24; this used to give up and say
+     * the node was not advertising.)
      */
-    data class Confirmed(val version: String, val address: String, val at: Long) : OtaEntry()
+    data class Confirmed(val version: String, val address: String?, val at: Long) : OtaEntry()
 
     /** Stopped, with something worth showing the operator. */
     data class GaveUp(val reason: String) : OtaEntry()
@@ -165,11 +174,6 @@ sealed class OtaEntry {
                 "hotspot called `MeshCore OTA` instead, and the firmware is uploaded from a " +
                 "browser at http://192.168.4.1/update."
 
-        internal const val ADDRESS_READ_FAILED =
-            "The node reported an all-zero Bluetooth address, which is what its firmware " +
-                "leaves behind when the radio stack does not answer. It is not advertising " +
-                "for an update. Power-cycling it and trying again is the usual fix."
-
         /**
          * The next state, given the console thread and the current time.
          *
@@ -180,8 +184,17 @@ sealed class OtaEntry {
             is Queued ->
                 when {
                     // Something else is still owed a reply. Wait for it
-                    // rather than sending into the gap.
-                    rows.lastOrNull()?.outgoing == true ->
+                    // rather than sending into the gap — but only while
+                    // a reply could still come. A command older than
+                    // [ANSWER_TIMEOUT_MS] is not in flight; it went
+                    // unanswered. Waiting on one blocked every later
+                    // attempt on the node: on the test RAK (2026-09-24)
+                    // an unanswered `start ota` from the previous session
+                    // sat at the end of the persisted thread, and the
+                    // next attempt waited two minutes and then reported
+                    // that the node "did not answer `ver`" — a command it
+                    // was never sent.
+                    rows.lastOrNull()?.let { it.outgoing && !timedOut(it.at, now) } == true ->
                         if (timedOut(state.since, now)) GaveUp(NO_VERSION_ANSWER) else state
                     else -> ProvingTheNodeAnswers(now)
                 }
@@ -211,11 +224,12 @@ sealed class OtaEntry {
                         if (timedOut(state.sentAt, now)) GaveUp(NO_UPDATE_MODE_ANSWER) else state
                     !NodeIdentityReplies.isRealAnswer(reply) -> GaveUp(refused("start ota", reply))
                     // Answered, accepted, and no usable address in it.
-                    // An all-zero MAC is a failed read on an nRF board;
-                    // no MAC at all is an ESP32 raising a hotspot. Both
-                    // leave nothing here to connect to, for different
-                    // reasons and with different fixes.
-                    reply.contains("mac:", ignoreCase = true) -> GaveUp(ADDRESS_READ_FAILED)
+                    // An all-zero MAC is an nRF board that IS advertising
+                    // and failed only to read its address back — see
+                    // [Confirmed]. No MAC at all is an ESP32 raising a
+                    // hotspot, which this app cannot follow.
+                    reply.contains("mac:", ignoreCase = true) ->
+                        Confirmed(state.version, null, rows.last().at)
                     else -> GaveUp(NO_ADDRESS_REPORTED)
                 }
             }

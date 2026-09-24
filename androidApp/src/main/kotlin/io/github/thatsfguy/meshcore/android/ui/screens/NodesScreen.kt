@@ -801,9 +801,12 @@ fun ContactDetailSheet(
                             "\"Restart it\" asks its bootloader to boot the firmware it " +
                             "already has. That works when the transfer never got as far as " +
                             "erasing anything — the usual case for an update that failed " +
-                            "early. If the firmware was already erased it will stay in " +
-                            "update mode, which is not a failure of this button: the node " +
-                            "then needs flashing rather than restarting.",
+                            "early. If the firmware was already erased, what happens " +
+                            "depends on the bootloader: OTAFIX comes back in update mode, " +
+                            "ready to be flashed again, but the standard bootloader comes " +
+                            "back as a USB drive and stops answering over Bluetooth. On a " +
+                            "standard bootloader, do not use this on a node whose transfer " +
+                            "had started.",
                     )
                     updateModeNote?.let {
                         Spacer(Modifier.height(8.dp))

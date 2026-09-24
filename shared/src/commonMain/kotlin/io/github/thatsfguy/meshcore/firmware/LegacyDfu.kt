@@ -288,8 +288,23 @@ sealed class DfuFailure {
      * So one attempt that gets as far as the start step latches the node
      * out of IDLE for the whole life of that bootloader session, and
      * every reconnection afterwards is refused the same way. Only
-     * [LegacyDfu.OP_SYS_RESET] — or the power — clears it, which is why
-     * every abandoned transfer here sends one.
+     * [LegacyDfu.OP_SYS_RESET] — or the power — clears it.
+     *
+     * **And this refusal proves the application is gone.** The one
+     * assignment that takes the bootloader out of IDLE is
+     * `m_dfu_state = DFU_STATE_PREPARING` in `dfu_prepare_func_app_erase`
+     * — the erase itself (tag 0.9.2, `dfu_single_bank.c`). There is no
+     * path out of IDLE that leaves the application standing. So the reset
+     * that would clear this state is exactly the one that strands a stock
+     * bootloader in USB mode — see [LegacyDfuSession.abort]. It was sent
+     * automatically here until 2026-09-24, on the reasoning that it "hands
+     * the node back able to start again".
+     *
+     * (`dfu_init` can also leave the state at `DFU_STATE_INIT_ERROR`,
+     * with the application intact, if flash storage fails to register at
+     * boot. That is a broken bootloader rather than an interrupted
+     * update, and treating it as erased costs nothing but a reset
+     * the operator can still do by hand.)
      */
     object StaleSession : DfuFailure() {
         override val message: String
@@ -395,13 +410,25 @@ class LegacyDfuSession(
     private var awaitingReceipt = false
 
     /**
-     * True once the peer has accepted the start step — which is the
-     * moment it erases the application bank.
+     * True once the node may no longer have an application to boot.
      *
      * Read by the driver to decide whether abandoning the transfer may
      * safely reset the node. Before this, a reset boots the firmware
-     * that is still there; after it, there is no firmware to boot. See
-     * [abort].
+     * that is still there; after it, there may be no firmware to boot.
+     * See [abort].
+     *
+     * **Set when the start step is SENT, not when it is answered.** The
+     * bootloader erases the bank inside the start handler and only then
+     * replies (`dfu_start_pkt_handle` → `dfu_prepare_func_app_erase`),
+     * so a start that times out or loses its link may have erased
+     * everything. Waiting for the success response left that window
+     * open: a silent start step was abandoned with a reset.
+     *
+     * **Never cleared, not even by a refusal.** `dfu_start_pkt_handle`
+     * answers `NOT_SUPPORTED` and `DATA_SIZE` before it erases — but
+     * also before it checks whether it is latched, so a node erased by
+     * an EARLIER attempt gives those same answers. "This start erased
+     * nothing" is not "this node has an application".
      */
     var applicationErased: Boolean = false
         private set
@@ -415,6 +442,8 @@ class LegacyDfuSession(
     fun start(): List<DfuAction> {
         check(stage == DfuStage.Idle) { "session already started" }
         stage = DfuStage.Starting
+        // From the moment these writes go out, the peer may be erasing.
+        applicationErased = true
         val actions = mutableListOf<DfuAction>()
         actions += DfuAction.WriteControl(
             byteArrayOf(LegacyDfu.OP_START_DFU.toByte(), LegacyDfu.IMAGE_TYPE_APP.toByte()),
@@ -441,14 +470,23 @@ class LegacyDfuSession(
      * roughly 15 KB, this reset went out, and the node vanished from
      * every scan and reappeared as a `NICENANO` volume on a USB cable.
      *
+     * The source says why: `main.c` enters BLE DFU only when `GPREGRET`
+     * carries an over-the-air magic value, a reset clears it, and a node
+     * with no valid application and no magic value calls `usb_init`.
+     *
      * So after the erase, the choice is between a node that MIGHT take
      * another transfer over the air and one that certainly needs
      * somebody to walk to it. Doing nothing is the better of the two,
      * even though it leaves the session latched.
+     *
+     * [restartKeepsItReachable] is the exception, for an OTAFIX
+     * bootloader ([BootloaderKind.Otafix]): with no valid application it
+     * starts in Bluetooth update mode instead, so there the restart is
+     * both safe and the only thing that clears the latched session.
      */
-    fun abort(): List<DfuAction> {
+    fun abort(restartKeepsItReachable: Boolean = false): List<DfuAction> {
         stage = DfuStage.Failed
-        if (applicationErased) return emptyList()
+        if (applicationErased && !restartKeepsItReachable) return emptyList()
         return listOf(DfuAction.WriteControl(LegacyDfu.SYSTEM_RESET))
     }
 
@@ -468,8 +506,10 @@ class LegacyDfuSession(
         val result = bytes[2].toInt() and 0xFF
         if (result != LegacyDfu.RESP_SUCCESS) {
             // The start step is the one place where this response says
-            // something about the SESSION rather than about the package,
-            // and it is recoverable. See [DfuFailure.StaleSession].
+            // something about the SESSION rather than about the package —
+            // and what it says is that an earlier start was accepted, so
+            // the bank is already erased. [applicationErased] stays set.
+            // See [DfuFailure.StaleSession].
             if (procedure == LegacyDfu.OP_START_DFU &&
                 result == LegacyDfu.RESP_INVALID_STATE
             ) {
@@ -480,9 +520,8 @@ class LegacyDfuSession(
         return when {
             stage == DfuStage.Starting && procedure == LegacyDfu.OP_START_DFU -> {
                 stage = DfuStage.SendingInit
-                // From here on the node has no application. Everything
-                // that decides how to abandon a transfer turns on this.
-                applicationErased = true
+                // The erase is confirmed now; [applicationErased] has
+                // been set since the start step went out.
                 buildList {
                     add(
                         DfuAction.WriteControl(

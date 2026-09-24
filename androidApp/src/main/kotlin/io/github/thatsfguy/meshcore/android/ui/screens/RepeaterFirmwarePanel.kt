@@ -117,9 +117,13 @@ fun RepeaterFirmwarePanel(
     LaunchedEffect((entry as? OtaEntry.AwaitingUpdateMode)?.sentAt) {
         if (entry is OtaEntry.AwaitingUpdateMode) vm.sendCli(keyHex, "start ota")
     }
-    LaunchedEffect((entry as? OtaEntry.Confirmed)?.address) {
+    // Keyed on the reply's time, not the address: a confirmation with no
+    // address (an all-zero MAC) has the same null key as "not confirmed".
+    LaunchedEffect((entry as? OtaEntry.Confirmed)?.at) {
         val done = entry as? OtaEntry.Confirmed ?: return@LaunchedEffect
-        vm.rememberOtaAddress(keyHex, done.address)
+        // A MAC is hardware, so an address recorded earlier stays right;
+        // with none reported, the flash step matches the node by name.
+        done.address?.let { vm.rememberOtaAddress(keyHex, it) }
         vm.setUpdateMode(keyHex, true, handledAt = done.at)
     }
 

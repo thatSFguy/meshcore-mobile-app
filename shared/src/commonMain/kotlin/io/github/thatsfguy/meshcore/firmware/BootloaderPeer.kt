@@ -15,6 +15,9 @@ data class DfuPeer(val address: String, val name: String?, val rssi: Int? = null
      */
     val signalIsAdequate: Boolean get() = (rssi ?: 0) > WEAK_SIGNAL_DBM
 
+    /** Which bootloader this is, from its advertised name. See [BootloaderKind]. */
+    val bootloaderKind: BootloaderKind get() = BootloaderPeer.kindOf(name)
+
     companion object {
         /**
          * The floor below which a transfer is not started automatically.
@@ -34,6 +37,33 @@ data class DfuPeer(val address: String, val name: String?, val rssi: Int? = null
          */
         const val WEAK_SIGNAL_DBM = -95
     }
+}
+
+/**
+ * Which bootloader a peer is running, as far as its name can tell.
+ *
+ * The distinction decides what may be done with a node whose firmware is
+ * already erased, and it is the difference between "flash it again" and
+ * "fetch a USB cable":
+ *
+ * - [Stock] — Adafruit's own. With no valid application and no
+ *   over-the-air magic in `GPREGRET` it starts in **USB** mode (`main.c`,
+ *   `usb_init`), and a restart clears that magic. So an erased node must
+ *   never be restarted.
+ * - [Otafix] — oltaco's fork. With no valid application it defaults to
+ *   **Bluetooth** update mode (`main.c`: "set default to OTA only when no
+ *   explicit UF2/serial/dbl-reset"), so a restart is safe and is what
+ *   clears an interrupted session. Proven on the test RAK 2026-09-24.
+ * - [Unknown] — anything else, treated as [Stock]: guessing wrong in that
+ *   direction costs a retry, and in the other a trip to the node.
+ */
+enum class BootloaderKind {
+    Stock,
+    Otafix,
+    Unknown;
+
+    /** Whether restarting it with its firmware erased keeps it on Bluetooth. */
+    val restartKeepsItReachable: Boolean get() = this == Otafix
 }
 
 /**
@@ -70,9 +100,13 @@ data class BootloaderExpectation(
  *   advertising. `addr[0]` is the least-significant octet, which is the
  *   LAST field of the address as Android and iOS print it — and it
  *   wraps, so `…:FF` becomes `…:00`, not `…:100`.
- * - Name: `DEVICE_NAME` defaults to `AdaDFU`; MeshCore and OTAFIX
- *   builds override it per board as `<board>_OTA`. Nordic's own SDK
- *   bootloader uses `DfuTarg`. All three are accepted.
+ * - Name: `DEVICE_NAME` defaults to `AdaDFU`, and no stock Adafruit
+ *   board overrides it. OTAFIX overrides it per board as `<code>_DFU`
+ *   (`4631_DFU`, `PROM_DFU`, `T114_DFU` — each board's `board.mk`).
+ *   Nordic's own SDK bootloader uses `DfuTarg`. All are accepted.
+ *   (`<board>_OTA` is NOT a bootloader: it is MeshCore's own firmware
+ *   after `start ota`. This comment said otherwise until 2026-09-24,
+ *   and OTAFIX's `_DFU` names were recognised by address alone.)
  *
  * Either signal alone is enough — a stock bootloader that was never
  * given a per-board name still increments its address, and a board that
@@ -115,9 +149,28 @@ object BootloaderPeer {
         if (trimmed.isEmpty()) return false
         if (KNOWN_NAMES.any { it.equals(trimmed, ignoreCase = true) }) return true
         if (trimmed.equals("OTA", ignoreCase = true)) return false
+        if (isOtafixName(trimmed)) return true
         return trimmed.endsWith("_OTA", ignoreCase = true) ||
             trimmed.endsWith(" OTA", ignoreCase = true)
     }
+
+    /**
+     * Which bootloader [name] belongs to. `_DFU` names are OTAFIX's
+     * alone — every stock Adafruit board keeps `AdaDFU` — so the suffix
+     * is the signal, and anything unrecognised is [BootloaderKind.Unknown].
+     */
+    fun kindOf(name: String?): BootloaderKind {
+        val trimmed = name?.trim().orEmpty()
+        return when {
+            trimmed.equals("AdaDFU", ignoreCase = true) -> BootloaderKind.Stock
+            isOtafixName(trimmed) -> BootloaderKind.Otafix
+            else -> BootloaderKind.Unknown
+        }
+    }
+
+    /** `4631_DFU`: something before the suffix, and not just the suffix. */
+    private fun isOtafixName(trimmed: String): Boolean =
+        trimmed.length > "_DFU".length && trimmed.endsWith("_DFU", ignoreCase = true)
 
     /**
      * Is this peer **certainly** the bootloader rather than firmware
@@ -135,7 +188,8 @@ object BootloaderPeer {
      * bootloader reads as a malformed start-DFU.
      */
     fun isCertainlyBootloader(name: String?): Boolean =
-        KNOWN_NAMES.any { it.equals(name?.trim(), ignoreCase = true) }
+        KNOWN_NAMES.any { it.equals(name?.trim(), ignoreCase = true) } ||
+            isOtafixName(name?.trim().orEmpty())
 
     /**
      * The addresses a [companionAddress] can legitimately turn up on:

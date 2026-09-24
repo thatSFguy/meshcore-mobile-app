@@ -279,4 +279,43 @@ class BootloaderPeerTest {
             BootloaderPeer.choose(expectation, listOf(DfuPeer("99:99:99:99:99:99", "RAK4631_OTA"))),
         )
     }
+
+    // --- which bootloader -------------------------------------------------
+
+    @Test
+    fun `the names seen on hardware classify as the bootloaders they were`() {
+        // `4631_DFU`: the test RAK's bootloader, 2026-09-24, which then
+        // negotiated MTU 247 — OTAFIX. `AdaDFU`: 13 Mile's in August,
+        // MTU 23 — stock Adafruit 0.9.2.
+        assertEquals(BootloaderKind.Otafix, BootloaderPeer.kindOf("4631_DFU"))
+        assertEquals(BootloaderKind.Stock, BootloaderPeer.kindOf("AdaDFU"))
+        assertTrue(BootloaderKind.Otafix.restartKeepsItReachable)
+        assertFalse(BootloaderKind.Stock.restartKeepsItReachable)
+    }
+
+    @Test
+    fun `every OTAFIX board name is recognised`() {
+        // Each board's `board.mk` in oltaco/Adafruit_nRF52_Bootloader_OTAFIX.
+        for (name in listOf(
+            "T114_DFU", "MX25_DFU", "LGTE_DFU", "WTL1_DFU", "T096_DFU", "TNM6_DFU",
+            "T1KE_DFU", "T1_DFU", "TNM1_DFU", "TNM3_DFU", "RTAG_DFU", "XIAO_DFU",
+            "SCAP_DFU", "4631_DFU", "PROM_DFU", "3401_DFU",
+        )) {
+            assertEquals(BootloaderKind.Otafix, BootloaderPeer.kindOf(name), name)
+            assertTrue(BootloaderPeer.looksLikeBootloader(name), name)
+            assertTrue(BootloaderPeer.isCertainlyBootloader(name), name)
+        }
+    }
+
+    @Test
+    fun `anything unrecognised is not taken for OTAFIX`() {
+        // Guessing OTAFIX wrongly restarts an erased stock node into USB
+        // mode; guessing stock wrongly costs a retry. Only the first is
+        // expensive, so doubt falls to stock.
+        for (name in listOf(null, "", "_DFU", "DfuTarg", "RAK4631_OTA", "Meshtiny OTA", "DFU")) {
+            assertFalse(BootloaderPeer.kindOf(name).restartKeepsItReachable, "$name")
+        }
+        // And MeshCore's own firmware after `start ota` is not a bootloader.
+        assertFalse(BootloaderPeer.isCertainlyBootloader("RAK4631_OTA"))
+    }
 }

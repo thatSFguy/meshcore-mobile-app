@@ -11,6 +11,48 @@ Every entry describes what is in **that tagged build**. A feature that landed af
 belongs in the next section, not this one — 0.3.0 was once credited with four features that
 shipped after it, which misled nobody so much as the author, three months later.
 
+## 0.9.8
+
+**Firmware updates now know which bootloader they are talking to, and act on it.** An nRF52
+node has one of two bootloaders, and they fail in opposite ways. Once an update has begun,
+the node's old firmware is gone. Restart a node with the standard Adafruit bootloader in that
+state and it comes back as a USB drive, no longer answering over Bluetooth. Restart one with
+the OTAFIX bootloader and it comes back in Bluetooth update mode, ready to be flashed again.
+The app used to handle both the same way, and on the standard bootloader that meant sending
+nodes to a USB cable. It now tells them apart by the name the bootloader advertises
+(`AdaDFU`, or a board name such as `4631_DFU`).
+
+- **A standard-bootloader node is never restarted once its firmware is erased.** The app
+  used to do exactly that to clear an interrupted update, and to retry automatically — and a
+  bootloader left part-way through an update refuses any new one until it restarts, so those
+  retries could never succeed. It now stops, and says the node needs a USB cable.
+- **An OTAFIX node recovers by itself.** A transfer that fails part-way is restarted and
+  tried again, up to twice, including the case where the first restart went down a
+  connection that had already died. Proven on a RAK4631 with Bluetooth switched off in the
+  middle of an update: it finished without a tap.
+- **"Try again" appears only where it can work**, and "Retry more slowly" is gone: it was
+  offered at the one moment a standard bootloader refuses any retry.
+- **Every message about a failed update says what is actually true** for that node, and the
+  confirmation, weak-signal and "Restart it" texts describe both bootloaders.
+
+**Fixed along the way, all found by driving a real update:**
+
+- **An update could hang for ever at "Asking the radio to restart in update mode".** The app
+  checked the node over one connection and then reconnected for the next step before the
+  phone had finished closing the first. It now keeps the one connection, and no step of
+  connecting can wait without a limit.
+- **An unanswered `start ota` from an earlier visit blocked the next one** for two minutes,
+  and then blamed a command that had never been sent.
+- **A node answering `start ota` with an all-zero address was reported as not advertising.**
+  The firmware starts advertising before it reads its address, so it was; the app now finds
+  it by name.
+- **OTAFIX bootloaders are recognised by name**, so a node already waiting in update mode is
+  found even with no address on record.
+- **A scan started while the phone's Bluetooth was still switching on** gave up at once; it
+  now waits for Bluetooth to come back.
+- **The transfer rate in the diagnostics log** is measured from when data starts to move. It
+  used to include the scan, which halved the figure.
+
 ## 0.9.7
 
 **The contact list now stays in step with the radio.** The radio holds a fixed number of

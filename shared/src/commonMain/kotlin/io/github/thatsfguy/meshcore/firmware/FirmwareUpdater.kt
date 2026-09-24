@@ -223,58 +223,14 @@ data class DfuOptions(
     val packetDelayMs: Long = 0,
 ) {
     /**
-     * True when [failure] is the bootloader saying the packets came too
-     * fast.
-     *
-     * `NRF_ERROR_NO_MEM` out of the receive pool is translated to the
-     * catch-all [LegacyDfu.RESP_OPER_FAILED], so the status alone is
-     * ambiguous — but during the image step, on this bootloader, it
-     * means one thing. Nordic's own legacy implementation reads it the
-     * same way and prescribes the same remedy: reduce the receipt
-     * interval.
+     * The same transfer with the packets further apart, for a retry
+     * after [Recovery.isTooFast]. It is the RATE that overflows the
+     * bootloader's receive pool; a smaller receipt interval changes the
+     * batch and not the rate, which hardware proved on 2026-08-14.
      */
-    fun tooFast(failure: DfuFailure): Boolean =
-        failure is DfuFailure.Rejected &&
-            failure.procedure == LegacyDfu.OP_RECEIVE_FW &&
-            failure.result == LegacyDfu.RESP_OPER_FAILED
-
-    /**
-     * The same transfer at the recovery pace.
-     *
-     * Half the receipt window, so fewer packets are in flight between
-     * checkpoints. No packet delay is added: Meshtastic's legacy DFU has
-     * a RECOVERY profile that is exactly this — `prnInterval` 5 against a
-     * normal 10 — and nothing else, and the thing that actually keeps a
-     * stock bootloader fed is the short connection interval
-     * ([DfuGattClient.requestHighThroughput]), not a sleep in the
-     * sender. Never below one packet per receipt, which is as slow as
-     * the protocol goes.
-     */
-    fun gentler(): DfuOptions = copy(
-        receiptInterval = maxOf(1, receiptInterval / 2),
-        // And slower per packet, which is the part that actually
-        // addresses `operation failed`. This used to halve the receipt
-        // interval and nothing else, on the strength of Meshtastic's
-        // recovery profile being exactly that — but a smaller batch does
-        // not reduce the RATE, and the rate is what overflows a
-        // bootloader's receive pool. Proven on hardware: the interval
-        // stepped down to 5 and the node refused the image step just the
-        // same. Zero means "whatever the link implies"; see
-        // [LegacyDfu.packetDelayFor].
-        packetDelayMs = if (packetDelayMs > 0) {
-            packetDelayMs * 2
-        } else {
-            LegacyDfu.STOCK_BOOTLOADER_PACKET_DELAY_MS * 2
-        },
+    fun slower(): DfuOptions = copy(
+        packetDelayMs = maxOf(packetDelayMs * 2, LegacyDfu.STOCK_BOOTLOADER_PACKET_DELAY_MS),
     )
-
-    companion object {
-        /**
-         * Meshtastic's RECOVERY profile, and the value this steps down
-         * to from the documented default of 10.
-         */
-        const val RECOVERY_PRN_INTERVAL = 5
-    }
 }
 
 /** Where an update has got to. Everything the UI shows comes from here. */
@@ -308,21 +264,26 @@ sealed class DfuProgress {
     /** Flashed and rebooting into the new image. */
     object Finished : DfuProgress()
 
-    data class Failed(val message: String, val recovery: String) : DfuProgress()
+    data class Failed(
+        val message: String,
+        val recovery: String,
+        /**
+         * Whether flashing the same package again from here can work:
+         * true before anything was erased, and after an erase only on a
+         * bootloader that restarts into Bluetooth update mode.
+         */
+        val canFlashAgain: Boolean = false,
+    ) : DfuProgress()
 
     /**
-     * The attempt failed and another is starting by itself.
-     *
-     * Emitted so the reason is **said out loud**. A failure that the app
-     * recovers from used to emit nothing at all — the log jumped
-     * straight from a byte count to "scanning for the node", and the one
-     * fact worth having, which is what went wrong, existed only inside a
-     * local variable. Three transfers were diagnosed on hardware without
-     * it, and the difference between "the node could not keep up" and
-     * "the node went quiet" had to be inferred from how many seconds
-     * passed.
+     * The attempt failed on an OTAFIX node, which has been sent a restart
+     * and is about to be tried again. Said out loud so the log carries
+     * what went wrong, not just that another attempt began. "Sent", not
+     * "restarted": a restart is never acknowledged, so whether it landed
+     * is only known when the node is next reached.
      */
-    data class Retrying(val reason: String, val receiptInterval: Int) : DfuProgress()
+    data class Retrying(val reason: String) : DfuProgress()
+
 }
 
 /**
@@ -335,15 +296,24 @@ sealed class DfuProgress {
 /** See [FirmwareUpdater]. */
 private const val SUBSCRIPTION_SETTLE_MS = 500L
 
-/** How long a node is given to reboot before it is looked for. */
+/**
+ * How long the restart write may take. It is never acknowledged — the
+ * node reboots inside the handler — so waiting on it for the full write
+ * backstop after a stall would only add two minutes to a failure.
+ */
+internal const val RESTART_WRITE_TIMEOUT_MS = 5_000L
+
+/** Restart-and-retry rounds an OTAFIX node gets; see `runTransfer`. */
+internal const val OTAFIX_RETRIES = 2
+
+/** How long a restarted node is given before it is looked for. */
 internal const val REBOOT_SETTLE_MS = 5_000L
 
 /**
- * How long to look for a node after resetting it.
- *
- * Longer than a first scan on purpose: the peer has to reboot, run its
- * bootloader init and start advertising again, and it is being looked
- * for by an exact address that is silent until it does.
+ * How long to look for a restarted node: it has to reboot, run its
+ * bootloader init and advertise again, on an address that is silent
+ * until it does. A 30-second window from the moment of the restart once
+ * expired on hardware with the node coming back a moment later.
  */
 internal const val REBOOT_SCAN_TIMEOUT_MS = 60_000L
 
@@ -464,6 +434,9 @@ class FirmwareUpdater(
                 // found by scanning alone, which is the case whenever
                 // this is reached from "a node is already in update
                 // mode" — ask the peer instead of guessing.
+                // A live connection to the peer in app mode, kept for the
+                // jump. See below.
+                var appModeLink: DfuGattClient? = null
                 if (bootloaderAddress == null) {
                     val probe = runCatching {
                         connect(advertising).also { it.connect() }
@@ -486,19 +459,27 @@ class FirmwareUpdater(
                         // earlier, on a connection this app threw away.
                         return@flow runTransfer(pkg, advertising, options, this, connected = probe)
                     }
-                    runCatching { probe?.close() }
+                    // Not a bootloader, so it is the app about to be told
+                    // to jump — on THIS connection. Closing it and
+                    // reconnecting for the jump was the same race the
+                    // bootloader case above lost, one step earlier: on
+                    // the test RAK (2026-09-24) the jump's connection
+                    // came up on a link the stack was still tearing down,
+                    // dropped during its MTU request, and hung the update
+                    // at "Asking the radio to restart in update mode".
+                    appModeLink = probe
                 }
 
                 if (alreadyInBootloader) {
                     // Nothing to reboot; go straight to the transfer.
+                    runCatching { appModeLink?.close() }
                     return@flow runTransfer(pkg, advertising, options, this)
                 }
 
                 emit(DfuProgress.EnteringBootloader)
                 try {
-                    val jump = connect(advertising)
+                    val jump = appModeLink ?: connect(advertising).also { it.connect() }
                     try {
-                        jump.connect()
                         jump.subscribeToControlPoint()
                         jump.writeExpectingAReboot(LegacyDfu.ENTER_BOOTLOADER)
                     } finally {
@@ -543,13 +524,6 @@ class FirmwareUpdater(
         options: DfuOptions,
         out: kotlinx.coroutines.flow.FlowCollector<DfuProgress>,
         /**
-         * False on the second pass, after a node that was latched out of
-         * its previous session has been reset. One retry, so a peer that
-         * answers `invalid state` for some other reason cannot become a
-         * loop of reboots.
-         */
-        allowRestart: Boolean = true,
-        /**
          * An already-connected client to transfer on, rather than
          * opening a new one.
          *
@@ -560,18 +534,17 @@ class FirmwareUpdater(
          */
         connected: DfuGattClient? = null,
         /**
-         * True when an EARLIER attempt already got past the start step,
-         * so this node has no application even though this session has
-         * not erased anything itself.
+         * How many more restart-and-retry rounds an OTAFIX node may have.
          *
-         * Without it the fix in [LegacyDfuSession.abort] has a hole
-         * exactly one attempt wide, and hardware fell straight into it:
-         * the first attempt erased the bank and correctly declined to
-         * reset, the retry was refused with `invalid state` before it
-         * sent a byte — so ITS session had erased nothing, happily wrote
-         * the reset, and put the node back on a USB cable.
+         * Two, not one, because a restart cannot be confirmed: the node
+         * reboots inside the handler, so the write "fails" whether it
+         * landed or not. On the test RAK (2026-09-24) a stall on a dead
+         * link sent its restart into nothing; the retry found the node
+         * still latched and was refused, restarted it over a LIVE link —
+         * which worked — and then had no attempt left to use it. Bounded,
+         * so a node that fails the same way every time cannot loop.
          */
-        applicationAlreadyErased: Boolean = false,
+        retriesLeft: Int = OTAFIX_RETRIES,
     ) {
         if (!options.allowWeakSignal && !peer.signalIsAdequate) {
             out.emit(DfuProgress.SignalTooWeak(peer, peer.rssi ?: 0))
@@ -598,18 +571,57 @@ class FirmwareUpdater(
             return
         }
 
-        // Set when the attempt is worth making again, to the options it
-        // should be made with. The retry happens after this connection
-        // is closed — the node is rebooting, so there is nothing left to
-        // hold.
+        // Hoisted so the catch below can say whether the node was
+        // erased: an exception mid-image is as final as a refusal.
+        var opened: LegacyDfuSession? = null
+        // Only ever set for a bootloader that restarts into Bluetooth
+        // update mode; see [BootloaderKind].
         var retryWith: DfuOptions? = null
-        // Whether the node was actually told to restart. Not the same
-        // as "we tried to abandon the transfer": once the application
-        // bank is erased, abandoning it deliberately writes nothing.
-        var wasReset = false
-        // Kept out here because the retry happens after the session is
-        // out of scope, and the reason is the whole point of saying so.
         var retryReason: String? = null
+        val kind = peer.bootloaderKind
+
+        /**
+         * One attempt is over and did not finish. Restart the node if
+         * that cannot strand it, then either line up a retry or report.
+         *
+         * Restarting is safe before the start step (the node boots what it
+         * had) and on a bootloader that restarts into Bluetooth update mode.
+         * On a stock bootloader an erased node is left alone — see
+         * [LegacyDfuSession.abort] — and is NOT retried: it is latched out
+         * of `DFU_STATE_IDLE`, so a second start is refused with `invalid
+         * state` before a byte is sent. The retry ladder that used to run
+         * regardless of bootloader could not succeed on stock, and its
+         * restart is what put erased nodes into USB mode.
+         */
+        suspend fun endAttempt(message: String, failure: DfuFailure?, session: LegacyDfuSession) {
+            val abort = session.abort(kind.restartKeepsItReachable)
+            // Written even down a link that may be dead, and bounded,
+            // because nothing acknowledges it either way: the node
+            // reboots inside the handler. Whether it landed is learned on
+            // the next connection — which is why an OTAFIX node gets
+            // [OTAFIX_RETRIES] rounds rather than one.
+            withTimeoutOrNull(RESTART_WRITE_TIMEOUT_MS) { runCatching { perform(client, abort) } }
+            if (abort.isNotEmpty() && session.applicationErased && retriesLeft > 0) {
+                retryReason = message
+                retryWith = if (failure != null && Recovery.isTooFast(failure)) {
+                    options.slower()
+                } else {
+                    options
+                }
+                return
+            }
+            out.emit(
+                DfuProgress.Failed(
+                    message,
+                    if (failure != null) {
+                        Recovery.forFailure(failure, session.applicationErased, kind)
+                    } else {
+                        Recovery.interrupted(session.applicationErased, kind)
+                    },
+                    canFlashAgain = Recovery.canFlashAgain(session.applicationErased, kind),
+                ),
+            )
+        }
         try {
             val chunkSize = options.chunkSize
                 ?: LegacyDfu.packetSizeFor(client.maxWriteLength())
@@ -625,7 +637,7 @@ class FirmwareUpdater(
                 image = pkg.image,
                 chunkSize = chunkSize,
                 prnInterval = options.receiptInterval,
-            )
+            ).also { opened = it }
             var stalledAfter: Int? = null
             var batchesSincePriority = 0
             if (!performOrStall(client, session.start(), packetDelayMs, session.stage)) {
@@ -735,137 +747,64 @@ class FirmwareUpdater(
             val failure = session.failure
                 ?: stalledAfter?.let { DfuFailure.Stalled(it, pkg.imageSize) }
             when {
-                failure != null -> {
-                    // Hand the node back in a state it can start from.
-                    // The bootloader keeps the DFU state of an abandoned
-                    // transfer until it reboots, so without this every
-                    // later attempt — including the "retry more slowly"
-                    // this app itself recommends — is refused before it
-                    // begins. The write is not acknowledged: the peer
-                    // reboots inside the handler.
-                    retryReason = failure.message
-                    val abort =
-                        if (applicationAlreadyErased) emptyList() else session.abort()
-                    wasReset = abort.isNotEmpty()
-                    runCatching { perform(client, abort) }
-                    when {
-                        failure is DfuFailure.StaleSession && allowRestart ->
-                            retryWith = options
-
-                        // The one failure with a documented remedy.
-                        // Nordic's own legacy implementation reads status
-                        // 6 during the image step as "data sent too fast
-                        // — reduce PRN", and reducing it is something
-                        // this app can do without asking. Making the
-                        // operator find a button for it means the node
-                        // sits erased in the meantime, and every attempt
-                        // costs another full flash erase.
-                        options.tooFast(failure) && allowRestart ->
-                            retryWith = options.gentler()
-
-                        // A node that went quiet mid-stream. Meshtastic
-                        // switches to its RECOVERY profile after a
-                        // mid-stream drop for the same reason: whatever
-                        // the peer could not keep up with, it is worth
-                        // asking for less of it before giving up.
-                        failure is DfuFailure.Stalled && allowRestart ->
-                            retryWith = options.gentler()
-
-                        else -> out.emit(
-                            DfuProgress.Failed(failure.message, Recovery.forFailure(failure)),
-                        )
-                    }
-                }
-
-                conclusion == null -> out.emit(
-                    DfuProgress.Failed(
-                        "The node stopped responding part-way through the update.",
-                        Recovery.INTERRUPTED,
-                    ),
+                failure != null -> endAttempt(failure.message, failure, session)
+                conclusion == null -> endAttempt(
+                    "The node stopped responding part-way through the update.",
+                    null,
+                    session,
                 )
-
                 else -> out.emit(DfuProgress.Finished)
             }
         } catch (e: Exception) {
-            out.emit(
-                DfuProgress.Failed(
-                    e.message ?: "The update failed.",
-                    Recovery.INTERRUPTED,
-                ),
-            )
+            // Mid-transfer exceptions are the same event as a refusal or
+            // a dropped link, and get the same handling: on the test RAK
+            // (2026-09-24) Bluetooth switched off mid-image surfaced as
+            // "the stack refused 244 bytes 5 times", and because only the
+            // refusal branch knew about OTAFIX, a node that could have
+            // been recovered automatically was handed to the operator.
+            val session = opened
+            if (session == null) {
+                out.emit(
+                    DfuProgress.Failed(
+                        e.message ?: "The update failed.",
+                        Recovery.UNCHANGED,
+                        canFlashAgain = true,
+                    ),
+                )
+            } else {
+                endAttempt(e.message ?: "The update failed.", null, session)
+            }
         } finally {
             runCatching { client.close() }
         }
 
-        val retryOptions = retryWith ?: return
-        out.emit(
-            DfuProgress.Retrying(
-                retryReason ?: "The transfer did not finish.",
-                retryOptions.receiptInterval,
-            ),
-        )
-
-        out.emit(DfuProgress.FindingNode)
-        if (!wasReset) {
-            // Nothing was reset, so there is nothing to wait for: the
-            // peer is still sitting in the same bootloader on the same
-            // address. See [LegacyDfuSession.abort] for why a node whose
-            // bank is already erased is deliberately left alone.
-            val same = scanner.findBootloader(
-                BootloaderExpectation(exactAddress = peer.address, nameHint = peer.name),
-                options.scanTimeoutMs,
-            )
-            if (same == null) {
-                out.emit(
-                    DfuProgress.Failed(
-                        "The node stopped advertising after the transfer failed.",
-                        Recovery.NODE_NOT_FOUND,
-                    ),
-                )
-                return
-            }
-            runTransfer(
-                pkg,
-                same,
-                retryOptions,
-                out,
-                allowRestart = false,
-                applicationAlreadyErased = true,
-            )
-            return
-        }
-
-        // The node was reset a moment ago and is coming back up. It
-        // still has its application — the reset is only ever sent
-        // before the bank is erased — so it may come back as either the
-        // firmware or the bootloader.
-        // Let it reboot before looking for it.
-        //
-        // A reset is not instant and the peer does not vanish politely:
-        // it tears the link down inside the handler, restarts, runs its
-        // bootloader init, and only then begins advertising again. A
-        // scan started in the same breath spends its first seconds
-        // watching an address that is not transmitting, and on hardware
-        // a 30-second window from that starting point expired with the
-        // node coming back a moment later — reported as "it did not come
-        // back", about a node that had.
+        val again = retryWith ?: return
+        // The node was restarted a moment ago and, being OTAFIX, is
+        // coming back in Bluetooth update mode on the same address with
+        // its session cleared. It tears the link down inside the
+        // handler, reboots and only then advertises — so wait before
+        // looking, and look for longer than a first scan does.
+        out.emit(DfuProgress.Retrying(retryReason ?: "The transfer did not finish."))
         delay(REBOOT_SETTLE_MS)
-        val rescanMs = maxOf(options.scanTimeoutMs, REBOOT_SCAN_TIMEOUT_MS)
-        val again = scanner.findBootloader(
+        val back = scanner.findBootloader(
             BootloaderExpectation(exactAddress = peer.address, nameHint = peer.name),
-            rescanMs,
+            maxOf(options.scanTimeoutMs, REBOOT_SCAN_TIMEOUT_MS),
         )
-        if (again == null) {
+        if (back == null) {
             out.emit(
                 DfuProgress.Failed(
-                    "The node was restarted to clear an interrupted update, but it did not " +
-                        "come back within ${(REBOOT_SETTLE_MS + rescanMs) / 1000} seconds.",
+                    "The node was sent a restart to clear the interrupted update, but it " +
+                        "was not seen again in update mode.",
                     Recovery.NODE_NOT_FOUND,
+                    // OTAFIX, by construction: nothing else is retried.
+                    // Whether or not the restart landed, it is waiting
+                    // in Bluetooth update mode, so another attempt can work.
+                    canFlashAgain = true,
                 ),
             )
             return
         }
-        runTransfer(pkg, again, retryOptions, out, allowRestart = false)
+        runTransfer(pkg, back, again, out, retriesLeft = retriesLeft - 1)
     }
 
     /**
@@ -1036,18 +975,54 @@ object Recovery {
             "is needed, and only nRF52 boards support it — ESP32 boards update over USB or " +
             "their own WiFi hotspot."
 
-    const val INTERRUPTED =
-        "The node is still in update mode and can be flashed again — it is waiting, not " +
-            "bricked. Stay close to it and retry."
+    /**
+     * What is true of a stock Adafruit bootloader once the start step has
+     * gone out, and so the second half of every message below it.
+     *
+     * Each clause is from the bootloader's source (tag 0.9.2), not from
+     * experience alone:
+     * - the erase happens inside the start handler
+     *   (`dfu_prepare_func_app_erase`), so the old firmware is gone;
+     * - `DFU_STATE_IDLE` is only restored by `dfu_init()` at boot, so a new
+     *   start is refused with `invalid state` until the node restarts;
+     * - `main.c` brings up Bluetooth DFU only when `GPREGRET` carries an
+     *   over-the-air magic value, which a restart clears — so a node with no
+     *   valid application restarts into USB mode (`usb_init`).
+     *
+     * That is why nothing is restarted or retried automatically any more,
+     * and why these messages stopped saying "it is waiting, not bricked,
+     * retry": that was true of the Bluetooth link and false of the node.
+     */
+    const val AFTER_ERASE =
+        "Its old firmware was erased when the update began, and its bootloader will not " +
+            "start a new transfer until it restarts — and a restart with no firmware brings " +
+            "it up as a USB drive rather than over Bluetooth. So it has been left as it is, " +
+            "and finishing needs a USB cable: connect it to a computer, reset or power-cycle " +
+            "it, and copy the .uf2 build of the firmware onto the drive that appears."
 
-    const val CRC =
-        "The image that arrived did not match its checksum. Retry from closer in, and if it " +
-            "keeps happening lower the packet-receipt interval."
+    /** The link failed mid-transfer: stall, drop, or a write that never completed. */
+    const val INTERRUPTED = "The transfer stopped part-way. $AFTER_ERASE"
+
+    /** The failure came before the start step, so nothing on the node changed. */
+    const val UNCHANGED =
+        "The transfer never began, so the node still has its firmware and is waiting in " +
+            "update mode. It is safe to try again from closer in, or to restart it — which " +
+            "boots the firmware it has and puts it back on the mesh."
+
+    /**
+     * For a failure whose stage is not known — anything that escaped the
+     * updater. Says both outcomes rather than guessing one.
+     */
+    const val UNKNOWN_STAGE =
+        "If the transfer had begun, the node's old firmware is erased and it needs a USB " +
+            "cable to finish (the diagnostics log shows how far it got). If it had not, the " +
+            "node is unchanged and it is safe to try again."
+
+    const val CRC = "The image that arrived did not match its checksum. $AFTER_ERASE"
 
     const val REJECTED =
-        "The node refused the package. Check it is the right file for this board, and that " +
-            "the bootloader is current — the OTAFIX bootloader is strongly recommended for " +
-            "over-the-air updates."
+        "The node refused the package part-way through. Check it is the right file for " +
+            "this board before flashing it again. $AFTER_ERASE"
 
     /**
      * The image step failing with the catch-all is, on this bootloader,
@@ -1057,36 +1032,70 @@ object Recovery {
     const val TOO_FAST =
         "The node could not keep up: it takes each packet into a small buffer and writes it " +
             "to flash, and that buffer filled. Nothing is wrong with the package or the " +
-            "board. Retrying more slowly is the fix — it takes longer but usually works."
+            "board. $AFTER_ERASE"
 
     /**
-     * Shown only when the automatic recovery has already been tried and
-     * the node still will not start — so it does not repeat the advice
-     * the app has just acted on.
+     * The start step refused with `invalid state` — which on this
+     * bootloader can only follow an earlier start that was accepted. See
+     * [DfuFailure.StaleSession].
      */
     const val STALE_SESSION =
-        "A bootloader remembers an interrupted update until it restarts, and refuses a new " +
-            "one until then. It has been told to restart once already without effect, so " +
-            "power-cycle the node and try again. Nothing is wrong with the package or the " +
-            "board — the node is waiting, not bricked."
+        "This node is holding an earlier update that was interrupted, and refuses to begin " +
+            "another until it restarts. $AFTER_ERASE"
 
-    fun forFailure(failure: DfuFailure): String = when (failure) {
-        DfuFailure.StaleSession -> STALE_SESSION
+    /**
+     * The OTAFIX counterpart of [AFTER_ERASE]. Its bootloader starts in
+     * Bluetooth update mode when it has no valid application (`main.c`,
+     * oltaco/Adafruit_nRF52_Bootloader_OTAFIX), so the erase costs a
+     * restart rather than a cable. See [BootloaderKind].
+     */
+    const val AFTER_ERASE_OTAFIX =
+        "Its old firmware was erased when the update began, but its OTAFIX bootloader " +
+            "comes back in Bluetooth update mode when it restarts, so nothing is lost. If " +
+            "it was not restarted automatically, power-cycle it; then flash it again from here."
 
-        is DfuFailure.Rejected -> when {
-            failure.result == LegacyDfu.RESP_CRC_ERROR -> CRC
+    /** True when [failure] is the bootloader's receive pool overflowing. */
+    fun isTooFast(failure: DfuFailure): Boolean =
+        failure is DfuFailure.Rejected &&
+            failure.procedure == LegacyDfu.OP_RECEIVE_FW &&
+            failure.result == LegacyDfu.RESP_OPER_FAILED
+
+    /**
+     * What to say about [failure], given whether the node may have been
+     * erased ([LegacyDfuSession.applicationErased]) and which bootloader
+     * it runs. [BootloaderKind.Unknown] is spoken of as stock.
+     */
+    fun forFailure(
+        failure: DfuFailure,
+        applicationErased: Boolean,
+        kind: BootloaderKind = BootloaderKind.Unknown,
+    ): String {
+        if (!applicationErased) return UNCHANGED
+        val stock = when {
+            failure == DfuFailure.StaleSession -> STALE_SESSION
+            failure is DfuFailure.Rejected && failure.result == LegacyDfu.RESP_CRC_ERROR -> CRC
             // `NRF_ERROR_NO_MEM` from the bootloader's receive pool is
             // translated to this catch-all, and during the image step it
             // means one thing in practice: too fast.
-            failure.procedure == LegacyDfu.OP_RECEIVE_FW &&
-                failure.result == LegacyDfu.RESP_OPER_FAILED -> TOO_FAST
-
+            isTooFast(failure) -> TOO_FAST
+            failure is DfuFailure.ByteCountMismatch || failure is DfuFailure.Stalled -> INTERRUPTED
             else -> REJECTED
         }
-
-        is DfuFailure.ByteCountMismatch -> INTERRUPTED
-        is DfuFailure.Stalled -> INTERRUPTED
-        is DfuFailure.Malformed -> REJECTED
-        is DfuFailure.OutOfOrder -> REJECTED
+        if (!kind.restartKeepsItReachable) return stock
+        return stock.removeSuffix(AFTER_ERASE).trimEnd() + " " + AFTER_ERASE_OTAFIX
     }
+
+    /** A transfer that ended without a verdict from the peer. */
+    fun interrupted(
+        applicationErased: Boolean,
+        kind: BootloaderKind = BootloaderKind.Unknown,
+    ): String = when {
+        !applicationErased -> UNCHANGED
+        kind.restartKeepsItReachable -> "The transfer stopped part-way. $AFTER_ERASE_OTAFIX"
+        else -> INTERRUPTED
+    }
+
+    /** See [DfuProgress.Failed.canFlashAgain]. */
+    fun canFlashAgain(applicationErased: Boolean, kind: BootloaderKind): Boolean =
+        !applicationErased || kind.restartKeepsItReachable
 }

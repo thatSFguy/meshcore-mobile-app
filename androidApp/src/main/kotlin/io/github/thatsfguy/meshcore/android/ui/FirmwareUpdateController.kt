@@ -82,7 +82,16 @@ sealed class FirmwareUi {
 
     data class Finished(val version: String?) : FirmwareUi()
 
-    data class Failed(val message: String, val recovery: String?) : FirmwareUi()
+    data class Failed(
+        val message: String,
+        val recovery: String?,
+        /**
+         * The package to flash again with, when doing so can work — see
+         * [io.github.thatsfguy.meshcore.firmware.DfuProgress.Failed.canFlashAgain].
+         * Null everywhere else, which is what hides the button.
+         */
+        val retry: Confirm? = null,
+    ) : FirmwareUi()
 
     /**
      * Found, but too far away to risk it. Not a failure — nothing has
@@ -139,16 +148,7 @@ class FirmwareUpdateController(
     private var otaAddress: String? = null
     private var boardName: String? = null
     private var allowWeakSignal = false
-    private var slowTransfer = false
 
-    /**
-     * The package and where it came from, kept across a failure.
-     *
-     * A failure replaces the state, and the recovery buttons offered on
-     * it are retries of the same transfer — so the thing being retried
-     * has to outlive the state that described it.
-     */
-    private var lastConfirm: FirmwareUi.Confirm? = null
     private var role: FirmwareRole = FirmwareRole.Companion
 
     private val downloader by lazy { FirmwareDownloader(AndroidHttpFetcher(), crypto) }
@@ -165,8 +165,6 @@ class FirmwareUpdateController(
 
     fun reset() {
         allowWeakSignal = false
-        slowTransfer = false
-        lastConfirm = null
         _state.value = FirmwareUi.Idle()
     }
 
@@ -179,19 +177,6 @@ class FirmwareUpdateController(
      */
     fun retryOverWeakSignal() {
         allowWeakSignal = true
-        flash()
-    }
-
-    /**
-     * Retry with the packets spaced out.
-     *
-     * For the bootloader's receive pool overflowing — smaller batches so
-     * it is asked less often, and a gap between packets so its flash
-     * queue can drain. Slower, and the difference between a transfer
-     * that finishes and one that stops a few hundred bytes in.
-     */
-    fun retrySlowly() {
-        slowTransfer = true
         flash()
     }
 
@@ -340,19 +325,18 @@ class FirmwareUpdateController(
             is FirmwareUi.WeakSignal ->
                 FirmwareUi.Confirm(current.pkg, current.source, current.target)
 
-            // The same defect one screen along, and a worse one:
-            // `Failed` carries a message and a suggested recovery but
-            // not the package, so "Retry more slowly" — the button
-            // offered for the one failure with a documented remedy —
-            // returned here and did nothing at all. Nothing appeared in
-            // the log, because nothing ran. The node meanwhile is sitting
-            // with its application erased, which is exactly when a dead
-            // recovery button costs a trip to the node.
-            is FirmwareUi.Failed -> lastConfirm ?: return
+            // Only when the failure said flashing again can work: before
+            // anything was erased, or on an OTAFIX bootloader, which
+            // restarts into Bluetooth update mode. On a stock bootloader
+            // an erased node is latched — a retry's start is refused with
+            // `invalid state` — and "Retry more slowly" used to be
+            // offered there regardless; until 2026-09-24 the updater
+            // answered that refusal with a restart that put the node in
+            // USB mode. See [Recovery.AFTER_ERASE].
+            is FirmwareUi.Failed -> current.retry ?: return
 
             else -> return
         }
-        lastConfirm = confirm
         val service = serviceProvider()
         if (service == null) {
             _state.value = FirmwareUi.Failed("The radio service is not running.", null)
@@ -434,20 +418,10 @@ class FirmwareUpdateController(
                     // and it was left at the default here for every
                     // board. See [DfuTuning].
                     val boardForTransfer = dfuTarget.boardNameOrNull ?: boardName
-                    val options = if (slowTransfer) {
-                        // As slow as the protocol goes: one packet per
-                        // acknowledgement. The automatic step-down
-                        // already tried halving the window, so this is
-                        // the floor, not a smaller step — and it is
-                        // still the receipt interval doing the work
-                        // rather than a sleep in the sender.
-                        DfuOptions(allowWeakSignal = allowWeakSignal, receiptInterval = 1)
-                    } else {
-                        DfuOptions(
-                            allowWeakSignal = allowWeakSignal,
-                            receiptInterval = DfuTuning.packetsPerNotification(boardForTransfer),
-                        )
-                    }
+                    val options = DfuOptions(
+                        allowWeakSignal = allowWeakSignal,
+                        receiptInterval = DfuTuning.packetsPerNotification(boardForTransfer),
+                    )
                     // The settings the attempt ran with, once, before it
                     // starts. Without them a log of a failed flash does
                     // not say what was tried, so the next attempt cannot
@@ -459,7 +433,11 @@ class FirmwareUpdateController(
                             "board ${boardForTransfer ?: "unknown"}",
                     )
                     var loggedBytes = TransferLog.NOTHING_LOGGED
-                    val startedAt = System.currentTimeMillis()
+                    // Set when the image starts moving, not when the
+                    // update does: measured from here, the rate included a
+                    // 30-second scan and the reboot, and on the test RAK
+                    // logged 5.89 kB/s for a transfer that ran at 12.8.
+                    var startedAt: Long? = null
                     updater.update(confirm.pkg, dfuTarget, options).collect { progress ->
                         // A firmware update happens away from the phone
                         // screen and fails opaquely; without a record of
@@ -472,6 +450,11 @@ class FirmwareUpdateController(
                         // failure has to be read against — see
                         // [TransferLog].
                         if (progress is DfuProgress.Transferring) {
+                            // A retry starts its own image from zero.
+                            if (startedAt == null || progress.bytesSent == 0) {
+                                startedAt = System.currentTimeMillis()
+                                loggedBytes = TransferLog.NOTHING_LOGGED
+                            }
                             if (TransferLog.shouldLog(
                                     progress.bytesSent,
                                     progress.totalBytes,
@@ -484,7 +467,7 @@ class FirmwareUpdateController(
                                     TransferLog.describe(
                                         progress.bytesSent,
                                         progress.totalBytes,
-                                        System.currentTimeMillis() - startedAt,
+                                        System.currentTimeMillis() - (startedAt ?: 0L),
                                     ),
                                 )
                             }
@@ -501,7 +484,11 @@ class FirmwareUpdateController(
                             )
 
                             is DfuProgress.Failed ->
-                                FirmwareUi.Failed(progress.message, progress.recovery)
+                                FirmwareUi.Failed(
+                                    progress.message,
+                                    progress.recovery,
+                                    retry = confirm.takeIf { progress.canFlashAgain },
+                                )
 
                             DfuProgress.Finished ->
                                 FirmwareUi.Finished(confirm.source.versionOrNull())
@@ -513,7 +500,10 @@ class FirmwareUpdateController(
             } catch (e: Exception) {
                 _state.value = FirmwareUi.Failed(
                     e.message ?: "The update failed.",
-                    Recovery.INTERRUPTED,
+                    // Escaped the updater, so how far it got is not
+                    // known here — and "safe to retry" is only true of
+                    // a node that was never sent the start step.
+                    Recovery.UNKNOWN_STAGE,
                 )
             }
         }
@@ -540,6 +530,5 @@ private fun DfuProgress.describeForLog(): String = when (this) {
     DfuProgress.Finished -> "finished; the node is rebooting"
     is DfuProgress.SignalTooWeak -> "signal too weak to start: $rssi dBm"
     is DfuProgress.Failed -> "FAILED: $message"
-    is DfuProgress.Retrying ->
-        "retrying at $receiptInterval packets per receipt after: $reason"
+    is DfuProgress.Retrying -> "sent the node a restart; trying again after: $reason"
 }

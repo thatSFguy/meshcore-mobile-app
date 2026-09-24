@@ -90,6 +90,25 @@ fun AboutSection(vm: MeshCoreViewModel) {
  * is a changelog you can't read in the field.
  */
 private val CHANGELOG: List<Pair<String, List<String>>> = listOf(
+    "0.9.8" to listOf(
+        "Firmware updates now tell the two nRF52 bootloaders apart, because they fail in " +
+            "opposite ways. Once an update has begun the old firmware is gone: restarted, " +
+            "the standard Adafruit bootloader comes back as a USB drive, while OTAFIX comes " +
+            "back in Bluetooth update mode.",
+        "A standard-bootloader node is never restarted once its firmware is erased, and is " +
+            "not retried: it refuses any new update until it restarts. The app says it needs " +
+            "a USB cable instead of sending it to one.",
+        "An OTAFIX node recovers by itself: a transfer that fails part-way is restarted and " +
+            "tried again, up to twice. Proven with Bluetooth switched off mid-update.",
+        "\"Try again\" appears only where it can work, and \"Retry more slowly\" is gone. " +
+            "Every failure message says what is true for that bootloader.",
+        "Fixed: an update could hang for ever at \"Asking the radio to restart in update " +
+            "mode\" — the app reconnected before the phone had closed the last connection.",
+        "Fixed: an unanswered start ota from an earlier visit blocked the next one; an " +
+            "all-zero address in the reply was misread as \"not advertising\"; OTAFIX " +
+            "bootloaders were not recognised by name; a scan gave up while Bluetooth was " +
+            "still switching on; the logged transfer rate included the scan.",
+    ),
     "0.9.7" to listOf(
         "The contact list now stays in step with the radio. When the radio drops a contact " +
             "to make room, the app removes it too — including drops made while no phone was " +
