@@ -25,7 +25,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -110,7 +110,7 @@ class MainActivity : ComponentActivity() {
         openThread.value = threadFrom(intent)
         setContent {
             val vm: MeshCoreViewModel = viewModel()
-            val theme by vm.prefs.themeFlow.collectAsState()
+            val theme by vm.prefs.themeFlow.collectAsStateWithLifecycle()
             MeshCoreTheme(
                 darkTheme = when (theme) {
                     "dark" -> true
@@ -163,7 +163,7 @@ private fun AppShell(
     // popUpTo("chats") so Back leaves you in the app on the message
     // list, rather than dropping you out of it or onto whatever screen
     // happened to be open when the message arrived.
-    val pendingThread by openThread.collectAsState()
+    val pendingThread by openThread.collectAsStateWithLifecycle()
     LaunchedEffect(pendingThread) {
         val (kind, peer) = pendingThread ?: return@LaunchedEffect
         nav.navigate(conversationRoute(kind, peer)) {
@@ -173,7 +173,7 @@ private fun AppShell(
         openThread.value = null
     }
 
-    val transient by vm.transientMessage.collectAsState()
+    val transient by vm.transientMessage.collectAsStateWithLifecycle()
     LaunchedEffect(transient) {
         transient?.let {
             snackbar.showSnackbar(it)
@@ -186,7 +186,7 @@ private fun AppShell(
     // the other three tabs, which is the only place it changes anyone's
     // behaviour — a message that arrives while you are on Map or Nodes
     // was otherwise invisible until you happened to look.
-    val conversations by vm.conversations.collectAsState()
+    val conversations by vm.conversations.collectAsStateWithLifecycle()
     val unreadBadge = Inbox.badgeLabel(Inbox.unreadTotal(conversations.map { it.unread }))
 
     val tabs = listOf(
