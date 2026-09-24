@@ -20,6 +20,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -39,6 +40,7 @@ import io.github.thatsfguy.meshcore.firmware.DfuProgress
 import io.github.thatsfguy.meshcore.firmware.FirmwareAsset
 import io.github.thatsfguy.meshcore.firmware.FirmwareRole
 import io.github.thatsfguy.meshcore.firmware.FirmwareVersion
+import io.github.thatsfguy.meshcore.firmware.ConsoleRow
 import io.github.thatsfguy.meshcore.firmware.Recovery
 import io.github.thatsfguy.meshcore.firmware.NodeIdentityReplies
 import io.github.thatsfguy.meshcore.firmware.VersionOrder
@@ -105,14 +107,20 @@ fun FirmwareScreen(
     val nodeReplies by remember(nodeKey) {
         if (nodeKey.isNullOrBlank()) MutableStateFlow(emptyList()) else vm.cliThread(nodeKey)
     }.collectAsState()
-    val liveIdentity = remember(nodeReplies) {
-        NodeIdentityReplies.from(nodeReplies.map { it.outgoing to it.text })
-    }
     // What the node last said it was, from the contact record. This is
     // the only source that still works once it is in its bootloader and
     // has stopped answering the mesh entirely.
     val storedContact = vm.dbContacts.collectAsState().value
         .firstOrNull { nodeKey != null && it.keyHex == nodeKey }
+    // A `ver` answer from before the node last entered update mode
+    // describes the firmware it had before it was flashed.
+    val versionsSince = storedContact?.otaReplyHandledAt ?: 0L
+    val liveIdentity = remember(nodeReplies, versionsSince) {
+        NodeIdentityReplies.fromRows(
+            nodeReplies.map { ConsoleRow(it.outgoing, it.text, it.receivedAt) },
+            versionsSince,
+        )
+    }
     val remoteBoard = liveIdentity.board ?: nodeBoard ?: storedContact?.boardName
     val remoteVersion = liveIdentity.version ?: nodeVersion ?: storedContact?.firmwareVersion
 
@@ -148,6 +156,9 @@ fun FirmwareScreen(
     // between its own address and its bootloader's.
     val effectiveAddress = otaAddress ?: storedContact?.otaAddress
     remember(target, effectiveAddress) { vm.firmware.aimAt(target, effectiveAddress); target }
+    DisposableEffect(Unit) {
+        onDispose { vm.firmware.leftScreen() }
+    }
 
     Scaffold(
         topBar = { AppTopBar(title = "Firmware", vm = vm, nav = nav, menuActions = emptyList()) },
@@ -224,7 +235,22 @@ fun FirmwareScreen(
                     // an update does not change, and it is what makes
                     // this node findable the next time.
                     LaunchedEffect(nodeKey) {
-                        nodeKey?.let { vm.setUpdateMode(it, false) }
+                        nodeKey?.let {
+                            vm.setUpdateMode(it, false)
+                            // What it is running now. Without this the
+                            // record kept the version from before the
+                            // flash, and the picker went on calling that
+                            // one "Installed now".
+                            vm.rememberHardware(it, null, current.version)
+                            // Only where nothing is recorded: an address
+                            // the node reported itself is better evidence
+                            // than one worked out from a scan.
+                            if (storedContact?.otaAddress == null) {
+                                current.nodeAddress?.let { address ->
+                                    vm.rememberOtaAddress(it, address)
+                                }
+                            }
+                        }
                     }
                     Text("Update complete", style = MaterialTheme.typography.titleMedium)
                     HintText(

@@ -687,10 +687,27 @@ class DiagnosticsLog(private val prefs: Preferences) {
             Regex("""\b(?:[0-9A-Fa-f]{2}:){4}([0-9A-Fa-f]{2}:[0-9A-Fa-f]{2})\b""")
 
         /** Strip anything secret-shaped before it can reach the log. */
-        fun redact(message: String): String = message
+        fun redact(message: String): String =
+            redactSecrets(message).replace(BLE_MAC) { "··:··:··:··:${it.groupValues[1]}" }
+
+        /**
+         * Strip SECRETS only — for text the app keeps and must still be
+         * able to read, such as a console reply stored as a message row.
+         *
+         * Not the same job as [redact]. A MAC is not a secret; it is
+         * masked in the log because the log gets pasted into issues. But
+         * the stored console thread is where the app reads a node's
+         * `OK - mac: …` reply to `start ota`, and from 2026-08-19 — when
+         * MAC masking was added to [redact], which CLI replies were
+         * already stored through — every stored reply read
+         * `OK - mac: ··:··:··:··:87:E1`. The app never learned another
+         * node's address, reported a node that WAS advertising as "not
+         * advertising", and fell back to a 30-second scan by name on
+         * every update. Found on the test RAK, 2026-09-24.
+         */
+        fun redactSecrets(message: String): String = message
             .replace(PRV_KEY) { "${it.groupValues[1]}[REDACTED]" }
             .replace(PASSWORD_CLI) { "${it.groupValues[1]}[REDACTED]" }
             .replace(LONG_HEX, "[HEX-REDACTED]")
-            .replace(BLE_MAC) { "··:··:··:··:${it.groupValues[1]}" }
     }
 }

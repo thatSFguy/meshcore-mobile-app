@@ -129,9 +129,8 @@ sealed class OtaEntry {
      * `Bluefruit.Advertising.start(0)` BEFORE `Bluefruit.getAddr`, and a
      * failed `Bluefruit.begin` returns false instead of `OK` — so `OK -
      * mac: 00:…` is a node that is advertising and could not read back its
-     * own address. The flash step then finds it by name. (Seen on the test
-     * RAK on repeater-v1.17.0, 2026-09-24; this used to give up and say
-     * the node was not advertising.)
+     * own address. The flash step then finds it by name. (This used to
+     * give up and say the node was not advertising.)
      */
     data class Confirmed(val version: String, val address: String?, val at: Long) : OtaEntry()
 

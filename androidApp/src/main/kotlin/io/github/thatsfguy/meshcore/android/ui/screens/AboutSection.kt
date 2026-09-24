@@ -104,10 +104,15 @@ private val CHANGELOG: List<Pair<String, List<String>>> = listOf(
             "Every failure message says what is true for that bootloader.",
         "Fixed: an update could hang for ever at \"Asking the radio to restart in update " +
             "mode\" — the app reconnected before the phone had closed the last connection.",
-        "Fixed: an unanswered start ota from an earlier visit blocked the next one; an " +
-            "all-zero address in the reply was misread as \"not advertising\"; OTAFIX " +
+        "start ota never recorded a node's Bluetooth address, and often called a node that " +
+            "was advertising \"not advertising\": since 0.8.1 the console stored replies with " +
+            "addresses masked, and the address is read back out of that reply. Only secrets " +
+            "are masked there now, so the next update finds the node straight away.",
+        "Fixed: an unanswered start ota from an earlier visit blocked the next one; OTAFIX " +
             "bootloaders were not recognised by name; a scan gave up while Bluetooth was " +
             "still switching on; the logged transfer rate included the scan.",
+        "A finished update no longer greets the next one, and the version shown for a node " +
+            "is what it runs now rather than what it ran before its last flash.",
     ),
     "0.9.7" to listOf(
         "The contact list now stays in step with the radio. When the radio drops a contact " +

@@ -75,4 +75,33 @@ class DiagnosticsRedactionTest {
         val line = "contact a1b2c3d4e5f6 updated"
         assertEquals(line, DiagnosticsLog.redact(line))
     }
+
+    // --- what is stored, as opposed to what is logged ---------------------
+
+    @Test
+    fun `a stored start ota reply keeps the address the app reads back out of it`() {
+        // From 2026-08-19 to 2026-09-24 console replies were stored
+        // through [DiagnosticsLog.redact], which masks MACs — so the one
+        // reply the update sequence exists to read became
+        // `OK - mac: ··:··:··:··:87:E1`, and no node's address was ever
+        // learned. The test RAK's real reply, as it now reaches the row:
+        val reply = "OK - mac: E1:AB:65:43:87:E1"
+        val stored = DiagnosticsLog.redactSecrets(reply)
+        assertEquals(reply, stored)
+        assertEquals(
+            "E1:AB:65:43:87:E1",
+            io.github.thatsfguy.meshcore.firmware.OtaReply.advertisingAddress(stored),
+        )
+    }
+
+    @Test
+    fun `the log still masks the address and storage still masks secrets`() {
+        // Both halves: the log is pasted into issues, and the stored
+        // thread must never hold a private key or a password.
+        assertFalse(DiagnosticsLog.redact("OK - mac: E1:AB:65:43:87:E1").contains("E1:AB:65"))
+        val key = "a".repeat(128)
+        assertFalse(DiagnosticsLog.redactSecrets("set prv.key $key").contains(key))
+        assertFalse(DiagnosticsLog.redactSecrets("password hunter22").contains("hunter22"))
+        assertFalse(DiagnosticsLog.redactSecrets(key).contains(key))
+    }
 }

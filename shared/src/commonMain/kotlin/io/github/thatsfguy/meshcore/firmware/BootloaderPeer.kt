@@ -136,6 +136,27 @@ object BootloaderPeer {
     }
 
     /**
+     * The node's own address, given a [peer] it was flashed through.
+     *
+     * A bootloader advertises on the node's address + 1, so one that is
+     * [isCertainlyBootloader] is stepped back by one (wrapping, as the
+     * bootloader's increment does); anything else is already the node's
+     * own. Null for an address that is not six octets.
+     */
+    fun nodeAddressOf(peer: DfuPeer): String? {
+        val parts = peer.address.trim().split(":")
+        if (parts.size != 6) return null
+        val octets = parts.map { it.toIntOrNull(16) ?: return null }
+        if (octets.any { it !in 0..0xFF }) return null
+        if (!isCertainlyBootloader(peer.name)) {
+            return octets.joinToString(":") { it.toString(16).uppercase().padStart(2, '0') }
+        }
+        val stepped = octets.toMutableList()
+        stepped[5] = (stepped[5] - 1) and 0xFF
+        return stepped.joinToString(":") { it.toString(16).uppercase().padStart(2, '0') }
+    }
+
+    /**
      * Does this advertised name belong to a node ready for an update —
      * either a bootloader, or firmware that has run `start ota`?
      *

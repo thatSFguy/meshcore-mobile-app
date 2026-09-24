@@ -2265,7 +2265,17 @@ class MeshCoreEngineTest {
         // Why Add never worked, pinned so it cannot quietly come back:
         // the inbox keeps the advert PAYLOAD, and the import path needs
         // a whole packet.
-        val payload = signedAdvert(MeshIdentity.generate(crypto), "Someone")
+        //
+        // The key's first byte is chosen, not drawn. A payload starts
+        // with the public key, and the import path reads that byte as a
+        // packet header — payload type in bits 2-5 — so about one random
+        // key in sixteen begins with a byte that says ADVERT, and some of
+        // those parse all the way through. This test failed at random
+        // for exactly that reason. 0x01 reads as a REQ header, so the
+        // payload is refused for the reason the test is about: it is
+        // not a packet.
+        val identity = assertNotNull(MeshIdentity.generateWithPrefix(crypto, "01"))
+        val payload = signedAdvert(identity, "Someone")
         assertNull(MeshCoreEngine.extractAdvertPayload(payload))
     }
 

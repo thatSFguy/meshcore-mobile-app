@@ -71,7 +71,13 @@ class IdentityKeygenTest {
         assertTrue(outcome.isClean)
         assertNull(outcome.clash)
         assertEquals(2, outcome.widthBytes)
-        assertEquals(1, outcome.attempts, "an empty mesh should be first time lucky")
+        // Not exactly one: a draw whose public key starts `00` or `ff` is
+        // refused by the firmware (Identity.cpp:71-72) and redrawn, and
+        // that counts as an attempt — 2 draws in 256, so a test pinned at
+        // 1 failed about once every 128 runs. Four allows the redraws and
+        // still fails a search that cannot answer (chance of four refused
+        // draws in a row: about 4 in a billion).
+        assertTrue(outcome.attempts <= 4, "an empty mesh took ${outcome.attempts} draws")
         assertEquals(0, outcome.takenPrefixes)
     }
 

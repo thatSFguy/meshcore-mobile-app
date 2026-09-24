@@ -4,6 +4,7 @@ import android.content.Context
 import io.github.thatsfguy.meshcore.android.service.MeshCoreService
 import io.github.thatsfguy.meshcore.firmware.AndroidHttpFetcher
 import io.github.thatsfguy.meshcore.firmware.BoardAssets
+import io.github.thatsfguy.meshcore.firmware.BootloaderPeer
 import io.github.thatsfguy.meshcore.firmware.CompanionLink
 import io.github.thatsfguy.meshcore.firmware.DfuOptions
 import io.github.thatsfguy.meshcore.firmware.DfuPackage
@@ -80,7 +81,16 @@ sealed class FirmwareUi {
 
     data class Running(val progress: DfuProgress) : FirmwareUi()
 
-    data class Finished(val version: String?) : FirmwareUi()
+    data class Finished(
+        val version: String?,
+        /**
+         * The node's own Bluetooth address, worked out from the peer the
+         * image went through. Recorded against the node so the next scan
+         * can match it exactly: with no address on record the scan has to
+         * wait out its whole window before it may choose by name.
+         */
+        val nodeAddress: String? = null,
+    ) : FirmwareUi()
 
     data class Failed(
         val message: String,
@@ -105,6 +115,15 @@ sealed class FirmwareUi {
         val target: FirmwareTargetKind,
     ) : FirmwareUi()
 }
+
+/**
+ * Whether this state is a finished outcome rather than something in
+ * progress. Only these are cleared when the screen closes: an update
+ * that is running keeps running, and a package the operator has chosen
+ * but not yet confirmed stays chosen.
+ */
+val FirmwareUi.isOver: Boolean
+    get() = this is FirmwareUi.Finished || this is FirmwareUi.Failed
 
 /** Which node an update is aimed at. */
 enum class FirmwareTargetKind {
@@ -166,6 +185,17 @@ class FirmwareUpdateController(
     fun reset() {
         allowWeakSignal = false
         _state.value = FirmwareUi.Idle()
+    }
+
+    /**
+     * The firmware screen closed. A result that is over is dropped, so
+     * the next visit does not open on it: on the test RAK (2026-09-24)
+     * the next update began on the previous one's "Update complete",
+     * and the taps meant for the version list landed on it instead.
+     * Anything still in flight is kept — see [FirmwareUi.isOver].
+     */
+    fun leftScreen() {
+        if (_state.value.isOver) reset()
     }
 
     /**
@@ -438,6 +468,8 @@ class FirmwareUpdateController(
                     // 30-second scan and the reboot, and on the test RAK
                     // logged 5.89 kB/s for a transfer that ran at 12.8.
                     var startedAt: Long? = null
+                    // The peer the image is going through, for [FirmwareUi.Finished.nodeAddress].
+                    var lastPeer: io.github.thatsfguy.meshcore.firmware.DfuPeer? = null
                     updater.update(confirm.pkg, dfuTarget, options).collect { progress ->
                         // A firmware update happens away from the phone
                         // screen and fails opaquely; without a record of
@@ -449,6 +481,7 @@ class FirmwareUpdateController(
                         // bar and evicted the whole of the context a
                         // failure has to be read against — see
                         // [TransferLog].
+                        if (progress is DfuProgress.Connecting) lastPeer = progress.peer
                         if (progress is DfuProgress.Transferring) {
                             // A retry starts its own image from zero.
                             if (startedAt == null || progress.bytesSent == 0) {
@@ -491,7 +524,10 @@ class FirmwareUpdateController(
                                 )
 
                             DfuProgress.Finished ->
-                                FirmwareUi.Finished(confirm.source.versionOrNull())
+                                FirmwareUi.Finished(
+                                    confirm.source.versionOrNull(),
+                                    nodeAddress = lastPeer?.let { BootloaderPeer.nodeAddressOf(it) },
+                                )
 
                             else -> FirmwareUi.Running(progress)
                         }

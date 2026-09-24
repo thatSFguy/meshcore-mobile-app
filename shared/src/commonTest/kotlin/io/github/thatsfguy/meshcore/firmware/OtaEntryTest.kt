@@ -214,13 +214,15 @@ class OtaEntryTest {
 
     @Test
     fun `an all-zero mac is update mode with the address unknown`() {
-        // The real reply from the test RAK on repeater-v1.17.0,
-        // 2026-09-24. It used to give up with "it is not advertising",
-        // which the firmware contradicts: `startOTAUpdate` starts
-        // advertising before it reads the address, and a Bluetooth stack
-        // that failed to start returns false rather than `OK`. The zeros
-        // are the memset the read failed to overwrite — not an address,
-        // and not a refusal.
+        // It used to give up with "it is not advertising", which the
+        // firmware contradicts: `startOTAUpdate` starts advertising
+        // before it reads the address, and a Bluetooth stack that failed
+        // to start returns false rather than `OK`. The zeros are the
+        // memset the read failed to overwrite — not an address, and not
+        // a refusal. (What the test RAK actually sent on 2026-09-24 was a
+        // REAL address that the app had masked on storage — see
+        // `DiagnosticsLog.redactSecrets` — and that masked reply took
+        // this same wrong turn.)
         val state = OtaEntry.AwaitingUpdateMode(version = realVer, sentAt = 2_000_000L)
         val rows = listOf(
             sent("start ota", 2_000_000L),

@@ -62,9 +62,30 @@ data class NodeIdentityReplies(
 
         /**
          * [messages] is the console thread in order, as
-         * `(outgoing, text)` pairs.
+         * `(outgoing, text)` pairs, with no times — so nothing can be
+         * expired as unanswered. Prefer [fromRows].
          */
-        fun from(messages: List<Pair<Boolean, String>>): NodeIdentityReplies {
+        fun from(messages: List<Pair<Boolean, String>>): NodeIdentityReplies =
+            fromRows(messages.map { (outgoing, text) -> ConsoleRow(outgoing, text, 0L) })
+
+        /**
+         * [rows] is the console thread in order.
+         *
+         * Two things about time, both found on the test RAK 2026-09-24,
+         * where the stored version stayed v1.17.1 through two flashes:
+         *
+         * - **A command unanswered past [OtaEntry.ANSWER_TIMEOUT_MS] is
+         *   dropped from the queue** when a later reply arrives. It went
+         *   unanswered; it is not owed this reply. Without that, one lost
+         *   `start ota` stayed at the head of the queue for good, took
+         *   every `ver` answer after it, and the version never moved.
+         * - **`ver` answers at or before [versionsSince] are ignored.**
+         *   Pass the time the node last entered update mode: anything it
+         *   said before that describes the firmware it had before it was
+         *   flashed. Ignoring it costs a fresh `ver`, which the panel
+         *   asks for when the version is unknown.
+         */
+        fun fromRows(rows: List<ConsoleRow>, versionsSince: Long = 0L): NodeIdentityReplies {
             var board: String? = null
             var version: String? = null
             var buildDate: String? = null
@@ -74,9 +95,9 @@ data class NodeIdentityReplies(
             // the board name was handed to `ver` and the version was
             // lost, which looks on screen like a node that never
             // reported its firmware at all.
-            val awaiting = ArrayDeque<String?>()
+            val awaiting = ArrayDeque<Pair<String?, Long>>()
 
-            for ((outgoing, text) in messages) {
+            for ((outgoing, text, at) in rows) {
                 if (outgoing) {
                     awaiting.addLast(
                         when (text.trim().lowercase()) {
@@ -87,12 +108,18 @@ data class NodeIdentityReplies(
                             // the queue and letting its answer land on
                             // whatever was asked before it.
                             else -> null
-                        },
+                        } to at,
                     )
                     continue
                 }
+                while (awaiting.isNotEmpty() &&
+                    at - awaiting.first().second > OtaEntry.ANSWER_TIMEOUT_MS
+                ) {
+                    awaiting.removeFirst()
+                }
                 if (awaiting.isEmpty()) continue
-                val pending = awaiting.removeFirst() ?: continue
+                val pending = awaiting.removeFirst().first ?: continue
+                if (pending == "ver" && versionsSince > 0 && at <= versionsSince) continue
                 if (!isRealAnswer(text)) continue
                 val answer = text.trim()
                 when (pending) {

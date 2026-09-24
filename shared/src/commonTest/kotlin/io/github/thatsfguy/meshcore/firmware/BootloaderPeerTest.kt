@@ -318,4 +318,28 @@ class BootloaderPeerTest {
         // And MeshCore's own firmware after `start ota` is not a bootloader.
         assertFalse(BootloaderPeer.isCertainlyBootloader("RAK4631_OTA"))
     }
+
+    @Test
+    fun `the node's own address is worked back from its bootloader's`() {
+        // The test RAK: app mode on …:87:E1, OTAFIX bootloader on …:87:E2.
+        assertEquals(
+            "E1:AB:65:43:87:E1",
+            BootloaderPeer.nodeAddressOf(DfuPeer("E1:AB:65:43:87:E2", "4631_DFU")),
+        )
+        // Already the node's own: app mode after `start ota`.
+        assertEquals(
+            "E1:AB:65:43:87:E1",
+            BootloaderPeer.nodeAddressOf(DfuPeer("e1:ab:65:43:87:e1", "RAK4631_OTA")),
+        )
+        // The increment wraps, so the step back does too.
+        assertEquals(
+            "AA:BB:CC:DD:EE:FF",
+            BootloaderPeer.nodeAddressOf(DfuPeer("AA:BB:CC:DD:EE:00", "AdaDFU")),
+        )
+        assertNull(BootloaderPeer.nodeAddressOf(DfuPeer("not an address", "AdaDFU")))
+        // And it is the inverse of the address the bootloader is looked for on.
+        val node = "12:34:56:78:9A:FF"
+        val boot = BootloaderPeer.expectedAddress(node)!!
+        assertEquals(node, BootloaderPeer.nodeAddressOf(DfuPeer(boot, "PROM_DFU")))
+    }
 }

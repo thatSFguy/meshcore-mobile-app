@@ -122,4 +122,17 @@ class OtaFlowWiringTest {
             target.contains("boardName = null"),
         )
     }
+
+    @Test
+    fun `console replies are stored with secrets masked and addresses kept`() {
+        // A source pin, because the defect was one word in the wiring:
+        // CLI replies went through the LOG's redaction, which masks
+        // MACs, so `OK - mac: …` never reached the parser intact.
+        val repository = read(
+            "src/main/kotlin/io/github/thatsfguy/meshcore/android/storage/MessageRepository.kt",
+        )
+        assertTrue(repository.contains("DiagnosticsLog.redactSecrets(event.text)"))
+        assertFalse(repository.contains("DiagnosticsLog.redact(event.text)"))
+        assertFalse(viewModel.contains("DiagnosticsLog.redact(command)"))
+    }
 }

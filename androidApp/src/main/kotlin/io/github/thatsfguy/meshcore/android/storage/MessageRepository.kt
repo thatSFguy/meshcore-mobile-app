@@ -249,8 +249,11 @@ class MessageRepository(
                 }
                 // CLI replies can echo secrets (`get guest.password`,
                 // `get prv.key`); redact before they become durable rows.
+                // Secrets only: the `OK - mac: …` answer to `start ota`
+                // is read back out of this row. See
+                // [DiagnosticsLog.redactSecrets].
                 val storedText = if (event.txtType == 1) {
-                    DiagnosticsLog.redact(event.text)
+                    DiagnosticsLog.redactSecrets(event.text)
                 } else {
                     event.text
                 }

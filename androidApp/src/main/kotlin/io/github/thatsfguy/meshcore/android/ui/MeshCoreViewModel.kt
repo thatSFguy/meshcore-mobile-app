@@ -1846,12 +1846,13 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
         val svc = _service.value ?: return
         val key = hexToBytesOrNull(keyHex) ?: return
         viewModelScope.launch {
-            // The console row is durable and unencrypted, so the stored
-            // copy is redacted the same way the diagnostics log is — the
-            // clear text exists only in the outbound frame.
+            // The console row is durable, so secrets in the stored copy
+            // are redacted — the clear text exists only in the outbound
+            // frame. Secrets, not addresses: the thread is read back for
+            // them (see DiagnosticsLog.redactSecrets).
             val rowId = svc.repository.recordOutgoingDm(
                 keyHex,
-                io.github.thatsfguy.meshcore.android.storage.DiagnosticsLog.redact(command),
+                io.github.thatsfguy.meshcore.android.storage.DiagnosticsLog.redactSecrets(command),
                 System.currentTimeMillis() / 1000,
                 txtType = 1,
             )

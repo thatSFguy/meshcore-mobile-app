@@ -221,4 +221,55 @@ class NodeIdentityRepliesTest {
         val id = thread(true to "ver", false to "v1.16.0-07a3ca9 (Build: 06-Jun-2026)")
         assertEquals(VersionOrder.key("v1.16.0"), VersionOrder.key(id.version!!))
     }
+
+    // --- time -------------------------------------------------------------
+
+    private val minute = 60_000L
+
+    @Test
+    fun `an unanswered start ota does not take the ver answers after it`() {
+        // The test RAK's thread, 2026-09-24, in shape: `start ota` went
+        // unanswered at 07:45, and every `ver` after it was handed to
+        // that dead slot — the stored version stayed v1.17.1 through two
+        // flashes to v1.17.0.
+        val t0 = 1_000_000L
+        val rows = listOf(
+            ConsoleRow(true, "ver", t0),
+            ConsoleRow(false, "v1.17.1-d929643 (Build: 14-Aug-2026)", t0 + 30_000L),
+            ConsoleRow(true, "start ota", t0 + 31_000L),
+            ConsoleRow(true, "ver", t0 + 21 * minute),
+            ConsoleRow(false, "v1.17.0-727fc05 (Build: 01-Aug-2026)", t0 + 21 * minute + 30_000L),
+        )
+        assertEquals("v1.17.0-727fc05", NodeIdentityReplies.fromRows(rows).version)
+    }
+
+    @Test
+    fun `a reply inside the timeout still belongs to the command before it`() {
+        // The positive control: expiry must not break ordinary queuing,
+        // where the node answers two commands in turn within seconds.
+        val rows = listOf(
+            ConsoleRow(true, "board", 1_000L),
+            ConsoleRow(true, "ver", 2_000L),
+            ConsoleRow(false, "RAK 4631", 5_000L),
+            ConsoleRow(false, "v1.17.1-d929643 (Build: 14-Aug-2026)", 9_000L),
+        )
+        val id = NodeIdentityReplies.fromRows(rows)
+        assertEquals("RAK 4631", id.board)
+        assertEquals("v1.17.1-d929643", id.version)
+    }
+
+    @Test
+    fun `a ver from before the last update is not what the node runs now`() {
+        // Asked during the update sequence, answered, and then the node
+        // was flashed. That answer is history; the panel re-asks.
+        val rows = listOf(
+            ConsoleRow(true, "ver", 1_000L),
+            ConsoleRow(false, "v1.17.1-d929643 (Build: 14-Aug-2026)", 2_000L),
+        )
+        assertNull(NodeIdentityReplies.fromRows(rows, versionsSince = 3_000L).version)
+        assertEquals(
+            "v1.17.1-d929643",
+            NodeIdentityReplies.fromRows(rows, versionsSince = 1_500L).version,
+        )
+    }
 }

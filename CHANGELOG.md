@@ -43,15 +43,27 @@ nodes to a USB cable. It now tells them apart by the name the bootloader adverti
   connecting can wait without a limit.
 - **An unanswered `start ota` from an earlier visit blocked the next one** for two minutes,
   and then blamed a command that had never been sent.
-- **A node answering `start ota` with an all-zero address was reported as not advertising.**
-  The firmware starts advertising before it reads its address, so it was; the app now finds
-  it by name.
+- **`start ota` never recorded a node's Bluetooth address, and often reported a node that was
+  advertising as "not advertising".** Since 0.8.1 the console has stored replies with Bluetooth
+  addresses masked — the same masking the diagnostics log uses — and the node's `OK - mac: …`
+  answer is read back out of that stored reply. Only secrets are masked there now. The node's
+  address is recorded again, so the next update finds it straight away instead of scanning
+  for 30 seconds by name, and a genuinely unreadable address no longer stops the update
+  either.
 - **OTAFIX bootloaders are recognised by name**, so a node already waiting in update mode is
   found even with no address on record.
 - **A scan started while the phone's Bluetooth was still switching on** gave up at once; it
   now waits for Bluetooth to come back.
 - **The transfer rate in the diagnostics log** is measured from when data starts to move. It
   used to include the scan, which halved the figure.
+
+**Smaller things:**
+
+- **A finished update no longer greets the next one.** Coming back to the firmware screen
+  opened on the last "Update complete", and a tap meant for the version list landed on it.
+- **The version shown for a node is what it runs now.** After a flash the record kept the old
+  version, so the list went on marking it "Installed now". The flashed version is recorded,
+  and the console no longer lets one unanswered command take the replies to later ones.
 
 ## 0.9.7
 

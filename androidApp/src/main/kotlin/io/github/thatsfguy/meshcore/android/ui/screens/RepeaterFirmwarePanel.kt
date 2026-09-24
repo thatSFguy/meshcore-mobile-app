@@ -173,7 +173,12 @@ fun RepeaterFirmwarePanel(
     // which is what the firmware picker and the bootloader scan both
     // work from.
     var asked by remember(keyHex) { mutableStateOf(false) }
-    val identity = remember(replies) { NodeIdentityReplies.from(replies.map { it.outgoing to it.text }) }
+    // Timed, so a command that went unanswered cannot take later replies,
+    // and a `ver` from before the last update-mode entry is not taken for
+    // what the node runs now. See [NodeIdentityReplies.fromRows].
+    val identity = remember(rows, storedContact?.otaReplyHandledAt) {
+        NodeIdentityReplies.fromRows(rows, storedContact?.otaReplyHandledAt ?: 0L)
+    }
     LaunchedEffect(keyHex, storedContact?.boardName, inUpdateMode) {
         val known = storedContact?.boardName != null
         if (!asked && !known && !inUpdateMode) {
@@ -211,7 +216,16 @@ fun RepeaterFirmwarePanel(
     ) {
         Spacer(Modifier.height(8.dp))
         Text("Update this node", style = MaterialTheme.typography.titleMedium)
-        HintText(identity.describe() ?: "Asking the node what board it is…")
+        // The stored record fills what the thread cannot: a `ver` from
+        // before the last update-mode entry is deliberately not trusted,
+        // and a node in update mode is not asked again.
+        HintText(
+            NodeIdentityReplies(
+                board = identity.board ?: storedContact?.boardName,
+                version = identity.version ?: storedContact?.firmwareVersion,
+                buildDate = null,
+            ).describe() ?: "Asking the node what board it is…",
+        )
         Spacer(Modifier.height(8.dp))
         Text(
             "Two steps, and only the first one goes over the mesh.\n\n" +
