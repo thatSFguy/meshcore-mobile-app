@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -61,6 +62,14 @@ import io.github.thatsfguy.meshcore.android.storage.MessageRepository
 import io.github.thatsfguy.meshcore.android.ui.MeshCoreViewModel
 import io.github.thatsfguy.meshcore.presentation.LastHeard
 import io.github.thatsfguy.meshcore.presentation.NodeListModel
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import io.github.thatsfguy.meshcore.presentation.NodeTab
+import io.github.thatsfguy.meshcore.presentation.NodeTabsModel
 import io.github.thatsfguy.meshcore.presentation.encodePrefill
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -115,7 +124,7 @@ fun NodesScreen(vm: MeshCoreViewModel, nav: NavController) {
                     MenuAction("Share my node QR…") { showSelfQr = true },
                     // Active discovery (PARITY §2): a broadcast asking
                     // nearby repeaters to speak up, as opposed to the
-                    // passive advert inbox on the New tab.
+                    // passive advert inbox shown on each type's tab.
                     MenuAction("Discover nearby repeaters") { discovering = true },
                     // The other direction from "Discover": not who is
                     // out there, but who is carrying MY traffic.
@@ -137,8 +146,9 @@ fun NodesScreen(vm: MeshCoreViewModel, nav: NavController) {
         },
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
-            // Selection persists across tab switches and restarts.
-            var tab by remember { mutableIntStateOf(vm.prefs.nodesTab.coerceIn(0, 4)) }
+            // Selection persists across tab switches and restarts. A
+            // position saved for the retired "New" tab opens on Contacts.
+            var tab by remember { mutableStateOf(NodeTab.fromSaved(vm.prefs.nodesTab)) }
             val discovered by vm.discovered.collectAsState()
             var query by remember { mutableStateOf("") }
             // Order and narrowing survive tab switches and restarts, the
@@ -147,15 +157,7 @@ fun NodesScreen(vm: MeshCoreViewModel, nav: NavController) {
             var sort by remember { mutableStateOf(vm.prefs.nodesSort) }
             var filters by remember { mutableStateOf(vm.prefs.nodesFilters) }
             // Contacts tab folds in sensors/unknown types.
-            val ofThisType = when (tab) {
-                1 -> contacts.filter { it.type == Codes.ADV_TYPE_REPEATER }
-                2 -> contacts.filter { it.type == Codes.ADV_TYPE_ROOM }
-                3 -> contacts.filter { it.type == Codes.ADV_TYPE_SENSOR }
-                else -> contacts.filter {
-                    it.type != Codes.ADV_TYPE_REPEATER && it.type != Codes.ADV_TYPE_ROOM &&
-                        it.type != Codes.ADV_TYPE_SENSOR
-                }
-            }
+            val ofThisType = contacts.filter { NodeTab.of(it.type) == tab }
             // Searching, narrowing and ordering are all NodeListModel's,
             // so the rules are pinned by tests rather than by driving a
             // phone (CLAUDE.md — logic that carries decisions is pure).
@@ -166,87 +168,77 @@ fun NodesScreen(vm: MeshCoreViewModel, nav: NavController) {
                 filters = filters,
                 nowSeconds = vm.nowSeconds(),
             )
+            // Heard but not added: on the tab for their own kind, not in a
+            // tab of their own. See [NodeTab].
+            val newCounts = NodeTabsModel.counts(discovered)
+            val heard = NodeTabsModel.heardFor(
+                tab = tab,
+                heard = discovered,
+                query = query,
+                filtersActive = filters.isNotEmpty(),
+            )
 
             // ScrollableTabRow, not TabRow: a fixed row divides the width
             // evenly and WRAPS labels ("Repeat/ers") once the user raises
             // the font or display size. Scrollable tabs size to their text
             // and scroll if they overflow, so the user's accessibility
             // setting is respected rather than fought.
-            ScrollableTabRow(selectedTabIndex = tab, edgePadding = 12.dp) {
-                val labels = listOf(
-                    "Contacts", "Repeaters", "Rooms", "Sensors",
-                    if (discovered.isEmpty()) "New" else "New (${discovered.size})",
-                )
-                for ((i, label) in labels.withIndex()) {
+            ScrollableTabRow(selectedTabIndex = tab.ordinal, edgePadding = 12.dp) {
+                for (t in NodeTab.entries) {
+                    val count = newCounts[t] ?: 0
                     Tab(
-                        selected = tab == i,
+                        selected = tab == t,
                         onClick = {
-                            tab = i
-                            vm.prefs.nodesTab = i
+                            tab = t
+                            vm.prefs.nodesTab = t.ordinal
                         },
-                        text = { Text(label, maxLines = 1, softWrap = false) },
-                    )
-                }
-            }
-
-            if (tab != 4) {
-                NodeListControls(
-                    query = query,
-                    onQueryChange = { query = it },
-                    sort = sort,
-                    filters = filters,
-                    onSortChange = {
-                        sort = it
-                        vm.prefs.nodesSort = it
-                    },
-                    onToggleFilter = { f ->
-                        filters = if (f in filters) filters - f else filters + f
-                        vm.prefs.nodesFilters = filters
-                    },
-                    onClearFilters = {
-                        filters = emptySet()
-                        vm.prefs.nodesFilters = filters
-                    },
-                )
-            }
-
-            if (tab == 4) {
-                // A full radio is why most of this tab fills up, and
-                // Add cannot succeed until something is removed. Say so
-                // before the user finds out one node at a time.
-                val radioFull by vm.contactsFull.collectAsState()
-                if (radioFull) {
-                    Text(
-                        "The radio's contact list is full, so it isn't adding new nodes. " +
-                            "Remove some (⋮ → Remove stale nodes) to make room.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                    )
-                }
-                // Discovery inbox — heard over the air, not yet contacts.
-                if (discovered.isEmpty()) {
-                    EmptyHint(
-                        text = "Nothing new heard yet.\nNodes whose signed adverts reach this radio " +
-                            "but aren't in its contact list show up here.",
-                    )
-                } else {
-                    LazyColumn(Modifier.fillMaxSize()) {
-                        items(discovered, key = { it.keyHex }) { d ->
-                            DiscoveredRow(
-                                node = d,
-                                onAdd = { vm.addDiscovered(d.keyHex) },
-                                onDismiss = { vm.dismissDiscovered(d.keyHex) },
-                            )
-                        }
-                        item(key = "clear_all") {
-                            TextButton(onClick = { vm.clearDiscovered() }) {
-                                Text("Dismiss all", color = MaterialTheme.colorScheme.error)
+                        modifier = Modifier.semantics {
+                            contentDescription = NodeTabsModel.spokenLabel(t, count)
+                        },
+                        text = {
+                            // An overlapping badge, taking no width. A word
+                            // ("Repeaters · 3 new") or even a badge beside
+                            // the label pushed Sensors off the edge of a
+                            // 384 dp screen — the way "New" used to be —
+                            // because each tab also has a 90 dp minimum.
+                            BadgedBox(
+                                // Nudged into the tab's own 16 dp side
+                                // padding so it clears the last letter.
+                                badge = {
+                                    if (count > 0) {
+                                        Badge(Modifier.offset(x = 12.dp, y = (-2).dp)) {
+                                            Text("$count")
+                                        }
+                                    }
+                                },
+                            ) {
+                                Text(t.title, maxLines = 1, softWrap = false)
                             }
-                        }
-                    }
+                        },
+                    )
                 }
-            } else if (tabContacts.isEmpty()) {
+            }
+
+            NodeListControls(
+                query = query,
+                onQueryChange = { query = it },
+                sort = sort,
+                filters = filters,
+                onSortChange = {
+                    sort = it
+                    vm.prefs.nodesSort = it
+                },
+                onToggleFilter = { f ->
+                    filters = if (f in filters) filters - f else filters + f
+                    vm.prefs.nodesFilters = filters
+                },
+                onClearFilters = {
+                    filters = emptySet()
+                    vm.prefs.nodesFilters = filters
+                },
+            )
+
+            if (tabContacts.isEmpty() && heard.isEmpty()) {
                 EmptyHint(
                     // An empty list with an active filter is the app
                     // working, and it looks exactly like the app being
@@ -258,13 +250,42 @@ fun NodesScreen(vm: MeshCoreViewModel, nav: NavController) {
                                 ".\nClear the filters from the list menu beside the search box."
                         query.isNotBlank() && ofThisType.isNotEmpty() ->
                             "Nothing here matches \"$query\"."
-                        tab == 1 -> "No repeaters heard yet."
-                        tab == 2 -> "No room servers heard yet."
+                        tab == NodeTab.Repeaters -> "No repeaters heard yet."
+                        tab == NodeTab.Rooms -> "No room servers heard yet."
                         else -> "No contacts yet.\nContacts appear when nearby nodes advertise, or scan a contact QR with +."
                     },
                 )
             } else {
+                // Collapsed state is kept: someone who has chosen not to
+                // auto-add a kind may still not want its newcomers above
+                // their list every time they open it.
+                var heardCollapsed by remember { mutableStateOf(vm.prefs.nodesHeardCollapsed) }
+                val radioFull by vm.contactsFull.collectAsState()
                 LazyColumn(Modifier.fillMaxSize()) {
+                    if (heard.isNotEmpty()) {
+                        item(key = "heard_header") {
+                            HeardHeader(
+                                count = heard.size,
+                                collapsed = heardCollapsed,
+                                radioFull = radioFull,
+                                onToggle = {
+                                    heardCollapsed = !heardCollapsed
+                                    vm.prefs.nodesHeardCollapsed = heardCollapsed
+                                },
+                                onDismissAll = { heard.forEach { vm.dismissDiscovered(it.keyHex) } },
+                            )
+                        }
+                        if (!heardCollapsed) {
+                            items(heard, key = { "heard_${it.keyHex}" }) { d ->
+                                DiscoveredRow(
+                                    node = d,
+                                    onAdd = { vm.addDiscovered(d.keyHex) },
+                                    onDismiss = { vm.dismissDiscovered(d.keyHex) },
+                                )
+                            }
+                        }
+                        item(key = "heard_divider") { HorizontalDivider() }
+                    }
                     items(tabContacts, key = { it.keyHex }) { c ->
                         // Infrastructure rows go straight to administration —
                         // the reference client does this
@@ -477,6 +498,53 @@ private fun DiscoveredRow(
         }
         TextButton(onClick = onAdd) { Text("Add") }
         TextButton(onClick = onDismiss) { Text("×", color = MaterialTheme.colorScheme.error) }
+    }
+}
+
+/**
+ * The top of a tab's "heard, not added" section: what it is, how many,
+ * and a way to fold it away or clear it. The full-radio warning lives
+ * here because a full radio is why most of these are here, and Add
+ * cannot succeed until something is removed.
+ */
+@Composable
+private fun HeardHeader(
+    count: Int,
+    collapsed: Boolean,
+    radioFull: Boolean,
+    onToggle: () -> Unit,
+    onDismissAll: () -> Unit,
+) {
+    Column(Modifier.fillMaxWidth()) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onToggle)
+                .padding(start = 16.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                "Heard, not added · $count",
+                style = MaterialTheme.typography.titleSmall,
+                modifier = Modifier.weight(1f),
+            )
+            TextButton(onClick = onDismissAll) {
+                Text("Dismiss all", color = MaterialTheme.colorScheme.error)
+            }
+            Icon(
+                if (collapsed) Icons.Filled.KeyboardArrowDown else Icons.Filled.KeyboardArrowUp,
+                contentDescription = if (collapsed) "Show them" else "Hide them",
+            )
+        }
+        if (radioFull) {
+            Text(
+                "The radio's contact list is full, so it isn't adding new nodes. " +
+                    "Remove some (⋮ → Remove stale nodes) to make room.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+            )
+        }
     }
 }
 
@@ -1169,7 +1237,7 @@ private fun ContactPermissions(
  * Active discovery (PARITY §2, `DiscoverScreen`/`DiscoverNodesScreen`).
  *
  * A broadcast asking nearby repeaters to answer, as opposed to the
- * passive advert inbox on the New tab. Responders identify themselves
+ * passive advert inbox on each type's tab. Responders identify themselves
  * with a public-key PREFIX, which is not an identity (PARITY §12) — so
  * this only reports contacts already known, and says plainly that a
  * silent node is not necessarily an absent one.

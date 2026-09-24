@@ -97,6 +97,9 @@ private val CHANGELOG: List<Pair<String, List<String>>> = listOf(
         "board and ver are asked again after 10 seconds of silence, up to three times. " +
             "start ota is resent once only: a second one answers \"Error\" when the first " +
             "worked, and the app now says so instead of reporting a refusal.",
+        "The New tab is gone: a node the radio heard but did not add appears at the top of " +
+            "the tab for its own kind, under \"Heard, not added\", and each tab shows a count. " +
+            "With auto-add on it never appears; it folds away when it does.",
     ),
     "0.9.8" to listOf(
         "Firmware updates now tell the two nRF52 bootloaders apart, because they fail in " +

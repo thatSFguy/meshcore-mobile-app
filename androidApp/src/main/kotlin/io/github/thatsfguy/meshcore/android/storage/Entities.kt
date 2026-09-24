@@ -325,18 +325,18 @@ data class PathHistoryEntity(
 @Entity(tableName = "discovered", primaryKeys = ["selfKey", "keyHex"])
 data class DiscoveredEntity(
     val selfKey: String,
-    val keyHex: String,
-    val name: String,
-    val type: Int,
+    override val keyHex: String,
+    override val name: String,
+    override val type: Int,
     val latitude: Double?,
     val longitude: Double?,
     val firstHeardAt: Long,
-    val lastHeardAt: Long,
+    override val lastHeardAt: Long,
     val snr: Double,
     val rssi: Int,
     /** Raw advert payload, hex — replayed to CMD_IMPORT_CONTACT. */
     val advertHex: String,
-)
+) : io.github.thatsfguy.meshcore.presentation.HeardNode
 
 /**
  * One row of a repeater's neighbour table, as read at a moment in time.

@@ -29,6 +29,20 @@ stall a firmware update until you retried by hand.
 - **A late answer to a resent `ver` is no longer mistaken for the answer to `start ota`**, which
   would have been reported as an ESP32 raising a Wi-Fi hotspot.
 
+**The "New" tab is gone; newly heard nodes sit on the tab for their own kind.** It was the last
+tab in a row that scrolled, so on a narrow phone it was off the edge of the screen — and for
+anyone with auto-add on it was always empty. A node the radio heard but did not add now appears
+at the top of Contacts, Repeaters, Rooms or Sensors, under "Heard, not added", with Add and
+dismiss beside it.
+
+- **Each tab shows a count** of what is waiting on it, so you can see from any tab that something
+  is.
+- **The section only exists when there is something in it.** With auto-add on it never appears,
+  and it grows only on the tabs for the kinds you chose not to add automatically.
+- **It folds away,** and stays folded. "Dismiss all" and the full-radio warning moved into it.
+- **The search box finds heard nodes too.** The favourite, unread and last-24-hours filters are
+  about contacts, so the section is hidden while one is on.
+
 ## 0.9.8
 
 **Firmware updates now know which bootloader they are talking to, and act on it.** An nRF52

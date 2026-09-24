@@ -230,6 +230,11 @@ class Preferences(context: Context) {
         get() = prefs.getInt("nodes_tab", 0)
         set(v) { prefs.edit().putInt("nodes_tab", v).apply() }
 
+    /** Whether a tab's "heard, not added" section is folded away. */
+    var nodesHeardCollapsed: Boolean
+        get() = prefs.getBoolean("nodes_heard_collapsed", false)
+        set(v) { prefs.edit().putBoolean("nodes_heard_collapsed", v).apply() }
+
     /**
      * Nodes-list ordering, stored by enum NAME rather than ordinal.
      *
