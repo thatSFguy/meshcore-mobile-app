@@ -39,6 +39,14 @@ object Inbox {
      * False when the user is already looking at it — a badge on the
      * screen you are reading is noise.
      */
+    /**
+     * Whether a screen closing [kind]/[peerKey] should clear the open
+     * thread: only while that thread is still the open one. A later
+     * screen may already have opened a different thread.
+     */
+    fun shouldCloseThread(activeThread: String?, kind: String, peerKey: String): Boolean =
+        activeThread != null && isOpen(activeThread, kind, peerKey)
+
     fun shouldBumpUnread(activeThread: String?, kind: String, peerKey: String): Boolean =
         !isOpen(activeThread, kind, peerKey)
 

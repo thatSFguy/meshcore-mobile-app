@@ -90,6 +90,14 @@ fun AboutSection(vm: MeshCoreViewModel) {
  * is a changelog you can't read in the field.
  */
 private val CHANGELOG: List<Pair<String, List<String>>> = listOf(
+    "0.10.3" to listOf(
+        "A phone put away on a conversation no longer stays silent for it. The conversation " +
+            "last on screen was treated as being read even with the screen off, so its " +
+            "messages made no sound and did not count as unread.",
+        "While you are looking at a conversation it still stays quiet; coming back to it " +
+            "clears its notification.",
+        "The diagnostics log records each notification decision, never the message text.",
+    ),
     "0.10.2" to listOf(
         "The app icon no longer carries a badge all the time. The ongoing connection " +
             "notification counted toward it, so it never went away; now only messages badge " +

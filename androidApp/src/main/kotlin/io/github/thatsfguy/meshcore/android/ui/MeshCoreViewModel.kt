@@ -684,6 +684,22 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
         _service.value?.repository?.activeThread = null
     }
 
+    /**
+     * Close [kind]/[peerKey] — only if it is still the open thread.
+     *
+     * Moving from one conversation straight to another composes the new
+     * screen before the old one is disposed, so the old screen's "closed"
+     * can land after the new screen's "open". Clearing unconditionally
+     * wiped the new thread's state, leaving it notifying about messages
+     * the user was looking at.
+     */
+    fun markThreadClosed(kind: String, peerKey: String) {
+        val repository = _service.value?.repository ?: return
+        if (Inbox.shouldCloseThread(repository.activeThread, kind, peerKey)) {
+            repository.activeThread = null
+        }
+    }
+
     // ------------------------------------------------------------------
     // Connection actions
     // ------------------------------------------------------------------

@@ -11,6 +11,20 @@ Every entry describes what is in **that tagged build**. A feature that landed af
 belongs in the next section, not this one — 0.3.0 was once credited with four features that
 shipped after it, which misled nobody so much as the author, three months later.
 
+## 0.10.3
+
+**A phone put away on a conversation no longer stays silent for it.** The app does not notify
+for the conversation you are reading — you are looking at it — but it decided "reading" by
+whether the conversation screen was the last one shown, and turning the screen off does not
+change that. So the conversation left open when the phone went into a pocket was treated as
+being read for as long as it stayed there: its messages made no sound, raised no notification
+and did not count as unread. Now a conversation counts as open only while the app is on screen.
+
+- **While you are looking at it, it still stays quiet**, as before.
+- **Coming back to it clears its notification** and its unread count.
+- **The diagnostics log now records each notification decision**: which conversation, whether
+  it counted as open, and why a message did not notify if it did not. Never the message text.
+
 ## 0.10.2
 
 **The app icon no longer carries a badge all the time.** While the app is connected it keeps an

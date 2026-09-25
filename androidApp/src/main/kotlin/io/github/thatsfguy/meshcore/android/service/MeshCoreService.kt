@@ -163,6 +163,7 @@ class MeshCoreService : Service() {
             engine.state.collect { updateNotification(it) }
         }
 
+        repository.log = { diagnostics.log("Inbox", it) }
         repository.onNewMessage = { kind, peerKey, senderName, text ->
             postMessageNotification(kind, peerKey, senderName, text)
         }
@@ -506,22 +507,27 @@ class MeshCoreService : Service() {
         senderName: String?,
         text: String,
     ) {
-        if (!prefs.notificationsEnabled) return
+        // Each early return says why in the diagnostics log: a silent
+        // phone otherwise gives no way to tell a setting from a defect.
+        fun skip(reason: String) = diagnostics.log("Inbox", "not notifying: $reason")
+        if (!prefs.notificationsEnabled) return skip("notifications off in the app")
         if (Build.VERSION.SDK_INT >= 33 &&
             checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) !=
             PackageManager.PERMISSION_GRANTED
         ) {
-            return
+            return skip("notification permission not granted")
         }
 
         val isChannel = kind == MessageRepository.KIND_CHANNEL
         // Three levels, narrowest last: the per-kind switch, then the
         // per-thread mute. Muted threads still count unread — silence is
         // about interruption, not about hiding that something arrived.
-        if (isChannel && !prefs.notifyChannels) return
-        if (!isChannel && !prefs.notifyDirect) return
-        if (isChannel && peerKey.toIntOrNull()?.let { prefs.isChannelMuted(it) } == true) return
-        if (!isChannel && prefs.isContactMuted(peerKey)) return
+        if (isChannel && !prefs.notifyChannels) return skip("channel notifications off")
+        if (!isChannel && !prefs.notifyDirect) return skip("direct-message notifications off")
+        if (isChannel && peerKey.toIntOrNull()?.let { prefs.isChannelMuted(it) } == true) {
+            return skip("channel $peerKey muted")
+        }
+        if (!isChannel && prefs.isContactMuted(peerKey)) return skip("contact muted")
         val title = if (isChannel) {
             val idx = peerKey.toIntOrNull()
             val name = engine.channels.value.firstOrNull { it.index == idx }?.name

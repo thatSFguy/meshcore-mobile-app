@@ -44,6 +44,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.lifecycle.compose.LifecycleStartEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -125,9 +126,17 @@ fun ConversationScreen(
             ?: peerKey.take(12)
     }
 
-    DisposableEffect(kind, peerKey) {
+    // Open only while the app is on screen. This was a DisposableEffect,
+    // which leaves the thread "open" until the screen is left — and
+    // turning the phone off or pocketing it does not leave the screen, it
+    // stops the app. So the conversation last on screen was treated as
+    // being read indefinitely: its messages neither notified nor counted
+    // unread. Reported 2026-09-25 as a phone that stayed silent in a
+    // pocket while another, on a different screen, alerted. Coming back
+    // re-opens it, which also clears its notification and unread count.
+    LifecycleStartEffect(kind, peerKey) {
         vm.markThreadOpen(kind, peerKey)
-        onDispose { vm.markThreadClosed() }
+        onStopOrDispose { vm.markThreadClosed(kind, peerKey) }
     }
 
     val threadKey = Inbox.threadKey(kind, peerKey)

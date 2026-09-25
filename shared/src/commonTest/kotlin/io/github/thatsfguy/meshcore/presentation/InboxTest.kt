@@ -125,4 +125,26 @@ class InboxTest {
         assertEquals("99+", Inbox.badgeLabel(100))
         assertEquals("1", Inbox.badgeLabel(1))
     }
+
+    @Test
+    fun `a screen closing only clears the thread it opened`() {
+        val public = Inbox.threadKey("channel", "0")
+        // The screen that opened it may close it...
+        assertTrue(Inbox.shouldCloseThread(public, "channel", "0"))
+        // ...but not once another conversation has been opened: moving
+        // straight from one thread to another composes the new screen
+        // before the old one is disposed.
+        val dm = Inbox.threadKey("dm", "aabbcc")
+        assertTrue(!Inbox.shouldCloseThread(dm, "channel", "0"))
+        assertTrue(!Inbox.shouldCloseThread(null, "channel", "0"))
+    }
+
+    @Test
+    fun `a closed thread notifies again`() {
+        // The pocket case: once the app stops, the thread is closed, and
+        // the next message in it must notify like any other.
+        val public = Inbox.threadKey("channel", "0")
+        assertTrue(!Inbox.shouldNotify(public, "channel", "0"))
+        assertTrue(Inbox.shouldNotify(null, "channel", "0"))
+    }
 }

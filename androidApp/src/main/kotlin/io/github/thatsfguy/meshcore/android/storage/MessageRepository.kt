@@ -50,6 +50,15 @@ class MessageRepository(
     @Volatile var activeThread: String? = null
 
     /**
+     * Where the notify decision is recorded — the diagnostics log, when
+     * it is on. Never the message text: which thread, whether it was new,
+     * whether it counted as being read, and what was decided. Added
+     * 2026-09-25 when a phone stayed silent and nothing could say whether
+     * the app had decided not to notify or had never seen the message.
+     */
+    var log: (String) -> Unit = {}
+
+    /**
      * Content keys of channel reactions already accounted for.
      *
      * A channel reaction reaches us up to three times: once as our own
@@ -326,12 +335,19 @@ class MessageRepository(
                 // A retry must not buzz the phone a second time, and a
                 // message the user is already looking at must not buzz
                 // at all.
-                if (Inbox.shouldNotify(
-                        activeThread, KIND_DM, peer,
-                        isDuplicate = inserted == -1L,
-                        isCliReply = event.txtType == 1,
+                val notify = Inbox.shouldNotify(
+                    activeThread, KIND_DM, peer,
+                    isDuplicate = inserted == -1L,
+                    isCliReply = event.txtType == 1,
+                )
+                if (event.txtType != 1 && inserted != -1L) {
+                    log(
+                        "direct ${peer.take(8)}: open thread " +
+                            "${activeThread?.substringBefore('|') ?: "none"}" +
+                            " -> ${if (notify) "notify" else "silent"}",
                     )
-                ) {
+                }
+                if (notify) {
                     db.contacts().bumpUnread(self, peer, System.currentTimeMillis())
                     onNewMessage?.invoke(KIND_DM, peer, event.roomAuthorLabel, event.text)
                 } else if (inserted != -1L &&
@@ -417,11 +433,21 @@ class MessageRepository(
                 }
                 // insert == -1 → duplicate (sync + RX-log double delivery,
                 // or the echo of our own outgoing message)
-                if (Inbox.shouldNotify(
-                        activeThread, KIND_CHANNEL, event.channelIndex.toString(),
-                        isDuplicate = inserted == -1L,
+                val notify = Inbox.shouldNotify(
+                    activeThread, KIND_CHANNEL, event.channelIndex.toString(),
+                    isDuplicate = inserted == -1L,
+                )
+                // New messages only: every message arrives two or three
+                // times (sync plus RX log), and logging the copies filled
+                // the 500-line diagnostics log from a busy channel in a
+                // couple of hours, evicting everything else.
+                if (inserted != -1L) {
+                    log(
+                        "channel ${event.channelIndex}: open thread ${activeThread ?: "none"}" +
+                            " -> ${if (notify) "notify" else "silent"}",
                     )
-                ) {
+                }
+                if (notify) {
                     db.channels().bumpUnread(self, event.channelIndex, System.currentTimeMillis())
                     onNewMessage?.invoke(
                         KIND_CHANNEL, event.channelIndex.toString(),
