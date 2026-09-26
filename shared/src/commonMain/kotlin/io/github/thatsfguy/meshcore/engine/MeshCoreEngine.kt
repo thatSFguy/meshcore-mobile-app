@@ -378,6 +378,24 @@ class MeshCoreEngine(
      */
     private var syncingIsIncremental = false
 
+    /**
+     * How many contacts the radio said it holds, from the CONTACTS_START
+     * that opened the sweep in flight — `getNumContacts()`, "total, NOT
+     * filtered count" (companion_radio/MyMesh.cpp).
+     *
+     * This, not [syncingIsIncremental], is what decides whether a sweep is
+     * the radio's whole list: only one that delivered exactly this many
+     * records is. The flag is set when a read is REQUESTED, and on
+     * 2026-09-25 that was enough to lose a user's favourites from the app:
+     * adding several repeaters in a row queued a changed-only read behind
+     * each add, a read that timed out reset the flag to "full" while its
+     * half-filled list was still pending, and when the radio's END arrived
+     * the few records it held were published as the entire contact list —
+     * so every other contact, favourites included, was forgotten. The
+     * radio still had them all; the next full read put them back.
+     */
+    private var syncingDeclaredCount: Long? = null
+
     /** The periodic incremental contact re-read; see [CONTACT_REFRESH_MS]. */
     private var contactRefreshJob: Job? = null
 
@@ -597,6 +615,7 @@ class MeshCoreEngine(
 
             is DeviceEvent.ContactsStart -> {
                 syncingContacts = LinkedHashMap()
+                syncingDeclaredCount = event.count
             }
             is DeviceEvent.ContactReceived -> {
                 val c = event.contact
@@ -621,20 +640,30 @@ class MeshCoreEngine(
             }
             is DeviceEvent.EndOfContacts -> {
                 syncingContacts?.let { swept ->
-                    // Replace on a full sweep; merge on an incremental
-                    // one. Getting this backwards would not look like a
-                    // bug — it would look like the radio forgetting
-                    // everyone every few minutes.
-                    _contacts.value =
-                        if (syncingIsIncremental) _contacts.value + swept else swept.toMap()
+                    // Replace, and let the store forget what is missing,
+                    // ONLY when the sweep delivered every contact the radio
+                    // said it holds. Anything short of that — a changed-only
+                    // read, or one whose kind was mislabelled — is merged,
+                    // which can add and update but never remove. See
+                    // [syncingDeclaredCount] for what the flag alone cost.
+                    val complete = ContactSweep.isComplete(swept.size, syncingDeclaredCount)
+                    if (!syncingIsIncremental && !complete) {
+                        log(
+                            "Contact read returned ${swept.size} of " +
+                                "${syncingDeclaredCount ?: "an unknown number"} — " +
+                                "not treating it as the whole list",
+                        )
+                    }
+                    _contacts.value = if (complete) swept.toMap() else _contacts.value + swept
                     // Only from inside this `let`: a sweep abandoned for
                     // running long, or one that never reached END, must
                     // never be taken as the radio's whole list.
-                    if (!syncingIsIncremental) {
+                    if (complete) {
                         _meshEvents.tryEmit(MeshEvent.ContactListComplete(swept.keys.toSet()))
                     }
                 }
                 syncingContacts = null
+                syncingDeclaredCount = null
                 syncingIsIncremental = false
                 _meshEvents.tryEmit(MeshEvent.ContactsSynced)
             }

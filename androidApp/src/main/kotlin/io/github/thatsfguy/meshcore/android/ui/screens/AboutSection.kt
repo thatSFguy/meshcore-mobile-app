@@ -91,6 +91,10 @@ fun AboutSection(vm: MeshCoreViewModel) {
  */
 private val CHANGELOG: List<Pair<String, List<String>>> = listOf(
     "0.10.4" to listOf(
+        "Contacts, favourites included, could vanish from the app while the radio still had " +
+            "them: adding several nodes in a row could make a partial read of the contact " +
+            "list pass for the whole list. A read now counts as the whole list only when it " +
+            "delivered as many contacts as the radio says it holds.",
         "Heard repeaters show why they might be worth adding: \"relayed N messages you " +
             "received\" (3 or more in a week) and \"heard direct\". Those are listed first.",
         "With the radio's repeater auto-add off, two new switches can add the useful ones " +
@@ -98,6 +102,7 @@ private val CHANGELOG: List<Pair<String, List<String>>> = listOf(
             "default.",
         "Relay counts cover the whole route, so a far repeater on a busy flood path can " +
             "qualify; heard-direct is the stricter signal for neighbours.",
+        "A name starting with an emoji shows its initial in the avatar circle, not \"�\".",
     ),
     "0.10.3" to listOf(
         "A phone put away on a conversation no longer stays silent for it. The conversation " +

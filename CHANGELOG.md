@@ -13,6 +13,14 @@ shipped after it, which misled nobody so much as the author, three months later.
 
 ## 0.10.4
 
+**Contacts, favourites included, could vanish from the app while the radio still had them.**
+Adding several nodes in a row could make the app take a partial read of the radio's contact list
+for the whole list, and forget every contact that read didn't include. Nothing was removed from
+the radio — the next full read brought them all back — but until then they were gone from Nodes,
+the map and the favourites. The app now trusts a read as the whole list only when it delivered as
+many contacts as the radio says it holds; anything short of that can add and update contacts but
+never removes one.
+
 **Heard repeaters say why they might be worth adding, and the app can add the useful ones.**
 With the radio's own auto-add for repeaters off, the Repeaters tab fills with ones it heard but
 did not add, and nothing said which of them matter.
@@ -29,6 +37,10 @@ did not add, and nothing said which of them matter.
   failed.
 - **Relay counts cover the whole route**, so a repeater on a busy long-distance flood path can
   qualify even when it is far away. Heard-direct is the stricter signal for neighbours.
+
+**A name that starts with an emoji shows its initial in the avatar.** "🐄Donk-N8FWG" showed "�"
+in its circle: an emoji is two characters, and the circle took the first half of it. It now shows
+the first letter or digit ("D"); a name that is only emoji shows the emoji whole.
 
 ## 0.10.3
 

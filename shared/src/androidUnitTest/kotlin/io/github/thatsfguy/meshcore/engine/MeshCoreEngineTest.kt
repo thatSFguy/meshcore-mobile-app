@@ -2017,9 +2017,14 @@ class MeshCoreEngineTest {
         return { frame ->
             if ((frame[0].toInt() and 0xFF) == Codes.CMD_GET_CONTACTS) {
                 if (frame.size >= 5) {
-                    // Incremental: only the record that moved.
+                    // Incremental: only the record that moved — but the
+                    // START still carries the TOTAL, 2: "total, NOT
+                    // filtered count" (companion_radio/MyMesh.cpp). This
+                    // fake used to send the filtered count, 1, which is
+                    // exactly the mistake that let a partial read pass
+                    // for the whole list.
                     listOf(
-                        byteArrayOf(Codes.RESP_CODE_CONTACTS_START.toByte(), 1, 0, 0, 0),
+                        byteArrayOf(Codes.RESP_CODE_CONTACTS_START.toByte(), 2, 0, 0, 0),
                         contactFrame(
                             otherKey, "other-moved",
                             lastModified = 900L, latMicros = 42_963_400, lonMicros = -85_668_100,
@@ -2038,6 +2043,72 @@ class MeshCoreEngineTest {
                 base(frame)
             }
         }
+    }
+
+    @Test
+    fun aReadShortOfTheRadiosCountIsNeverTheWholeList() = runTest {
+        // The 2026-09-25 incident, from the radio's side: a read the app
+        // took for a FULL one (the flag said so) delivered only the one
+        // record that had changed. The radio's START said it holds two.
+        // Publishing that as the whole list made the app forget every
+        // other contact — favourites included — although the radio still
+        // held them all.
+        val radio = FakeRadio()
+        val base = standardResponder(radio)
+        var reads = 0
+        radio.responder = { frame ->
+            if ((frame[0].toInt() and 0xFF) == Codes.CMD_GET_CONTACTS) {
+                reads++
+                if (reads == 1) {
+                    listOf(
+                        byteArrayOf(Codes.RESP_CODE_CONTACTS_START.toByte(), 2, 0, 0, 0),
+                        contactFrame(peerKey, "peer", lastModified = 500L),
+                        contactFrame(otherKey, "other", lastModified = 700L),
+                        byteArrayOf(Codes.RESP_CODE_END_OF_CONTACTS.toByte()),
+                    )
+                } else {
+                    // Asked as a full read; answered with one of two.
+                    listOf(
+                        byteArrayOf(Codes.RESP_CODE_CONTACTS_START.toByte(), 2, 0, 0, 0),
+                        contactFrame(otherKey, "other-moved", lastModified = 900L),
+                        byteArrayOf(Codes.RESP_CODE_END_OF_CONTACTS.toByte()),
+                    )
+                }
+            } else {
+                base(frame)
+            }
+        }
+        val engine = readyEngine(radio)
+        assertEquals(2, engine.contacts.value.size)
+        val lists = mutableListOf<Set<String>>()
+        val collector = launch {
+            engine.meshEvents.collect { if (it is MeshEvent.ContactListComplete) lists += it.publicKeysHex }
+        }
+        yield()
+
+        engine.syncContacts()
+
+        assertTrue(lists.isEmpty(), "a one-of-two read told the store to forget: $lists")
+        assertEquals(2, engine.contacts.value.size, "a contact the radio still holds was dropped")
+        assertEquals("other-moved", engine.contacts.value[otherKey.toHex()]?.name)
+        collector.cancel()
+    }
+
+    @Test
+    fun aReadThatDeliversTheRadiosCountIsTheWholeList() = runTest {
+        // The positive control: the rule must still let a real full read
+        // drop a contact the radio no longer holds.
+        val radio = FakeRadio()
+        radio.responder = twoContactResponder(radio)
+        val engine = readyEngine(radio)
+        val lists = mutableListOf<Set<String>>()
+        val collector = launch {
+            engine.meshEvents.collect { if (it is MeshEvent.ContactListComplete) lists += it.publicKeysHex }
+        }
+        yield()
+        engine.syncContacts()
+        assertEquals(listOf(setOf(peerKey.toHex(), otherKey.toHex())), lists)
+        collector.cancel()
     }
 
     @Test
