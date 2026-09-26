@@ -59,7 +59,9 @@ fun NodeAvatar(
 
     val glyph = when {
         isChannel -> "#"
-        else -> label.firstOrNull { !it.isWhitespace() }?.uppercase() ?: "?"
+        // Not the first character: an emoji is two, and half of one drew
+        // "�". See AvatarGlyph.
+        else -> io.github.thatsfguy.meshcore.presentation.AvatarGlyph.of(label)
     }
 
     Box(
