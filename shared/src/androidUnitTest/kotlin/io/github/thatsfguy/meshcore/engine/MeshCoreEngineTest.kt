@@ -2138,12 +2138,15 @@ class MeshCoreEngineTest {
     }
 
     @Test
-    fun theSinceValueIsTheNewestLastModifiedWeHold() = runTest {
+    fun theSinceValueIsOneSecondBeforeTheNewestWeHold() = runTest {
         // Pinned as BYTES against the firmware's reader, not against our
         // own parser: CMD_GET_CONTACTS takes the parameter only when the
         // frame is 5 bytes or longer (`if (len >= 5)`) and compares with
-        // a strict `>`, so sending the newest lastmod we hold asks for
-        // strictly newer records and never re-fetches what we have.
+        // a strict `>` on whole seconds. It used to send the newest
+        // lastmod we hold, which skipped anything else changed in that
+        // same second — on the test phone, four of six repeaters added in
+        // quick succession never reached the app. One second back re-reads
+        // that second; the merge absorbs the repeats.
         val radio = FakeRadio()
         radio.responder = twoContactResponder(radio)
         val engine = MeshCoreEngine(backgroundScope, crypto, { now })
@@ -2156,9 +2159,10 @@ class MeshCoreEngineTest {
 
         val sent = radio.sentFrames.first { (it[0].toInt() and 0xFF) == Codes.CMD_GET_CONTACTS }
         assertEquals(5, sent.size)
-        // 700 = the newer of the two lastmod values, little-endian.
+        // 699 = one less than 700, the newer of the two lastmod values,
+        // little-endian.
         assertContentEquals(
-            byteArrayOf(Codes.CMD_GET_CONTACTS.toByte(), 0xBC.toByte(), 0x02, 0x00, 0x00),
+            byteArrayOf(Codes.CMD_GET_CONTACTS.toByte(), 0xBB.toByte(), 0x02, 0x00, 0x00),
             sent,
         )
     }
@@ -2327,6 +2331,51 @@ class MeshCoreEngineTest {
             timestamp = now - 3_600,
             appData = Advert.buildAppData(Codes.ADV_TYPE_REPEATER, name, 42.9634, -85.6681),
         )
+
+    @Test
+    fun anAddedNodeIsReadBackByKey() = runTest {
+        // The test phone, 2026-09-25: six repeaters added in quick
+        // succession, and four never appeared — the changed-only read that
+        // followed each add filters on whole seconds and skipped ones
+        // added in the same second as the one before. This radio answers
+        // a changed-only read with nothing at all, as it did then; the
+        // node must still arrive, because it is read back by its key.
+        val them = MeshIdentity.generate(crypto)
+        val radio = FakeRadio()
+        val base = standardResponder(radio)
+        radio.responder = { frame ->
+            when (frame[0].toInt() and 0xFF) {
+                Codes.CMD_GET_CONTACT_BY_KEY ->
+                    if (frame.copyOfRange(1, 33).contentEquals(them.publicKey)) {
+                        listOf(contactFrame(them.publicKey, "Kent Hill", lastModified = 900L))
+                    } else {
+                        base(frame)
+                    }
+                Codes.CMD_GET_CONTACTS ->
+                    if (frame.size >= 5) {
+                        listOf(
+                            byteArrayOf(Codes.RESP_CODE_CONTACTS_START.toByte(), 2, 0, 0, 0),
+                            byteArrayOf(Codes.RESP_CODE_END_OF_CONTACTS.toByte()),
+                        )
+                    } else {
+                        base(frame)
+                    }
+                else -> base(frame)
+            }
+        }
+        val engine = readyEngine(radio)
+
+        assertEquals(
+            MeshCoreEngine.AddOutcome.Added,
+            engine.addContactFromAdvert(locatedAdvert(them, "Kent Hill")),
+        )
+
+        assertEquals("Kent Hill", engine.contacts.value[them.publicKey.toHex()]?.name)
+        assertTrue(
+            radio.sentFrames.any { (it[0].toInt() and 0xFF) == Codes.CMD_GET_CONTACT_BY_KEY },
+            "the added node was not read back by key",
+        )
+    }
 
     @Test
     fun addingFromTheInboxWritesTheRecordDirectly() = runTest {

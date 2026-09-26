@@ -95,6 +95,8 @@ private val CHANGELOG: List<Pair<String, List<String>>> = listOf(
             "them: adding several nodes in a row could make a partial read of the contact " +
             "list pass for the whole list. A read now counts as the whole list only when it " +
             "delivered as many contacts as the radio says it holds.",
+        "Nodes added in quick succession all appear: a node added in the same second as the " +
+            "one before could reach the radio but not the app.",
         "Heard repeaters show why they might be worth adding: \"relayed N messages you " +
             "received\" (3 or more in a week) and \"heard direct\". Those are listed first.",
         "With the radio's repeater auto-add off, two new switches can add the useful ones " +

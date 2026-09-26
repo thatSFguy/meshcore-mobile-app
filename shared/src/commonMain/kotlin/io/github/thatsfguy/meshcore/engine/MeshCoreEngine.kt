@@ -1163,9 +1163,14 @@ class MeshCoreEngine(
     suspend fun syncContactsChangedOnly(): Boolean {
         val newest = _contacts.value.values.maxOfOrNull { it.lastModified } ?: 0L
         if (newest <= 0L) return false
+        // One second back: the radio's filter is a strict `>` on whole
+        // seconds, so asking from `newest` skips anything else changed in
+        // that same second. Re-reading that second costs a few records the
+        // merge absorbs; skipping it lost contacts until the next full read.
+        val since = newest - 1
         syncingIsIncremental = true
         try {
-            sendAndAwait(Frames.getContacts(newest), timeoutMs = 30_000) {
+            sendAndAwait(Frames.getContacts(since), timeoutMs = 30_000) {
                 it is DeviceEvent.EndOfContacts
             }
         } catch (t: Throwable) {
@@ -2095,7 +2100,23 @@ class MeshCoreEngine(
         ) { it is DeviceEvent.Ok }
         return when {
             ev is DeviceEvent.Ok -> {
-                runCatching { if (!syncContactsChangedOnly()) syncContacts() }
+                // Read back exactly the contact just added. This used to be
+                // a changed-only sweep, which the radio filters with a
+                // strict `lastmod > since` in whole seconds — so a node
+                // added in the same second as the previous one was never
+                // returned, and it vanished from the app (its Heard row
+                // already gone) while the radio held it. Seen on the test
+                // phone 2026-09-25: four of six quick adds. A by-key read
+                // cannot miss, and one reply instead of a sweep keeps the
+                // radio queue short — the crowding behind the lost-
+                // favourites defect.
+                val key = info.publicKeyHex
+                runCatching {
+                    sendAndAwait(Frames.getContactByKey(info.publicKey), timeoutMs = 10_000) {
+                        (it is DeviceEvent.ContactReceived && it.contact.publicKeyHex == key) ||
+                            it is DeviceEvent.Err
+                    }
+                }
                 AddOutcome.Added
             }
             ev is DeviceEvent.Err && ev.errorCode == Codes.ERR_CODE_TABLE_FULL -> {

@@ -21,6 +21,12 @@ the map and the favourites. The app now trusts a read as the whole list only whe
 many contacts as the radio says it holds; anything short of that can add and update contacts but
 never removes one.
 
+- **Nodes added in quick succession all appear.** After an Add the app asked the radio what had
+  changed since the newest contact it knew of, in whole seconds, so a node added in the same
+  second as the one before was skipped — on the test phone, four of six quick adds reached the
+  radio but not the app. The app now reads back exactly the node it added, and its periodic
+  "what changed" reads start one second earlier.
+
 **Heard repeaters say why they might be worth adding, and the app can add the useful ones.**
 With the radio's own auto-add for repeaters off, the Repeaters tab fills with ones it heard but
 did not add, and nothing said which of them matter.
