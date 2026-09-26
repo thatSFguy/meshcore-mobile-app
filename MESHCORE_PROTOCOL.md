@@ -780,6 +780,16 @@ display text in both forms; only the public key identifies anyone.
    `path.hash.mode`; absent means mode 0, since meshes predate the setting. `region` is the
    flood scope and is optional.
 
+   **`region` must already be canonical** (`[a-z0-9-]{1,29}`, one leading `#` tolerated).
+   Since 2026-09-26 the app offers to set it as the scanner's own flood scope, behind its own
+   checkbox (ticked by default). A region that isn't canonical is refused and shown, not
+   rewritten: `MI` and `mi` hash to different scopes, so lowercasing it could put someone in
+   a region the code's author never meant, and the check runs on the raw value because
+   scrubbing control characters first would turn `m\ti` into a valid `mi`. The encoder and the
+   web generator write only canonical names; the generator lowercases as you type. The code
+   never writes regions to a *repeater*: which regions a node carries, and whether it still
+   relays untagged traffic, is the operator's call on that node.
+
    **Deliberately absent: TX power and channel keys.** Every field present is "match this
    or you are not on the mesh"; TX power is not — it is the legal limit where the *scanner*
    is standing and what their hardware can do, so shipping it propagates one person's

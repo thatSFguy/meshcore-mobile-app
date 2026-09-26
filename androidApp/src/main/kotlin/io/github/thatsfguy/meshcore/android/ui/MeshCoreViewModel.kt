@@ -1375,7 +1375,13 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
      * is the one parameter that is a local legal question rather than a
      * property of the mesh.
      */
-    fun confirmRadioConfig(config: ShareUri.Decoded.RadioConfig) {
+    /**
+     * Apply a scanned mesh-settings code. [applyRegion] is the dialog's
+     * own checkbox: the region is set only when the code named a valid
+     * one AND the user left it ticked, and a refusal is reported rather
+     * than folded into "Applied".
+     */
+    fun confirmRadioConfig(config: ShareUri.Decoded.RadioConfig, applyRegion: Boolean = false) {
         pendingRadioConfig.value = null
         val svc = _service.value ?: return
         viewModelScope.launch {
@@ -1388,7 +1394,14 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
                 )
                 svc.engine.setPathHashMode(config.pathHashMode)
             }
-            transientMessage.value = "Applied ${config.name.ifBlank { "scanned settings" }}"
+            val region = config.region?.takeIf { applyRegion }
+            val regionSet = region?.let { runCatching { svc.engine.setFloodScope(it) }.getOrDefault(false) }
+            val applied = "Applied ${config.name.ifBlank { "scanned settings" }}"
+            transientMessage.value = when (regionSet) {
+                null -> applied
+                true -> "$applied · region #$region"
+                false -> "$applied, but the radio refused region #$region"
+            }
         }
     }
 

@@ -44,6 +44,23 @@ region tree the firmware prints.
 - **The unsaved-changes warning follows the firmware:** setting the default region and the hop
   limit save themselves, and setting the default also saves any region edits made before it.
 
+**A mesh-settings QR code can set your region too.**
+
+- **Scanning a code that names a region offers to set it**, with a checkbox ("Also set this
+  phone's region to #mi") that starts ticked, and one line saying what it means: your messages
+  then travel only through repeaters that carry that region.
+- **A region that isn't a clean lowercase name is refused and shown, not rewritten.** "MI" and
+  "mi" are different regions on the air. The radio values in the code still apply.
+- **Settings → Radio → "Share these settings…"** shows this radio's settings as a code:
+  frequency, bandwidth, SF, CR, hop-hash width and your region. Not TX power, which is the
+  scanner's legal limit. It's built from the radio, not the edit fields, and it refuses to
+  make a code if the radio hasn't reported its hop-hash width, rather than guessing it.
+- **Your region now survives an app restart.** It lived only in the running app, so an app
+  restart followed by a radio reboot quietly dropped it. It's saved and set again on every
+  connect.
+- **The web generator** ([settings-qr](https://thatsfguy.github.io/meshcore-mobile-app/settings-qr/))
+  lowercases the region as you type and refuses one the app would refuse.
+
 ## 0.10.5
 
 **Heard nodes show how far away they are, not a misleading signal.** Rows under "Heard, not

@@ -162,8 +162,11 @@ object ShareUri {
         append("&sf=").append(spreadingFactor)
         append("&cr=").append(codingRate)
         append("&hash=").append(pathHashMode)
-        region?.trim()?.takeIf { it.isNotEmpty() }?.let {
-            append("&region=").append(percentEncode(truncateToBytes(it, MAX_NAME_BYTES)))
+        // Canonical or not at all: "MI" and "mi" are different regions
+        // on the air, and every phone running this app scopes to the
+        // lowercase one.
+        region?.let { Regions.canonical(it) }?.let {
+            append("&region=").append(percentEncode(it))
         }
     }
 
@@ -245,8 +248,16 @@ object ShareUri {
             val spreadingFactor: Int,
             val codingRate: Int,
             val pathHashMode: Int,
-            /** Flood scope; null or blank means global. */
+            /** Flood scope, canonical; null when the code names none (or an invalid one). */
             val region: String?,
+            /**
+             * A region the code named that isn't a clean lowercase name
+             * ("MI", "bay area"), exactly as written. Not applied: "MI"
+             * and "mi" hash to different scopes, so quietly lowercasing it
+             * could put the scanner in a region the code's author never
+             * meant — and the rest of the code is still worth applying.
+             */
+            val rejectedRegion: String? = null,
         ) : Decoded {
             /** MHz · kHz · SF · CR, for a confirmation dialog. */
             fun summary(): String = buildString {
@@ -439,7 +450,12 @@ object ShareUri {
         } ?: PathHashMode.MIN_MODE
         if (!PathHashMode.isValid(hash)) return Decoded.Malformed
 
-        val region = sanitizeName(params["region"].orEmpty()).takeIf { it.isNotBlank() }
+        // Judged on the value exactly as the code carries it. Scrubbing
+        // first would delete a control character and turn "m\ti" into a
+        // valid "mi" — the silent rewrite this refuses. A leading '#' is
+        // how people write a region; nothing else may differ.
+        val rawRegion = params["region"]?.takeIf { it.isNotEmpty() }
+        val region = rawRegion?.removePrefix("#")?.takeIf { Regions.canonical(it) == it }
 
         return Decoded.RadioConfig(
             name = sanitizeName(params["name"].orEmpty()),
@@ -449,6 +465,8 @@ object ShareUri {
             codingRate = cr,
             pathHashMode = hash,
             region = region,
+            // Shown to the user, so scrubbed like any other display text.
+            rejectedRegion = rawRegion?.takeIf { region == null }?.let { sanitizeName(it).ifBlank { "?" } },
         )
     }
 

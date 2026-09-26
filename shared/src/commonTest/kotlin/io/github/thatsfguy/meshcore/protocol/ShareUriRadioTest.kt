@@ -246,7 +246,75 @@ class ShareUriRadioTest {
         // dialog intact.
         val c = decodeOk(uri(name = "a%00b%0Ac", region = "r%09s"))
         assertTrue(c.name.none { it < ' ' }, "control chars survived in ${c.name}")
-        assertTrue(c.region!!.none { it < ' ' }, "control chars survived in ${c.region}")
+        // "r\ts" is no region name: it is refused, and the refused text
+        // shown to the user is scrubbed too.
+        assertEquals(null, c.region)
+        assertTrue(c.rejectedRegion!!.none { it < ' ' }, "control chars survived in ${c.rejectedRegion}")
+    }
+
+    // --- the region must already be the one phones will use ---------------
+
+    @Test
+    fun aCanonicalRegionIsApplied() {
+        assertEquals("mi", decodeOk(uri(region = "mi")).region)
+        assertEquals("mi-west", decodeOk(uri(region = "mi-west")).region)
+        // '#' is how people write a region.
+        assertEquals("mi", decodeOk(uri(region = "%23mi")).region)
+        assertEquals(null, decodeOk(uri(region = "mi")).rejectedRegion)
+    }
+
+    @Test
+    fun aRegionThatIsNotAlreadyCanonicalIsRefusedNotRewritten() {
+        // "MI" and "mi" hash to different scopes. Lowercasing it would put
+        // the scanner in a region the author may not have meant.
+        // "m%09i" is the one that matters most: scrubbing the tab first
+        // would leave a perfectly valid "mi".
+        for (bad in listOf("MI", "Mi-West", "bay%20area", "a.b", "a".repeat(30), "m%09i", "%20mi")) {
+            val c = decodeOk(uri(region = bad))
+            assertEquals(null, c.region, "applied $bad")
+            assertTrue(c.rejectedRegion != null, "no rejection recorded for $bad")
+        }
+        // The rest of the code still decodes: the radio values stand.
+        val c = decodeOk(uri(region = "MI"))
+        assertEquals("MI", c.rejectedRegion)
+        assertTrue("906.375" in c.summary())
+        assertTrue("MI" !in c.summary(), "a refused region must not read as applied")
+    }
+
+    @Test
+    fun aCodeFromTheWebGeneratorAppliesItsRegion() {
+        // Captured 2026-09-26 from docs/settings-qr run in headless
+        // Chromium, with "#Mi-West" typed into the region field. The page
+        // lowercases and strips the '#', so its codes pass the app's
+        // strict check rather than being refused by it.
+        val c = decodeOk(
+            "meshcore://radio/set?v=1&name=USA%2FCanada&freq=910.525&bw=62.5&sf=7&cr=5&hash=1&region=mi-west",
+        )
+        assertEquals("mi-west", c.region)
+        assertEquals(null, c.rejectedRegion)
+        assertEquals(910_525, c.frequencyKhz)
+        assertEquals(62_500, c.bandwidthHz)
+        assertEquals(1, c.pathHashMode)
+    }
+
+    @Test
+    fun noRegionIsNeitherAppliedNorRefused() {
+        val c = decodeOk(uri())
+        assertEquals(null, c.region)
+        assertEquals(null, c.rejectedRegion)
+    }
+
+    @Test
+    fun theEncoderWritesOnlyCanonicalRegions() {
+        fun enc(region: String?) = ShareUri.encodeRadio("Test", 906_375, 250_000, 11, 5, 1, region)
+        assertTrue(enc("mi").endsWith("&region=mi"))
+        assertTrue(enc("#MI").endsWith("&region=mi"))
+        assertTrue("region" !in enc("bay area"))
+        assertTrue("region" !in enc(""))
+        assertTrue("region" !in enc(null))
+        // Round trip.
+        val c = ShareUri.decode(enc("mi-west")) as ShareUri.Decoded.RadioConfig
+        assertEquals("mi-west", c.region)
     }
 
     // --- it must not collide with the codes already in circulation --------

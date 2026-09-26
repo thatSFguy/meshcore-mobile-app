@@ -125,6 +125,12 @@ class MeshCoreService : Service() {
                 if (BuildConfig.DEBUG) android.util.Log.i("MCH-Engine", it)
             },
         )
+        // The phone's region lives in the radio's RAM; restore it so the
+        // handshake re-asserts it, and keep what the user sets.
+        engine.restoreFloodScope(prefs.floodScope)
+        scope.launch {
+            engine.floodScopeRegion.collect { if (it != null) prefs.floodScope = it }
+        }
         // The DB is opened encrypted with a Keystore-sealed passphrase.
         // Blocking here is deliberate and brief (one Keystore unseal):
         // nothing may touch the database before the key is resolved.

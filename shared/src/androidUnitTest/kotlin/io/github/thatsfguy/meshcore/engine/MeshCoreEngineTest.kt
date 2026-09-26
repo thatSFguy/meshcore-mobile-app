@@ -576,6 +576,60 @@ class MeshCoreEngineTest {
             .filter { it == Codes.CMD_SET_FLOOD_SCOPE || it == Codes.CMD_SEND_CHANNEL_TXT_MSG }
 
     @Test
+    fun aRestoredScopeIsAssertedOnConnect() = runTest {
+        // The app's stored region, seeded before the radio connects, must
+        // reach the radio: a region that lives only in the process is
+        // lost to the next app restart and radio reboot.
+        val radio = FakeRadio()
+        radio.responder = standardResponder(radio)
+        val engine = MeshCoreEngine(backgroundScope, crypto, { now })
+        engine.restoreFloodScope("mi")
+        engine.attach(radio)
+        radio.connect()
+        engine.awaitReady()
+
+        withTimeout(10_000) { while (radio.scopeFrames().isEmpty()) kotlinx.coroutines.delay(10) }
+        assertContentEquals(ChannelCrypto.floodScopeHash(crypto, "mi"), radio.scopeFrames().first())
+        assertEquals("mi", engine.floodScopeRegion.value)
+    }
+
+    @Test
+    fun aScopeNeverSetIsNeverSent() = runTest {
+        // Firmware predating CMD_SET_FLOOD_SCOPE must not be sent one
+        // just for connecting.
+        val radio = FakeRadio()
+        radio.responder = standardResponder(radio)
+        val engine = MeshCoreEngine(backgroundScope, crypto, { now })
+        engine.restoreFloodScope(null)
+        engine.attach(radio)
+        radio.connect()
+        engine.awaitReady()
+        assertEquals(emptyList(), radio.scopeFrames())
+    }
+
+    @Test
+    fun aClearedScopeIsAssertedAsCleared() = runTest {
+        val radio = FakeRadio()
+        radio.responder = standardResponder(radio)
+        val engine = MeshCoreEngine(backgroundScope, crypto, { now })
+        engine.restoreFloodScope("")
+        engine.attach(radio)
+        radio.connect()
+        engine.awaitReady()
+        withTimeout(10_000) { while (radio.scopeFrames().isEmpty()) kotlinx.coroutines.delay(10) }
+        assertEquals(listOf<ByteArray?>(null), radio.scopeFrames())
+    }
+
+    @Test
+    fun aStoredNameThatNoLongerCanonicalisesIsDropped() {
+        val engine = MeshCoreEngine(kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Unconfined), crypto, { now })
+        engine.restoreFloodScope("bay area")
+        assertEquals(null, engine.floodScopeRegion.value)
+        engine.restoreFloodScope("#MI")
+        assertEquals("mi", engine.floodScopeRegion.value)
+    }
+
+    @Test
     fun regionScopedChannelSendWrapsTheSendInAScopeWindow() = runTest {
         val radio = FakeRadio()
         radio.responder = standardResponder(radio)

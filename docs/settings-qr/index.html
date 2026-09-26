@@ -146,8 +146,12 @@
           <option value="2">3 bytes</option>
         </select>
       </div>
-      <div><label for="region">Flood region (optional)</label><input id="region" maxlength="31" placeholder="none"></div>
+      <div><label for="region">Region (optional)</label><input id="region" maxlength="30" placeholder="none — e.g. mi" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
     </div>
+    <p class="note">A region sets which repeaters carry the scanner's messages: only ones that
+    have that region. The app offers to set it when the code is scanned. Lowercase letters,
+    digits and dashes — <code>MI</code> and <code>mi</code> are different regions on the air, so
+    what you type is lowercased as you type it.</p>
     <div class="err" id="err"></div>
     <p class="rate" id="rate"></p>
   </fieldset>
@@ -2681,11 +2685,17 @@ function renderSavedList() {
   });
 }
 
+/* A region as every phone running the app will use it: no '#', lowercase.
+ * Mirrors Regions.canonical in the app; the app refuses a code whose
+ * region isn't already in this form rather than rewriting it. */
+const REGION_OK = /^[a-z0-9-]{1,29}$/;
+const normRegion = s => String(s ?? "").trim().replace(/^#/, "").toLowerCase();
+
 function currentConfig() {
   return {
     name: $("name").value.trim(), freq: $("freq").value.trim(), bw: $("bw").value,
     sf: +$("sf").value, cr: +$("cr").value, hash: +$("hash").value,
-    region: $("region").value.trim(),
+    region: normRegion($("region").value),
   };
 }
 function applyConfig(c) {
@@ -2750,6 +2760,9 @@ function currentUri() {
     err.push("Frequency must be 300–2500 MHz.");
   }
   if (!LORA_BW.includes(parseFloat(c.bw))) err.push("Bandwidth must be a LoRa step.");
+  if (c.region && !REGION_OK.test(c.region)) {
+    err.push("Region: lowercase letters, digits and dashes only, up to 29.");
+  }
   $("err").textContent = err.join(" ");
   if (err.length) return null;
 
@@ -2944,7 +2957,7 @@ function captionLines() {
   const c = currentConfig();
   const bwHz = toThousandths(c.bw);
   const l2 = `${c.freq} MHz · ${c.bw} kHz · SF${c.sf} · CR4/${c.cr} · ${HASH_LABEL[c.hash]}`
-           + (c.region ? ` · region ${c.region}` : "");
+           + (c.region ? ` · region #${c.region}` : "");
   const l3 = `${rateText(bwHz, c.sf, c.cr)} · 100-byte message ≈ `
            + (airtimeMs(100, c.sf, bwHz, c.cr) / 1000).toFixed(2) + " s airtime";
   return [c.name || "(unnamed mesh)", l2, l3, "Scan with MeshCore Hardened"];
@@ -3094,6 +3107,17 @@ for (const el of document.querySelectorAll("input, select")) {
   el.addEventListener("change", onEdit);
 }
 
+// Lowercase the region in the field itself, so the author sees exactly
+// what goes into the code rather than finding out from the caption.
+$("region").addEventListener("input", () => {
+  const el = $("region"), v = el.value, lower = v.toLowerCase();
+  if (v !== lower) {
+    const at = el.selectionStart;
+    el.value = lower;
+    el.setSelectionRange(at, at);
+  }
+});
+
 for (const el of document.querySelectorAll("#tab-loss input")) {
   const onEdit = () => { saveRadio(); renderLoss(); };
   el.addEventListener("input", onEdit);
@@ -3172,7 +3196,7 @@ function sanitiseImported(raw) {
   return {
     name: clean(raw.name) || "(unnamed)",
     freq: thousandthsText(freqK), bw: String(bw),
-    sf, cr, hash, region: clean(raw.region),
+    sf, cr, hash, region: REGION_OK.test(normRegion(raw.region)) ? normRegion(raw.region) : "",
   };
 }
 
@@ -3316,10 +3340,11 @@ $("usb-apply").onclick = async () => {
     usbLog("> set path.hash.mode " + c.hash);
     usbLog("  " + (await cliSend("set path.hash.mode " + c.hash) ?? "(no reply)"));
     if (c.region) {
-      // `region load` is a multi-line mode and `region put` needs a
-      // parent — neither is a one-shot, so this reports rather than
-      // guesses. Radio settings make a node deaf; a region only changes
-      // what it forwards, so it is safe to leave for the operator.
+      // Deliberately not written. `region put <name>` would work (its
+      // parent defaults to the top level), but which regions a repeater
+      // carries — and whether it still relays untagged traffic — is the
+      // operator's call on that node, not something to ride along with
+      // radio settings from a code anyone can make.
       usbLog("Region \"" + c.region + "\" not written — set it with `region put` on the node.");
     }
     usbLog("Saved. The node keeps its OLD settings until it reboots.");

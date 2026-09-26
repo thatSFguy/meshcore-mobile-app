@@ -2254,6 +2254,26 @@ class MeshCoreEngine(
     }
 
     /**
+     * Seed the remembered global scope from storage, without sending
+     * anything: the handshake re-asserts it on every connect. Without
+     * this the scope lived only as long as this process — an app restart
+     * followed by a radio reboot quietly dropped it, and a user who had
+     * set #mi (by hand or by scanning a mesh-settings code) was back on
+     * untagged traffic with nothing on screen to say so.
+     *
+     * [region] "" means the user cleared it (assert "no scope"); null
+     * means they never set one, and nothing is sent. A stored name that
+     * no longer canonicalises is dropped rather than half-applied.
+     */
+    fun restoreFloodScope(region: String?) {
+        _floodScopeRegion.value = when {
+            region == null -> null
+            region.isBlank() -> ""
+            else -> Regions.canonical(region)
+        }
+    }
+
+    /**
      * Push a scope to the radio without touching the remembered global
      * value — the primitive behind both [setFloodScope] and the
      * per-channel scope window in [sendChannelMessage].

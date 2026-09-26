@@ -101,6 +101,11 @@ private val CHANGELOG: List<Pair<String, List<String>>> = listOf(
             "region's parent is picked from the tree, not typed.",
         "Untagged traffic is one control: relay all, relay only nearby (a hop limit, on " +
             "firmware 1.16+), or refuse.",
+        "Scanning a mesh-settings code that names a region offers to set it, behind its own " +
+            "checkbox. A region that isn't a clean lowercase name is refused, not rewritten.",
+        "Settings → Radio → \"Share these settings…\" shows this radio's settings as a code.",
+        "Your region survives an app restart; it used to be lost at the next radio reboot.",
+        "The web QR generator lowercases the region and refuses one the app would refuse.",
     ),
     "0.10.5" to listOf(
         "Heard, not added rows show how far away a node is: \"direct\", \"1 hop\" or " +

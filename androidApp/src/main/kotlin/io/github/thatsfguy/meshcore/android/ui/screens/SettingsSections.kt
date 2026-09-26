@@ -7,6 +7,7 @@ import io.github.thatsfguy.meshcore.android.platform.PortraitCaptureActivity
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -247,6 +248,7 @@ internal fun RadioSection(vm: MeshCoreViewModel) {
     // one can match — several Russian city presets share parameters — so
     // all matches are named rather than one being picked.
     var presetSheet by remember { mutableStateOf(false) }
+    var shareSettings by remember { mutableStateOf(false) }
     val matches = remember(info.freqKhz, info.bwHz, info.sf, info.cr) {
         io.github.thatsfguy.meshcore.protocol.RadioPresets.matching(
             info.freqKhz, info.bwHz, info.sf, info.cr,
@@ -274,9 +276,24 @@ internal fun RadioSection(vm: MeshCoreViewModel) {
                 meshScanOptions("Scan a mesh settings QR"),
             )
         }) { Text("Scan settings QR…") }
+        TextButton(onClick = { shareSettings = true }) { Text("Share these settings…") }
     }
     if (presetSheet) {
         RadioPresetSheet(vm, onDismiss = { presetSheet = false })
+    }
+    if (shareSettings) {
+        val device by vm.deviceInfo.collectAsState()
+        val region by vm.floodScopeRegion.collectAsState()
+        RadioShareDialog(
+            uri = io.github.thatsfguy.meshcore.presentation.RadioShare.uriFor(
+                info.freqKhz, info.bwHz, info.sf, info.cr,
+                device?.pathHashByteWidth,
+                region,
+                matches.singleOrNull()?.name,
+            ),
+            region = region?.takeIf { it.isNotBlank() },
+            onDismiss = { shareSettings = false },
+        )
     }
 
     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1116,4 +1133,56 @@ internal fun formatDrift(seconds: Long): String {
         else -> "${magnitude / 86_400} days"
     }
     return if (seconds > 0) "$amount (radio ahead)" else "$amount (radio behind)"
+}
+
+/**
+ * This radio's settings as a `meshcore://radio/set` code, for someone
+ * joining the mesh. Values come from the radio, not the edit fields, so
+ * an unsaved edit is never handed out. TX power is not in it, on purpose
+ * (MESHCORE_PROTOCOL §QR): that is the scanner's legal limit, not the
+ * mesh's.
+ */
+@Composable
+private fun RadioShareDialog(uri: String?, region: String?, onDismiss: () -> Unit) {
+    val qr = remember(uri) { uri?.let { runCatching { io.github.thatsfguy.meshcore.android.platform.Qr.encode(it) }.getOrNull() } }
+    val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Share radio settings") },
+        text = {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                if (qr == null) {
+                    Text(
+                        "The radio hasn't reported its hop-hash width, so a code can't say it " +
+                            "yet. Reconnect and try again.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                } else {
+                    androidx.compose.foundation.Image(
+                        qr.asImageBitmap(),
+                        contentDescription = "Radio settings QR",
+                        modifier = Modifier.size(280.dp),
+                    )
+                    Text(
+                        if (region != null) {
+                            "Frequency, bandwidth, SF, CR, hop-hash width and region #$region. " +
+                                "Not TX power — that is the scanner's legal limit."
+                        } else {
+                            "Frequency, bandwidth, SF, CR and hop-hash width; no region. " +
+                                "Not TX power — that is the scanner's legal limit."
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Done") } },
+        dismissButton = {
+            if (uri != null) {
+                TextButton(onClick = {
+                    clipboard.setText(androidx.compose.ui.text.AnnotatedString(uri))
+                }) { Text("Copy link") }
+            }
+        },
+    )
 }

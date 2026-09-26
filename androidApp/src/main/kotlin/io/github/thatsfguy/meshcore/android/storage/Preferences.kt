@@ -366,6 +366,23 @@ class Preferences(context: Context) {
     // discovered names come off the mesh, and a name is pasted into CLI
     // commands sent to a repeater.
 
+    /**
+     * This phone's own flood scope, as last set: a canonical name, "" for
+     * explicitly cleared, null for never set. The radio holds it only in
+     * RAM, so the service restores it into the engine on start and the
+     * engine re-asserts it on every connect.
+     */
+    var floodScope: String?
+        get() = prefs.getString("floodScope", null)?.let { if (it.isEmpty()) "" else Regions.canonical(it) }
+        set(v) {
+            val clean = when {
+                v == null -> null
+                v.isBlank() -> ""
+                else -> Regions.canonical(v) ?: return
+            }
+            prefs.edit().apply { if (clean == null) remove("floodScope") else putString("floodScope", clean) }.apply()
+        }
+
     /** Known region names, canonical and sorted. */
     var regions: List<String>
         get() = prefs.getStringSet("regions", emptySet())!!

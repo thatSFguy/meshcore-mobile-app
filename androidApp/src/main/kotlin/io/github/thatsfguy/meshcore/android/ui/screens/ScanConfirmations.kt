@@ -1,6 +1,16 @@
 package io.github.thatsfguy.meshcore.android.ui.screens
 
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.material3.Checkbox
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.layout.height
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
@@ -103,6 +113,11 @@ fun ScanConfirmations(vm: MeshCoreViewModel) {
     // So every value is shown, and the regulatory caveat comes with it.
     val pendingRadio by vm.pendingRadioConfig.collectAsState()
     pendingRadio?.let { config ->
+        // Ticked by default: the code's author chose to include it, and
+        // one scan putting a newcomer on the right frequency AND in the
+        // right region is the point of the code. It stays a separate,
+        // visible choice because it fails differently (see below).
+        var applyRegion by remember(config) { mutableStateOf(config.region != null) }
         AlertDialog(
             onDismissRequest = { vm.pendingRadioConfig.value = null },
             title = { Text("Apply these radio settings?") },
@@ -129,21 +144,43 @@ fun ScanConfirmations(vm: MeshCoreViewModel) {
                     )
                     config.region?.let {
                         Spacer(Modifier.height(8.dp))
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .toggleable(
+                                    value = applyRegion,
+                                    role = Role.Checkbox,
+                                    onValueChange = { v -> applyRegion = v },
+                                ),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Checkbox(checked = applyRegion, onCheckedChange = null)
+                            Spacer(Modifier.width(8.dp))
+                            Text("Also set this phone's region to #$it")
+                        }
                         // Named separately because it is a different
                         // failure: wrong radio values make you deaf,
                         // a wrong region leaves you audible but unable
                         // to propagate.
                         Text(
-                            "It also names flood region \"$it\", which affects routing " +
-                                "rather than whether you can hear the mesh. Set it yourself " +
-                                "under Mesh policies if you want it.",
+                            "Your messages then travel only through repeaters that carry " +
+                                "#$it. Change it later under Mesh policies → Regions.",
                             style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                    config.rejectedRegion?.let {
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            "It also names region \"$it\", which isn't a valid region name " +
+                                "(lowercase letters, digits and dashes), so it won't be set.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
                         )
                     }
                 }
             },
             confirmButton = {
-                TextButton(onClick = { vm.confirmRadioConfig(config) }) {
+                TextButton(onClick = { vm.confirmRadioConfig(config, applyRegion) }) {
                     Text("Apply", color = MaterialTheme.colorScheme.error)
                 }
             },
