@@ -11,6 +11,19 @@ Every entry describes what is in **that tagged build**. A feature that landed af
 belongs in the next section, not this one — 0.3.0 was once credited with four features that
 shipped after it, which misled nobody so much as the author, three months later.
 
+## 0.10.5
+
+**Heard nodes show how far away they are, not a misleading signal.** Rows under "Heard, not
+added" on Contacts, Repeaters and Rooms now say "direct", "1 hop" or "N hops": the fewest hops
+any of the node's adverts took to reach you. The signal figure is gone except beside "direct".
+For a relayed advert it measured the last repeater that passed it on, not the node, so a
+far-off node could look strong.
+
+- **The count is the nearest the node has been.** One relayed copy does not undo having heard it
+  direct.
+- **The direct signal is measured on a direct copy**, and kept when later copies arrive relayed.
+- **A node not heard since updating shows no count** until its next advert, rather than a guess.
+
 ## 0.10.4
 
 **Contacts, favourites included, could vanish from the app while the radio still had them.**

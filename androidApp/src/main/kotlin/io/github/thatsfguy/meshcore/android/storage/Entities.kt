@@ -341,6 +341,13 @@ data class DiscoveredEntity(
      * direct". Null when never recorded (rows from before 0.10.4).
      */
     val minHops: Int? = null,
+    /**
+     * The SNR of the latest copy heard direct — the node's own signal at
+     * this radio. [snr] is the latest copy of any kind, which after a
+     * relay is the last repeater's signal, not the node's. Null when it
+     * has never been heard direct, or not since 0.10.5.
+     */
+    val directSnr: Double? = null,
 ) : io.github.thatsfguy.meshcore.presentation.HeardNode
 
 /**

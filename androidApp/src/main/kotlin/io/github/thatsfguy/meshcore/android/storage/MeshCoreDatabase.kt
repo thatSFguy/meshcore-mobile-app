@@ -16,7 +16,7 @@ import java.io.File
         MessageEntity::class, ContactEntity::class, ChannelEntity::class,
         PathHistoryEntity::class, DiscoveredEntity::class, NeighbourEntity::class,
     ],
-    version = 19,
+    version = 20,
     exportSchema = true,
 )
 abstract class MeshCoreDatabase : RoomDatabase() {
@@ -325,6 +325,17 @@ abstract class MeshCoreDatabase : RoomDatabase() {
         }
 
         /**
+         * The signal of a heard node's latest direct copy. `snr` is the
+         * latest copy of any kind, which after a relay measures the last
+         * repeater rather than the node, so it cannot stand beside "direct".
+         */
+        private val MIGRATION_19_20 = object : Migration(19, 20) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `discovered` ADD COLUMN `directSnr` REAL")
+            }
+        }
+
+        /**
          * Open the database, encrypted with [passphrase] when one is
          * available (see [DatabaseKey]). A pre-existing PLAINTEXT
          * database is converted in place first, so turning encryption on
@@ -371,7 +382,7 @@ abstract class MeshCoreDatabase : RoomDatabase() {
                         MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8,
                         MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14,
                         MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17,
-                        MIGRATION_17_18, MIGRATION_18_19,
+                        MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20,
                     )
 
             if (key == null) {

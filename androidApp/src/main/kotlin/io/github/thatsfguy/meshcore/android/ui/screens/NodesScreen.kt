@@ -500,17 +500,23 @@ private fun DiscoveredRow(
                 maxLines = 1,
                 overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
             )
+            // Hops, not the latest copy's SNR: after a relay that is the
+            // last repeater's signal, not the node's (HeardReach).
             Text(
-                "${typeLabel(node.type).dropLast(1)} · ${"%.1f".format(node.snr)} dB · " +
+                listOfNotNull(
+                    typeLabel(node.type).dropLast(1),
+                    io.github.thatsfguy.meshcore.presentation.HeardReach.of(node.minHops, node.directSnr),
                     DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(node.lastHeardAt)),
+                ).joinToString(" · "),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            // Why it may be worth adding, in the node's own terms. Only a
-            // repeater relays, so the relay count is shown for those only;
-            // "heard direct" means something for any kind of node.
+            // Why it may be worth adding. Only a repeater relays, so the relay
+            // count is shown for those only.
             signals?.let {
-                if (node.type == Codes.ADV_TYPE_REPEATER) it else it.copy(relayed = 0)
+                // "direct" is already on the line above.
+                (if (node.type == Codes.ADV_TYPE_REPEATER) it else it.copy(relayed = 0))
+                    .copy(heardDirect = false)
             }?.let { io.github.thatsfguy.meshcore.presentation.RepeaterSignals.describe(it) }?.let {
                 Text(
                     it,
@@ -985,7 +991,6 @@ fun ContactDetailSheet(
     }
 }
 
-
 /** One label/value line in the contact sheet. */
 @Composable
 private fun DetailRow(label: String, value: String, mono: Boolean = false) {
@@ -1002,7 +1007,6 @@ private fun DetailRow(label: String, value: String, mono: Boolean = false) {
 /** "9 hours ago" — wording shared with the heard-repeats list. */
 internal fun relativeAge(epochSeconds: Long): String =
     RelativeTime.ago(System.currentTimeMillis() / 1000 - epochSeconds)
-
 
 /**
  * Telemetry published by a node (Cayenne LPP over a binary request).

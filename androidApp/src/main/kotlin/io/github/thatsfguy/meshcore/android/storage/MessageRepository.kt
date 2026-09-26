@@ -576,6 +576,7 @@ class MessageRepository(
                         // copy arriving via three repeaters does not undo
                         // having heard the node direct.
                         minHops = listOfNotNull(prev?.minHops, event.hops).minOrNull(),
+                        directSnr = if (event.hops == 0) event.snr else prev?.directSnr,
                     ),
                 )
                 if (event.advert.type == Codes.ADV_TYPE_REPEATER) {
