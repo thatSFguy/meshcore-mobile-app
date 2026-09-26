@@ -336,6 +336,11 @@ data class DiscoveredEntity(
     val rssi: Int,
     /** Raw advert payload, hex — replayed to CMD_IMPORT_CONTACT. */
     val advertHex: String,
+    /**
+     * The fewest hops any of its adverts arrived with; 0 is "heard
+     * direct". Null when never recorded (rows from before 0.10.4).
+     */
+    val minHops: Int? = null,
 ) : io.github.thatsfguy.meshcore.presentation.HeardNode
 
 /**

@@ -171,12 +171,17 @@ fun NodesScreen(vm: MeshCoreViewModel, nav: NavController) {
             // Heard but not added: on the tab for their own kind, not in a
             // tab of their own. See [NodeTab].
             val newCounts = NodeTabsModel.counts(discovered)
+            val signals by vm.heardSignals.collectAsState()
+            // Useful ones first — relayed your traffic or heard direct —
+            // then the rest, each group newest first (the sort is stable).
             val heard = NodeTabsModel.heardFor(
                 tab = tab,
                 heard = discovered,
                 query = query,
                 filtersActive = filters.isNotEmpty(),
-            )
+            ).sortedByDescending { d ->
+                signals[d.keyHex]?.let { it.provenRelay || it.heardDirect } == true
+            }
 
             // ScrollableTabRow, not TabRow: a fixed row divides the width
             // evenly and WRAPS labels ("Repeat/ers") once the user raises
@@ -279,6 +284,7 @@ fun NodesScreen(vm: MeshCoreViewModel, nav: NavController) {
                             items(heard, key = { "heard_${it.keyHex}" }) { d ->
                                 DiscoveredRow(
                                     node = d,
+                                    signals = signals[d.keyHex],
                                     onAdd = { vm.addDiscovered(d.keyHex) },
                                     onDismiss = { vm.dismissDiscovered(d.keyHex) },
                                 )
@@ -469,6 +475,7 @@ private fun SelectedTick() {
 @Composable
 private fun DiscoveredRow(
     node: io.github.thatsfguy.meshcore.android.storage.DiscoveredEntity,
+    signals: io.github.thatsfguy.meshcore.presentation.RepeaterSignals.Signals? = null,
     onAdd: () -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -495,6 +502,18 @@ private fun DiscoveredRow(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            // Why it may be worth adding, in the node's own terms. Only a
+            // repeater relays, so the relay count is shown for those only;
+            // "heard direct" means something for any kind of node.
+            signals?.let {
+                if (node.type == Codes.ADV_TYPE_REPEATER) it else it.copy(relayed = 0)
+            }?.let { io.github.thatsfguy.meshcore.presentation.RepeaterSignals.describe(it) }?.let {
+                Text(
+                    it,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
         }
         TextButton(onClick = onAdd) { Text("Add") }
         TextButton(onClick = onDismiss) { Text("×", color = MaterialTheme.colorScheme.error) }

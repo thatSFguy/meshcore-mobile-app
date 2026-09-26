@@ -19,6 +19,27 @@ data class ChannelSender(val name: String, val messageCount: Int, val lastSeenAt
 
 @Dao
 interface MessageDao {
+
+    /**
+     * The routes of messages received since [sinceMs] — one hop hash per
+     * repeater each passed through. What "relays your traffic" is counted
+     * from (see RepeaterSignals). Incoming only: our own messages carry no
+     * arrival route.
+     */
+    @Query(
+        "SELECT arrivalPathHex, arrivalHashWidth FROM messages " +
+            "WHERE selfKey = :selfKey AND outgoing = 0 AND receivedAt >= :sinceMs " +
+            "AND arrivalPathHex IS NOT NULL AND arrivalHashWidth IS NOT NULL",
+    )
+    fun observeRoutes(selfKey: String, sinceMs: Long): Flow<List<RouteRow>>
+
+    /** [observeRoutes], once. */
+    @Query(
+        "SELECT arrivalPathHex, arrivalHashWidth FROM messages " +
+            "WHERE selfKey = :selfKey AND outgoing = 0 AND receivedAt >= :sinceMs " +
+            "AND arrivalPathHex IS NOT NULL AND arrivalHashWidth IS NOT NULL",
+    )
+    suspend fun routesSince(selfKey: String, sinceMs: Long): List<RouteRow>
     /** IGNORE + the unique (selfKey, contentKey) index = channel dedup. */
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insert(message: MessageEntity): Long
@@ -520,6 +541,9 @@ interface DiscoveredDao {
     @Query("SELECT * FROM discovered WHERE selfKey = :selfKey AND keyHex = :keyHex")
     suspend fun get(selfKey: String, keyHex: String): DiscoveredEntity?
 
+    @Query("SELECT * FROM discovered WHERE selfKey = :selfKey")
+    suspend fun allOnce(selfKey: String): List<DiscoveredEntity>
+
     @Query("DELETE FROM discovered WHERE selfKey = :selfKey AND keyHex = :keyHex")
     suspend fun delete(selfKey: String, keyHex: String)
 
@@ -564,3 +588,6 @@ interface NeighbourDao {
     @Query("DELETE FROM neighbours WHERE selfKey = :selfKey")
     suspend fun clearAll(selfKey: String)
 }
+
+/** A received message's route; see [MessageDao.observeRoutes]. */
+data class RouteRow(val arrivalPathHex: String, val arrivalHashWidth: Int)

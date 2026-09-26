@@ -1115,6 +1115,34 @@ class MeshCoreEngineTest {
     }
 
     @Test
+    fun anAdvertSaysHowManyHopsItCame() = runTest {
+        // Zero hops is a node within this radio's own range — the "heard
+        // direct" signal for deciding which repeaters to add.
+        val me = MeshIdentity.fromSeed(crypto, ByteArray(32) { 7 })
+        val near = MeshIdentity.fromSeed(crypto, ByteArray(32) { 11 })
+        val far = MeshIdentity.fromSeed(crypto, ByteArray(32) { 12 })
+        val radio = FakeRadio()
+        radio.responder = responderFor(radio, me)
+        val engine = MeshCoreEngine(backgroundScope, crypto, { now })
+        engine.attach(radio)
+        radio.connect()
+        engine.awaitReady()
+
+        val heard = mutableListOf<MeshEvent.VerifiedAdvertHeard>()
+        val collector = launch {
+            engine.meshEvents.collect { if (it is MeshEvent.VerifiedAdvertHeard) heard += it }
+        }
+        yield()
+        radio.push(rxLogPush(advertPacket(signedAdvert(near, "Near"), path = ByteArray(0))))
+        radio.push(rxLogPush(advertPacket(signedAdvert(far, "Far"))))
+        withTimeout(5_000) { while (heard.size < 2) yield() }
+        collector.cancel()
+
+        assertEquals(0, heard.single { it.advert.name == "Near" }.hops)
+        assertEquals(2, heard.single { it.advert.name == "Far" }.hops)
+    }
+
+    @Test
     fun someoneElsesAdvertIsNotOurTraffic() = runTest {
         val me = MeshIdentity.fromSeed(crypto, ByteArray(32) { 7 })
         val them = MeshIdentity.fromSeed(crypto, ByteArray(32) { 9 })

@@ -216,6 +216,11 @@ sealed class MeshEvent {
         val snr: Double,
         val rssi: Int,
         val payload: ByteArray,
+        /**
+         * Repeaters the advert passed through on its way here. Zero is
+         * a node within this radio's own range. Null when not known.
+         */
+        val hops: Int? = null,
     ) : MeshEvent()
 
     /** Repeater/room login outcome. */
@@ -1053,7 +1058,13 @@ class MeshCoreEngine(
                     return
                 }
                 _meshEvents.tryEmit(
-                    MeshEvent.VerifiedAdvertHeard(info, event.snr, event.rssi, packet.payload),
+                    MeshEvent.VerifiedAdvertHeard(
+                        info,
+                        event.snr,
+                        event.rssi,
+                        packet.payload,
+                        hops = packet.hopCount,
+                    ),
                 )
             }
             else -> Unit

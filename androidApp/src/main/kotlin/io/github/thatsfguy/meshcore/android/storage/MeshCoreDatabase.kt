@@ -16,7 +16,7 @@ import java.io.File
         MessageEntity::class, ContactEntity::class, ChannelEntity::class,
         PathHistoryEntity::class, DiscoveredEntity::class, NeighbourEntity::class,
     ],
-    version = 18,
+    version = 19,
     exportSchema = true,
 )
 abstract class MeshCoreDatabase : RoomDatabase() {
@@ -313,6 +313,18 @@ abstract class MeshCoreDatabase : RoomDatabase() {
         }
 
         /**
+         * The fewest hops a heard node's advert has arrived with. Zero is
+         * "heard direct" — a node within this radio's own range — one of
+         * the two signals for which repeaters are worth adding.
+         * Nullable: rows from before this was recorded never had it.
+         */
+        private val MIGRATION_18_19 = object : Migration(18, 19) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `discovered` ADD COLUMN `minHops` INTEGER")
+            }
+        }
+
+        /**
          * Open the database, encrypted with [passphrase] when one is
          * available (see [DatabaseKey]). A pre-existing PLAINTEXT
          * database is converted in place first, so turning encryption on
@@ -359,7 +371,7 @@ abstract class MeshCoreDatabase : RoomDatabase() {
                         MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8,
                         MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14,
                         MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17,
-                        MIGRATION_17_18,
+                        MIGRATION_17_18, MIGRATION_18_19,
                     )
 
             if (key == null) {

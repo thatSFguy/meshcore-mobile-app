@@ -11,6 +11,25 @@ Every entry describes what is in **that tagged build**. A feature that landed af
 belongs in the next section, not this one — 0.3.0 was once credited with four features that
 shipped after it, which misled nobody so much as the author, three months later.
 
+## 0.10.4
+
+**Heard repeaters say why they might be worth adding, and the app can add the useful ones.**
+With the radio's own auto-add for repeaters off, the Repeaters tab fills with ones it heard but
+did not add, and nothing said which of them matter.
+
+- **Each heard repeater now shows its signals:** "relayed N messages you received" — its route
+  hash appeared in the routes of at least 3 messages in the last week — and "heard direct" when
+  one of its adverts reached your radio without passing through another repeater. Those are
+  listed first.
+- **A repeater that shares its short route hash with another node you know is not credited**,
+  since the relays could be the other node's. The row says so instead.
+- **Two new switches in Auto-add contacts, shown only while the radio isn't adding repeaters:**
+  add the ones that relayed messages you received, and/or the ones heard directly. They are off
+  by default. The app stops when the radio's contact list is full and does not retry a node that
+  failed.
+- **Relay counts cover the whole route**, so a repeater on a busy long-distance flood path can
+  qualify even when it is far away. Heard-direct is the stricter signal for neighbours.
+
 ## 0.10.3
 
 **A phone put away on a conversation no longer stays silent for it.** The app does not notify

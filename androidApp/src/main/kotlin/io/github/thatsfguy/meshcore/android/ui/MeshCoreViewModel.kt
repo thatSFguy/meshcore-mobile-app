@@ -475,6 +475,48 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
         }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     /**
+     * What each heard node has going for it: relayed messages you received,
+     * and whether it is heard direct — keyed by public key. The same rules
+     * the auto-add pass applies ([RepeaterSignals]), so the row shows why a
+     * node was or would be added.
+     *
+     * The week's window is fixed when the flow starts; over a long session
+     * it drifts by that session's length, which is harmless for a count
+     * meant to say "this repeater carries your traffic".
+     */
+    val heardSignals: StateFlow<Map<String, io.github.thatsfguy.meshcore.presentation.RepeaterSignals.Signals>> =
+        selfKey.flatMapLatest { key ->
+            if (key.isEmpty()) {
+                flowOf(emptyMap())
+            } else {
+                val since = System.currentTimeMillis() -
+                    io.github.thatsfguy.meshcore.presentation.RepeaterSignals.RELAY_WINDOW_MS
+                combine(discovered, dbContacts, db.messages().observeRoutes(key, since)) { heard, contacts, routes ->
+                    val counts = io.github.thatsfguy.meshcore.presentation.RepeaterSignals.relayCounts(
+                        routes.map {
+                            io.github.thatsfguy.meshcore.presentation.RepeaterSignals.RouteSample(
+                                it.arrivalPathHex,
+                                it.arrivalHashWidth,
+                            )
+                        },
+                    )
+                    val known = contacts.map { it.keyHex } + heard.map { it.keyHex }
+                    heard.associate {
+                        it.keyHex to io.github.thatsfguy.meshcore.presentation.RepeaterSignals
+                            .signalsFor(it.keyHex, it.minHops, counts, known)
+                    }
+                }
+            }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
+    /** Switch an app-side repeater auto-add rule, and act on it at once. */
+    fun setRepeaterRule(relaysMyTraffic: Boolean? = null, heardDirect: Boolean? = null) {
+        relaysMyTraffic?.let { prefs.autoAddRelayingRepeaters = it }
+        heardDirect?.let { prefs.autoAddDirectRepeaters = it }
+        _service.value?.autoAddUsefulRepeatersNow()
+    }
+
+    /**
      * The radio has said it is turning new nodes away. Shown on the New
      * tab, which is where those nodes end up.
      */

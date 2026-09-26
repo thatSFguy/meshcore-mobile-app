@@ -2,6 +2,8 @@ package io.github.thatsfguy.meshcore.android.storage
 
 import io.github.thatsfguy.meshcore.android.BuildConfig
 import io.github.thatsfguy.meshcore.presentation.Inbox
+import io.github.thatsfguy.meshcore.presentation.RepeaterSignals
+import io.github.thatsfguy.meshcore.protocol.Codes
 import io.github.thatsfguy.meshcore.protocol.ReactionRouting
 import io.github.thatsfguy.meshcore.engine.MeshCoreEngine
 import io.github.thatsfguy.meshcore.engine.MeshEvent
@@ -20,6 +22,8 @@ import io.github.thatsfguy.meshcore.protocol.AckTimeout
 import io.github.thatsfguy.meshcore.protocol.SendRetry
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /**
  * Persists engine events into Room, scoped by the attached radio's
@@ -33,6 +37,77 @@ class MessageRepository(
 ) {
     /** The radio currently attached — set by the service on SELF_INFO. */
     @Volatile var selfKey: String = ""
+
+    /**
+     * The app-side auto-add rules for repeaters, read fresh each pass so a
+     * change in settings applies at once. Set by the service from prefs.
+     */
+    var repeaterRules: () -> RepeaterSignals.Rules = { RepeaterSignals.Rules(false, false) }
+
+    /** Repeaters an auto-add pass could not add this session; not retried. */
+    private val autoAddTried = java.util.Collections.synchronizedSet(mutableSetOf<String>())
+    private val autoAddLock = Mutex()
+    @Volatile private var lastAutoAddPass = 0L
+
+    /**
+     * Add the heard repeaters that meet a switched-on rule
+     * ([RepeaterSignals]): ones that relayed messages you received, and
+     * ones heard direct.
+     *
+     * Only when the radio is NOT adding repeaters itself — with its own
+     * auto-add on, every repeater is added anyway and these rules have
+     * nothing to choose between. Stops at a full contact list rather than
+     * trying every candidate against it, and does not retry a node that
+     * failed this session. [throttle] skips a pass run within the last
+     * minute, for triggers that fire on every message.
+     */
+    suspend fun autoAddUsefulRepeaters(engine: MeshCoreEngine, throttle: Boolean = false) {
+        val rules = repeaterRules()
+        if (!rules.any) return
+        val now = System.currentTimeMillis()
+        if (throttle && now - lastAutoAddPass < AUTO_ADD_THROTTLE_MS) return
+        autoAddLock.withLock {
+            lastAutoAddPass = now
+            val self = resolveSelfKey(engine)
+            if (self.isEmpty()) return
+            val heard = db.discovered().allOnce(self)
+            val counts = RepeaterSignals.relayCounts(
+                db.messages().routesSince(self, now - RepeaterSignals.RELAY_WINDOW_MS)
+                    .map { RepeaterSignals.RouteSample(it.arrivalPathHex, it.arrivalHashWidth) },
+            )
+            val known = engine.contacts.value.keys + heard.map { it.keyHex }
+            // Every decision is RepeaterSignals.toAutoAdd's, and tested
+            // there; this is only the reading and the adding.
+            val chosen = RepeaterSignals.toAutoAdd(
+                candidates = heard.map { RepeaterSignals.Candidate(it.keyHex, it.type, it.minHops) },
+                rules = rules,
+                radioAutoAddFlags = engine.autoAddFlags.value,
+                contactsFull = engine.contactsFull.value,
+                counts = counts,
+                knownKeys = known,
+                tried = autoAddTried.toSet(),
+            )
+            val byKey = heard.associateBy { it.keyHex }
+            for (key in chosen) {
+                val node = byKey[key] ?: continue
+                val signals = RepeaterSignals.signalsFor(key, node.minHops, counts, known)
+                val payload = node.advertHex.chunked(2)
+                    .mapNotNull { it.toIntOrNull(16)?.toByte() }.toByteArray()
+                val outcome = runCatching { engine.addContactFromAdvert(payload) }
+                    .getOrDefault(MeshCoreEngine.AddOutcome.Failed)
+                log(
+                    "auto-add repeater ${key.take(8)} " +
+                        "(${RepeaterSignals.describe(signals)}): $outcome",
+                )
+                when (outcome) {
+                    MeshCoreEngine.AddOutcome.Added -> db.discovered().delete(self, key)
+                    // Full now: the rest would fail the same way.
+                    MeshCoreEngine.AddOutcome.TableFull -> return
+                    else -> autoAddTried += key
+                }
+            }
+        }
+    }
 
     /**
      * Blocked sender keys and filtered channel names, refreshed from
@@ -418,6 +493,8 @@ class MessageRepository(
                 val path = event.arrivalPathHex
                 val width = event.arrivalHashWidth
                 if (path != null && width != null) {
+                    // A new route may make a heard repeater worth adding.
+                    scope.launch { autoAddUsefulRepeaters(engine, throttle = true) }
                     // An echo of a message WE sent is not an arrival —
                     // it is a repeat, and the two mean opposite
                     // directions. Route it to the repeat column instead,
@@ -495,8 +572,15 @@ class MessageRepository(
                         snr = event.snr,
                         rssi = event.rssi,
                         advertHex = event.payload.joinToString("") { "%02x".format(it) },
+                        // The lowest ever heard, not the latest: one flood
+                        // copy arriving via three repeaters does not undo
+                        // having heard the node direct.
+                        minHops = listOfNotNull(prev?.minHops, event.hops).minOrNull(),
                     ),
                 )
+                if (event.advert.type == Codes.ADV_TYPE_REPEATER) {
+                    scope.launch { autoAddUsefulRepeaters(engine) }
+                }
             }
 
             is MeshEvent.MessageDelivered -> {
@@ -1169,6 +1253,9 @@ class MessageRepository(
     }
 
     companion object {
+        /** At most one route-triggered auto-add pass a minute; see autoAddUsefulRepeaters. */
+        private const val AUTO_ADD_THROTTLE_MS = 60_000L
+
         const val KIND_DM = "dm"
         const val KIND_CHANNEL = "ch"
 

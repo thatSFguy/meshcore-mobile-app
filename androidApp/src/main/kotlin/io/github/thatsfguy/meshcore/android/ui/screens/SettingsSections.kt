@@ -522,6 +522,37 @@ internal fun AutoAddSection(vm: MeshCoreViewModel) {
     SettingRow("Repeaters", current and Codes.AUTO_ADD_REPEATER != 0) {
         toggle(Codes.AUTO_ADD_REPEATER, it)
     }
+    // With the radio adding every repeater, there is nothing to choose
+    // between, so these only appear while it is not. They are the app's
+    // own rules — the radio has no notion of which repeaters are useful.
+    if (current and Codes.AUTO_ADD_REPEATER == 0) {
+        var relaying by remember { mutableStateOf(vm.prefs.autoAddRelayingRepeaters) }
+        var direct by remember { mutableStateOf(vm.prefs.autoAddDirectRepeaters) }
+        Column(Modifier.padding(start = 16.dp)) {
+            HintText("The radio isn't adding repeaters. This app can add the useful ones:")
+            SettingRow("…that relayed messages I received", relaying) {
+                relaying = it
+                vm.setRepeaterRule(relaysMyTraffic = it)
+            }
+            SettingRow("…heard directly by my radio", direct) {
+                direct = it
+                vm.setRepeaterRule(heardDirect = it)
+            }
+            ExpandableHint("\"Relayed\" means 3 or more messages in the last week.") {
+                Text(
+                    "A message's route lists a short hash for each repeater it passed " +
+                        "through. A repeater counts as relaying your traffic when its hash " +
+                        "appears in the routes of at least 3 messages you received in the " +
+                        "last week — fewer can be a one-off flood from far away, or another " +
+                        "node that happens to share the hash. When another node you know shares the same short " +
+                        "hash, the relays could be the other one's, so that repeater isn't " +
+                        "counted.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
     SettingRow("Room servers", current and Codes.AUTO_ADD_ROOM != 0) {
         toggle(Codes.AUTO_ADD_ROOM, it)
     }

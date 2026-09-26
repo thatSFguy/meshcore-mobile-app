@@ -90,6 +90,15 @@ fun AboutSection(vm: MeshCoreViewModel) {
  * is a changelog you can't read in the field.
  */
 private val CHANGELOG: List<Pair<String, List<String>>> = listOf(
+    "0.10.4" to listOf(
+        "Heard repeaters show why they might be worth adding: \"relayed N messages you " +
+            "received\" (3 or more in a week) and \"heard direct\". Those are listed first.",
+        "With the radio's repeater auto-add off, two new switches can add the useful ones " +
+            "automatically: ones that relayed your messages, and ones heard directly. Off by " +
+            "default.",
+        "Relay counts cover the whole route, so a far repeater on a busy flood path can " +
+            "qualify; heard-direct is the stricter signal for neighbours.",
+    ),
     "0.10.3" to listOf(
         "A phone put away on a conversation no longer stays silent for it. The conversation " +
             "last on screen was treated as being read even with the screen off, so its " +

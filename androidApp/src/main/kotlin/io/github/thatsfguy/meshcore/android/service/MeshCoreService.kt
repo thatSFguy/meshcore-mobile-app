@@ -164,6 +164,18 @@ class MeshCoreService : Service() {
         }
 
         repository.log = { diagnostics.log("Inbox", it) }
+        repository.repeaterRules = {
+            io.github.thatsfguy.meshcore.presentation.RepeaterSignals.Rules(
+                relaysMyTraffic = prefs.autoAddRelayingRepeaters,
+                heardDirect = prefs.autoAddDirectRepeaters,
+            )
+        }
+        // The radio's auto-add policy arrives after connecting, and a
+        // rule switched on while connected should act without waiting
+        // for the next advert: both are a reason to look again.
+        scope.launch {
+            engine.autoAddFlags.collect { if (it != null) repository.autoAddUsefulRepeaters(engine) }
+        }
         repository.onNewMessage = { kind, peerKey, senderName, text ->
             postMessageNotification(kind, peerKey, senderName, text)
         }
@@ -597,6 +609,11 @@ class MeshCoreService : Service() {
      * silently replaced it, making the stale one indistinguishable from
      * a fresh one.
      */
+    /** Run an auto-add pass now — after the rules change in settings. */
+    fun autoAddUsefulRepeatersNow() {
+        scope.launch { repository.autoAddUsefulRepeaters(engine) }
+    }
+
     fun clearMessageNotification(kind: String, peerKey: String) {
         (getSystemService(NOTIFICATION_SERVICE) as NotificationManager)
             .cancel(messageNotificationId(kind, peerKey))

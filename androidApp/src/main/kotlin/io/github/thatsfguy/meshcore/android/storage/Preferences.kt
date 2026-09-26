@@ -230,6 +230,19 @@ class Preferences(context: Context) {
         get() = prefs.getInt("nodes_tab", 0)
         set(v) { prefs.edit().putInt("nodes_tab", v).apply() }
 
+    /**
+     * App-side auto-add for repeaters, used only while the radio's own
+     * repeater auto-add is off: add the ones that relayed messages you
+     * received, and/or the ones heard direct. See RepeaterSignals.
+     */
+    var autoAddRelayingRepeaters: Boolean
+        get() = prefs.getBoolean("auto_add_relaying_repeaters", false)
+        set(v) { prefs.edit().putBoolean("auto_add_relaying_repeaters", v).apply() }
+
+    var autoAddDirectRepeaters: Boolean
+        get() = prefs.getBoolean("auto_add_direct_repeaters", false)
+        set(v) { prefs.edit().putBoolean("auto_add_direct_repeaters", v).apply() }
+
     /** Whether a tab's "heard, not added" section is folded away. */
     var nodesHeardCollapsed: Boolean
         get() = prefs.getBoolean("nodes_heard_collapsed", false)
