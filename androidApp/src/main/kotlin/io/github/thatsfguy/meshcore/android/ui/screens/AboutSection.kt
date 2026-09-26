@@ -90,6 +90,14 @@ fun AboutSection(vm: MeshCoreViewModel) {
  * is a changelog you can't read in the field.
  */
 private val CHANGELOG: List<Pair<String, List<String>>> = listOf(
+    "0.10.6" to listOf(
+        "A repeater's Regions screen reads the regions it actually has, as a tree, instead " +
+            "of saying the node's answer wasn't recognised.",
+        "The default scope is read correctly; it showed as unknown on every node.",
+        "\"Untagged traffic (*)\" shows whether the repeater relays traffic carrying no " +
+            "region, and an admin can refuse it.",
+        "A region list cut off by the node's reply length says so.",
+    ),
     "0.10.5" to listOf(
         "Heard, not added rows show how far away a node is: \"direct\", \"1 hop\" or " +
             "\"N hops\", the fewest hops any of its adverts took.",

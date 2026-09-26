@@ -3,6 +3,7 @@ package io.github.thatsfguy.meshcore.protocol
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -179,73 +180,138 @@ class RegionsTest {
     // CLI reply parsing
     // ------------------------------------------------------------------
 
-    @Test
-    fun regionListingParsesTheDocumentedReplyShape() {
-        val reply = """
-            -> bayarea (*) 'F'
-            -> peninsula (bayarea) 'F'
-            -> sierra (*)
-        """.trimIndent()
-        val entries = Regions.parseRegionListing(reply)
-        assertEquals(3, entries.size)
-        assertEquals(Regions.RegionEntry("bayarea", "*", floodAllowed = true), entries[0])
-        assertEquals(Regions.RegionEntry("peninsula", "bayarea", floodAllowed = true), entries[1])
-        // No 'F' means flood is not permitted — absence is not "allowed".
-        assertEquals(Regions.RegionEntry("sierra", "*", floodAllowed = false), entries[2])
-    }
+    /*
+     * Replies below are what the firmware prints, not what we'd like it to.
+     * `region` is RegionMap::printChildRegions (src/helpers/RegionMap.cpp):
+     * one space per level, `^` on the home region, ` F` when flood is
+     * allowed — identical from v1.10.0 to main. The parser these replaced
+     * read `-> name (parent) 'F'`, which no firmware ever printed, and its
+     * tests pinned that guess; a live tree answered "not recognised".
+     */
+
+    /** The tree the operator built with `region def`, 2026-09-26. */
+    private val truckTree = "* F\n midwest F\n  mi F\n   mi-west F\n    grr F\n"
 
     @Test
-    fun regionListingIgnoresLinesItDoesNotUnderstand() {
-        // Firmware without region support answers "??: region"; that must
-        // not be mistaken for "this node has no regions".
-        assertEquals(emptyList(), Regions.parseRegionListing("??: region"))
-        assertEquals(emptyList(), Regions.parseRegionListing(""))
-        assertEquals(emptyList(), Regions.parseRegionListing(null))
-        assertEquals(emptyList(), Regions.parseRegionListing("ERROR: not supported"))
-    }
-
-    @Test
-    fun regionListingDropsUnparseableNamesAndDuplicates() {
-        val reply = """
-            -> bayarea (*) 'F'
-            -> bay area (*) 'F'
-            -> bayarea (*)
-        """.trimIndent()
-        val entries = Regions.parseRegionListing(reply)
-        // "bay area" isn't a name; the repeated "bayarea" keeps the first.
-        assertEquals(1, entries.size)
-        assertTrue(entries[0].floodAllowed)
-    }
-
-    @Test
-    fun regionNamesReadsOnlyReplyShapedLines() {
+    fun theRegionTreeParsesAsTheFirmwarePrintsIt() {
+        val tree = assertNotNull(Regions.parseRegionTree(truckTree))
+        assertTrue(tree.wildcardFloodAllowed)
+        assertEquals(false, tree.truncated)
         assertEquals(
-            listOf("bayarea", "socal"),
-            Regions.parseRegionNames("> bayarea, socal"),
+            listOf(
+                Regions.RegionEntry("midwest", "*", floodAllowed = true, depth = 1),
+                Regions.RegionEntry("mi", "midwest", floodAllowed = true, depth = 2),
+                Regions.RegionEntry("mi-west", "mi", floodAllowed = true, depth = 3),
+                Regions.RegionEntry("grr", "mi-west", floodAllowed = true, depth = 4),
+            ),
+            tree.regions,
         )
-        assertEquals(
-            listOf("bayarea", "socal"),
-            Regions.parseRegionNames("-> 'bayarea'\n-> 'socal'"),
-        )
-        // The killer case: tokenising everything would read this error
-        // reply as three regions — "region", "list" and "allowed" are
-        // all valid names.
-        assertEquals(emptyList(), Regions.parseRegionNames("??: region list allowed"))
-        assertEquals(emptyList(), Regions.parseRegionNames("bayarea, socal"))
-        assertEquals(emptyList(), Regions.parseRegionNames("ERROR: unsupported"))
     }
 
     @Test
-    fun defaultScopeReplyIsParsedOrReportedUnknown() {
-        assertEquals("bayarea", Regions.parseDefaultScope("> bayarea"))
-        assertEquals("bayarea", Regions.parseDefaultScope("-> bayarea"))
-        assertEquals("bayarea", Regions.parseDefaultScope("-> 'bayarea'"))
-        assertEquals("*", Regions.parseDefaultScope("-> *"))
-        // Unrecognised must be null ("unknown"), never "" ("cleared") and
-        // never a name scavenged out of the error text: every word in
-        // "??: region default" is itself a valid region name.
+    fun aMissingFIsDeniedAndACaretIsHome() {
+        val tree = assertNotNull(Regions.parseRegionTree("*\n mi^ F\n  grr\n"))
+        // `region denyf *`: the wildcard line loses its F.
+        assertEquals(false, tree.wildcardFloodAllowed)
+        assertEquals(Regions.RegionEntry("mi", "*", floodAllowed = true, depth = 1, home = true), tree.regions[0])
+        // No F is denied — absence is not "allowed".
+        assertEquals(Regions.RegionEntry("grr", "mi", floodAllowed = false, depth = 2), tree.regions[1])
+    }
+
+    @Test
+    fun siblingsAndABranchBackUpFindTheirParents() {
+        // `region def a b|* c d|b e` style: indentation going back up.
+        val tree = assertNotNull(Regions.parseRegionTree("* F\n mi F\n  grr F\n  lansing F\n oh F\n  cle F"))
+        assertEquals(
+            listOf("mi" to "*", "grr" to "mi", "lansing" to "mi", "oh" to "*", "cle" to "oh"),
+            tree.regions.map { it.name to it.parent },
+        )
+    }
+
+    @Test
+    fun aNodeWithNoRegionsIsAnEmptyTreeNotAnUnknownOne() {
+        val tree = assertNotNull(Regions.parseRegionTree("* F"))
+        assertEquals(emptyList(), tree.regions)
+        assertTrue(tree.wildcardFloodAllowed)
+    }
+
+    @Test
+    fun anythingNotShapedLikeTheTreeIsUnrecognised() {
+        // Firmware without regions answers "??: region"; that must not be
+        // read as "this node has no regions".
+        assertNull(Regions.parseRegionTree("??: region"))
+        assertNull(Regions.parseRegionTree("Err - ??"))
+        assertNull(Regions.parseRegionTree(""))
+        assertNull(Regions.parseRegionTree(null))
+        // The old guessed shape is not a tree either.
+        assertNull(Regions.parseRegionTree("-> bayarea (*) 'F'"))
+        // A region two levels below its predecessor has no parent to hang on.
+        assertNull(Regions.parseRegionTree("* F\n mi F\n   grr F"))
+        // A child with no wildcard root above it.
+        assertNull(Regions.parseRegionTree(" mi F"))
+        // A space inside a name is two tokens, not a name.
+        assertNull(Regions.parseRegionTree("* F\n bay area F"))
+    }
+
+    @Test
+    fun oldFirmwareHashPrefixesAreDropped() {
+        // Before v1.12 printChildRegions printed the stored name, '#' and all.
+        val tree = assertNotNull(Regions.parseRegionTree("* F\n #mi F"))
+        assertEquals("mi", tree.regions.single().name)
+    }
+
+    @Test
+    fun aFullReplyBufferIsTruncatedAndItsCutLineDropped() {
+        // exportTo(reply, 160): the tree stops wherever the buffer ends,
+        // which can be mid-name. "grr" cut to "gr" must not appear as a
+        // region called "gr".
+        // Lines of " rgn-NN F" run past 159 bytes; the cut lands
+        // inside a name, leaving a line that would parse as a region
+        // that doesn't exist.
+        val names = (10..35).map { "rgn-$it" }
+        val full = "* F\n" + names.joinToString("") { " $it F\n" }
+        val cut = full.take(159)
+        val lastLine = cut.substringAfterLast('\n')
+        assertTrue(lastLine.isNotEmpty() && !lastLine.endsWith(" F"), "fixture must cut mid-line: '$lastLine'")
+
+        val tree = assertNotNull(Regions.parseRegionTree(cut))
+        assertTrue(tree.truncated)
+        // Every region shown is a real one, whole, and the cut one is gone.
+        assertEquals(names.take(tree.regions.size), tree.regions.map { it.name })
+        assertEquals(cut.count { it == '\n' } - 1, tree.regions.size)
+    }
+
+    @Test
+    fun aShortReplyIsNotTruncated() {
+        assertEquals(false, assertNotNull(Regions.parseRegionTree(truckTree)).truncated)
+    }
+
+    @Test
+    fun aNameTheFirmwareHoldsButWeWouldRewriteIsShownNotActedOn() {
+        // Set from the console as "MI": its scope hash differs from "mi",
+        // and canonicalising it for a command would address another region.
+        val tree = assertNotNull(Regions.parseRegionTree("* F\n MI F\n mi F"))
+        assertEquals(listOf("MI", "mi"), tree.regions.map { it.name })
+        assertEquals(listOf(false, true), tree.regions.map { it.actionable })
+    }
+
+    @Test
+    fun defaultScopeIsReadFromTheFirmwaresSentence() {
+        // CommonCLI::handleRegionCmd: " default scope is %s".
+        assertEquals("mi", Regions.parseDefaultScope(" default scope is mi"))
+        assertEquals("mi", Regions.parseDefaultScope(" default scope is now mi"))
+        // No default is "<null>", which is the global scope: untagged floods.
+        assertEquals("*", Regions.parseDefaultScope(" default scope is <null>"))
+        assertEquals("*", Regions.parseDefaultScope(" default scope is now <null>"))
+    }
+
+    @Test
+    fun anUnrecognisedDefaultScopeIsUnknownNotCleared() {
+        // Null is "unknown", never "" or "*": every word in "??: region
+        // default" is itself a valid region name.
         assertNull(Regions.parseDefaultScope("??: region default"))
-        assertNull(Regions.parseDefaultScope("default: bayarea"))
+        assertNull(Regions.parseDefaultScope("> mi"))
+        assertNull(Regions.parseDefaultScope("Err - region table full"))
         assertNull(Regions.parseDefaultScope(""))
         assertNull(Regions.parseDefaultScope(null))
     }
@@ -256,6 +322,7 @@ class RegionsTest {
 
     @Test
     fun buildersProduceTheFirmwareCommandStrings() {
+        assertEquals("region", Regions.tree())
         assertEquals("region get *", Regions.get("*"))
         assertEquals("region get bayarea", Regions.get("#BayArea"))
         assertEquals("region put bayarea *", Regions.put("bayarea"))

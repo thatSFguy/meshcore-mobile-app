@@ -50,7 +50,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun RepeaterRegionsPanel(vm: MeshCoreViewModel, keyHex: String, isAdmin: Boolean) {
     val scope = rememberCoroutineScope()
-    var entries by remember(keyHex) { mutableStateOf<List<Regions.RegionEntry>>(emptyList()) }
+    var tree by remember(keyHex) { mutableStateOf<Regions.RegionTree?>(null) }
     var rawReply by remember(keyHex) { mutableStateOf<String?>(null) }
     var defaultScope by remember(keyHex) { mutableStateOf<String?>(null) }
     var defaultKnown by remember(keyHex) { mutableStateOf(false) }
@@ -81,9 +81,9 @@ fun RepeaterRegionsPanel(vm: MeshCoreViewModel, keyHex: String, isAdmin: Boolean
         scope.launch {
             loading = true
             note = null
-            val listing = vm.cliQuery(keyHex, Regions.get(Regions.GLOBAL_SELECTOR))
+            val listing = vm.cliQuery(keyHex, Regions.tree())
             rawReply = listing
-            entries = Regions.parseRegionListing(listing)
+            tree = Regions.parseRegionTree(listing)
             val default = vm.cliQuery(keyHex, Regions.default())
             defaultScope = Regions.parseDefaultScope(default)
             defaultKnown = default != null
@@ -133,7 +133,7 @@ fun RepeaterRegionsPanel(vm: MeshCoreViewModel, keyHex: String, isAdmin: Boolean
             when {
                 !defaultKnown -> "Not read yet."
                 defaultScope == Regions.GLOBAL_SELECTOR ->
-                    "Global scope (*) — the widest setting there is."
+                    "None — this repeater's own adverts and replies go out untagged."
                 defaultScope != null -> "#$defaultScope"
                 // A reply we couldn't parse is unknown, never "cleared":
                 // the two lead to opposite decisions.
@@ -145,25 +145,86 @@ fun RepeaterRegionsPanel(vm: MeshCoreViewModel, keyHex: String, isAdmin: Boolean
         // --- Region list --------------------------------------------------
         Spacer(Modifier.height(12.dp))
         Text("Regions", style = MaterialTheme.typography.titleSmall)
-        if (entries.isEmpty() && rawReply != null) {
+        val parsed = tree
+        if (parsed == null && rawReply != null) {
             HintText(
-                "No region lines in the reply. Firmware without region support answers " +
-                    "\"??: region\" — the node's own words are below.",
+                "The node's answer wasn't a region tree. Firmware without region support " +
+                    "answers \"??: region\" — the node's own words:",
             )
+            rawReply?.lineSequence()?.filter { it.isNotBlank() }?.forEach { line ->
+                Text(
+                    line,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontFamily = FontFamily.Monospace,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
-        for (entry in entries) {
+        if (parsed != null) {
+            // The wildcard is not a region; it is whether this repeater
+            // relays traffic carrying no region at all — which is what a
+            // neighbouring mesh that doesn't use regions sends.
             Row(
                 Modifier.fillMaxWidth().padding(vertical = 3.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column(Modifier.weight(1f)) {
-                    Text(entry.name, fontFamily = FontFamily.Monospace)
-                    HintText(
-                        "parent " + (entry.parent ?: "—") +
-                            " · flood " + if (entry.floodAllowed) "allowed" else "denied",
-                    )
+                    Text("Untagged traffic (*)", fontFamily = FontFamily.Monospace)
+                    HintText(if (parsed.wildcardFloodAllowed) "relayed" else "refused")
                 }
                 if (isAdmin) {
+                    if (parsed.wildcardFloodAllowed) {
+                        TextButton(onClick = {
+                            confirm = PendingRegionAction(
+                                title = "Refuse untagged traffic?",
+                                body = "This repeater will stop relaying flood traffic that " +
+                                    "carries no region — including anyone nearby whose " +
+                                    "radio isn't set to one of the regions above. Traffic " +
+                                    "tagged with an allowed region is still relayed. A " +
+                                    "gentler option is `set flood.max.unscoped 3` in the " +
+                                    "console, which lets nearby untagged traffic through.",
+                                confirmLabel = "Refuse",
+                                destructive = true,
+                                command = Regions.denyFlood(Regions.GLOBAL_SELECTOR),
+                                describe = "Untagged traffic refused",
+                            )
+                        }) { Text("Refuse") }
+                    } else {
+                        TextButton(onClick = {
+                            run(
+                                Regions.allowFlood(Regions.GLOBAL_SELECTOR),
+                                mutating = true,
+                                describe = "Untagged traffic relayed",
+                            )
+                        }) { Text("Relay") }
+                    }
+                }
+            }
+            if (parsed.regions.isEmpty()) HintText("No regions defined.")
+        }
+        for (entry in parsed?.regions.orEmpty()) {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(start = (12 * (entry.depth - 1)).dp, top = 3.dp, bottom = 3.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        entry.name + if (entry.home) "  · home" else "",
+                        fontFamily = FontFamily.Monospace,
+                    )
+                    HintText(
+                        "flood " + if (entry.floodAllowed) "allowed" else "denied",
+                    )
+                    if (!entry.actionable) {
+                        HintText(
+                            "Not lowercase letters, digits and dashes, so it can't match a " +
+                                "phone's region — edit it from the console.",
+                        )
+                    }
+                }
+                if (isAdmin && entry.actionable) {
                     if (entry.floodAllowed) {
                         TextButton(onClick = {
                             confirm = PendingRegionAction(
@@ -191,8 +252,7 @@ fun RepeaterRegionsPanel(vm: MeshCoreViewModel, keyHex: String, isAdmin: Boolean
                         confirm = PendingRegionAction(
                             title = "Remove ${entry.name}?",
                             body = "Removes the region definition from this repeater. It " +
-                                "must have no child regions, and the name must match " +
-                                "exactly.",
+                                "must have no child regions.",
                             confirmLabel = "Remove",
                             destructive = true,
                             command = Regions.remove(entry.name),
@@ -202,20 +262,12 @@ fun RepeaterRegionsPanel(vm: MeshCoreViewModel, keyHex: String, isAdmin: Boolean
                 }
             }
         }
-
-        // Anything the parser didn't recognise, in the node's own words —
-        // rendering an unparsed reply as an empty list would read as
-        // "this repeater has no regions", which is a different claim.
-        rawReply?.lineSequence()
-            ?.filter { it.isNotBlank() && Regions.parseRegionListing(it).isEmpty() }
-            ?.forEach { line ->
-                Text(
-                    line.trim(),
-                    style = MaterialTheme.typography.bodySmall,
-                    fontFamily = FontFamily.Monospace,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
+        if (parsed?.truncated == true) {
+            HintText(
+                "The list filled the node's reply, so regions past the end are missing. " +
+                    "Use `region list allowed` in the console to see every name.",
+            )
+        }
 
         // --- Add / set (admin only) ---------------------------------------
         if (!isAdmin) {
@@ -288,11 +340,6 @@ fun RepeaterRegionsPanel(vm: MeshCoreViewModel, keyHex: String, isAdmin: Boolean
                 },
             ) { Text("Set home") }
         }
-        HintText(
-            "The firmware warns against denying flood on the global scope (*) — it stops " +
-                "this repeater forwarding flood traffic entirely. That one is left to the " +
-                "console on purpose.",
-        )
         Spacer(Modifier.height(24.dp))
     }
 

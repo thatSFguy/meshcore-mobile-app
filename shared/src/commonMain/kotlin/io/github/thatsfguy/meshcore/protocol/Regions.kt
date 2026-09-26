@@ -13,7 +13,7 @@ package io.github.thatsfguy.meshcore.protocol
  * Two places names arrive from outside this phone, and both are
  * attacker-controlled:
  *  - a repeater's answer to an anonymous regions request ([parseDiscoveryResponse]);
- *  - a repeater's `region …` CLI reply ([parseRegionListing]).
+ *  - a repeater's `region …` CLI reply ([parseRegionTree]).
  * Everything from those paths goes through [canonical] before it is
  * stored, displayed, hashed, or pasted back into a CLI command.
  */
@@ -141,101 +141,127 @@ object Regions {
     // ------------------------------------------------------------------
 
     /**
-     * One line of a repeater's region listing: `-> name (parent) 'F'`.
-     * [floodAllowed] is the `F` permission — whether the repeater will
-     * flood traffic tagged with this region.
+     * One region in a repeater's region tree. [floodAllowed] is the `F`
+     * permission — whether the repeater will flood traffic tagged with
+     * this region.
      */
     data class RegionEntry(
         val name: String,
-        /** Parent region, [GLOBAL_SELECTOR] for the global scope, or null when absent. */
+        /** Parent region, [GLOBAL_SELECTOR] for a top-level region. */
         val parent: String?,
         val floodAllowed: Boolean,
-    )
-
-    /**
-     * Anchored at both ends on purpose. An unanchored pattern happily
-     * reads `-> bay area (*) 'F'` as a region called "bay" — inventing a
-     * name that was never on the wire. A line we don't fully recognise
-     * is not a region.
-     */
-    private val LISTING_LINE = Regex(
-        """^->\s*([a-z0-9-]{1,$MAX_NAME_LENGTH})""" +
-            """(?:\s+\(\s*([a-z0-9-]{1,$MAX_NAME_LENGTH}|\*)\s*\))?(?:\s+'([A-Za-z]*)')?$""",
-    )
-
-    /**
-     * Parse a `region get`/`region` reply into entries. Only lines in the
-     * documented `-> name (parent) 'F'` shape are recognised; callers
-     * must show an unrecognised reply verbatim rather than rendering it
-     * as "no regions" (firmware without region support answers
-     * `??: region`, exactly like the ACL viewer's case).
-     */
-    fun parseRegionListing(reply: String?): List<RegionEntry> {
-        if (reply.isNullOrBlank()) return emptyList()
-        return reply.lineSequence()
-            .mapNotNull { line -> LISTING_LINE.matchEntire(line.trim()) }
-            .mapNotNull { m ->
-                val name = canonical(m.groupValues[1]) ?: return@mapNotNull null
-                val parentRaw = m.groupValues[2]
-                RegionEntry(
-                    name = name,
-                    parent = if (parentRaw == GLOBAL_SELECTOR) GLOBAL_SELECTOR else canonical(parentRaw),
-                    floodAllowed = m.groupValues[3].contains('F'),
-                )
-            }
-            .distinctBy { it.name }
-            .take(MAX_DISCOVERED)
-            .toList()
+        /** 1 for a top-level region, 2 for its children, and so on. */
+        val depth: Int = 1,
+        /** Marked `^` — this repeater's home region. */
+        val home: Boolean = false,
+    ) {
+        /**
+         * Whether [name] can be pasted back into a command. A name the
+         * firmware holds but [canonical] would change (upper case, say) is
+         * shown, but acting on it would address a different region.
+         */
+        val actionable: Boolean get() = canonical(name) == name
     }
 
     /**
-     * Values carried by a CLI reply line. The firmware answers a read
-     * with `> value` (CommonCLI's `sprintf(reply, "> %s", …)`) and a
-     * region listing with `-> value`; a line in neither shape is not an
-     * answer.
+     * A repeater's answer to a bare `region`: the wildcard's own flags,
+     * then every region beneath it.
+     */
+    data class RegionTree(
+        /** Whether the repeater floods untagged traffic (`region denyf *` clears this). */
+        val wildcardFloodAllowed: Boolean,
+        val regions: List<RegionEntry>,
+        /**
+         * The reply filled the firmware's 160-byte buffer, so regions past
+         * the end are missing and the last line may have been cut. The cut
+         * line is dropped rather than shown under a wrong name.
+         */
+        val truncated: Boolean,
+    )
+
+    /**
+     * The firmware's CLI reply buffer. `RegionMap::exportTo(reply, 160)`
+     * stops writing there, one byte kept for the terminator.
+     */
+    private const val CLI_REPLY_MAX = 159
+
+    private val WILDCARD_LINE = Regex("""^\*\^?( F)?$""")
+
+    /** `<indent><name>[^][ F]` — `RegionMap::printChildRegions`. */
+    private val TREE_LINE = Regex("""^( +)#?([^\s^]{1,64})(\^?)( F)?$""")
+
+    /**
+     * Parse the reply to a bare `region`: the firmware's region tree, as
+     * `RegionMap::printChildRegions` (src/helpers/RegionMap.cpp) prints it
+     * in every release from v1.10.0 to current main —
      *
-     * The strictness is deliberate. A tokenise-everything parser reads
-     * the error reply `??: region list allowed` as three regions named
-     * "region", "list" and "allowed" — every one of them a valid name.
-     * Guessing is worse than reporting the reply as unrecognised.
+     * ```
+     * * F
+     *  midwest F
+     *   mi F
+     *    mi-west F
+     *     grr^ F
+     * ```
+     *
+     * One leading space per level, the wildcard `*` at the root, ` F` when
+     * flood is allowed, `^` on the home region. Returns null for anything
+     * not in that shape — firmware without regions answers `??: region`
+     * — and the caller shows the reply verbatim rather than as "no
+     * regions", which is a different claim.
+     *
+     * This replaced a parser for `-> name (parent) 'F'`, a shape no
+     * firmware version has ever printed; its tests pinned the guess.
      */
-    private fun replyValues(reply: String): Sequence<String> =
-        reply.lineSequence().mapNotNull { line ->
-            val t = line.trim()
-            when {
-                t.startsWith("->") -> t.removePrefix("->")
-                t.startsWith(">") -> t.removePrefix(">")
-                else -> null
-            }
-        }
+    fun parseRegionTree(reply: String?): RegionTree? {
+        if (reply.isNullOrBlank()) return null
+        val truncated = reply.length >= CLI_REPLY_MAX
+        var lines = reply.split('\n').map { it.trimEnd('\r', ' ') }.filter { it.isNotEmpty() }
+        if (truncated && lines.size > 1) lines = lines.dropLast(1)
+        val root = WILDCARD_LINE.matchEntire(lines.firstOrNull() ?: return null) ?: return null
 
-    /**
-     * Region names from a listing reply (`region list allowed` and
-     * friends, whose exact format isn't pinned by any capture). Only
-     * `>`/`->` reply lines are read; a reply we don't recognise yields
-     * nothing, and callers must show it verbatim rather than as "none".
-     */
-    fun parseRegionNames(reply: String?): List<String> {
-        if (reply.isNullOrBlank()) return emptyList()
-        val out = LinkedHashSet<String>()
-        for (value in replyValues(reply)) {
-            for (token in value.split(',')) {
-                canonical(token.trim().trim('\'', '"'))?.let { out += it }
-            }
+        val regions = mutableListOf<RegionEntry>()
+        // path[d] is the region at depth d on the way to the current line.
+        val path = mutableListOf(GLOBAL_SELECTOR)
+        for (line in lines.drop(1)) {
+            val m = TREE_LINE.matchEntire(line) ?: return null
+            val depth = m.groupValues[1].length
+            // A child can sit at most one level below the line before it.
+            if (depth > path.size) return null
+            while (path.size > depth) path.removeAt(path.size - 1)
+            val name = m.groupValues[2]
+            regions += RegionEntry(
+                name = name,
+                parent = path.last(),
+                floodAllowed = m.groupValues[4].isNotEmpty(),
+                depth = depth,
+                home = m.groupValues[3].isNotEmpty(),
+            )
+            path += name
         }
-        return out.take(MAX_DISCOVERED)
+        return RegionTree(
+            wildcardFloodAllowed = root.groupValues[1].isNotEmpty(),
+            regions = regions.take(MAX_DISCOVERED),
+            truncated = truncated,
+        )
     }
 
+    private val DEFAULT_SCOPE_REPLY = Regex("""^default scope is (?:now )?#?(\S{1,64})$""")
+
     /**
-     * `region default` replies with the current default scope. Returns
-     * the canonical name or [GLOBAL_SELECTOR]; null when the reply isn't
-     * one we recognise — and null must be shown as "unknown", never as
+     * `region default` replies ` default scope is <name>`, or `<null>`
+     * when there is none (CommonCLI::handleRegionCmd; `region default
+     * <name>` answers `... is now <name>`). Returns the region's name, or
+     * [GLOBAL_SELECTOR] when the scope is `<null>`: the repeater's own
+     * floods then go out untagged. Null when the reply isn't one we
+     * recognise — and null must be shown as "unknown", never as
      * "cleared", since the two lead to opposite decisions.
      */
     fun parseDefaultScope(reply: String?): String? {
         if (reply.isNullOrBlank()) return null
-        for (value in replyValues(reply)) {
-            canonicalSelector(value.trim().trim('\'', '"'))?.let { return it }
+        for (line in reply.lineSequence()) {
+            val m = DEFAULT_SCOPE_REPLY.matchEntire(line.trim()) ?: continue
+            val value = m.groupValues[1]
+            return if (value == NULL_SELECTOR || value == GLOBAL_SELECTOR) GLOBAL_SELECTOR else value
         }
         return null
     }
@@ -255,6 +281,9 @@ object Regions {
 
     private fun requireName(name: String): String =
         canonical(name) ?: throw IllegalArgumentException("not a region name: $name")
+
+    /** `region` — the whole region tree; see [parseRegionTree]. */
+    fun tree(): String = "region"
 
     /** `region get {* | name-prefix}` — search for a region definition. */
     fun get(selector: String): String = "region get ${requireSelector(selector)}"

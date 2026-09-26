@@ -11,6 +11,24 @@ Every entry describes what is in **that tagged build**. A feature that landed af
 belongs in the next section, not this one — 0.3.0 was once credited with four features that
 shipped after it, which misled nobody so much as the author, three months later.
 
+## 0.10.6
+
+**A repeater's Regions screen reads the regions it actually has.** It said the node's answer
+"wasn't in a form we recognise" for every repeater with regions set up. The app was reading a
+reply format no firmware has ever sent, and its tests only checked that guess. It now reads the
+region tree the firmware prints.
+
+- **Regions are shown as a tree**, each indented under its parent, with the home region marked.
+- **The default scope is read correctly.** It used to show as unknown on every node.
+- **"Untagged traffic (*)" shows whether the repeater relays traffic that carries no region**,
+  which is what a neighbouring mesh that doesn't use regions sends. An admin can refuse it,
+  after a confirmation that names the gentler `flood.max.unscoped` option. The old note said
+  this stopped all flood traffic; it only stops untagged traffic.
+- **A list too long for the node's 160-byte reply says it was cut off**, rather than showing a
+  half-received name as a region.
+- **A region name the app can't match, such as "MI", is shown but can't be acted on**: its tag
+  differs from "mi", so a command for it would address a different region.
+
 ## 0.10.5
 
 **Heard nodes show how far away they are, not a misleading signal.** Rows under "Heard, not
