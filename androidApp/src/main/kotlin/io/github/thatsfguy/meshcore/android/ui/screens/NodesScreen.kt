@@ -45,6 +45,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -150,7 +151,10 @@ fun NodesScreen(vm: MeshCoreViewModel, nav: NavController) {
             // position saved for the retired "New" tab opens on Contacts.
             var tab by remember { mutableStateOf(NodeTab.fromSaved(vm.prefs.nodesTab)) }
             val discovered by vm.discovered.collectAsState()
-            var query by remember { mutableStateOf("") }
+            // Saveable, not remember: opening a node or a conversation takes this
+            // screen off the composition, and coming back used to start the search
+            // over — the term typed to find it was gone (reported 2026-09-25).
+            var query by rememberSaveable { mutableStateOf("") }
             // Order and narrowing survive tab switches and restarts, the
             // same as the tab itself: a list you had to arrange once is
             // one you should not have to arrange again.

@@ -29,6 +29,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -53,7 +54,10 @@ fun ChatsScreen(vm: MeshCoreViewModel, nav: NavController) {
     val conversations by vm.conversations.collectAsState()
     val engineState by vm.engineState.collectAsState()
     var showChannelSheet by remember { mutableStateOf(false) }
-    var query by remember { mutableStateOf("") }
+    // Saveable, not remember: opening a node or a conversation takes this
+    // screen off the composition, and coming back used to start the search
+    // over — the term typed to find it was gone (reported 2026-09-25).
+    var query by rememberSaveable { mutableStateOf("") }
     var pinned by remember { mutableStateOf(vm.prefs.pinnedThreads) }
     var nicknameFor by remember { mutableStateOf<ConversationRow?>(null) }
 

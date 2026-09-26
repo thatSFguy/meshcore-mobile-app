@@ -48,6 +48,10 @@ did not add, and nothing said which of them matter.
 in its circle: an emoji is two characters, and the circle took the first half of it. It now shows
 the first letter or digit ("D"); a name that is only emoji shows the emoji whole.
 
+**A search on Nodes or Chats survives opening a result.** Searching for a node, opening it and
+coming back cleared the search box, so finding the next one meant typing it again. The term now
+stays until you clear it.
+
 ## 0.10.3
 
 **A phone put away on a conversation no longer stays silent for it.** The app does not notify

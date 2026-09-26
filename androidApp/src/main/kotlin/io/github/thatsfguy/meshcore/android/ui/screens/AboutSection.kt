@@ -105,6 +105,7 @@ private val CHANGELOG: List<Pair<String, List<String>>> = listOf(
         "Relay counts cover the whole route, so a far repeater on a busy flood path can " +
             "qualify; heard-direct is the stricter signal for neighbours.",
         "A name starting with an emoji shows its initial in the avatar circle, not \"�\".",
+        "A search on Nodes or Chats is still there after opening a result and coming back.",
     ),
     "0.10.3" to listOf(
         "A phone put away on a conversation no longer stays silent for it. The conversation " +
