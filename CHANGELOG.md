@@ -29,6 +29,21 @@ region tree the firmware prints.
 - **A region name the app can't match, such as "MI", is shown but can't be acted on**: its tag
   differs from "mi", so a command for it would address a different region.
 
+**Regions are managed by tapping them, and untagged traffic is one control.**
+
+- **Tap a region** to make it the default or home region, add a region under it, allow or deny
+  its flood, or remove it. Remove is offered only for a region with no regions under it, since the
+  firmware refuses otherwise. The default and home regions are labelled on their rows.
+- **Adding a region picks its parent from the tree**, instead of typing the parent's name.
+- **Untagged traffic: relay all, relay only nearby, or refuse.** "Only nearby" sets the
+  repeater's untagged hop limit, `flood.max.unscoped`, with 3 suggested, and says what the number
+  means ("come through 2 repeaters or fewer"). It is offered only on repeater firmware 1.16 or
+  newer. Older firmware answers a read of that setting with its overall hop limit, a plausible
+  number that means something else, so the app checks the version instead.
+- **The screen reads the node again after every change**, so it shows what the node holds.
+- **The unsaved-changes warning follows the firmware:** setting the default region and the hop
+  limit save themselves, and setting the default also saves any region edits made before it.
+
 ## 0.10.5
 
 **Heard nodes show how far away they are, not a misleading signal.** Rows under "Heard, not

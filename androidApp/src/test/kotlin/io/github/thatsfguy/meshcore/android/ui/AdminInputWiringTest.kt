@@ -55,21 +55,21 @@ class AdminInputWiringTest {
     }
 
     @Test
-    fun `region name and parent are not autocorrected`() {
+    fun `region name is not autocorrected and the parent is not typed`() {
         // A region name is a token the firmware matches byte for byte,
         // and `region home <name>` on a capitalised name fails as
         // "unknown region" — which reads as the region not existing.
         val name = regions.substringAfter("label = { Text(\"Name\") }").substringBefore("modifier")
-        val parent = regions.substringAfter("label = { Text(\"Parent")
-            .substringBefore("modifier")
         assertTrue(
             "the region name field must use VERBATIM_KEYBOARD",
             name.contains("keyboardOptions = VERBATIM_KEYBOARD"),
         )
-        assertTrue(
-            "the region parent field must use VERBATIM_KEYBOARD",
-            parent.contains("keyboardOptions = VERBATIM_KEYBOARD"),
-        )
+        // The parent is picked from the node's own tree (RegionAdmin.
+        // parentChoices), so there is no parent text for a keyboard to
+        // mangle. A typed parent field coming back must bring its
+        // VERBATIM_KEYBOARD with it.
+        assertTrue("parent is chosen from the tree", regions.contains("RegionAdmin.parentChoices(tree)"))
+        assertTrue("no typed parent field", !regions.contains("label = { Text(\"Parent"))
     }
 
     @Test

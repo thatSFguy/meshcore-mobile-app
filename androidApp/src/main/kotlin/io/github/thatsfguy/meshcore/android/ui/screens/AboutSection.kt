@@ -97,6 +97,10 @@ private val CHANGELOG: List<Pair<String, List<String>>> = listOf(
         "\"Untagged traffic (*)\" shows whether the repeater relays traffic carrying no " +
             "region, and an admin can refuse it.",
         "A region list cut off by the node's reply length says so.",
+        "Tap a region to make it the default or home, add one under it, or change it. A new " +
+            "region's parent is picked from the tree, not typed.",
+        "Untagged traffic is one control: relay all, relay only nearby (a hop limit, on " +
+            "firmware 1.16+), or refuse.",
     ),
     "0.10.5" to listOf(
         "Heard, not added rows show how far away a node is: \"direct\", \"1 hop\" or " +
