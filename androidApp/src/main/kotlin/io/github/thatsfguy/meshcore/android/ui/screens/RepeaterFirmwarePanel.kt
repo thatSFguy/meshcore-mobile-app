@@ -23,7 +23,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import io.github.thatsfguy.meshcore.android.ui.MeshCoreViewModel
-import io.github.thatsfguy.meshcore.firmware.CliResend
+import io.github.thatsfguy.meshcore.protocol.CliResend
 import io.github.thatsfguy.meshcore.firmware.ConsoleRow
 import io.github.thatsfguy.meshcore.firmware.DfuTuning
 import io.github.thatsfguy.meshcore.firmware.NodeIdentityReplies

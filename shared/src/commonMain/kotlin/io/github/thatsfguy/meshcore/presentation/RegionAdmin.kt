@@ -122,6 +122,27 @@ object RegionAdmin {
     }
 
     /**
+     * The mode the node is in, or null when that couldn't be read.
+     *
+     * [limitSupported] is null when `ver` went unanswered, and [hopLimit]
+     * null when `get flood.max.unscoped` did. Either leaves a node with
+     * its wildcard open undecided between relay-all and nearby, and it
+     * must SAY so: [untaggedMode] reads a missing limit as "none", which
+     * showed a node relaying only nearby traffic as "Relay all" whenever
+     * one answer was lost.
+     */
+    fun currentUntagged(
+        wildcardFloodAllowed: Boolean,
+        hopLimit: Int?,
+        limitSupported: Boolean?,
+    ): Untagged? = when {
+        !wildcardFloodAllowed -> Untagged.Refuse
+        limitSupported == false -> Untagged.RelayAll
+        hopLimit == null -> null
+        else -> untaggedMode(wildcardFloodAllowed, hopLimit)
+    }
+
+    /**
      * The commands that take the node from its current state to [target].
      * Nothing is sent that is already true, so applying the current mode
      * sends nothing.

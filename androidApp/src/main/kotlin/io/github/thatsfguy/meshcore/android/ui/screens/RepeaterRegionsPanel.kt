@@ -95,8 +95,7 @@ fun RepeaterRegionsPanel(vm: MeshCoreViewModel, keyHex: String, isAdmin: Boolean
             null
         }
         tree?.let { t ->
-            val mode = RegionAdmin.untaggedMode(t.wildcardFloodAllowed, hopLimit)
-            chosenMode = mode
+            chosenMode = RegionAdmin.currentUntagged(t.wildcardFloodAllowed, hopLimit, limitSupported)
             hopLimit?.takeIf { it in RegionAdmin.NEARBY_HOPS }?.let { chosenHops = it }
         }
         if (listing == null) note = "No reply — logged in and in range?"
@@ -180,8 +179,16 @@ fun RepeaterRegionsPanel(vm: MeshCoreViewModel, keyHex: String, isAdmin: Boolean
             Spacer(Modifier.height(12.dp))
             Text("Untagged traffic", style = MaterialTheme.typography.titleSmall)
             HintText("Traffic carrying no region — what a mesh that doesn't use regions sends.")
+            val current =
+                RegionAdmin.currentUntagged(parsed.wildcardFloodAllowed, hopLimit, limitSupported)
+            if (current == null) {
+                HintText(
+                    "The node didn't answer when asked for its untagged hop limit, so whether " +
+                        "it relays all of this or only nearby traffic isn't known. Fetch again.",
+                )
+            }
             UntaggedChoices(
-                current = RegionAdmin.untaggedMode(parsed.wildcardFloodAllowed, hopLimit),
+                current = current,
                 currentHops = hopLimit,
                 chosen = chosenMode,
                 hops = chosenHops,
@@ -443,7 +450,7 @@ private fun actionLabel(action: Action): String = when (action) {
 /** Relay all · only nearby (N hops) · refuse — one control for two firmware settings. */
 @Composable
 private fun UntaggedChoices(
-    current: Untagged,
+    current: Untagged?,
     currentHops: Int?,
     chosen: Untagged?,
     hops: Int,

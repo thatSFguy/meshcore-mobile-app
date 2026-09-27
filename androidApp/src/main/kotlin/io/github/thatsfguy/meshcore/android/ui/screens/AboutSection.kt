@@ -90,6 +90,15 @@ fun AboutSection(vm: MeshCoreViewModel) {
  * is a changelog you can't read in the field.
  */
 private val CHANGELOG: List<Pair<String, List<String>>> = listOf(
+    "0.10.7" to listOf(
+        "The Regions screen no longer shows \"Relay all\" when a repeater's answer was lost; " +
+            "an unread hop limit says so.",
+        "A repeater question that goes unanswered is asked again, up to three times. Commands " +
+            "that change a setting are still sent once.",
+        "A repeater's answer is matched to its question by its shape, so a late answer is no " +
+            "longer taken as the answer to the next question.",
+        "Admin commands go out one at a time, including the repeater settings switches.",
+    ),
     "0.10.6" to listOf(
         "A repeater's Regions screen reads the regions it actually has, as a tree, instead " +
             "of saying the node's answer wasn't recognised.",

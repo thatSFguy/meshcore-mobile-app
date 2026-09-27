@@ -1,5 +1,6 @@
 package io.github.thatsfguy.meshcore.firmware
 
+import io.github.thatsfguy.meshcore.protocol.CliResend
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull

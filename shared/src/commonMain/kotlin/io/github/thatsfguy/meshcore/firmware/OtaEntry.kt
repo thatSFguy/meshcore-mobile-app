@@ -1,5 +1,7 @@
 package io.github.thatsfguy.meshcore.firmware
 
+import io.github.thatsfguy.meshcore.protocol.CliResend
+
 /**
  * One row of a node's admin console, oldest first.
  *
@@ -305,35 +307,4 @@ sealed class OtaEntry {
             else -> state
         }
     }
-}
-
-/**
- * When to ask a repeater again.
- *
- * A CLI command has no delivery receipt: the companion sends it with no
- * ACK expected (`sendCommandData`, `expected_ack = 0`), so the only sign
- * it arrived is the answer, and an answer lost on the air looks exactly
- * like a command that never got there. The operator's own fix — ask
- * again — worked on the test RAK when a `ver` went unanswered.
- *
- * Asking again is safe for the node: the companion stamps each send
- * with `getCurrentTimeUnique()` (companion_radio/MyMesh.cpp, firmware
- * v1.12+), so a resend is a new command to the repeater, not the retry
- * it would otherwise answer with nothing.
- */
-object CliResend {
-    /**
-     * Silence before asking again. A direct reply on this mesh came back
-     * in 1.3-1.8 s — the repeater holds each CLI answer for 600 ms
-     * (`CLI_REPLY_DELAY_MILLIS`) — so ten seconds is several round trips
-     * even over a flood path; asking early costs only airtime.
-     */
-    const val RESEND_AFTER_MS = 10_000L
-
-    /** Sends in all, for a command that changes nothing on the node. */
-    const val MAX_SENDS = 3
-
-    /** True when a command last sent at [lastSentAt] should go again. */
-    fun due(lastSentAt: Long, now: Long, sends: Int, maxSends: Int): Boolean =
-        sends < maxSends && now - lastSentAt >= RESEND_AFTER_MS
 }

@@ -134,6 +134,27 @@ class RegionAdminTest {
     }
 
     @Test
+    fun anUnansweredHopLimitIsUnknownNotRelayAll() {
+        // Seen on the phone: a node set to relay only nearby traffic
+        // showed "Relay all" whenever the `get` went unanswered.
+        assertNull(RegionAdmin.currentUntagged(true, hopLimit = null, limitSupported = true))
+        // `ver` unanswered too: the limit was never asked for.
+        assertNull(RegionAdmin.currentUntagged(true, hopLimit = null, limitSupported = null))
+    }
+
+    @Test
+    fun theCurrentModeIsStatedWhenItCanBeKnown() {
+        // Positive controls: every case that must still answer.
+        assertEquals(Untagged.Nearby, RegionAdmin.currentUntagged(true, 3, limitSupported = true))
+        assertEquals(Untagged.RelayAll, RegionAdmin.currentUntagged(true, 64, limitSupported = true))
+        assertEquals(Untagged.Refuse, RegionAdmin.currentUntagged(true, 0, limitSupported = true))
+        // Pre-1.16 has no limit to read, so an open wildcard relays all.
+        assertEquals(Untagged.RelayAll, RegionAdmin.currentUntagged(true, null, limitSupported = false))
+        // A closed wildcard refuses whatever the limit is, read or not.
+        assertEquals(Untagged.Refuse, RegionAdmin.currentUntagged(false, null, limitSupported = null))
+    }
+
+    @Test
     fun refusingClosesTheWildcardAndLeavesTheLimit() {
         assertEquals(
             listOf("region denyf *"),

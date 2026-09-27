@@ -11,6 +11,24 @@ Every entry describes what is in **that tagged build**. A feature that landed af
 belongs in the next section, not this one — 0.3.0 was once credited with four features that
 shipped after it, which misled nobody so much as the author, three months later.
 
+## 0.10.7
+
+**A repeater's Regions screen no longer shows "Relay all" when it didn't hear the answer.** A
+node set to relay only nearby untagged traffic showed "Relay all" whenever one of the screen's
+four questions went unanswered, and saving could report the wrong thing for the same reason.
+
+- **A question the repeater doesn't answer is asked again**, after 10 seconds of silence, up to
+  three times. Only commands that read something are repeated; a command that changes a setting is
+  still sent once.
+- **An answer is matched to its question by its shape as well as its order.** The repeater's
+  answers carry nothing linking them to the command, so a late answer used to become the answer to
+  the next question: a late version string, read as the hop limit, meant "no limit". Answers in
+  another command's shape, and the second answer to a question asked twice, are now skipped.
+- **Admin commands go out one at a time**, including the repeater settings switches, which used to
+  send without waiting for each other.
+- **A hop limit that couldn't be read says so** and asks you to fetch again, instead of showing a
+  mode.
+
 ## 0.10.6
 
 **A repeater's Regions screen reads the regions it actually has.** It said the node's answer

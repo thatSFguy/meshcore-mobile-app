@@ -11,6 +11,9 @@ import io.github.thatsfguy.meshcore.protocol.Advert
 import io.github.thatsfguy.meshcore.protocol.AdvertInfo
 import io.github.thatsfguy.meshcore.protocol.BufferReader
 import io.github.thatsfguy.meshcore.protocol.ChannelCrypto
+import io.github.thatsfguy.meshcore.protocol.CliExchange
+import io.github.thatsfguy.meshcore.protocol.CliResend
+import io.github.thatsfguy.meshcore.protocol.CliStragglers
 import io.github.thatsfguy.meshcore.protocol.Codes
 import io.github.thatsfguy.meshcore.protocol.DeviceEvent
 import io.github.thatsfguy.meshcore.protocol.Frames
@@ -350,6 +353,10 @@ class MeshCoreEngine(
     private var rxJob: Job? = null
     private var stateJob: Job? = null
     private val commandMutex = Mutex()
+
+    /** One CLI exchange at a time; see [sendCliAndAwaitReply]. */
+    private val cliMutex = Mutex()
+    private val cliStragglers = CliStragglers()
 
     /**
      * Held across a whole region-scoped channel send (set scope → send →
@@ -1728,40 +1735,79 @@ class MeshCoreEngine(
 
     /**
      * Send a CLI command and await the repeater's TEXT reply (which
-     * arrives as a direct message from that node). Correlation is
-     * next-reply-from-target — callers must serialize their queries
-     * (the form-based settings UI fetches one value at a time, like
-     * the reference client). Returns null on timeout / not accepted.
+     * arrives as a direct message from that node). Returns null when the
+     * node never answers or the radio would not send.
+     *
+     * The CLI has no request id, so three things keep an answer with its
+     * question:
+     *
+     * - **One exchange at a time** ([cliMutex]). Callers used to be asked
+     *   to serialize; the settings form's switches launched theirs
+     *   concurrently anyway.
+     * - **Shape** ([CliExchange.accepts]): a late answer to a different
+     *   kind of command — a `ver` arriving during a `get` — is skipped,
+     *   not taken.
+     * - **Duplicates** ([cliStragglers]): the second answer to a command
+     *   that was sent twice is skipped.
+     *
+     * A command that only reads ([CliExchange.isRead]) is sent again
+     * after [resendAfterMs] of silence, up to [maxSends] times, since
+     * the command has no delivery receipt and silence can't say which
+     * half was lost. An answer to any send counts. [timeoutMs] is the
+     * wait after the last send.
      */
     suspend fun sendCliAndAwaitReply(
         repeaterPubKey: ByteArray,
         command: String,
         timeoutMs: Long = 15_000,
-    ): String? {
+        maxSends: Int = if (CliExchange.isRead(command)) CliResend.MAX_SENDS else 1,
+        resendAfterMs: Long = CliResend.RESEND_AFTER_MS,
+    ): String? = cliMutex.withLock {
         val targetHex = repeaterPubKey.toHex()
-        return coroutineScope {
+        coroutineScope {
             // Subscribe to the reply BEFORE sending so a fast (0-hop)
             // response can't slip between send and collect.
             val waiter = async(start = CoroutineStart.UNDISPATCHED) {
-                withTimeoutOrNull(timeoutMs) {
-                    meshEvents.first { ev ->
-                        // Must be a CLI-typed reply from THIS node — a
-                        // queued chat message from the same node is not
-                        // an answer to our query.
-                        ev is MeshEvent.DirectMessageReceived &&
-                            ev.txtType == Codes.TXT_TYPE_CLI_DATA &&
-                            (ev.senderKeyHex == targetHex ||
-                                targetHex.startsWith(ev.senderPrefixHex))
-                    }
-                }
+                meshEvents.first { ev ->
+                    // Must be a CLI-typed reply from THIS node — a
+                    // queued chat message from the same node is not
+                    // an answer to our query.
+                    ev is MeshEvent.DirectMessageReceived &&
+                        ev.txtType == Codes.TXT_TYPE_CLI_DATA &&
+                        (ev.senderKeyHex == targetHex ||
+                            targetHex.startsWith(ev.senderPrefixHex)) &&
+                        isCliAnswer(command, ev.text)
+                } as MeshEvent.DirectMessageReceived
             }
-            val sent = sendCliCommand(repeaterPubKey, command)
-            if (sent == null) {
-                waiter.cancel()
-                return@coroutineScope null
+            var sends = 0
+            var answer: MeshEvent.DirectMessageReceived? = null
+            while (answer == null && sends < maxSends) {
+                if (sendCliCommand(repeaterPubKey, command) == null) break
+                sends++
+                val wait = if (sends < maxSends) resendAfterMs else timeoutMs
+                answer = withTimeoutOrNull(wait) { waiter.await() }
+                if (answer == null && sends < maxSends) log("CLI: no answer to `$command`, asking again")
             }
-            (waiter.await() as? MeshEvent.DirectMessageReceived)?.text
+            if (answer == null && sends in 1 until maxSends) {
+                // The radio refused a resend; the earlier send may still answer.
+                answer = withTimeoutOrNull(timeoutMs) { waiter.await() }
+            }
+            waiter.cancel()
+            answer?.also { cliStragglers.owe(it.text, sends, nowMillis()) }?.text
         }
+    }
+
+    private fun isCliAnswer(command: String, text: String): Boolean {
+        // Duplicates first, whatever their shape, so the count owed stays true.
+        if (cliStragglers.consume(text, nowMillis())) {
+            log("CLI: skipped a repeated answer while awaiting `$command`")
+            return false
+        }
+        if (!CliExchange.accepts(command, text)) {
+            log("CLI: skipped an answer to another command while awaiting `$command`")
+            return false
+        }
+        return true
     }
 
     // ------------------------------------------------------------------

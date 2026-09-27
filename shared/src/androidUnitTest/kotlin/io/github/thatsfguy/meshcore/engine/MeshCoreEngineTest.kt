@@ -359,6 +359,151 @@ class MeshCoreEngineTest {
         )
     }
 
+    // ------------------------------------------------------------------
+    // CLI exchanges: resend, and keeping an answer with its question
+    // ------------------------------------------------------------------
+
+    private fun cliReplyFrame(text: String): ByteArray = BufferWriter().apply {
+        writeByte(Codes.RESP_CODE_CONTACT_MSG_RECV)
+        writeBytes(peerKey.copyOfRange(0, 6))
+        writeByte(0)
+        writeByte(Codes.TXT_TYPE_CLI_DATA)
+        writeUInt32LE(now)
+        writeString(text)
+        writeByte(0)
+    }.toBytes()
+
+    /** The command text of a CMD_SEND_TXT_MSG frame (Frames.sendCliCommand). */
+    private fun cliCommandOf(frame: ByteArray): String =
+        frame.copyOfRange(13, frame.size).takeWhile { it != 0.toByte() }.toByteArray().decodeToString()
+
+    /**
+     * A repeater that answers the [n]th send of each command (0-based)
+     * with whatever [answers] returns — nothing, or several replies,
+     * including late answers to earlier commands.
+     */
+    private fun cliRadio(answers: (command: String, n: Int) -> List<String>): FakeRadio {
+        val radio = FakeRadio()
+        val sends = HashMap<String, Int>()
+        radio.responder = { frame ->
+            if ((frame[0].toInt() and 0xFF) == Codes.CMD_SEND_TXT_MSG) {
+                val command = cliCommandOf(frame)
+                val n = sends[command] ?: 0
+                sends[command] = n + 1
+                standardResponder(radio)(frame) + answers(command, n).map { cliReplyFrame(it) }
+            } else {
+                standardResponder(radio)(frame)
+            }
+        }
+        return radio
+    }
+
+    private fun FakeRadio.cliSends(command: String): Int = sentFrames.count {
+        (it[0].toInt() and 0xFF) == Codes.CMD_SEND_TXT_MSG && cliCommandOf(it) == command
+    }
+
+    @Test
+    fun aReadTheNodeIgnoredIsAskedAgain() = runTest {
+        // The first send's answer is lost; the second is answered.
+        val radio = cliRadio { command, n ->
+            if (command == "get flood.max.unscoped" && n == 1) listOf("> 3") else emptyList()
+        }
+        val engine = MeshCoreEngine(backgroundScope, crypto, { now })
+        engine.attach(radio)
+        radio.connect()
+        engine.awaitReady()
+
+        assertEquals("> 3", engine.sendCliAndAwaitReply(peerKey, "get flood.max.unscoped"))
+        assertEquals(2, radio.cliSends("get flood.max.unscoped"))
+    }
+
+    @Test
+    fun aSilentReadStopsAtThreeSends() = runTest {
+        val radio = cliRadio { _, _ -> emptyList() }
+        val engine = MeshCoreEngine(backgroundScope, crypto, { now })
+        engine.attach(radio)
+        radio.connect()
+        engine.awaitReady()
+
+        assertNull(engine.sendCliAndAwaitReply(peerKey, "ver"))
+        assertEquals(3, radio.cliSends("ver"))
+    }
+
+    @Test
+    fun aWriteIsNeverSentTwice() = runTest {
+        val radio = cliRadio { _, _ -> emptyList() }
+        val engine = MeshCoreEngine(backgroundScope, crypto, { now })
+        engine.attach(radio)
+        radio.connect()
+        engine.awaitReady()
+
+        assertNull(engine.sendCliAndAwaitReply(peerKey, "set flood.max.unscoped 3"))
+        assertEquals(1, radio.cliSends("set flood.max.unscoped 3"))
+    }
+
+    @Test
+    fun aLateAnswerToAnotherCommandIsNotTakenAsThisOnes() = runTest {
+        // The Regions-screen failure: `ver`'s answer arrives while the
+        // hop limit is being asked for. Taken positionally it becomes
+        // the hop limit's answer, which holds no number.
+        val radio = cliRadio { command, _ ->
+            if (command == "get flood.max.unscoped") {
+                listOf("v1.16.0-07a3ca9 (Build: 06-Jun-2026)", "> 3")
+            } else {
+                emptyList()
+            }
+        }
+        val engine = MeshCoreEngine(backgroundScope, crypto, { now })
+        engine.attach(radio)
+        radio.connect()
+        engine.awaitReady()
+
+        assertEquals("> 3", engine.sendCliAndAwaitReply(peerKey, "get flood.max.unscoped"))
+        assertEquals(1, radio.cliSends("get flood.max.unscoped"))
+    }
+
+    @Test
+    fun theSecondAnswerToAResentReadIsNotTakenByTheNext() = runTest {
+        // `get a` answers only on its resend; the first send's answer
+        // was merely slow and lands while `get b` is waiting.
+        val radio = cliRadio { command, n ->
+            when {
+                command == "get a" && n == 1 -> listOf("> 5")
+                command == "get b" -> listOf("> 5", "> 7")
+                else -> emptyList()
+            }
+        }
+        val engine = MeshCoreEngine(backgroundScope, crypto, { now })
+        engine.attach(radio)
+        radio.connect()
+        engine.awaitReady()
+
+        assertEquals("> 5", engine.sendCliAndAwaitReply(peerKey, "get a"))
+        assertEquals("> 7", engine.sendCliAndAwaitReply(peerKey, "get b"))
+    }
+
+    @Test
+    fun concurrentQueriesEachGetTheirOwnAnswer() = runTest {
+        // The settings form launches its writes without waiting for each
+        // other. Interleaved, the second waiter took the first's answer.
+        val radio = cliRadio { command, _ ->
+            when (command) {
+                "get radio" -> listOf("> 910.525,250,10,5")
+                "get tx" -> listOf("> 22")
+                else -> emptyList()
+            }
+        }
+        val engine = MeshCoreEngine(backgroundScope, crypto, { now })
+        engine.attach(radio)
+        radio.connect()
+        engine.awaitReady()
+
+        val a = async { engine.sendCliAndAwaitReply(peerKey, "get radio") }
+        val b = async { engine.sendCliAndAwaitReply(peerKey, "get tx") }
+        assertEquals("> 910.525,250,10,5", a.await())
+        assertEquals("> 22", b.await())
+    }
+
     @Test
     fun loginSucceedsAgainstFakeRepeater() = runTest {
         val radio = FakeRadio()
