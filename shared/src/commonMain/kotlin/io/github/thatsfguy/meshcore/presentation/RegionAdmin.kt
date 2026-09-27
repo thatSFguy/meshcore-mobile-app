@@ -175,6 +175,23 @@ object RegionAdmin {
         }
     }
 
+    // ------------------------------------------------------------------
+    // Writing a mesh's region tree to a node
+    // ------------------------------------------------------------------
+
+    /** A node reads one command line of at most 160 bytes, NUL included. */
+    const val MAX_COMMAND_LENGTH = 159
+
+    /**
+     * True when a node's answer to a region write means stop: no
+     * answer, or a refusal. Firmware older than 1.16 has no `region def`
+     * and answers `Err - ??`.
+     */
+    fun treeStepRefused(reply: String?): Boolean {
+        val t = reply?.trim() ?: return true
+        return t.startsWith("Err", ignoreCase = true) || t.startsWith("??")
+    }
+
     const val GET_HOP_LIMIT = "get flood.max.unscoped"
 
     fun setHopLimit(hops: Int): String {

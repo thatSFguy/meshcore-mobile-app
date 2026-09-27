@@ -30,6 +30,7 @@ class ShareUriRadioTest {
         cr: String = "5",
         hash: String? = "1",
         region: String? = null,
+        regions: String? = null,
     ) = buildString {
         append("meshcore://radio/set?v=").append(v)
         append("&name=").append(name)
@@ -39,6 +40,7 @@ class ShareUriRadioTest {
         append("&cr=").append(cr)
         hash?.let { append("&hash=").append(it) }
         region?.let { append("&region=").append(it) }
+        regions?.let { append("&regions=").append(it) }
     }
 
     private fun decodeOk(text: String): ShareUri.Decoded.RadioConfig {
@@ -315,6 +317,144 @@ class ShareUriRadioTest {
         // Round trip.
         val c = ShareUri.decode(enc("mi-west")) as ShareUri.Decoded.RadioConfig
         assertEquals("mi-west", c.region)
+    }
+
+    // --- region trees ----------------------------------------------------
+
+    @Test
+    fun aTreeIsOfferedWithItsDefaultPreselected() {
+        // The Grand Rapids case: tree midwest > mi > west > grr, default mi.
+        val c = decodeOk(uri(region = "mi", regions = "midwest,mi,west,grr"))
+        assertEquals(listOf("midwest", "mi", "west", "grr"), c.regionTree)
+        assertEquals("mi", c.region)
+        assertEquals(listOf("midwest", "mi", "west", "grr"), c.regionChoices())
+        assertEquals(null, c.rejectedRegionTree)
+    }
+
+    @Test
+    fun aTreeFromTheWebGeneratorDecodes() {
+        // Captured 2026-09-26 from docs/settings-qr in headless Chromium,
+        // with "Midwest; #MI; west; grr" typed and mi picked as default.
+        val c = decodeOk(
+            "meshcore://radio/set?v=1&name=USA%2FCanada&freq=910.525&bw=62.5&sf=7&cr=5&hash=1" +
+                "&region=mi&regions=midwest,mi,west,grr",
+        )
+        assertEquals(listOf("midwest", "mi", "west", "grr"), c.regionTree)
+        assertEquals("mi", c.region)
+        assertEquals(null, c.rejectedRegionTree)
+    }
+
+    @Test
+    fun theScannerMayPickAnyLevelButNothingElse() {
+        val c = decodeOk(uri(region = "mi", regions = "midwest,mi,west,grr"))
+        assertEquals("grr", c.regionToApply("grr"))
+        assertEquals("midwest", c.regionToApply("midwest"))
+        assertEquals(null, c.regionToApply("ohio"))
+        assertEquals(null, c.regionToApply("MI"))
+        assertEquals(null, c.regionToApply(null))
+        // No tree: the only choice is the code's region.
+        val plain = decodeOk(uri(region = "mi"))
+        assertEquals(listOf("mi"), plain.regionChoices())
+        assertEquals("mi", plain.regionToApply("mi"))
+        assertEquals(null, plain.regionToApply("grr"))
+    }
+
+    @Test
+    fun theDialogSaysWhichLevelIsTheDefault() {
+        // Found scanning a code on the phone: the default was only a mark
+        // on one row, and easy to miss.
+        assertEquals(
+            "This mesh's default region is #mi.",
+            decodeOk(uri(region = "mi", regions = "midwest,mi,west,grr")).regionHeadline(),
+        )
+        assertEquals(
+            "This code names no default region. Pick one below.",
+            decodeOk(uri(regions = "midwest,mi")).regionHeadline(),
+        )
+        assertEquals("This mesh's region is #mi.", decodeOk(uri(region = "mi")).regionHeadline())
+        assertEquals(null, decodeOk(uri()).regionHeadline())
+        // A refused tree leaves the plain wording, not a tree's.
+        assertEquals(
+            "This mesh's region is #ohio.",
+            decodeOk(uri(region = "ohio", regions = "midwest,mi")).regionHeadline(),
+        )
+    }
+
+    @Test
+    fun aTreeWithNoDefaultIsStillOffered() {
+        val c = decodeOk(uri(regions = "midwest,mi"))
+        assertEquals(null, c.region)
+        assertEquals(listOf("midwest", "mi"), c.regionChoices())
+    }
+
+    @Test
+    fun aTreeThatLeavesOutItsOwnDefaultIsRefused() {
+        // The code contradicts itself; the default still stands, as it
+        // does on a phone that predates trees.
+        val c = decodeOk(uri(region = "ohio", regions = "midwest,mi"))
+        assertEquals(emptyList(), c.regionTree)
+        assertEquals("midwest,mi", c.rejectedRegionTree)
+        assertEquals("ohio", c.region)
+        assertEquals(listOf("ohio"), c.regionChoices())
+    }
+
+    @Test
+    fun aHostileTreeIsRefusedWhole() {
+        for (bad in listOf(
+            "midwest,MI", // not canonical: MI and mi are different scopes
+            "midwest,,mi", // an empty name
+            "mi,mi", // a repeat
+            "midwest,m%09i", // a control character that scrubbing would hide
+            "mid%20west,mi",
+            "a".repeat(30) + ",mi",
+            (1..ShareUri.MAX_REGION_TREE + 1).joinToString(",") { "r$it" },
+            ",",
+        )) {
+            val c = decodeOk(uri(regions = bad))
+            assertEquals(emptyList(), c.regionTree, "accepted $bad")
+            assertTrue(c.rejectedRegionTree != null, "no rejection recorded for $bad")
+        }
+        // Exactly the limit is fine — the positive control.
+        val max = (1..ShareUri.MAX_REGION_TREE).joinToString(",") { "r$it" }
+        assertEquals(ShareUri.MAX_REGION_TREE, decodeOk(uri(regions = max)).regionTree.size)
+    }
+
+    @Test
+    fun aHashOnEachNameIsHowPeopleWriteThem() {
+        val c = decodeOk(uri(region = "%23mi", regions = "%23midwest,%23mi"))
+        assertEquals(listOf("midwest", "mi"), c.regionTree)
+        assertEquals("mi", c.region)
+    }
+
+    @Test
+    fun aPhoneThatPredatesTreesStillGetsTheDefault() {
+        // What 0.10.6/0.10.7 read: `region` alone. The tree rides in a
+        // parameter they ignore, so the code scopes them to mi as before.
+        val code = ShareUri.encodeRadio(
+            "West Michigan", 910_525, 62_500, 7, 5, 1,
+            region = "mi", regionTree = listOf("midwest", "mi", "west", "grr"),
+        )
+        assertTrue("&region=mi&" in code || code.endsWith("&region=mi"), code)
+        assertTrue(code.endsWith("&regions=midwest,mi,west,grr"), code)
+    }
+
+    @Test
+    fun theEncoderWritesOnlyATreeTheDecoderAccepts() {
+        fun enc(region: String?, tree: List<String>) =
+            ShareUri.encodeRadio("T", 906_375, 250_000, 11, 5, 1, region, tree)
+        // Round trip.
+        val c = ShareUri.decode(enc("mi", listOf("midwest", "mi", "grr"))) as ShareUri.Decoded.RadioConfig
+        assertEquals(listOf("midwest", "mi", "grr"), c.regionTree)
+        assertEquals("mi", c.region)
+        // Canonicalised on the way in, as a region is.
+        assertTrue(enc("mi", listOf("#Midwest", "MI")).endsWith("&regions=midwest,mi"))
+        // Refused whole: a bad name, a repeat, a default outside it.
+        assertTrue("regions" !in enc(null, listOf("midwest", "bay area")))
+        assertTrue("regions" !in enc(null, listOf("mi", "mi")))
+        assertTrue("regions" !in enc("ohio", listOf("midwest", "mi")))
+        // A tree that is only the default adds nothing.
+        assertTrue("regions" !in enc("mi", listOf("mi")))
+        assertTrue("regions" !in enc(null, emptyList()))
     }
 
     // --- it must not collide with the codes already in circulation --------

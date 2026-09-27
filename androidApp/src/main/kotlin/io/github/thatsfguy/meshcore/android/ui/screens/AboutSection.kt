@@ -90,6 +90,17 @@ fun AboutSection(vm: MeshCoreViewModel) {
  * is a changelog you can't read in the field.
  */
 private val CHANGELOG: List<Pair<String, List<String>>> = listOf(
+    "0.10.8" to listOf(
+        "A mesh-settings code can carry an area's region tree (e.g. midwest › mi › west › grr) " +
+            "and a default. Scanning it offers every level, with the default preselected.",
+        "Scanned from a repeater's settings, a code shows only what would change on it, and " +
+            "can write the regions. Scanning it again sends nothing, and a region set to " +
+            "refuse flood stays that way.",
+        "A tree that isn't valid is refused and shown; the default region still applies. " +
+            "Older versions of the app use the default.",
+        "The web generator builds the tree and picks a default, and can write both to a " +
+            "repeater over USB (firmware 1.16+).",
+    ),
     "0.10.7" to listOf(
         "The Regions screen no longer shows \"Relay all\" when a repeater's answer was lost; " +
             "an unread hop limit says so.",

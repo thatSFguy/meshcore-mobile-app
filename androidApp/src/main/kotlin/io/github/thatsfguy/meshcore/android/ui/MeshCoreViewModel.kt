@@ -1381,7 +1381,7 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
      * one AND the user left it ticked, and a refusal is reported rather
      * than folded into "Applied".
      */
-    fun confirmRadioConfig(config: ShareUri.Decoded.RadioConfig, applyRegion: Boolean = false) {
+    fun confirmRadioConfig(config: ShareUri.Decoded.RadioConfig, pickedRegion: String? = null) {
         pendingRadioConfig.value = null
         val svc = _service.value ?: return
         viewModelScope.launch {
@@ -1394,7 +1394,7 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
                 )
                 svc.engine.setPathHashMode(config.pathHashMode)
             }
-            val region = config.region?.takeIf { applyRegion }
+            val region = config.regionToApply(pickedRegion)
             val regionSet = region?.let { runCatching { svc.engine.setFloodScope(it) }.getOrDefault(false) }
             val applied = "Applied ${config.name.ifBlank { "scanned settings" }}"
             transientMessage.value = when (regionSet) {

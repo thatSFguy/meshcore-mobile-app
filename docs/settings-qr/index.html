@@ -49,6 +49,30 @@
   button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
   button.link { border: none; background: none; color: var(--accent); padding: 4px 6px; }
   .row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
+  label.check { display: flex; align-items: flex-start; gap: 8px; margin-top: 12px; color: var(--fg); font-size: .86rem; }
+  label.check input { margin-top: 2px; }
+  /* Region builder: one row per level, indented under the one above. */
+  .rg-list { margin-top: 4px; }
+  .rg-row {
+    display: flex; align-items: center; gap: 6px; margin-top: 8px;
+    padding-left: min(calc(var(--depth) * 20px), 100px);
+  }
+  .rg-branch { color: var(--muted); width: 14px; flex: none; text-align: right; }
+  .rg-hash { color: var(--muted); flex: none; }
+  .rg-row input.rg-name { flex: 1; min-width: 0; }
+  .rg-row input.rg-name.bad { border-color: var(--warn); }
+  .rg-defaults { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 14px; }
+  .rg-defaults > span { color: var(--muted); font-size: .82rem; margin-right: 4px; }
+  button.chip { padding: 4px 12px; border-radius: 999px; font-size: .86rem; }
+  button.chip[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.icon { padding: 5px 8px; line-height: 1; flex: none; }
+  button.icon:disabled { opacity: .35; cursor: default; }
+  .rg-rowerr { color: var(--warn); font-size: .8rem; padding-left: min(calc(var(--depth) * 20px + 34px), 134px); }
+  .rg-summary { margin: 12px 0 0; font-size: .9rem; }
+  @media (max-width: 480px) {
+    .rg-row { padding-left: min(calc(var(--depth) * 12px), 48px); }
+    .rg-rowerr { padding-left: min(calc(var(--depth) * 12px + 34px), 82px); }
+  }
   .warn { color: var(--warn); }
   .err { color: var(--warn); font-size: .85rem; margin-top: 8px; min-height: 1.2em; }
   p.note { color: var(--muted); font-size: .86rem; }
@@ -146,14 +170,28 @@
           <option value="2">3 bytes</option>
         </select>
       </div>
-      <div><label for="region">Region (optional)</label><input id="region" maxlength="30" placeholder="none — e.g. mi" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
     </div>
-    <p class="note">A region sets which repeaters carry the scanner's messages: only ones that
-    have that region. The app offers to set it when the code is scanned. Lowercase letters,
-    digits and dashes — <code>MI</code> and <code>mi</code> are different regions on the air, so
-    what you type is lowercased as you type it.</p>
     <div class="err" id="err"></div>
     <p class="rate" id="rate"></p>
+  </fieldset>
+
+  <fieldset id="regions-box">
+    <legend>Regions (optional)</legend>
+    <p class="note">A region decides which repeaters carry a phone's messages: only repeaters
+    that hold that exact region. Start with your widest area and add more local ones under it —
+    for example <code>midwest</code>, then <code>mi</code>, <code>west</code>,
+    <code>grr</code>. Then choose the <b>default</b>: the region phones use after scanning. They
+    see every level and can pick another.</p>
+    <div class="rg-list" id="rg-list"></div>
+    <div class="row">
+      <button id="rg-add">+ Add a region</button>
+    </div>
+    <div class="rg-defaults" id="rg-defaults" role="group" aria-label="Default region for phones"></div>
+    <p class="rg-summary" id="rg-summary"></p>
+    <p class="note">Lowercase letters, digits and dashes, up to 29 characters and 8 levels.
+    <code>MI</code> and <code>mi</code> are different regions on the air, so names are lowercased
+    as you type. Enter adds a row below; pasting a list such as <code>midwest; mi; west; grr</code>
+    into a box fills in a row for each name.</p>
   </fieldset>
 
   <fieldset>
@@ -192,6 +230,12 @@
       <button id="usb-reboot" disabled>Reboot node</button>
       <button id="usb-disconnect" disabled>Disconnect</button>
     </div>
+    <label class="check"><input type="checkbox" id="usb-regions">
+      <span>Also add the region tree to this node and make the default region its default
+      (<code>region def</code>, <code>region default</code>, <code>region save</code>). For a
+      repeater or room server on firmware 1.16 or newer. Regions already on the node are kept.
+      A repeater relays scoped traffic only for regions it holds, so each repeater in the area
+      needs the whole tree.</span></label>
     <div class="err" id="usb-err"></div>
     <pre id="usb-log" class="log" aria-live="polite"></pre>
   </fieldset>
@@ -2691,11 +2735,181 @@ function renderSavedList() {
 const REGION_OK = /^[a-z0-9-]{1,29}$/;
 const normRegion = s => String(s ?? "").trim().replace(/^#/, "").toLowerCase();
 
+/* The area's regions, widest first. Mirrors ShareUri.MAX_REGION_TREE and
+ * validRegionTree: every name valid, none repeated, the default among
+ * them. Split on ; , > › or / — never on spaces, so "mid west" is an
+ * error to fix rather than two regions nobody meant. */
+const MAX_REGION_TREE = 8;
+const parseTree = s => String(s ?? "").split(/[;,>›\/]/).map(normRegion).filter(x => x !== "");
+
+/* ---------- region builder ----------
+ * The tree is a chain, widest first: each row is a region inside the one
+ * above it. That is the shape a code carries and the shape `region def a
+ * b c` builds on a repeater. The default is held by ROW, not by name, so
+ * it follows a region that is renamed or moved. */
+let rgRows = [];          // names as typed (already lowercased)
+let rgDefault = -1;       // index into rgRows, or -1 for none
+
+function rgNames() { return rgRows.map(normRegion); }
+
+/* What is wrong with row i, or "" — the same rules currentUri enforces,
+ * shown where the mistake is rather than only in the summary. */
+function rgRowError(i) {
+  const names = rgNames(), n = names[i];
+  if (n === "") return i === rgRows.length - 1 ? "" : "Name this region, or remove the row.";
+  if (!REGION_OK.test(n)) return "Lowercase letters, digits and dashes only, up to 29.";
+  if (names.indexOf(n) !== i) return `#${n} is already above.`;
+  return "";
+}
+
+function rgSummary() {
+  const names = rgNames().filter(n => n !== "");
+  if (!names.length) {
+    return "No regions: phones that scan this code keep whatever region they already use.";
+  }
+  const def = rgDefault >= 0 ? names.includes(normRegion(rgRows[rgDefault])) && normRegion(rgRows[rgDefault]) : "";
+  const others = names.filter(n => n !== def).map(n => "#" + n);
+  const list = others.length > 1 ? others.slice(0, -1).join(", ") + " or " + others.at(-1) : others[0];
+  const phones = def
+    ? `Phones that scan this code start on <b>#${def}</b>` + (list ? ` and can choose ${list} instead.` : ".")
+    : `No default: phones that scan this code are offered ${names.map(n => "#" + n).join(", ")}.`;
+  return phones + ` Every repeater in the area needs ${names.length === 1 ? "it" : "all " + names.length + " regions"}.`;
+}
+
+/* The default, as chips under the rows: one per named region, and none.
+ * Kept out of the rows so every choice has a visible label at any width. */
+function rgRenderDefaults() {
+  const box = $("rg-defaults");
+  box.replaceChildren();
+  const named = rgRows.map((r, i) => [normRegion(r), i]).filter(([n, i]) => n !== "" && rgRowError(i) === "");
+  if (!named.length) { box.hidden = true; return; }
+  box.hidden = false;
+  const label = document.createElement("span"); label.textContent = "Default for phones:";
+  box.append(label);
+  const chip = (text, idx) => {
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "chip"; b.textContent = text;
+    b.setAttribute("aria-pressed", String(rgDefault === idx));
+    b.onclick = () => { rgDefault = idx; regionsEdited(false); };
+    return b;
+  };
+  box.append(chip("none", -1), ...named.map(([n, i]) => chip("#" + n, i)));
+}
+
+function rgRefreshStatus() {
+  document.querySelectorAll(".rg-row").forEach((row, i) => {
+    const e = rgRowError(i);
+    row.querySelector(".rg-name").classList.toggle("bad", e !== "");
+    row.nextElementSibling.textContent = e;
+  });
+  rgRenderDefaults();
+  $("rg-summary").innerHTML = rgSummary();
+  $("rg-add").textContent = rgRows.length ? "+ Add a more local region" : "+ Add a region";
+  $("rg-add").disabled = rgRows.length >= MAX_REGION_TREE;
+  $("rg-add").title = rgRows.length >= MAX_REGION_TREE ? `Up to ${MAX_REGION_TREE} levels.` : "";
+}
+
+function rgRender(focus) {
+  const list = $("rg-list");
+  list.replaceChildren();
+  rgRows.forEach((name, i) => {
+    const row = document.createElement("div");
+    row.className = "rg-row"; row.style.setProperty("--depth", i);
+
+    const branch = document.createElement("span");
+    branch.className = "rg-branch"; branch.textContent = i ? "└" : "";
+    const hash = document.createElement("span");
+    hash.className = "rg-hash"; hash.textContent = "#";
+
+    const input = document.createElement("input");
+    input.className = "rg-name"; input.value = name; input.maxLength = 30;
+    input.autocapitalize = "off"; input.autocomplete = "off"; input.spellcheck = false;
+    input.setAttribute("autocorrect", "off");
+    input.placeholder = i === 0 ? "widest, e.g. midwest" : "inside #" + (normRegion(rgRows[i - 1]) || "…");
+    input.setAttribute("aria-label", i === 0 ? "Widest region" : `Region inside level ${i}`);
+    input.addEventListener("input", () => {
+      // The row already shows its '#'.
+      const lower = input.value.toLowerCase().replace(/^\s*#/, "");
+      if (lower !== input.value) {
+        const at = input.selectionStart; input.value = lower; input.setSelectionRange(at, at);
+      }
+      rgRows[i] = input.value;
+      // The next row's placeholder names this one.
+      const next = list.querySelectorAll(".rg-name")[i + 1];
+      if (next) next.placeholder = "inside #" + (normRegion(input.value) || "…");
+      regionsEdited(false);
+    });
+    input.addEventListener("keydown", ev => {
+      if (ev.key === "Enter") { ev.preventDefault(); rgInsert(i + 1, ""); }
+      if (ev.key === "Backspace" && input.value === "" && rgRows.length > 1) {
+        ev.preventDefault(); rgRemove(i, Math.max(0, i - 1));
+      }
+    });
+    // A pasted list becomes a row per name, from this row down.
+    input.addEventListener("paste", ev => {
+      const text = (ev.clipboardData || window.clipboardData).getData("text");
+      const names = parseTree(text);
+      if (names.length < 2) return;
+      ev.preventDefault();
+      rgRows.splice(i, 1, ...names.map(n => n.toLowerCase()));
+      rgRows = rgRows.slice(0, MAX_REGION_TREE);
+      regionsEdited(true, Math.min(i + names.length, rgRows.length) - 1);
+    });
+
+    const btn = (label, title, on, disabled) => {
+      const b = document.createElement("button");
+      b.className = "icon"; b.type = "button"; b.textContent = label; b.title = title;
+      b.setAttribute("aria-label", title); b.disabled = disabled; b.onclick = on;
+      return b;
+    };
+    const up = btn("↑", "Move up a level", () => rgMove(i, i - 1), i === 0);
+    const down = btn("↓", "Move down a level", () => rgMove(i, i + 1), i === rgRows.length - 1);
+    const del = btn("×", "Remove this region", () => rgRemove(i, i), false);
+
+    row.append(branch, hash, input, up, down, del);
+    const err = document.createElement("div");
+    err.className = "rg-rowerr"; err.style.setProperty("--depth", i);
+    list.append(row, err);
+  });
+
+  rgRefreshStatus();
+  if (focus !== undefined) list.querySelectorAll(".rg-name")[focus]?.focus();
+}
+
+function rgInsert(at, name) {
+  if (rgRows.length >= MAX_REGION_TREE) return;
+  rgRows.splice(at, 0, name);
+  if (rgDefault >= at) rgDefault++;
+  regionsEdited(true, at);
+}
+function rgRemove(i, focus) {
+  rgRows.splice(i, 1);
+  if (rgDefault === i) rgDefault = -1; else if (rgDefault > i) rgDefault--;
+  regionsEdited(true, rgRows.length ? Math.min(focus, rgRows.length - 1) : undefined);
+}
+function rgMove(from, to) {
+  [rgRows[from], rgRows[to]] = [rgRows[to], rgRows[from]];
+  if (rgDefault === from) rgDefault = to; else if (rgDefault === to) rgDefault = from;
+  regionsEdited(true, to);
+}
+
+/* Structural edits redraw the rows; typing only refreshes the status, so
+ * the box being typed in keeps its focus and caret. */
+function regionsEdited(structural, focus) {
+  if (structural) rgRender(focus); else rgRefreshStatus();
+  markEdited();
+}
+
+$("rg-add").onclick = () => rgInsert(rgRows.length, "");
+rgRender();
+
 function currentConfig() {
   return {
     name: $("name").value.trim(), freq: $("freq").value.trim(), bw: $("bw").value,
     sf: +$("sf").value, cr: +$("cr").value, hash: +$("hash").value,
-    region: normRegion($("region").value),
+    region: rgDefault >= 0 ? normRegion(rgRows[rgDefault]) : "",
+    // A blank row is one being added, not a region.
+    regions: rgNames().filter(n => n !== ""),
   };
 }
 function applyConfig(c) {
@@ -2705,7 +2919,12 @@ function applyConfig(c) {
   $("sf").value = String(c.sf);
   $("cr").value = String(c.cr);
   $("hash").value = String(c.hash ?? 1);
-  $("region").value = c.region || "";
+  // Settings saved before trees existed carry a region and no tree.
+  const tree = Array.isArray(c.regions) && c.regions.length ? c.regions
+             : (c.region ? [c.region] : []);
+  rgRows = [...tree];
+  rgDefault = c.region ? tree.indexOf(c.region) : -1;
+  rgRender();
 }
 
 $("preset").onchange = () => {
@@ -2760,9 +2979,18 @@ function currentUri() {
     err.push("Frequency must be 300–2500 MHz.");
   }
   if (!LORA_BW.includes(parseFloat(c.bw))) err.push("Bandwidth must be a LoRa step.");
-  if (c.region && !REGION_OK.test(c.region)) {
-    err.push("Region: lowercase letters, digits and dashes only, up to 29.");
+  const badName = c.regions.find(r => !REGION_OK.test(r));
+  if (badName !== undefined) {
+    err.push(`Region "${badName}": lowercase letters, digits and dashes only, up to 29.`);
+  } else if (new Set(c.regions).size !== c.regions.length) {
+    err.push("Region tree: each name once.");
+  } else if (c.regions.length > MAX_REGION_TREE) {
+    err.push(`Region tree: up to ${MAX_REGION_TREE} names.`);
   }
+  if (rgRows.some((_, i) => rgRowError(i) === "Name this region, or remove the row.")) {
+    err.push("Regions: name every row, or remove the empty one.");
+  }
+  if (c.region && !c.regions.includes(c.region)) err.push("Default region must be in the tree.");
   $("err").textContent = err.join(" ");
   if (err.length) return null;
 
@@ -2772,6 +3000,12 @@ function currentUri() {
   u += "&bw=" + thousandthsText(bwHz);
   u += "&sf=" + c.sf + "&cr=" + c.cr + "&hash=" + c.hash;
   if (c.region) u += "&region=" + encodeURIComponent(c.region);
+  // `region` stays the default, so a phone that predates trees scopes to
+  // it as before; the tree rides alongside. A tree that is only the
+  // default says nothing more.
+  if (c.regions.length && !(c.regions.length === 1 && c.regions[0] === c.region)) {
+    u += "&regions=" + c.regions.map(encodeURIComponent).join(",");
+  }
   return u;
 }
 
@@ -2957,7 +3191,8 @@ function captionLines() {
   const c = currentConfig();
   const bwHz = toThousandths(c.bw);
   const l2 = `${c.freq} MHz · ${c.bw} kHz · SF${c.sf} · CR4/${c.cr} · ${HASH_LABEL[c.hash]}`
-           + (c.region ? ` · region #${c.region}` : "");
+           + (c.region ? ` · region #${c.region}` : "")
+           + (c.regions.length > 1 ? ` (${c.regions.map(r => "#" + r).join(" › ")})` : "");
   const l3 = `${rateText(bwHz, c.sf, c.cr)} · 100-byte message ≈ `
            + (airtimeMs(100, c.sf, bwHz, c.cr) / 1000).toFixed(2) + " s airtime";
   return [c.name || "(unnamed mesh)", l2, l3, "Scan with MeshCore Hardened"];
@@ -3087,6 +3322,15 @@ $("copy").onclick = async () => {
   setTimeout(() => ($("copy").textContent = "Copy link"), 1500);
 };
 
+// Touching a field means you are no longer on a named preset.
+function markEdited() {
+  if (!$("preset").value.startsWith("custom")) {
+    $("preset").value = "custom";
+    $("presetnote").textContent = "Editing freely — use Save to keep these settings here.";
+  }
+  render();
+}
+
 for (const el of document.querySelectorAll("input, select")) {
   if (el.id === "preset") continue;
   // Nothing on the calculator tab is one of the mesh's settings — your
@@ -3095,28 +3339,14 @@ for (const el of document.querySelectorAll("input, select")) {
   // nothing shared had moved. Keyed on the section rather than on a
   // class, so a control added there later cannot forget to opt out.
   if (el.closest("#tab-loss")) continue;
-  const onEdit = () => {
-    // Touching a field means you are no longer on a named preset.
-    if (!$("preset").value.startsWith("custom")) {
-      $("preset").value = "custom";
-      $("presetnote").textContent = "Editing freely — use Save to keep these settings here.";
-    }
-    render();
-  };
-  el.addEventListener("input", onEdit);
-  el.addEventListener("change", onEdit);
+  // Nor is what to do over USB.
+  if (el.closest("#usb-box")) continue;
+  // The region builder's controls are made and remade as rows change,
+  // so they call markEdited themselves.
+  if (el.closest("#regions-box")) continue;
+  el.addEventListener("input", markEdited);
+  el.addEventListener("change", markEdited);
 }
-
-// Lowercase the region in the field itself, so the author sees exactly
-// what goes into the code rather than finding out from the caption.
-$("region").addEventListener("input", () => {
-  const el = $("region"), v = el.value, lower = v.toLowerCase();
-  if (v !== lower) {
-    const at = el.selectionStart;
-    el.value = lower;
-    el.setSelectionRange(at, at);
-  }
-});
 
 for (const el of document.querySelectorAll("#tab-loss input")) {
   const onEdit = () => { saveRadio(); renderLoss(); };
@@ -3180,6 +3410,17 @@ $("export").onclick = () => {
   setTimeout(() => URL.revokeObjectURL(a.href), 2000);
 };
 
+/* A tree that fails any rule is dropped whole, and a default outside the
+ * tree with it — the same all-or-nothing the app applies to a code. */
+function importedRegions(raw) {
+  const def = REGION_OK.test(normRegion(raw.region)) ? normRegion(raw.region) : "";
+  const tree = Array.isArray(raw.regions) ? raw.regions.map(normRegion) : [];
+  const ok = tree.length <= MAX_REGION_TREE && tree.every(r => REGION_OK.test(r)) &&
+             new Set(tree).size === tree.length;
+  if (!ok || !tree.length) return { region: def, regions: def ? [def] : [] };
+  return { region: tree.includes(def) ? def : "", regions: tree };
+}
+
 /* Every field is re-validated. A settings file is the same class of
  * input as the QR: someone else made it, and nothing in it is signed. */
 function sanitiseImported(raw) {
@@ -3196,7 +3437,7 @@ function sanitiseImported(raw) {
   return {
     name: clean(raw.name) || "(unnamed)",
     freq: thousandthsText(freqK), bw: String(bw),
-    sf, cr, hash, region: REGION_OK.test(normRegion(raw.region)) ? normRegion(raw.region) : "",
+    sf, cr, hash, ...importedRegions(raw),
   };
 }
 
@@ -3339,13 +3580,12 @@ $("usb-apply").onclick = async () => {
     usbLog("  " + (await cliSend("set radio " + csv) ?? "(no reply)"));
     usbLog("> set path.hash.mode " + c.hash);
     usbLog("  " + (await cliSend("set path.hash.mode " + c.hash) ?? "(no reply)"));
-    if (c.region) {
-      // Deliberately not written. `region put <name>` would work (its
-      // parent defaults to the top level), but which regions a repeater
-      // carries — and whether it still relays untagged traffic — is the
-      // operator's call on that node, not something to ride along with
-      // radio settings from a code anyone can make.
-      usbLog("Region \"" + c.region + "\" not written — set it with `region put` on the node.");
+    if (c.regions.length && $("usb-regions").checked) {
+      await writeRegions(c);
+    } else if (c.regions.length) {
+      // Only when asked: which regions a repeater carries is the
+      // operator's call on that node. Untagged traffic is never touched.
+      usbLog("Regions not written — tick \"Also add the region tree\" to write them.");
     }
     usbLog("Saved. The node keeps its OLD settings until it reboots.");
   } catch (e) {
@@ -3354,6 +3594,32 @@ $("usb-apply").onclick = async () => {
     usbButtons({ connected: true, busy: false });
   }
 };
+
+/* The tree in one line: `region def a b c` makes each name a child of the
+ * one before (CommonCLI.cpp, handleRegionCmd; docs/cli_commands.md), and
+ * an existing name is moved rather than duplicated. Regions take effect
+ * without a reboot, but live in RAM until `region save`. */
+async function writeRegions(c) {
+  const def = "region def " + c.regions.join(" ");
+  if (def.length > 159) {
+    usbLog("Region tree not written: it is longer than one 160-character node command.");
+    return;
+  }
+  usbLog("> " + def);
+  const r = await cliSend(def);
+  usbLog("  " + (r ?? "(no reply)"));
+  if (r === null || /^err|^\?\?/i.test(r)) {
+    usbLog("Stopped: the node did not take the tree" +
+           (r && /\?\?/.test(r) ? " (it needs firmware 1.16 or newer)." : "."));
+    return;
+  }
+  if (c.region) {
+    usbLog("> region default " + c.region);
+    usbLog("  " + (await cliSend("region default " + c.region) ?? "(no reply)"));
+  }
+  usbLog("> region save");
+  usbLog("  " + (await cliSend("region save") ?? "(no reply)"));
+}
 
 $("usb-reboot").onclick = async () => {
   usbButtons({ connected: true, busy: true });

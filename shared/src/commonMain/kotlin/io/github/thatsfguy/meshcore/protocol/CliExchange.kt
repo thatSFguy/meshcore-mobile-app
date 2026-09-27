@@ -82,7 +82,11 @@ object CliExchange {
             c == "ver" -> Shape.Version
             words.firstOrNull() != "region" -> null
             words.size == 1 -> Shape.Other
-            words[1] == "default" || words[1] == "def" -> Shape.DefaultScope
+            // `region def a b c` builds a tree and answers with it — NOT
+            // `region default`, which it only looks like (CommonCLI.cpp,
+            // handleRegionCmd matches "region def" then a space or end).
+            words[1] == "def" -> Shape.Other
+            words[1] == "default" -> Shape.DefaultScope
             words[1] == "home" -> Shape.Home
             words[1] in REGION_WRITES -> Shape.Ok
             words[1] == "list" || words[1] == "get" -> Shape.Other

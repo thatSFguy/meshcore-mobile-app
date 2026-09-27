@@ -11,6 +11,35 @@ Every entry describes what is in **that tagged build**. A feature that landed af
 belongs in the next section, not this one — 0.3.0 was once credited with four features that
 shipped after it, which misled nobody so much as the author, three months later.
 
+## 0.10.8
+
+**A mesh-settings code can carry an area's region tree and a default.** Regions are organised
+from wide to local, such as `midwest › mi › west › grr`, and an area picks which one phones use.
+
+- **Scanning a code with a tree offers every level**, with the code's default preselected, and
+  sets the one you pick as this phone's region. As before, it is behind its own checkbox, and the
+  radio settings apply either way.
+- **Scanning a code from a repeater's own settings shows the tree and default, and can write
+  them to the repeater.** It first reads what the repeater holds and lists only what would
+  change: regions added, regions moved, the default. Scanning the same code again sends nothing,
+  and radio values the repeater already runs aren't sent again or followed by a reboot prompt. A
+  region the operator set to refuse flood traffic stays that way. The firmware's `region def` and
+  `region default` re-allow flood on every region they name, so the app denies it again before
+  saving. Regions the code doesn't name are left alone. The write starts unticked.
+- **A tree that isn't valid is refused whole and shown**: a repeated name, one that isn't
+  lowercase letters, digits and dashes, more than 8 names, or a tree that leaves out its own
+  default. The default region still applies.
+- **Older versions of the app still scan these codes** and use the default region.
+- **The web generator has a region builder**: a row per region, each indented under the one
+  above, with buttons to add, reorder and remove, and the default picked from the regions below.
+  Pasting a list such as `midwest; mi; west; grr` fills in the rows. Nothing about an area is
+  built in, so any area can make its own.
+- **The generator's USB writer can put the tree on a repeater**, behind a checkbox that starts
+  unticked: `region def` builds the tree, `region default` sets the default and `region save`
+  keeps it. It needs repeater firmware 1.16 or newer and keeps regions already on the node. A
+  repeater relays traffic for a region only if it holds that exact region, so every repeater in
+  the area needs the whole tree.
+
 ## 0.10.7
 
 **A repeater's Regions screen no longer shows "Relay all" when it didn't hear the answer.** A

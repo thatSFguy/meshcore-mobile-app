@@ -1,5 +1,18 @@
 package io.github.thatsfguy.meshcore.android.ui.screens
 
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.runtime.LaunchedEffect
+import io.github.thatsfguy.meshcore.protocol.Regions
+import io.github.thatsfguy.meshcore.presentation.ScannedSettingsPlan
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.ui.Alignment
+import io.github.thatsfguy.meshcore.presentation.RegionAdmin
+import androidx.compose.ui.semantics.Role
+import androidx.compose.material3.Checkbox
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.activity.compose.rememberLauncherForActivityResult
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
@@ -648,11 +661,42 @@ fun RemoteSettingsForm(
 
     scannedConfig?.let { config ->
         val node = contact?.name?.ifBlank { null } ?: keyHex.take(12)
+        // The tree this code carries, or its lone region.
+        val tree = config.regionChoices()
+        // What the node holds NOW, read before anything is offered, so a
+        // second scan of the same code sends nothing — and never re-opens
+        // a region its operator denied (see ScannedSettingsPlan).
+        var nodeNow by remember(config) { mutableStateOf<ScannedNodeState?>(null) }
+        LaunchedEffect(config) {
+            val radio = vm.cliQuery(keyHex, "get ${CliIds.RADIO}")
+                ?.let { CliReplies.extractGetValue(it) }
+                ?.let { CliReplies.parseRadioCsv(it) }
+            val hash = vm.cliQuery(keyHex, "get ${CliIds.PATH_HASH_MODE}")
+                ?.let { CliReplies.extractGetValue(it) }?.trim()?.toIntOrNull()
+            val plan = if (tree.isEmpty()) {
+                null
+            } else {
+                val current = Regions.parseRegionTree(vm.cliQuery(keyHex, Regions.tree()))
+                val currentDefault = if (config.region != null) {
+                    Regions.parseDefaultScope(vm.cliQuery(keyHex, Regions.default()))
+                } else {
+                    null
+                }
+                ScannedSettingsPlan.regions(tree, config.region, current, currentDefault)
+            }
+            nodeNow = ScannedNodeState(ScannedSettingsPlan.radioMatches(config, radio, hash), plan)
+        }
+        val read = nodeNow
+        val changes = read?.plan as? ScannedSettingsPlan.RegionPlan.Changes
+        // Ticked by the operator, never by default — as on the USB writer.
+        var writeRegions by remember(config) { mutableStateOf(false) }
+        val nothingToDo = read != null && read.radioSame && changes == null
         AlertDialog(
             onDismissRequest = { scannedConfig = null },
             title = { Text("Apply these settings to $node?") },
             text = {
-                Column {
+                // Scrolls: the tree and the list of changes add a row each.
+                Column(Modifier.verticalScroll(rememberScrollState())) {
                     Text(
                         config.name.ifBlank { "(unnamed mesh)" },
                         style = MaterialTheme.typography.titleMedium,
@@ -660,12 +704,25 @@ fun RemoteSettingsForm(
                     Spacer(Modifier.height(4.dp))
                     Text(config.summary(), style = MaterialTheme.typography.bodyMedium)
                     Spacer(Modifier.height(12.dp))
-                    Text(
-                        "This is a remote node. The settings save now and take effect when " +
-                            "$node reboots; after that this radio must be on the same " +
-                            "settings to reach it again.",
-                        style = MaterialTheme.typography.bodySmall,
-                    )
+                    when {
+                        read == null -> Row(verticalAlignment = Alignment.CenterVertically) {
+                            CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                            Spacer(Modifier.width(8.dp))
+                            Text("Checking what $node has now…", style = MaterialTheme.typography.bodySmall)
+                        }
+                        read.radioSame -> Text(
+                            "$node already runs these radio settings, so they won't be sent " +
+                                "again and it doesn't need a reboot.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                        else -> Text(
+                            "This is a remote node. The settings save now and take effect when " +
+                                "$node reboots; after that this radio must be on the same " +
+                                "settings to reach it again.",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
                     Spacer(Modifier.height(8.dp))
                     Text(
                         "Anyone can make one of these codes; nothing in it is signed. " +
@@ -673,42 +730,140 @@ fun RemoteSettingsForm(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.error,
                     )
-                    config.region?.let {
-                        Spacer(Modifier.height(8.dp))
-                        Text(
-                            "It also names flood region \"$it\", which is not written here — " +
-                                "regions are added on the node under Regions.",
-                            style = MaterialTheme.typography.bodySmall,
-                        )
+                    if (tree.isNotEmpty()) {
+                        Spacer(Modifier.height(12.dp))
+                        Text("Regions", style = MaterialTheme.typography.titleSmall)
+                        config.regionHeadline()?.let {
+                            Text(it, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                        }
+                        // The whole tree, widest first, as the generator draws it.
+                        tree.forEachIndexed { depth, name ->
+                            Row(
+                                Modifier.padding(start = (8 + 14 * depth).dp, top = 2.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    (if (depth > 0) "└ " else "") + "#$name",
+                                    fontFamily = FontFamily.Monospace,
+                                )
+                                if (name == config.region) {
+                                    Spacer(Modifier.width(8.dp))
+                                    Text(
+                                        "default",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.primary,
+                                    )
+                                }
+                            }
+                        }
+                        Spacer(Modifier.height(4.dp))
+                        val small = MaterialTheme.typography.bodySmall
+                        when (val plan = read?.plan) {
+                            null -> if (read != null) {
+                                Text("This code's regions can't be written to a node.", style = small)
+                            }
+                            ScannedSettingsPlan.RegionPlan.AlreadyApplied -> Text(
+                                "$node already has these regions" +
+                                    (config.region?.let { " and #$it as its default" } ?: "") +
+                                    ". Nothing to send.",
+                                style = small,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                            is ScannedSettingsPlan.RegionPlan.Changes -> {
+                                Row(
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .toggleable(
+                                            value = writeRegions,
+                                            role = Role.Checkbox,
+                                            onValueChange = { writeRegions = it },
+                                        ),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Checkbox(checked = writeRegions, onCheckedChange = null)
+                                    Spacer(Modifier.width(8.dp))
+                                    Text("Also update $node's regions:")
+                                }
+                                for (line in ScannedSettingsPlan.describe(plan)) {
+                                    Text("• $line", style = small, modifier = Modifier.padding(start = 12.dp))
+                                }
+                                Text(
+                                    "Regions this code doesn't name are left alone, and untagged " +
+                                        "traffic isn't changed. Takes effect at once, without a " +
+                                        "reboot. Needs repeater firmware 1.16 or newer.",
+                                    style = small,
+                                )
+                            }
+                            ScannedSettingsPlan.RegionPlan.Unreadable -> Text(
+                                "Couldn't read $node's current regions, so they can't be checked " +
+                                    "and won't be written. Cancel and scan again, or use Regions.",
+                                style = small,
+                            )
+                            ScannedSettingsPlan.RegionPlan.TooManyToRead -> Text(
+                                "$node holds more regions than one reply shows, so these can't be " +
+                                    "checked here; add them under Regions.",
+                                style = small,
+                            )
+                            ScannedSettingsPlan.RegionPlan.TooLong -> Text(
+                                "Too long to write in one node command; add these under Regions.",
+                                style = small,
+                            )
+                        }
                     }
                 }
             },
             confirmButton = {
-                TextButton(onClick = {
+                TextButton(enabled = read != null, onClick = {
                     val c = config
+                    val state = read ?: return@TextButton
+                    val regionCommands = changes?.commands?.takeIf { writeRegions }
                     scannedConfig = null
+                    if (nothingToDo) return@TextButton
                     scope.launch {
-                        // TX is untouched: it is not in the code, and it
-                        // is a local legal limit rather than a property
-                        // of the mesh.
-                        val csv = RadioUnits.khzToMhzText(c.frequencyKhz) + "," +
-                            RadioUnits.hzToKhzText(c.bandwidthHz) + "," +
-                            c.spreadingFactor + "," + c.codingRate
-                        vm.cliQuery(keyHex, "set ${CliIds.RADIO} $csv")
-                        vm.cliQuery(keyHex, "set ${CliIds.PATH_HASH_MODE} ${c.pathHashMode}")
-                        values[CliFormFields.RADIO_FREQ] =
-                            RadioUnits.khzToMhzText(c.frequencyKhz)
-                        values[CliFormFields.RADIO_BW] = RadioUnits.hzToKhzText(c.bandwidthHz)
-                        values[CliFormFields.RADIO_SF] = c.spreadingFactor.toString()
-                        values[CliFormFields.RADIO_CR] = c.codingRate.toString()
-                        values[CliIds.PATH_HASH_MODE] = c.pathHashMode.toString()
-                        CliFormFields.RADIO_FIELDS.forEach { dirty[it] = false }
-                        pendingReboot = c.name.ifBlank { "The scanned settings" }
+                        if (!state.radioSame) {
+                            // TX is untouched: it is not in the code, and it
+                            // is a local legal limit rather than a property
+                            // of the mesh.
+                            val csv = RadioUnits.khzToMhzText(c.frequencyKhz) + "," +
+                                RadioUnits.hzToKhzText(c.bandwidthHz) + "," +
+                                c.spreadingFactor + "," + c.codingRate
+                            vm.cliQuery(keyHex, "set ${CliIds.RADIO} $csv")
+                            vm.cliQuery(keyHex, "set ${CliIds.PATH_HASH_MODE} ${c.pathHashMode}")
+                            values[CliFormFields.RADIO_FREQ] =
+                                RadioUnits.khzToMhzText(c.frequencyKhz)
+                            values[CliFormFields.RADIO_BW] = RadioUnits.hzToKhzText(c.bandwidthHz)
+                            values[CliFormFields.RADIO_SF] = c.spreadingFactor.toString()
+                            values[CliFormFields.RADIO_CR] = c.codingRate.toString()
+                            values[CliIds.PATH_HASH_MODE] = c.pathHashMode.toString()
+                            CliFormFields.RADIO_FIELDS.forEach { dirty[it] = false }
+                        }
+                        if (regionCommands != null) {
+                            // In order, stopping at the first refusal; save is
+                            // last, so a refused step leaves nothing on flash.
+                            var refused: String? = null
+                            for (command in regionCommands) {
+                                val reply = vm.cliQuery(keyHex, command)
+                                if (RegionAdmin.treeStepRefused(reply)) {
+                                    refused = "$node didn't take `$command`: " +
+                                        (reply?.trim()?.let { r ->
+                                            if (r.contains("??")) "$r (it needs firmware 1.16 or newer)" else r
+                                        } ?: "no reply")
+                                    break
+                                }
+                            }
+                            vm.transientMessage.value = refused ?: "Regions updated on $node"
+                        }
+                        if (!state.radioSame) pendingReboot = c.name.ifBlank { "The scanned settings" }
                     }
-                }) { Text("Apply", color = MaterialTheme.colorScheme.error) }
+                }) {
+                    Text(
+                        if (nothingToDo) "Close" else "Apply",
+                        color = if (nothingToDo) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+                    )
+                }
             },
             dismissButton = {
-                TextButton(onClick = { scannedConfig = null }) { Text("Cancel") }
+                if (!nothingToDo) TextButton(onClick = { scannedConfig = null }) { Text("Cancel") }
             },
         )
     }
@@ -841,3 +996,11 @@ private fun RemoteSection(
         }
     }
 }
+
+/** What a repeater held when a scanned code was checked against it. */
+private data class ScannedNodeState(
+    /** Its radio values already match the code's; see ScannedSettingsPlan.radioMatches. */
+    val radioSame: Boolean,
+    /** Null when the code carries no regions. */
+    val plan: ScannedSettingsPlan.RegionPlan?,
+)

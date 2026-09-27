@@ -20,9 +20,14 @@ class RadioQrWiringTest {
         val s = screen("ScanConfirmations.kt")
         // Ticked when the code named a valid region, and passed through.
         assertTrue(s.contains("mutableStateOf(config.region != null)"))
-        assertTrue(s.contains("vm.confirmRadioConfig(config, applyRegion)"))
-        // A refused region is shown, not silently dropped.
-        assertTrue(s.contains("config.rejectedRegion"))
+        // The level picked, and only while the box is ticked; the view
+        // model re-checks it against the code (regionToApply).
+        assertTrue(s.contains("vm.confirmRadioConfig(config, picked.takeIf { applyRegion })"))
+        // The code's default is preselected, else the most local level.
+        assertTrue(s.contains("mutableStateOf(config.region ?: choices.lastOrNull())"))
+        // A refused region or tree is shown, not silently dropped.
+        assertTrue(s.contains("config.rejectedRegion?"))
+        assertTrue(s.contains("config.rejectedRegionTree?"))
     }
 
     @Test
@@ -39,5 +44,21 @@ class RadioQrWiringTest {
         val svc = File("src/main/kotlin/io/github/thatsfguy/meshcore/android/service/MeshCoreService.kt").readText()
         assertTrue(svc.contains("engine.restoreFloodScope(prefs.floodScope)"))
         assertTrue(svc.contains("prefs.floodScope = it"))
+    }
+
+    @Test
+    fun `a code scanned for a repeater writes its regions only when ticked`() {
+        val s = screen("RemoteSettingsForm.kt")
+        // Unticked by default, as on the web generator's USB writer.
+        assertTrue(s.contains("var writeRegions by remember(config) { mutableStateOf(false) }"))
+        // The commands come from the tested plan, made against what the
+        // node holds now, and a refusal stops them.
+        assertTrue(s.contains("ScannedSettingsPlan.regions(tree, config.region, current, currentDefault)"))
+        assertTrue(s.contains("changes?.commands?.takeIf { writeRegions }"))
+        assertTrue(s.contains("RegionAdmin.treeStepRefused(reply)"))
+        // Radio values the node already runs are not re-sent, nor a reboot asked for.
+        assertTrue(s.contains("if (!state.radioSame) pendingReboot"))
+        // The default is stated, not just marked.
+        assertTrue(s.contains("config.regionHeadline()"))
     }
 }

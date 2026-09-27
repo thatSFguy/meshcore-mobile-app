@@ -13,6 +13,10 @@ Pair the app with a MeshCore LoRa radio — Heltec, RAK, LilyGo T-Echo, Seeed an
 in a blackout, on a ridge, or anywhere the towers stop. Direct messages, group channels, a node
 map, repeater administration, and **firmware updates flashed straight from your phone**.
 
+**Setting up a local mesh?** The **[mesh settings QR generator](https://thatsfguy.github.io/meshcore-mobile-app/settings-qr/)**
+makes a code with your area's radio settings for people to scan and join. It runs entirely in
+the browser. See [Joining a local mesh by QR](#joining-a-local-mesh-by-qr).
+
 | Chats | Nodes | Map |
 |---|---|---|
 | ![MeshCore Hardened chats screen on Android](docs/screenshots/01-chats.png) | ![MeshCore node list with contacts, repeaters and rooms](docs/screenshots/02-nodes.png) | ![LoRa mesh node map with GPS positions](docs/screenshots/04-map.png) |
@@ -141,8 +145,13 @@ whose air characteristics match what Meshtastic calls *LongFast* and *MediumFast
 frequencies are MeshCore's; the two networks do not interoperate). Settings you build
 yourself are remembered in that browser's local storage.
 
+For an area using regions, build its tree widest first — `midwest`, then `mi`, `west`, `grr` —
+and pick the default phones should use (`mi`, say). Someone scanning the code sees every level and can pick
+another. Plugged into a repeater over USB, the page can also write the same tree to the node and
+make the default its default region.
+
 The code carries frequency, bandwidth, spreading factor, coding rate, path-hash width and an
-optional flood region — and deliberately **not** transmit power or channel keys. Power is the
+optional region tree and default — and deliberately **not** transmit power or channel keys. Power is the
 legal limit where the person scanning is standing, and a channel key would make the code a
 secret rather than something safe to pin to a noticeboard. Format:
 [`MESHCORE_PROTOCOL.md` §11](MESHCORE_PROTOCOL.md); source: [`docs/settings-qr/`](docs/settings-qr/).

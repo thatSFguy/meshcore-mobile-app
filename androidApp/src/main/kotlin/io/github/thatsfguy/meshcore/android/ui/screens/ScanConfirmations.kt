@@ -4,7 +4,12 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Checkbox
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -21,6 +26,8 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import io.github.thatsfguy.meshcore.android.ui.MeshCoreViewModel
 
@@ -118,11 +125,16 @@ fun ScanConfirmations(vm: MeshCoreViewModel) {
         // right region is the point of the code. It stays a separate,
         // visible choice because it fails differently (see below).
         var applyRegion by remember(config) { mutableStateOf(config.region != null) }
+        // A tree offers every level; the code's own default is preselected,
+        // else the most local one.
+        val choices = config.regionChoices()
+        var picked by remember(config) { mutableStateOf(config.region ?: choices.lastOrNull()) }
         AlertDialog(
             onDismissRequest = { vm.pendingRadioConfig.value = null },
             title = { Text("Apply these radio settings?") },
             text = {
-                Column {
+                // Scrolls: a region tree adds a row per level.
+                Column(Modifier.verticalScroll(rememberScrollState())) {
                     Text(
                         config.name.ifBlank { "(unnamed mesh)" },
                         style = MaterialTheme.typography.titleMedium,
@@ -142,8 +154,12 @@ fun ScanConfirmations(vm: MeshCoreViewModel) {
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.error,
                     )
-                    config.region?.let {
-                        Spacer(Modifier.height(8.dp))
+                    picked?.takeIf { choices.isNotEmpty() }?.let { current ->
+                        Spacer(Modifier.height(12.dp))
+                        Text("Region", style = MaterialTheme.typography.titleSmall)
+                        config.regionHeadline()?.let {
+                            Text(it, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                        }
                         Row(
                             Modifier
                                 .fillMaxWidth()
@@ -156,16 +172,70 @@ fun ScanConfirmations(vm: MeshCoreViewModel) {
                         ) {
                             Checkbox(checked = applyRegion, onCheckedChange = null)
                             Spacer(Modifier.width(8.dp))
-                            Text("Also set this phone's region to #$it")
+                            Text(
+                                if (choices.size > 1) "Set this phone's region to:"
+                                else "Also set this phone's region to #$current",
+                            )
+                        }
+                        if (choices.size > 1) {
+                            // The whole tree, widest first, each level
+                            // indented under the one above — the same
+                            // picture the web generator draws.
+                            choices.forEachIndexed { depth, choice ->
+                                Row(
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .padding(start = (12 + 14 * depth).dp)
+                                        .selectable(
+                                            selected = current == choice,
+                                            enabled = applyRegion,
+                                            role = Role.RadioButton,
+                                            onClick = { picked = choice },
+                                        ),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    RadioButton(
+                                        selected = current == choice,
+                                        onClick = null,
+                                        enabled = applyRegion,
+                                    )
+                                    Spacer(Modifier.width(4.dp))
+                                    Text(
+                                        (if (depth > 0) "└ " else "") + "#$choice",
+                                        fontFamily = FontFamily.Monospace,
+                                    )
+                                    if (choice == config.region) {
+                                        Spacer(Modifier.width(8.dp))
+                                        Text(
+                                            "default",
+                                            style = MaterialTheme.typography.labelMedium,
+                                            color = MaterialTheme.colorScheme.primary,
+                                        )
+                                    }
+                                }
+                            }
                         }
                         // Named separately because it is a different
                         // failure: wrong radio values make you deaf,
                         // a wrong region leaves you audible but unable
-                        // to propagate.
+                        // to propagate. Each level stands alone on the
+                        // air — a repeater holding only #grr does not
+                        // relay #mi — which is why the tree is offered
+                        // rather than assumed.
                         Text(
                             "Your messages then travel only through repeaters that carry " +
-                                "#$it. Change it later under Mesh policies → Regions.",
+                                "#$current. Change it later under Mesh policies → Regions.",
                             style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                    config.rejectedRegionTree?.let {
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            "It also lists regions \"$it\", which isn't a list this app can use " +
+                                "(up to ${io.github.thatsfguy.meshcore.protocol.ShareUri.MAX_REGION_TREE} " +
+                                "valid names, each once, including the default), so it is ignored.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
                         )
                     }
                     config.rejectedRegion?.let {
@@ -180,7 +250,7 @@ fun ScanConfirmations(vm: MeshCoreViewModel) {
                 }
             },
             confirmButton = {
-                TextButton(onClick = { vm.confirmRadioConfig(config, applyRegion) }) {
+                TextButton(onClick = { vm.confirmRadioConfig(config, picked.takeIf { applyRegion }) }) {
                     Text("Apply", color = MaterialTheme.colorScheme.error)
                 }
             },

@@ -78,6 +78,21 @@ object ShareUri {
      */
     const val RADIO_PATH = "radio/set"
 
+    /**
+     * The mesh's region tree, top first, comma-separated:
+     * `regions=midwest,mi,west,grr`. Optional, and read alongside
+     * `region`, which stays the default scope — so a phone that predates
+     * the tree still scans the code and scopes to the same region.
+     */
+    const val REGION_TREE_PARAM = "regions"
+
+    /**
+     * Most names a region tree may carry. A local mesh's chain runs from
+     * a wide area down to a town; eight levels is well past any real one,
+     * and the web generator enforces the same number.
+     */
+    const val MAX_REGION_TREE = 8
+
     /** Format version, so a later field can be added without ambiguity. */
     const val RADIO_VERSION = 1
 
@@ -153,6 +168,7 @@ object ShareUri {
         codingRate: Int,
         pathHashMode: Int,
         region: String? = null,
+        regionTree: List<String> = emptyList(),
     ): String = buildString {
         append(SCHEME).append(RADIO_PATH)
         append("?v=").append(RADIO_VERSION)
@@ -168,6 +184,31 @@ object ShareUri {
         region?.let { Regions.canonical(it) }?.let {
             append("&region=").append(percentEncode(it))
         }
+        // All or nothing, by the decoder's rules: a tree the decoder would
+        // refuse is not written at all. A tree that is just the default
+        // says nothing `region` doesn't.
+        val default = region?.let { Regions.canonical(it) }
+        val tree = regionTree.mapNotNull { Regions.canonical(it) }
+            .takeIf { it.size == regionTree.size }
+            ?.let { validRegionTree(it, default) }
+        if (tree != null && tree != listOfNotNull(default)) {
+            append("&").append(REGION_TREE_PARAM).append("=").append(tree.joinToString(","))
+        }
+    }
+
+    /**
+     * [tree] if it is a region tree a code may carry, else null: 1 to
+     * [MAX_REGION_TREE] names, each already canonical, none repeated, and
+     * containing [default] when there is one. A default outside the tree
+     * means the code contradicts itself, and neither half can be trusted
+     * to be the one its author meant.
+     */
+    fun validRegionTree(tree: List<String>, default: String?): List<String>? {
+        if (tree.isEmpty() || tree.size > MAX_REGION_TREE) return null
+        if (tree.any { Regions.canonical(it) != it }) return null
+        if (tree.toSet().size != tree.size) return null
+        if (default != null && default !in tree) return null
+        return tree
     }
 
     // ------------------------------------------------------------------
@@ -258,7 +299,42 @@ object ShareUri {
              * meant — and the rest of the code is still worth applying.
              */
             val rejectedRegion: String? = null,
+            /**
+             * The mesh's region tree, top first, when the code carries one
+             * — `[midwest, mi, west, grr]`. [region] is one of these, or
+             * null when the author named no default. Empty otherwise.
+             */
+            val regionTree: List<String> = emptyList(),
+            /** A tree the code carried but that failed [validRegionTree], as written. */
+            val rejectedRegionTree: String? = null,
         ) : Decoded {
+            /**
+             * The regions a scanner may pick as their own scope: every
+             * level of the tree, or just [region] when there is no tree.
+             */
+            fun regionChoices(): List<String> =
+                regionTree.ifEmpty { listOfNotNull(region) }
+
+            /**
+             * [pick] if it is one of [regionChoices], else null. The
+             * confirmation dialog is the only caller, but the region it
+             * hands back is applied to a radio, so it is checked here.
+             */
+            fun regionToApply(pick: String?): String? = pick?.takeIf { it in regionChoices() }
+
+            /**
+             * The sentence the confirmation dialog leads its region part
+             * with, or null when the code names no region at all. It says
+             * which level is the default in so many words: marking it on
+             * one row of a list was easy to miss.
+             */
+            fun regionHeadline(): String? = when {
+                regionTree.size > 1 && region != null -> "This mesh's default region is #$region."
+                regionTree.size > 1 -> "This code names no default region. Pick one below."
+                region != null -> "This mesh's region is #$region."
+                else -> null
+            }
+
             /** MHz · kHz · SF · CR, for a confirmation dialog. */
             fun summary(): String = buildString {
                 append(RadioUnits.khzToMhzText(frequencyKhz)).append(" MHz · ")
@@ -457,6 +533,14 @@ object ShareUri {
         val rawRegion = params["region"]?.takeIf { it.isNotEmpty() }
         val region = rawRegion?.removePrefix("#")?.takeIf { Regions.canonical(it) == it }
 
+        // Judged the same way, name by name, and as a whole: a tree that
+        // doesn't contain the code's own default is refused, not trimmed.
+        val rawTree = params[REGION_TREE_PARAM]?.takeIf { it.isNotEmpty() }
+        val tree = rawTree
+            ?.split(',')
+            ?.map { it.removePrefix("#") }
+            ?.let { validRegionTree(it, region) }
+
         return Decoded.RadioConfig(
             name = sanitizeName(params["name"].orEmpty()),
             frequencyKhz = frequencyKhz,
@@ -467,6 +551,8 @@ object ShareUri {
             region = region,
             // Shown to the user, so scrubbed like any other display text.
             rejectedRegion = rawRegion?.takeIf { region == null }?.let { sanitizeName(it).ifBlank { "?" } },
+            regionTree = tree.orEmpty(),
+            rejectedRegionTree = rawTree?.takeIf { tree == null }?.let { sanitizeName(it).ifBlank { "?" } },
         )
     }
 

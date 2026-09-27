@@ -773,7 +773,7 @@ display text in both forms; only the public key identifies anyone.
    carrying a 32-byte channel secret — not radio parameters. Expect no interop yet.
 
    ```
-   meshcore://radio/set?v=1&name=<pct>&freq=<MHz>&bw=<kHz>&sf=<5-12>&cr=<5-8>&hash=<0-2>[&region=<pct>]
+   meshcore://radio/set?v=1&name=<pct>&freq=<MHz>&bw=<kHz>&sf=<5-12>&cr=<5-8>&hash=<0-2>[&region=<pct>][&regions=<a>,<b>,…]
    ```
 
    Units are the human ones (MHz, kHz), converted to the wire's kHz/Hz on import. `hash` is
@@ -789,6 +789,19 @@ display text in both forms; only the public key identifies anyone.
    web generator write only canonical names; the generator lowercases as you type. The code
    never writes regions to a *repeater*: which regions a node carries, and whether it still
    relays untagged traffic, is the operator's call on that node.
+
+   **`regions` is the area's region tree** (added 2026-09-26), widest first, comma-separated:
+   `regions=midwest,mi,west,grr`. `region` stays the **default** and must be one of its names;
+   a tree that leaves out its own default, repeats a name, holds a non-canonical one or more
+   than 8 is refused whole (`ShareUri.validRegionTree`) and the default still applies. A phone
+   that predates trees reads only `region`, so it scopes to the default as before. The scanner
+   is offered every level, with the default preselected. On the air a level stands alone —
+   `RegionMap::findMatch` compares the packet's transport code with each region the repeater
+   holds and never consults a parent, so a repeater holding only `grr` does not relay `#mi`.
+   The tree matters to *repeaters*: the web generator's USB writer, when the operator ticks it,
+   sends `region def midwest mi west grr` (each name a child of the one before, firmware
+   1.16+), `region default <default>` and `region save` to the node on the cable. Untagged
+   traffic is never touched.
 
    **Deliberately absent: TX power and channel keys.** Every field present is "match this
    or you are not on the mesh"; TX power is not — it is the legal limit where the *scanner*

@@ -1,6 +1,7 @@
 package io.github.thatsfguy.meshcore.android.ui
 
 import io.github.thatsfguy.meshcore.protocol.Regions
+import io.github.thatsfguy.meshcore.protocol.ShareUri
 import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -34,8 +35,29 @@ class SettingsQrRegionParityTest {
     fun `the page normalises as the app canonicalises`() {
         // Strip one '#', trim, lowercase — Regions.canonical's steps.
         assertTrue(page.contains(""".trim().replace(/^#/, "").toLowerCase()"""))
-        // And writes the normalised value, never the raw field.
-        assertTrue(page.contains("""region: normRegion(${'$'}("region").value)"""))
+        // And writes normalised values, never the raw fields.
+        assertTrue(page.contains("""region: rgDefault >= 0 ? normRegion(rgRows[rgDefault]) : "","""))
+        assertTrue(page.contains("""function rgNames() { return rgRows.map(normRegion); }"""))
         assertTrue(page.contains("""encodeURIComponent(c.region)"""))
+    }
+
+    @Test
+    fun `the page limits a region tree as the app does`() {
+        val js = Regex("""const MAX_REGION_TREE = (\d+);""").find(page)
+        assertTrue("MAX_REGION_TREE not found in the generator", js != null)
+        assertEquals(ShareUri.MAX_REGION_TREE, js!!.groupValues[1].toInt())
+        // The parameter the app reads, and `region` kept as the default.
+        assertTrue(page.contains("\"&${ShareUri.REGION_TREE_PARAM}=\""))
+        assertTrue(page.contains("\"&region=\" + encodeURIComponent(c.region)"))
+        // The default must be in the tree, or the app refuses the tree.
+        assertTrue(page.contains("c.region && !c.regions.includes(c.region)"))
+    }
+
+    @Test
+    fun `the page never splits a region name on a space`() {
+        // "mid west" must be an error to fix, not two regions nobody meant.
+        val split = Regex("""const parseTree = s => String\(s \?\? ""\)\.split\(/\[([^\]]*)\]/\)""").find(page)
+        assertTrue("parseTree not found in the generator", split != null)
+        assertTrue(" " !in split!!.groupValues[1] && "\\s" !in split.groupValues[1])
     }
 }
