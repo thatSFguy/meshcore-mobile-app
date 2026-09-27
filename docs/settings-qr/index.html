@@ -3198,6 +3198,47 @@ function captionLines() {
   return [c.name || "(unnamed mesh)", l2, l3, "Scan with MeshCore Hardened"];
 }
 
+/* The settings line grows with the region tree and was always wider than
+ * the code once it carried one: the canvas squeezed it to half width and
+ * the SVG cut it off at the edge. Both now break it at its own separators
+ * — " · ", " › " and " ≈ " (the last two kept at the line end, so the tree
+ * and the airtime read as continuing), and before the tree's "(" — so
+ * every value stays readable on paper.
+ * A single piece still too wide is squeezed by the caller, as before. */
+function wrapCaption(line, width, maxW) {
+  const bits = line.split(/( · | › | ≈ | (?=\())/);
+  // " ›" and " ≈" belong to the piece before them, so they are measured
+  // with it and a line broken there fits with its symbol on the end.
+  const pieces = [bits[0]], joins = [];
+  for (let i = 1; i < bits.length; i += 2) {
+    const sep = bits[i];
+    if (sep === " › " || sep === " ≈ ") {
+      pieces[pieces.length - 1] += sep.trimEnd();
+      joins.push(" ");
+    } else {
+      joins.push(sep);
+    }
+    pieces.push(bits[i + 1]);
+  }
+  const out = [];
+  let cur = pieces[0];
+  for (let i = 1; i < pieces.length; i++) {
+    const cand = cur + joins[i - 1] + pieces[i];
+    if (width(cand) <= maxW) { cur = cand; continue; }
+    out.push(cur);
+    cur = pieces[i];
+  }
+  out.push(cur);
+  return out;
+}
+
+/* Title, wrapped body lines, and the footer, for a given measure. */
+function captionLayout(width, maxW) {
+  const [title, ...rest] = captionLines();
+  const foot = rest.pop();
+  return { title, body: rest.flatMap(l => wrapCaption(l, width, maxW)), foot };
+}
+
 let lastUri = "", lastQr = null;
 
 function render() {
@@ -3244,14 +3285,18 @@ function render() {
 function drawCanvas(qr, scale) {
   const n = qr.getModuleCount(), quiet = 4;
   const w = (n + quiet * 2) * scale;
-  const lines = captionLines();
   const pad = 10, titleSize = 15, bodySize = 12, gap = 5;
-  const capH = pad + titleSize + gap + (lines.length - 1) * (bodySize + gap) + pad;
+  const bodyFont = `${bodySize}px ui-monospace, Menlo, Consolas, monospace`;
 
   const cv = document.createElement("canvas");
+  const g = cv.getContext("2d");
+  g.font = bodyFont;
+  const cap = captionLayout(t => g.measureText(t).width, w - 12);
+  const lines = [cap.title, ...cap.body, cap.foot];
+  const capH = pad + titleSize + gap + (lines.length - 1) * (bodySize + gap) + pad;
+  // Sizing the canvas resets its state, font included; both are set below.
   cv.width = w;
   cv.height = w + capH;
-  const g = cv.getContext("2d");
   g.fillStyle = "#fff";
   g.fillRect(0, 0, cv.width, cv.height);
   g.fillStyle = "#000";
@@ -3264,7 +3309,7 @@ function drawCanvas(qr, scale) {
   g.fillStyle = "#000";
   g.font = `600 ${titleSize}px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif`;
   g.fillText(lines[0], w / 2, y, w - 12);
-  g.font = `${bodySize}px ui-monospace, Menlo, Consolas, monospace`;
+  g.font = bodyFont;
   for (let i = 1; i < lines.length; i++) {
     y += bodySize + gap;
     g.fillStyle = i === lines.length - 1 ? "#666" : "#222";
@@ -3276,25 +3321,36 @@ function drawCanvas(qr, scale) {
 function svgText() {
   if (!lastQr) return null;
   const n = lastQr.getModuleCount(), quiet = 4, size = n + quiet * 2;
-  const lines = captionLines();
-  const capH = 6 + 5 + (lines.length - 1) * 4 + 5;
+  // Same margin as the canvas (12 px at 6 px a module). Text is measured
+  // at ten times the SVG's font sizes, on a scratch canvas.
+  const maxW = size - 2;
+  const g = document.createElement("canvas").getContext("2d");
+  const titleFont = "600 40px system-ui, sans-serif", bodyFont = "31px ui-monospace, monospace";
+  const measure = (t, font) => { g.font = font; return g.measureText(t).width / 10; };
+  const cap = captionLayout(t => measure(t, bodyFont), maxW);
+  const lines = [cap.title, ...cap.body, cap.foot];
+  const capH = +(6 + (lines.length - 1) * 4.6 + 5).toFixed(1);
   let d = "";
   for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) {
     if (lastQr.isDark(r, c)) d += `M${c + quiet} ${r + quiet}h1v1h-1z`;
   }
   const esc = t => t.replace(/[<>&]/g, m => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;" }[m]));
+  // SVG has no fillText maxWidth; textLength is its equivalent, for a
+  // piece wrapping could not shorten (a long mesh name, say).
+  const fit = (t, font) =>
+    measure(t, font) > maxW ? ` textLength="${maxW}" lengthAdjust="spacingAndGlyphs"` : "";
   let text = `<text x="${size / 2}" y="${size + 6}" text-anchor="middle" ` +
-             `font-family="system-ui,sans-serif" font-size="4" font-weight="600" ` +
-             `fill="#000">${esc(lines[0])}</text>`;
+             `font-family="system-ui,sans-serif" font-size="4" font-weight="600"` +
+             `${fit(lines[0], titleFont)} fill="#000">${esc(lines[0])}</text>`;
   let y = size + 6;
   for (let i = 1; i < lines.length; i++) {
-    y += 4.6;
+    y = +(y + 4.6).toFixed(1);
     text += `<text x="${size / 2}" y="${y}" text-anchor="middle" ` +
-            `font-family="ui-monospace,monospace" font-size="3.1" ` +
+            `font-family="ui-monospace,monospace" font-size="3.1"${fit(lines[i], bodyFont)} ` +
             `fill="${i === lines.length - 1 ? "#666" : "#222"}">${esc(lines[i])}</text>`;
   }
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${size} ${size + capH}" ` +
-         `shape-rendering="crispEdges"><rect width="${size}" height="${size + capH}" fill="#fff"/>` +
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${size} ${+(size + capH).toFixed(1)}" ` +
+         `shape-rendering="crispEdges"><rect width="${size}" height="${+(size + capH).toFixed(1)}" fill="#fff"/>` +
          `<path d="${d}" fill="#000"/>${text}</svg>`;
 }
 
