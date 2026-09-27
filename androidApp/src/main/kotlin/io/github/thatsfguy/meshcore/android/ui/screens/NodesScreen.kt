@@ -95,6 +95,27 @@ import java.util.Date
 fun NodesScreen(vm: MeshCoreViewModel, nav: NavController) {
     val contacts by vm.dbContacts.collectAsState()
     var detail by remember { mutableStateOf<ContactEntity?>(null) }
+    // A heard-but-not-added node's sheet, and the key of one just added
+    // from it: when the radio's contact list gains that key, its full
+    // contact sheet opens in the heard sheet's place.
+    var heardDetail by remember {
+        mutableStateOf<io.github.thatsfguy.meshcore.android.storage.DiscoveredEntity?>(null)
+    }
+    var openWhenAdded by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(contacts, openWhenAdded) {
+        val key = openWhenAdded ?: return@LaunchedEffect
+        contacts.firstOrNull { it.keyHex == key }?.let {
+            detail = it
+            openWhenAdded = null
+        }
+    }
+    LaunchedEffect(openWhenAdded) {
+        // An Add the radio refused never appears; stop waiting for it.
+        if (openWhenAdded != null) {
+            kotlinx.coroutines.delay(30_000)
+            openWhenAdded = null
+        }
+    }
     var staleOpen by remember { mutableStateOf(false) }
 
     val scanLauncher = rememberLauncherForActivityResult(ScanContract()) { result ->
@@ -160,6 +181,8 @@ fun NodesScreen(vm: MeshCoreViewModel, nav: NavController) {
             // one you should not have to arrange again.
             var sort by remember { mutableStateOf(vm.prefs.nodesSort) }
             var filters by remember { mutableStateOf(vm.prefs.nodesFilters) }
+            // Muting newcomers: nodes heard but not added, and their badges.
+            var hideHeard by remember { mutableStateOf(vm.prefs.nodesHideHeard) }
             // Contacts tab folds in sensors/unknown types.
             val ofThisType = contacts.filter { NodeTab.of(it.type) == tab }
             // Searching, narrowing and ordering are all NodeListModel's,
@@ -174,7 +197,7 @@ fun NodesScreen(vm: MeshCoreViewModel, nav: NavController) {
             )
             // Heard but not added: on the tab for their own kind, not in a
             // tab of their own. See [NodeTab].
-            val newCounts = NodeTabsModel.counts(discovered)
+            val newCounts = NodeTabsModel.counts(discovered, hidden = hideHeard)
             val signals by vm.heardSignals.collectAsState()
             // Useful ones first — relayed your traffic or heard direct —
             // then the rest, each group newest first (the sort is stable).
@@ -183,6 +206,7 @@ fun NodesScreen(vm: MeshCoreViewModel, nav: NavController) {
                 heard = discovered,
                 query = query,
                 filtersActive = filters.isNotEmpty(),
+                hidden = hideHeard,
             ).sortedByDescending { d ->
                 signals[d.keyHex]?.let { it.provenRelay || it.heardDirect } == true
             }
@@ -245,6 +269,12 @@ fun NodesScreen(vm: MeshCoreViewModel, nav: NavController) {
                     filters = emptySet()
                     vm.prefs.nodesFilters = filters
                 },
+                hideHeard = hideHeard,
+                hiddenNote = NodeTabsModel.hiddenNote(tab, discovered, hideHeard),
+                onHideHeardChange = {
+                    hideHeard = it
+                    vm.prefs.nodesHideHeard = it
+                },
             )
 
             if (tabContacts.isEmpty() && heard.isEmpty()) {
@@ -259,6 +289,9 @@ fun NodesScreen(vm: MeshCoreViewModel, nav: NavController) {
                                 ".\nClear the filters from the list menu beside the search box."
                         query.isNotBlank() && ofThisType.isNotEmpty() ->
                             "Nothing here matches \"$query\"."
+                        hideHeard && discovered.any { NodeTab.of(it.type) == tab } ->
+                            "Nothing added here yet, and nodes not added are hidden.\n" +
+                                "Tap Show above to see them."
                         tab == NodeTab.Repeaters -> "No repeaters heard yet."
                         tab == NodeTab.Rooms -> "No room servers heard yet."
                         else -> "No contacts yet.\nContacts appear when nearby nodes advertise, or scan a contact QR with +."
@@ -289,6 +322,7 @@ fun NodesScreen(vm: MeshCoreViewModel, nav: NavController) {
                                 DiscoveredRow(
                                     node = d,
                                     signals = signals[d.keyHex],
+                                    onOpen = { heardDetail = d },
                                     onAdd = { vm.addDiscovered(d.keyHex) },
                                     onDismiss = { vm.dismissDiscovered(d.keyHex) },
                                 )
@@ -329,6 +363,24 @@ fun NodesScreen(vm: MeshCoreViewModel, nav: NavController) {
     }
     if (staleOpen) {
         StaleNodesDialog(vm, onDismiss = { staleOpen = false })
+    }
+
+    heardDetail?.let { node ->
+        HeardDetailSheet(
+            vm = vm,
+            node = node,
+            signals = vm.heardSignals.collectAsState().value[node.keyHex],
+            onDismiss = { heardDetail = null },
+            onAdd = {
+                heardDetail = null
+                openWhenAdded = node.keyHex
+                vm.addDiscovered(node.keyHex)
+            },
+            onForget = {
+                heardDetail = null
+                vm.dismissDiscovered(node.keyHex)
+            },
+        )
     }
 
     detail?.let { contact ->
@@ -388,6 +440,9 @@ private fun NodeListControls(
     onSortChange: (NodeListModel.Sort) -> Unit,
     onToggleFilter: (NodeListModel.Filter) -> Unit,
     onClearFilters: () -> Unit,
+    hideHeard: Boolean,
+    hiddenNote: String?,
+    onHideHeardChange: (Boolean) -> Unit,
 ) {
     var open by remember { mutableStateOf(false) }
     Row(
@@ -407,10 +462,11 @@ private fun NodeListControls(
                     Icons.AutoMirrored.Filled.List,
                     contentDescription = "Sort and filter — " +
                         sort.label.lowercase() +
-                        if (filters.isEmpty()) "" else ", ${filters.size} filter on",
+                        (if (filters.isEmpty()) "" else ", ${filters.size} filter on") +
+                        (if (hideHeard) ", nodes not added hidden" else ""),
                     // Tinted when something is hidden, so the state is
                     // visible without opening the menu.
-                    tint = if (filters.isEmpty()) MaterialTheme.colorScheme.onSurfaceVariant
+                    tint = if (filters.isEmpty() && !hideHeard) MaterialTheme.colorScheme.onSurfaceVariant
                     else MaterialTheme.colorScheme.primary,
                 )
             }
@@ -438,6 +494,15 @@ private fun NodeListControls(
                         trailingIcon = { if (option in filters) SelectedTick() },
                     )
                 }
+                HorizontalDivider()
+                MenuHeading("New nodes")
+                // A standing choice rather than a filter: Clear filters
+                // leaves it alone, and the list says so while it is on.
+                DropdownMenuItem(
+                    text = { Text("Hide nodes not added") },
+                    onClick = { onHideHeardChange(!hideHeard) },
+                    trailingIcon = { if (hideHeard) SelectedTick() },
+                )
                 if (filters.isNotEmpty()) {
                     HorizontalDivider()
                     DropdownMenuItem(
@@ -459,6 +524,22 @@ private fun NodeListControls(
             modifier = Modifier.padding(horizontal = 16.dp).padding(bottom = 4.dp),
         )
     }
+    // Muted newcomers stay one tap from view — the "discover" step is
+    // turning this off, not digging through a menu to remember it's on.
+    hiddenNote?.let { note ->
+        Row(
+            Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                note,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.weight(1f),
+            )
+            TextButton(onClick = { onHideHeardChange(false) }) { Text("Show") }
+        }
+    }
 }
 
 @Composable
@@ -477,14 +558,22 @@ private fun SelectedTick() {
 }
 
 @Composable
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 private fun DiscoveredRow(
     node: io.github.thatsfguy.meshcore.android.storage.DiscoveredEntity,
     signals: io.github.thatsfguy.meshcore.presentation.RepeaterSignals.Signals? = null,
+    onOpen: () -> Unit,
     onAdd: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     Row(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+        Modifier
+            .fillMaxWidth()
+            // Tap and long-press both open the node's sheet. A contact's
+            // tap can go to administration; this node can't be
+            // administered until it is added, so both mean "tell me more".
+            .combinedClickable(onClick = onOpen, onLongClick = onOpen)
+            .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         NodeAvatar(
@@ -647,6 +736,118 @@ private fun ContactRow(
     }
 }
 
+/**
+ * Position and distance, for either node sheet. One copy on purpose: the
+ * two rows once used different rules and contradicted each other in the
+ * same sheet (a node a few microdegrees from Null Island printed
+ * "0.00000, 0.00000" over a Distance of "Unknown"; reported 2026-09-07).
+ */
+@Composable
+private fun PositionRows(
+    lat: Double?,
+    lon: Double?,
+    selfLat: Double?,
+    selfLon: Double?,
+    units: io.github.thatsfguy.meshcore.presentation.UnitSystem,
+) {
+    if (!isPlausiblePosition(lat, lon)) return
+    Spacer(Modifier.height(8.dp))
+    DetailRow("Position", "%.5f, %.5f".format(lat, lon))
+    val distance = if (isPlausiblePosition(selfLat, selfLon)) {
+        Units.distance(haversineMetres(selfLat!!, selfLon!!, lat!!, lon!!), units)
+    } else {
+        "Unknown"
+    }
+    DetailRow("Distance away", distance)
+}
+
+/**
+ * A node heard over the air but not in the radio's contacts: what is
+ * known about it, laid out as a contact's sheet is, and Add.
+ *
+ * Messaging, administration, routes, favourites, permissions and rename
+ * all act on a contact the RADIO holds (CMD_SEND_LOGIN, CMD_SEND_TXT_MSG
+ * and the rest look it up by key), so they can't be offered here. The
+ * sheet says so, and Add opens the full contact sheet once the radio has
+ * the node — the one step between this and every other option.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun HeardDetailSheet(
+    vm: MeshCoreViewModel,
+    node: io.github.thatsfguy.meshcore.android.storage.DiscoveredEntity,
+    signals: io.github.thatsfguy.meshcore.presentation.RepeaterSignals.Signals?,
+    onDismiss: () -> Unit,
+    onAdd: () -> Unit,
+    onForget: () -> Unit,
+) {
+    val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
+    val self = vm.selfInfo.collectAsState().value
+    val units by vm.unitSystem.collectAsState()
+    val stamp = DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(
+            Modifier
+                .padding(horizontal = 24.dp)
+                .padding(bottom = 32.dp)
+                .verticalScroll(rememberScrollState()),
+        ) {
+            Text(node.name.ifBlank { "Unnamed node" }, style = MaterialTheme.typography.headlineSmall)
+            Text(
+                typeLabel(node.type).dropLast(1) + " · heard, not added",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary,
+            )
+            Spacer(Modifier.height(12.dp))
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Public key", style = MaterialTheme.typography.labelLarge)
+                    Text(node.keyHex, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
+                }
+                TextButton(onClick = {
+                    clipboard.setText(androidx.compose.ui.text.AnnotatedString(node.keyHex))
+                }) { Text("Copy") }
+            }
+
+            PositionRows(node.latitude, node.longitude, self?.latitude, self?.longitude, units)
+
+            // Local arrival times — never the advert's own timestamp,
+            // which is the node's clock (see LastHeard).
+            DetailRow(
+                "Last heard",
+                relativeAge(node.lastHeardAt / 1000) + " · " + stamp.format(Date(node.lastHeardAt)),
+            )
+            if (node.firstHeardAt in 1 until node.lastHeardAt) {
+                DetailRow("First heard", stamp.format(Date(node.firstHeardAt)))
+            }
+            // Hops, and the node's own signal only when heard direct: after
+            // a relay the latest SNR is the last repeater's (HeardReach).
+            io.github.thatsfguy.meshcore.presentation.HeardReach.of(node.minHops, node.directSnr)
+                ?.let { DetailRow("Hops away", it) }
+            signals?.let {
+                (if (node.type == Codes.ADV_TYPE_REPEATER) it else it.copy(relayed = 0))
+                    .copy(heardDirect = false)
+            }?.let { io.github.thatsfguy.meshcore.presentation.RepeaterSignals.describe(it) }
+                ?.let { DetailRow("Why add it", it) }
+
+            Spacer(Modifier.height(12.dp))
+            Text(
+                "Messaging, " +
+                    (if (node.type == Codes.ADV_TYPE_CHAT) "" else "administering, ") +
+                    "routes, favourites and renaming need it in your radio's contacts. " +
+                    "Add it, and its full sheet opens.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            TextButton(onClick = onAdd) { Text("Add to contacts") }
+            TextButton(onClick = onForget) {
+                Text("Forget this node", color = MaterialTheme.colorScheme.error)
+            }
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ContactDetailSheet(
@@ -714,25 +915,7 @@ fun ContactDetailSheet(
             // non-null, so Position printed "0.00000, 0.00000" while
             // Distance directly underneath it said "Unknown". Reported
             // from the Public channel, 2026-09-07.
-            if (isPlausiblePosition(contact.latitude, contact.longitude)) {
-                Spacer(Modifier.height(8.dp))
-                DetailRow("Position", "%.5f, %.5f".format(contact.latitude, contact.longitude))
-                val selfLat = self?.latitude
-                val selfLon = self?.longitude
-                val theirLat = contact.latitude
-                val theirLon = contact.longitude
-                val distance = if (isPlausiblePosition(selfLat, selfLon) &&
-                    isPlausiblePosition(theirLat, theirLon)
-                ) {
-                    Units.distance(
-                        haversineMetres(selfLat!!, selfLon!!, theirLat!!, theirLon!!),
-                        units,
-                    )
-                } else {
-                    "Unknown"
-                }
-                DetailRow("Distance away", distance)
-            }
+            PositionRows(contact.latitude, contact.longitude, self?.latitude, self?.longitude, units)
 
             if (LastHeard.seconds(contact) > 0) {
                 DetailRow(

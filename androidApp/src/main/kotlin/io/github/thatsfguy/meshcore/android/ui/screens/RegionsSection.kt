@@ -61,7 +61,7 @@ fun RegionsSection(vm: MeshCoreViewModel) {
     stuck?.let {
         Spacer(Modifier.height(4.dp))
         Text(
-            "The radio may still be scoped to #$it — restoring the scope after a send " +
+            "The radio may still be scoped to region $it — restoring the scope after a send " +
                 "failed. Reconnect, or set the flood scope below, before sending again.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.error,
@@ -109,7 +109,9 @@ fun RegionsSection(vm: MeshCoreViewModel) {
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column(Modifier.weight(1f)) {
-                    Text("#$region", style = MaterialTheme.typography.bodyLarge)
+                    // A bullet, not '#': the '#' read as part of the name, and a
+                    // repeater lists this same region as a bare "mi".
+                    Text("• $region", style = MaterialTheme.typography.bodyLarge)
                     if (usedBy.isNotEmpty()) {
                         HintText(
                             "Used by channel " + usedBy.joinToString(", ") { it.toString() },
@@ -127,7 +129,7 @@ fun RegionsSection(vm: MeshCoreViewModel) {
         val usedBy = channelRegions.filterValues { it == region }.keys.sorted()
         AlertDialog(
             onDismissRequest = { confirmDelete = null },
-            title = { Text("Forget #$region?") },
+            title = { Text("Forget region $region?") },
             text = {
                 Text(
                     if (usedBy.isEmpty()) {
@@ -210,7 +212,7 @@ private fun DiscoveredRegionsDialog(
                             Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Text("#$region", Modifier.weight(1f))
+                            Text("• $region", Modifier.weight(1f))
                             if (region in known) {
                                 HintText("added")
                             } else {
@@ -245,12 +247,12 @@ fun ChannelRegionPicker(vm: MeshCoreViewModel, channelIndex: Int) {
         if (current == null) {
             "Unscoped: messages on this channel flood the whole mesh."
         } else {
-            "Messages on this channel are sent with the #$current flood scope. This " +
+            "Messages on this channel are sent scoped to region $current. This " +
                 "changes which repeaters carry them, not who can read them."
         },
     )
     ChoiceChips(
-        options = listOf("None") + regions.map { "#$it" },
+        options = listOf("None") + regions,
         selected = if (current == null) 0 else regions.indexOf(current) + 1,
     ) { index ->
         vm.setChannelRegion(channelIndex, if (index == 0) null else regions[index - 1])

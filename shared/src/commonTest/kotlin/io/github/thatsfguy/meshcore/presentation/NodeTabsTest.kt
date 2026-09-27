@@ -89,4 +89,34 @@ class NodeTabsTest {
         assertEquals("Repeaters, 3 new", NodeTabsModel.spokenLabel(NodeTab.Repeaters, 3))
         assertEquals("Repeaters", NodeTabsModel.spokenLabel(NodeTab.Repeaters, 0))
     }
+
+    @Test
+    fun `hiding nodes not added empties every tab's heard section`() {
+        for (tab in NodeTab.entries) {
+            assertTrue(
+                NodeTabsModel.heardFor(tab, all, query = "", filtersActive = false, hidden = true).isEmpty(),
+                "$tab still showed newcomers",
+            )
+        }
+        // Even a search that names one: hidden means hidden.
+        assertTrue(
+            NodeTabsModel.heardFor(NodeTab.Repeaters, all, query = "Kent", filtersActive = false, hidden = true)
+                .isEmpty(),
+        )
+    }
+
+    @Test
+    fun `hidden newcomers light no badge`() {
+        assertEquals(emptyMap(), NodeTabsModel.counts(all, hidden = true))
+        // Positive control: shown, they count.
+        assertEquals(2, NodeTabsModel.counts(all, hidden = false)[NodeTab.Repeaters])
+    }
+
+    @Test
+    fun `the list keeps saying what it is hiding`() {
+        assertEquals("Hiding 2 nodes not added", NodeTabsModel.hiddenNote(NodeTab.Repeaters, all, hidden = true))
+        assertEquals("Hiding 1 node not added", NodeTabsModel.hiddenNote(NodeTab.Rooms, all, hidden = true))
+        assertEquals("Hiding nodes not added", NodeTabsModel.hiddenNote(NodeTab.Sensors, all, hidden = true))
+        assertEquals(null, NodeTabsModel.hiddenNote(NodeTab.Repeaters, all, hidden = false))
+    }
 }

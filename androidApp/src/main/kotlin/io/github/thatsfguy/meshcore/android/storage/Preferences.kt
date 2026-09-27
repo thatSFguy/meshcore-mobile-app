@@ -275,6 +275,14 @@ class Preferences(context: Context) {
             prefs.edit().putStringSet("nodes_filters", v.map { it.name }.toSet()).apply()
         }
 
+    /**
+     * Nodes list: hide nodes heard but not added, and their tab badges.
+     * Off by default — a newcomer is shown until someone chooses otherwise.
+     */
+    var nodesHideHeard: Boolean
+        get() = prefs.getBoolean("nodes_hide_heard", false)
+        set(v) = prefs.edit().putBoolean("nodes_hide_heard", v).apply()
+
     /** Last map camera (lat, lon, zoom); null when never set. Doubles
      *  are stored as raw bits so map precision isn't truncated. */
     var mapCamera: Triple<Double, Double, Double>?

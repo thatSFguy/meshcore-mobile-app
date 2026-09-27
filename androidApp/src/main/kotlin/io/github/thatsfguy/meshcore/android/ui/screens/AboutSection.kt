@@ -90,6 +90,14 @@ fun AboutSection(vm: MeshCoreViewModel) {
  * is a changelog you can't read in the field.
  */
 private val CHANGELOG: List<Pair<String, List<String>>> = listOf(
+    "0.10.9" to listOf(
+        "Tap or long-press a node heard but not added for a sheet like a contact's: key, " +
+            "position, when heard, hops. Add from there opens the full contact sheet.",
+        "Nodes list menu → \"Hide nodes not added\" mutes newcomers and their tab badges; " +
+            "the list says how many are hidden, with a Show button.",
+        "Mesh policies → Regions lists names without a '#', which read as part of the name. " +
+            "The region itself is unchanged.",
+    ),
     "0.10.8" to listOf(
         "A mesh-settings code can carry an area's region tree (e.g. midwest › mi › west › grr) " +
             "and a default. Scanning it offers every level, with the default preselected.",

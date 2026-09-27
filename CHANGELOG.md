@@ -11,6 +11,30 @@ Every entry describes what is in **that tagged build**. A feature that landed af
 belongs in the next section, not this one — 0.3.0 was once credited with four features that
 shipped after it, which misled nobody so much as the author, three months later.
 
+## 0.10.9
+
+**New nodes can be muted on the Nodes list.** On a busy mesh, every node the radio hears but
+doesn't add shows up on its tab with a count badge.
+
+- **"Hide nodes not added"** is in the list menu beside the search box. It hides them and their
+  tab badges, and is remembered across restarts.
+- **The list keeps saying so** ("Hiding 12 nodes not added"), with a **Show** button that brings
+  them back. Turn off auto-add under Settings → Auto-add contacts too, so they don't become
+  contacts either.
+- **A node heard but not added opens a sheet like a contact's**, on tap or long-press: its key
+  (with Copy), position and distance, when it was first and last heard, its hops, and why it may
+  be worth adding. Messaging, administration, routes and the rest need it in your radio's
+  contacts, so the sheet says that and offers **Add to contacts**, which then opens the full
+  contact sheet. **Forget this node** removes it from the list.
+
+**Settings → Mesh policies → Regions lists region names without a `#`.** The `#` read as part of
+the name, and a repeater lists the same region as a bare `mi`, so the two looked like different
+regions.
+
+- **Regions are shown with a bullet** (`• mi`), and sentences say "region mi".
+- **Nothing about the region itself changed.** The radio still gets the same key, and existing
+  scopes keep working.
+
 ## 0.10.8
 
 **A mesh-settings code can carry an area's region tree and a default.** Regions are organised

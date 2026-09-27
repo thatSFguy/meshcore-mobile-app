@@ -57,9 +57,24 @@ enum class NodeTab(val title: String) {
 
 object NodeTabsModel {
 
-    /** How many heard-but-not-added nodes each tab has. Tabs with none are absent. */
-    fun <T : HeardNode> counts(heard: List<T>): Map<NodeTab, Int> =
-        heard.groupingBy { NodeTab.of(it.type) }.eachCount()
+    /**
+     * How many heard-but-not-added nodes each tab has. Tabs with none are
+     * absent — and so is every tab while [hidden]: a muted newcomer that
+     * still lit a badge would be noise moved, not noise gone.
+     */
+    fun <T : HeardNode> counts(heard: List<T>, hidden: Boolean = false): Map<NodeTab, Int> =
+        if (hidden) emptyMap() else heard.groupingBy { NodeTab.of(it.type) }.eachCount()
+
+    /**
+     * The line that says newcomers on [tab] are being hidden, or null
+     * when nothing is. Hiding is a standing choice, so the list has to
+     * keep saying it — otherwise a busy mesh just looks quiet.
+     */
+    fun <T : HeardNode> hiddenNote(tab: NodeTab, heard: List<T>, hidden: Boolean): String? {
+        if (!hidden) return null
+        val n = heard.count { NodeTab.of(it.type) == tab }
+        return if (n == 0) "Hiding nodes not added" else "Hiding $n ${if (n == 1) "node" else "nodes"} not added"
+    }
 
     /** Read aloud for a tab: "Repeaters, 3 new". */
     fun spokenLabel(tab: NodeTab, newCount: Int): String =
@@ -72,15 +87,18 @@ object NodeTabsModel {
      * typed into the box finds a node whether or not it has been added.
      * The filters do not: favourites, unread and "heard in 24 h" are
      * questions about contacts, and with any of them on the section is
-     * hidden rather than shown unfiltered.
+     * hidden rather than shown unfiltered. [hidden] is the Nodes list's
+     * "Hide nodes not added": new nodes muted, for a mesh too busy to
+     * want each newcomer shown.
      */
     fun <T : HeardNode> heardFor(
         tab: NodeTab,
         heard: List<T>,
         query: String,
         filtersActive: Boolean,
+        hidden: Boolean = false,
     ): List<T> {
-        if (filtersActive) return emptyList()
+        if (filtersActive || hidden) return emptyList()
         val q = query.trim()
         return heard
             .filter { NodeTab.of(it.type) == tab }
