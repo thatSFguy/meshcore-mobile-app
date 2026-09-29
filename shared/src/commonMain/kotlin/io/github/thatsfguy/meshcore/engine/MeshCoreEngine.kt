@@ -23,6 +23,7 @@ import io.github.thatsfguy.meshcore.protocol.HeardVia
 import io.github.thatsfguy.meshcore.protocol.AccessList
 import io.github.thatsfguy.meshcore.protocol.BinaryRequestBudget
 import io.github.thatsfguy.meshcore.protocol.Neighbours
+import io.github.thatsfguy.meshcore.protocol.OwnerInfo
 import io.github.thatsfguy.meshcore.protocol.NodeDiscovery
 import io.github.thatsfguy.meshcore.protocol.PathCodec
 import io.github.thatsfguy.meshcore.protocol.PathRecovery
@@ -1682,6 +1683,27 @@ class MeshCoreEngine(
     }
 
     /**
+     * Ask a repeater for its firmware version, name and owner text — the
+     * part of its configuration a guest session may read. See [OwnerInfo]
+     * for why this is a binary request and not `get owner.info`.
+     *
+     * Null means no answer, which includes a repeater too old to know the
+     * request; it must not be shown as an empty owner field.
+     */
+    suspend fun requestOwnerInfo(
+        repeaterPubKey: ByteArray,
+        timeoutMs: Long = BinaryRequestBudget.MAX_BUDGET_MS,
+        onSent: ((BinaryRequestBudget.InFlight) -> Unit)? = null,
+    ): OwnerInfo.Reply? {
+        val body = binaryRequest(
+            Frames.sendBinaryRequest(repeaterPubKey, OwnerInfo.requestPayload()),
+            timeoutMs = timeoutMs,
+            onSent = onSent,
+        ) ?: return null
+        return OwnerInfo.parse(body)
+    }
+
+    /**
      * Ask a repeater for one page of its one-hop neighbour table
      * (PARITY §6).
      *
@@ -2399,8 +2421,49 @@ class MeshCoreEngine(
         replyPath: ByteArray = ByteArray(0),
         replyHopCount: Int = 0,
         timeoutMs: Long = 30_000,
-    ): List<String>? = coroutineScope {
-        val width = _deviceInfo.value?.pathHashByteWidth ?: 1
+        replyPathHashWidth: Int? = null,
+    ): List<String>? {
+        val body = anonRegionsBody(repeaterPubKey, replyPath, replyHopCount, timeoutMs, replyPathHashWidth)
+            ?: return null
+        if (Regions.isGlobalScopeOnly(body)) {
+            log("Node answered with the global scope only (no named regions)")
+        }
+        return Regions.parseDiscoveryResponse(body)
+    }
+
+    /**
+     * One repeater's answer to the anonymous regions request, keeping the
+     * `*` that [requestRegions] drops. See [Regions.FloodList] for what
+     * the answer does and does not say. Null means no answer.
+     *
+     * The firmware answers this only when it arrives DIRECT
+     * (`MyMesh.cpp:584`, `packet->isRouteDirect()`), and the companion
+     * floods it when the contact has no stored path — so a caller should
+     * not send it without one. It is also rate-limited to 4 anonymous
+     * requests per repeater in 3 minutes (`anon_limiter(4, 180)`), and a
+     * limited request is dropped silently too.
+     *
+     * [replyPathHashWidth] is the stored path's OWN width, which is what
+     * its bytes are made of; our radio's width is only the fallback.
+     */
+    suspend fun requestFloodRegions(
+        repeaterPubKey: ByteArray,
+        replyPath: ByteArray,
+        replyHopCount: Int,
+        replyPathHashWidth: Int? = null,
+        timeoutMs: Long = 30_000,
+    ): Regions.FloodList? =
+        anonRegionsBody(repeaterPubKey, replyPath, replyHopCount, timeoutMs, replyPathHashWidth)
+            ?.let { Regions.parseFloodList(it) }
+
+    private suspend fun anonRegionsBody(
+        repeaterPubKey: ByteArray,
+        replyPath: ByteArray,
+        replyHopCount: Int,
+        timeoutMs: Long,
+        replyPathHashWidth: Int?,
+    ): ByteArray? = coroutineScope {
+        val width = replyPathHashWidth ?: _deviceInfo.value?.pathHashByteWidth ?: 1
         val replies = CoroutineChannel<ByteArray>(CoroutineChannel.UNLIMITED)
         // Buffer binary responses from before the send: the correlation
         // tag only becomes known when the radio's Sent receipt arrives,
@@ -2437,16 +2500,7 @@ class MeshCoreEngine(
         }
         pump.cancel()
         replies.close()
-        when {
-            sent == null -> null
-            body == null -> null
-            else -> {
-                if (Regions.isGlobalScopeOnly(body)) {
-                    log("Node answered with the global scope only (no named regions)")
-                }
-                Regions.parseDiscoveryResponse(body)
-            }
-        }
+        body
     }
 
     /**

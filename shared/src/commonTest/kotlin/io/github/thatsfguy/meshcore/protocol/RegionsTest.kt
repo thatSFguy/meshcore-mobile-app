@@ -413,6 +413,72 @@ class RegionsTest {
         assertEquals(emptyList(), Regions.parseDiscoveryResponse(body))
     }
 
+    // --- one repeater's flood list (the guest card) ------------------------
+
+    @Test
+    fun theRealGlobalScopeOnlyReplyFloodsUntaggedTraffic() {
+        // Same live capture as above. The merged discovery view drops the
+        // '*'; one repeater's view must keep it, because it is the only
+        // thing that says untagged traffic floods there.
+        val body = byteArrayOf(
+            0x00, 0x8c.toByte(), 0x6e, 0x6a,
+            0x2a,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        )
+        val list = assertNotNull(Regions.parseFloodList(body))
+        assertEquals(emptyList(), list.regions)
+        assertTrue(list.untaggedFloods)
+    }
+
+    @Test
+    fun namedRegionsWithoutTheWildcardDoNotClaimUntaggedFlooding() {
+        // exportNamesTo writes '*' only when the wildcard lacks
+        // REGION_DENY_FLOOD (RegionMap.cpp:319-324).
+        val list = assertNotNull(Regions.parseFloodList(ByteArray(4) + "kent,grr".encodeToByteArray()))
+        assertEquals(listOf("grr", "kent"), list.regions)
+        assertTrue(!list.untaggedFloods)
+    }
+
+    @Test
+    fun anAnswerWithNoFieldsIsAnAnswerThatFloodsNothing() {
+        // The clock header and nothing after it: the node answered, and
+        // floods neither a region nor untagged traffic. Not silence.
+        val list = assertNotNull(Regions.parseFloodList(ByteArray(4) + ByteArray(12)))
+        assertEquals(emptyList(), list.regions)
+        assertTrue(!list.untaggedFloods)
+    }
+
+    @Test
+    fun aBodyShorterThanTheClockIsNotAnAnswer() {
+        assertNull(Regions.parseFloodList(ByteArray(0)))
+        assertNull(Regions.parseFloodList(ByteArray(3)))
+    }
+
+    @Test
+    fun floodListRefusesHostileFields() {
+        // Off the mesh: invalid names are dropped, not stored; a '*' inside
+        // a name is not the wildcard; duplicates collapse; a trailing comma
+        // is not an empty region.
+        val text = "*x,kent,KENT,,bad name,\u0007grr,kent,"
+        val list = assertNotNull(Regions.parseFloodList(ByteArray(4) + text.encodeToByteArray()))
+        assertEquals(listOf("kent"), list.regions)
+        assertTrue(!list.untaggedFloods)
+    }
+
+    @Test
+    fun floodListSurvivesInvalidUtf8() {
+        val body = ByteArray(4) + byteArrayOf(0xC3.toByte(), 0x28, ','.code.toByte(), '*'.code.toByte())
+        val list = assertNotNull(Regions.parseFloodList(body))
+        assertTrue(list.untaggedFloods)
+    }
+
+    @Test
+    fun floodListIsCapped() {
+        val many = (1..500).joinToString(",") { "r$it" }
+        val list = assertNotNull(Regions.parseFloodList(ByteArray(4) + many.encodeToByteArray()))
+        assertEquals(Regions.MAX_DISCOVERED, list.regions.size)
+    }
+
     @Test
     fun aRealNamedListIsNotMistakenForGlobalScope() {
         val body = ByteArray(4) + "bayarea,socal".encodeToByteArray()

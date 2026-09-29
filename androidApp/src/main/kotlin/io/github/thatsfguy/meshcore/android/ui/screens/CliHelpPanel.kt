@@ -31,9 +31,12 @@ import io.github.thatsfguy.meshcore.protocol.NodeRole
 /**
  * Reference for the commands this node actually accepts.
  *
- * Filtered by the node's role AND by the session's role: a guest is
- * never shown a command the node would refuse, which is the difference
- * between a reference and a list of things to be disappointed by.
+ * Filtered by the node's role only. It used to be filtered by session
+ * too, leaving guests a "read-only" subset — but a remote guest can run
+ * no CLI command at all, reads included (`simple_repeater/MyMesh.cpp:689`
+ * takes CLI text from admins only). So the whole catalogue is shown as
+ * a reference, the summary line says who the node takes it from, and
+ * only an admin can tap through to the console.
  *
  * Tapping a command copies its usage into the console input rather than
  * running it — several of these are destructive, and a help screen that
@@ -47,7 +50,7 @@ fun CliHelpPanel(
 ) {
     val isAdmin = session.isAdmin
     var query by remember { mutableStateOf("") }
-    val byCategory = remember(role, isAdmin) { CliCatalog.forRoleByCategory(role, isAdmin) }
+    val byCategory = remember(role) { CliCatalog.forRoleByCategory(role) }
     val filtered = remember(query, byCategory) {
         if (query.isBlank()) {
             byCategory
@@ -83,7 +86,9 @@ fun CliHelpPanel(
                     )
                 }
                 items(commands, key = { "${category}-${it.id}" }) { command ->
-                    CommandRow(command) { onUse(usageOf(command)) }
+                    // The console is admin-only, so for anyone else a tap
+                    // would lead to a screen the hub does not offer.
+                    CommandRow(command, onUse = if (isAdmin) ({ onUse(usageOf(command)) }) else null)
                 }
             }
         }
@@ -91,11 +96,11 @@ fun CliHelpPanel(
 }
 
 @Composable
-private fun CommandRow(command: CliCommand, onUse: () -> Unit) {
+private fun CommandRow(command: CliCommand, onUse: (() -> Unit)?) {
     Column(
         Modifier
             .fillMaxWidth()
-            .clickable(onClick = onUse)
+            .then(if (onUse != null) Modifier.clickable(onClick = onUse) else Modifier)
             .padding(horizontal = 16.dp, vertical = 8.dp),
     ) {
         Row(Modifier.fillMaxWidth()) {
@@ -107,7 +112,7 @@ private fun CommandRow(command: CliCommand, onUse: () -> Unit) {
             )
             if (command.requiresConfirm) Badge("destructive", MaterialTheme.colorScheme.error)
             if (command.sensitive) Badge("secret", MaterialTheme.colorScheme.error)
-            if (command.adminOnly) Badge("admin", MaterialTheme.colorScheme.primary)
+            if (command.changesState) Badge("changes node", MaterialTheme.colorScheme.primary)
         }
         Text(
             command.description,
@@ -166,9 +171,11 @@ private fun roleWord(role: NodeRole): String = when (role) {
 fun cliHelpSummary(total: Int, role: NodeRole, session: AdminSession): String {
     // "1 commands" — found by searching the catalogue on a real node.
     val head = "$total command${if (total == 1) "" else "s"} this ${roleWord(role)} accepts"
+    // Not "as a guest": the node takes CLI text from admins only
+    // (MyMesh.cpp:689), so a guest's share of the catalogue is none of it.
     return when (session) {
         AdminSession.Admin -> "$head."
-        AdminSession.Guest -> "$head as a guest."
-        AdminSession.None -> "$head without an admin sign-in."
+        AdminSession.Guest -> "$head from an admin — none from a guest session."
+        AdminSession.None -> "$head from an admin."
     }
 }

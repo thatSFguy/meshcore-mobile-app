@@ -4,6 +4,10 @@ import io.github.thatsfguy.meshcore.presentation.AdminSession
 import io.github.thatsfguy.meshcore.util.isPlausiblePosition
 import io.github.thatsfguy.meshcore.presentation.HubTile
 import io.github.thatsfguy.meshcore.presentation.repeaterHubTiles
+import io.github.thatsfguy.meshcore.presentation.showsGuestQueries
+import io.github.thatsfguy.meshcore.presentation.FloodRegionsAsk
+import io.github.thatsfguy.meshcore.presentation.floodRegionsSummary
+import io.github.thatsfguy.meshcore.protocol.OwnerInfo
 import io.github.thatsfguy.meshcore.presentation.repeaterRoleLabel
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -35,7 +39,12 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -147,6 +156,10 @@ fun RepeaterHubScreen(vm: MeshCoreViewModel, nav: NavController, keyHex: String)
                 session = session,
             )
 
+            if (showsGuestQueries(role, session)) {
+                GuestQueriesCard(vm, keyHex)
+            }
+
             SectionLabel(
                 when (session) {
                     AdminSession.Admin -> "Management tools"
@@ -242,6 +255,148 @@ private fun IdentityCard(
             GrantChip(session)
         }
     }
+}
+
+/**
+ * Where one manual request stands. [NotAsked] is the resting state:
+ * opening the hub puts nothing on the air. Silence is its own state,
+ * never shown as an empty answer.
+ */
+private sealed interface Ask<out T> {
+    data object NotAsked : Ask<Nothing>
+    data object Asking : Ask<Nothing>
+    data class Done<T>(val result: T) : Ask<T>
+}
+
+/**
+ * What a guest can ask a repeater, each on a tap.
+ *
+ * The node takes CLI `get`s from admins only, so Settings and Regions are
+ * closed to a guest. Two things are still open: owner text and firmware
+ * version (`REQ_TYPE_GET_OWNER_INFO`, see [OwnerInfo]) and the regions the
+ * repeater floods (the anonymous regions request, see
+ * [io.github.thatsfguy.meshcore.protocol.Regions.FloodList]).
+ */
+@Composable
+private fun GuestQueriesCard(vm: MeshCoreViewModel, keyHex: String) {
+    var ownerAsks by remember(keyHex) { mutableIntStateOf(0) }
+    var owner by remember(keyHex) { mutableStateOf<Ask<OwnerInfo.Reply?>>(Ask.NotAsked) }
+    LaunchedEffect(keyHex, ownerAsks) {
+        if (ownerAsks == 0) return@LaunchedEffect
+        owner = Ask.Asking
+        owner = Ask.Done(vm.repeaterOwnerInfo(keyHex))
+    }
+    var regionAsks by remember(keyHex) { mutableIntStateOf(0) }
+    var regions by remember(keyHex) { mutableStateOf<Ask<FloodRegionsAsk>>(Ask.NotAsked) }
+    LaunchedEffect(keyHex, regionAsks) {
+        if (regionAsks == 0) return@LaunchedEffect
+        regions = Ask.Asking
+        regions = Ask.Done(vm.repeaterFloodRegions(keyHex))
+    }
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp)
+            .padding(bottom = 8.dp),
+    ) {
+        Column(Modifier.padding(16.dp)) {
+            QueryRow(
+                title = "Owner",
+                idle = "Owner text and firmware version",
+                ask = owner,
+                onAsk = { ownerAsks++ },
+            ) { reply ->
+                if (reply == null) {
+                    NoAnswerText("No answer — out of range, or firmware too old to report it.")
+                } else {
+                    Text(
+                        reply.ownerInfo.ifEmpty { "No owner info set" },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = if (reply.ownerInfo.isEmpty()) {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        } else {
+                            MaterialTheme.colorScheme.onSurface
+                        },
+                    )
+                    Text(
+                        "Firmware ${reply.firmwareVersion}",
+                        style = MaterialTheme.typography.bodySmall,
+                        fontFamily = FontFamily.Monospace,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            Spacer(Modifier.height(12.dp))
+            QueryRow(
+                title = "Regions",
+                idle = "Which regions it floods",
+                ask = regions,
+                onAsk = { regionAsks++ },
+            ) { outcome ->
+                when (outcome) {
+                    FloodRegionsAsk.NoRoute -> NoAnswerText(
+                        "Not asked — no direct route to this node is stored, and it " +
+                            "only answers a direct request.",
+                    )
+                    FloodRegionsAsk.NoAnswer -> NoAnswerText(
+                        "No answer — out of range, or asked too often " +
+                            "(it answers 4 anonymous requests per 3 minutes).",
+                    )
+                    is FloodRegionsAsk.Answered -> {
+                        Text(
+                            floodRegionsSummary(outcome.list),
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        Text(
+                            "Regions it doesn't flood aren't shared. The full setup needs an admin.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** A labelled request: its idle line and button, then its answer. */
+@Composable
+private fun <T> QueryRow(
+    title: String,
+    idle: String,
+    ask: Ask<T>,
+    onAsk: () -> Unit,
+    answer: @Composable (T) -> Unit,
+) {
+    Text(
+        title,
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.primary,
+    )
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            when (ask) {
+                Ask.NotAsked -> NoAnswerText(idle)
+                Ask.Asking -> NoAnswerText("Asking the node…")
+                is Ask.Done -> answer(ask.result)
+            }
+        }
+        if (ask !is Ask.Asking) {
+            TextButton(onClick = onAsk) {
+                Text(if (ask is Ask.NotAsked) "Ask the node" else "Ask again")
+            }
+        }
+    }
+}
+
+@Composable
+private fun NoAnswerText(text: String) {
+    Text(
+        text,
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
 }
 
 /** What the node granted — never what was asked for. */

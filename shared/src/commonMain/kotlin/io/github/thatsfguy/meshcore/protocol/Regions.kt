@@ -84,12 +84,10 @@ object Regions {
     // ------------------------------------------------------------------
 
     /**
-     * Bytes between the binary-response tag and the region names. The
-     * reference client skips four; their meaning isn't documented in
-     * MESHCORE_PROTOCOL.md and no live capture was available, so this is
-     * pinned to the reference's behaviour. A wrong guess costs at most
-     * the first name in the list — every name is re-validated below, so
-     * a mangled one is dropped rather than stored.
+     * Bytes between the binary-response tag and the region names: the
+     * repeater's clock. `handleAnonRegionsReq` writes `reply_data[4..7] =
+     * now` "for easy clock sync, and packet hash uniqueness", then the
+     * names from `reply_data[8]` (simple_repeater/MyMesh.cpp:157-160).
      */
     const val DISCOVERY_BODY_HEADER = 4
 
@@ -134,6 +132,42 @@ object Regions {
             .distinct()
             .sorted()
             .take(MAX_DISCOVERED)
+    }
+
+    /**
+     * What one repeater told an anonymous regions request.
+     *
+     * NOT the repeater's region setup. The firmware answers with
+     * `region_map.exportNamesTo(…, REGION_DENY_FLOOD)`
+     * (simple_repeater/MyMesh.cpp:160; RegionMap.cpp:316): only the regions
+     * it will FLOOD, plus `*` when untagged traffic floods too. A region
+     * set to deny flooding is absent, and so are the tree, the default
+     * scope and the hop limit — those are CLI reads, admin only.
+     */
+    data class FloodList(
+        /** Regions this repeater floods, canonical, sorted. */
+        val regions: List<String>,
+        /** The `*` entry: traffic with no region tag is flooded. */
+        val untaggedFloods: Boolean,
+    )
+
+    /**
+     * Parse a regions reply body for one repeater. Unlike
+     * [parseDiscoveryResponse], which merges names across repeaters and
+     * so has no use for it, this keeps the `*` as [FloodList.untaggedFloods].
+     * Null for a body too short to carry the clock header.
+     */
+    fun parseFloodList(body: ByteArray): FloodList? {
+        if (body.size < DISCOVERY_BODY_HEADER) return null
+        val fields = body.copyOfRange(DISCOVERY_BODY_HEADER, body.size)
+            .decodeUtf8Lenient()
+            .replace(NUL.toString(), "")
+            .split(',')
+            .map { it.trim() }
+        return FloodList(
+            regions = fields.mapNotNull { canonical(it) }.distinct().sorted().take(MAX_DISCOVERED),
+            untaggedFloods = GLOBAL_SELECTOR in fields,
+        )
     }
 
     // ------------------------------------------------------------------

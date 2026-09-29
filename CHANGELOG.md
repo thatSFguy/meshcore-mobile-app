@@ -11,6 +11,31 @@ Every entry describes what is in **that tagged build**. A feature that landed af
 belongs in the next section, not this one — 0.3.0 was once credited with four features that
 shipped after it, which misled nobody so much as the author, three months later.
 
+## 0.10.10
+
+**A repeater's hub no longer offers a guest screens the repeater won't answer.** A repeater runs
+text commands only for an admin, and that includes reads. Every value on Settings and Regions
+is read that way, so as a guest they stayed empty.
+
+- **As a guest you now see Status**, which a repeater does answer for guests, **and a card of
+  things you can ask for**. Settings, Regions and Command help are admin-only, like the Console
+  they belong with.
+- **Owner:** the repeater's owner text and firmware version.
+- **Regions:** which regions the repeater floods, and whether it floods traffic with no region.
+  That is all a guest can learn: a region it doesn't flood isn't reported, and the full setup
+  needs an admin.
+- **Nothing is sent until you tap Ask the node.** Opening a repeater puts nothing on the air.
+- **The regions request needs a stored direct route.** A repeater ignores it otherwise, so with
+  no route the card says so instead of waiting. A repeater also answers only 4 of these every
+  3 minutes.
+- **Command help shows every command to an admin**, marking the ones that change the node.
+  It used to show guests a "read-only" subset they couldn't actually run.
+
+**A blank password signs you in with whatever the repeater already has on file for your
+radio.** If you have ever signed in as admin, that is admin, and "Sign out" in the app doesn't
+change it: the repeater has no sign-out. To see the guest view, an admin must remove your radio
+from the repeater's access list.
+
 ## 0.10.9
 
 **New nodes can be muted on the Nodes list.** On a busy mesh, every node the radio hears but

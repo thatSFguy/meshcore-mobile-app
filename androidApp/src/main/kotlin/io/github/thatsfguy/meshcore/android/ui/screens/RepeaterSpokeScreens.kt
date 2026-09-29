@@ -140,7 +140,11 @@ fun RepeaterSettingsScreen(vm: MeshCoreViewModel, nav: NavController, keyHex: St
         nodeName = ctx.name,
     ) { modifier ->
         Box(modifier) {
-            RemoteSettingsForm(vm, keyHex, contact, ctx.role, ctx.session.isAdmin)
+            if (ctx.session.isAdmin) {
+                RemoteSettingsForm(vm, keyHex, contact, ctx.role, isAdmin = true)
+            } else {
+                AdminOnlyNotice()
+            }
         }
     }
 }
@@ -154,7 +158,30 @@ fun RepeaterRegionsScreen(vm: MeshCoreViewModel, nav: NavController, keyHex: Str
         nav = nav,
         nodeName = ctx.name,
     ) { modifier ->
-        Box(modifier) { RepeaterRegionsPanel(vm, keyHex, ctx.session.isAdmin) }
+        Box(modifier) {
+            if (ctx.session.isAdmin) {
+                RepeaterRegionsPanel(vm, keyHex, isAdmin = true)
+            } else {
+                AdminOnlyNotice()
+            }
+        }
+    }
+}
+
+/**
+ * What Settings and Regions show without an admin session. The hub no
+ * longer offers them to a guest, but a session can drop to guest (or
+ * out) while one is open, and the form would then sit on requests the
+ * node never answers: it runs CLI text from admins only
+ * (`simple_repeater/MyMesh.cpp:689`).
+ */
+@Composable
+private fun AdminOnlyNotice() {
+    Column(Modifier.padding(16.dp)) {
+        HintText(
+            "This node only answers settings queries from an admin. " +
+                "Sign in with the admin password to read or change them.",
+        )
     }
 }
 

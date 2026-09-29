@@ -90,6 +90,15 @@ fun AboutSection(vm: MeshCoreViewModel) {
  * is a changelog you can't read in the field.
  */
 private val CHANGELOG: List<Pair<String, List<String>>> = listOf(
+    "0.10.10" to listOf(
+        "As a guest, a repeater's hub shows Status and a card to ask for its owner info and the " +
+            "regions it floods. Settings, Regions and Command help are admin-only: a repeater " +
+            "runs text commands only for an admin, reads included.",
+        "Owner and Regions are sent only when you tap Ask the node. Regions needs a stored " +
+            "direct route, and lists only the regions the repeater floods.",
+        "A blank password gets whatever the repeater has on file for your radio, admin " +
+            "included. Signing out in the app doesn't change that.",
+    ),
     "0.10.9" to listOf(
         "Tap or long-press a node heard but not added for a sheet like a contact's: key, " +
             "position, when heard, hops. Add from there opens the full contact sheet.",

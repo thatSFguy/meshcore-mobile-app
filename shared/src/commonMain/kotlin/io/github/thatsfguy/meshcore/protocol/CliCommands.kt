@@ -50,11 +50,15 @@ data class CliCommand(
     val companionEquivalent: String? = null,
 ) {
     /**
-     * True when this command changes node state — anything a guest
-     * (read-only) session must not be offered. Reads (`get x`, info
-     * actions like `ver`) stay available to guests.
+     * True when this command changes node state. A property of the
+     * command, NOT a permission rule: a remote guest can run no CLI
+     * command at all, reads included — the repeater only takes CLI text
+     * from an admin (`simple_repeater/MyMesh.cpp:689`). This was called
+     * `adminOnly` and implied the reads were open to guests, which is
+     * the belief that put empty Settings and Regions screens in front of
+     * guest sessions.
      */
-    val adminOnly: Boolean
+    val changesState: Boolean
         get() = kind == CliKind.GetSet || kind == CliKind.ActionWithArg ||
             requiresConfirm || sensitive || id in MUTATING_ACTIONS
 
@@ -455,18 +459,19 @@ object CliCatalog {
     )
 
     /**
-     * Commands applicable to [role], catalog order preserved. With
-     * [admin] false (a guest / read-only session) every state-changing
-     * command is filtered out, so the UI can't offer what the node
-     * would refuse.
+     * Commands applicable to [role], catalog order preserved.
+     *
+     * There is deliberately no guest filter: over the air a guest can run
+     * none of these (`MyMesh.cpp:689`), so a "guest subset" would be a
+     * list of commands the node silently drops.
      */
-    fun forRole(role: NodeRole, admin: Boolean = true): List<CliCommand> =
-        all.filter { role in it.roles && (admin || !it.adminOnly) }
+    fun forRole(role: NodeRole): List<CliCommand> =
+        all.filter { role in it.roles }
 
     /** [forRole] grouped by category, catalog order preserved. */
-    fun forRoleByCategory(role: NodeRole, admin: Boolean = true): Map<String, List<CliCommand>> {
+    fun forRoleByCategory(role: NodeRole): Map<String, List<CliCommand>> {
         val out = LinkedHashMap<String, MutableList<CliCommand>>()
-        for (c in forRole(role, admin)) out.getOrPut(c.category) { mutableListOf() }.add(c)
+        for (c in forRole(role)) out.getOrPut(c.category) { mutableListOf() }.add(c)
         return out
     }
 

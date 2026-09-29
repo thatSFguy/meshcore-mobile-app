@@ -137,6 +137,8 @@ object Codes {
     const val REQ_TYPE_GET_TELEMETRY = 0x03
     const val REQ_TYPE_GET_ACCESS_LIST = 0x05
     const val REQ_TYPE_GET_NEIGHBORS = 0x06
+    /** Repeater only, `FIRMWARE_VER_LEVEL >= 2`; no permission check. See [OwnerInfo]. */
+    const val REQ_TYPE_GET_OWNER_INFO = 0x07
 
     // Anonymous request types (CMD_SEND_ANON_REQ)
     const val ANON_REQ_TYPE_REGIONS = 0x01

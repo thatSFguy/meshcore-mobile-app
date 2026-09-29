@@ -960,6 +960,92 @@ class MeshCoreEngineTest {
     }
 
     @Test
+    fun floodRegionsKeepTheWildcardAndUseTheStoredPathsOwnWidth() = runTest {
+        // Two things pinned at once. The positive control: a real-shaped
+        // reply — [now u32] then exportNamesTo's "*,name," list
+        // (simple_repeater/MyMesh.cpp:157-160, RegionMap.cpp:316-340) —
+        // must come back with the '*' kept, which requestRegions drops.
+        // And the builder: the reply path is written at the STORED path's
+        // width, not the radio's. This fake radio reports no width, so
+        // the engine's fallback is 1; a 2-byte path encoded at 1 is the
+        // hop-hash-width defect this codebase keeps producing.
+        val radio = FakeRadio()
+        val ackHash = 0x0A0B0C0DL
+        radio.responder = { frame ->
+            when (frame[0].toInt() and 0xFF) {
+                Codes.CMD_SEND_ANON_REQ -> listOf(
+                    BufferWriter().apply {
+                        writeByte(Codes.RESP_CODE_SENT)
+                        writeByte(0)
+                        writeUInt32LE(ackHash)
+                        writeUInt32LE(1000L)
+                    }.toBytes(),
+                    BufferWriter().apply {
+                        writeByte(Codes.PUSH_CODE_BINARY_RESPONSE)
+                        writeByte(0)
+                        writeUInt32LE(ackHash)
+                        writeUInt32LE(0x66F9A2B0L) // the repeater's clock
+                        writeString("*,grr,kent,")
+                        writeBytes(ByteArray(5))   // cipher padding
+                    }.toBytes(),
+                )
+                else -> standardResponder(radio)(frame)
+            }
+        }
+        val engine = MeshCoreEngine(backgroundScope, crypto, { now })
+        engine.attach(radio)
+        radio.connect()
+        engine.awaitReady()
+
+        // Stored out-path: two hops, 2-byte hashes — aabb then ccdd.
+        val list = engine.requestFloodRegions(
+            peerKey,
+            replyPath = byteArrayOf(0xAA.toByte(), 0xBB.toByte(), 0xCC.toByte(), 0xDD.toByte()),
+            replyHopCount = 2,
+            replyPathHashWidth = 2,
+        )
+
+        assertEquals(listOf("grr", "kent"), list?.regions)
+        assertEquals(true, list?.untaggedFloods)
+
+        val frame = radio.sentFrames.last { it[0].toInt() and 0xFF == Codes.CMD_SEND_ANON_REQ }
+        assertEquals(Codes.ANON_REQ_TYPE_REGIONS, frame[33].toInt() and 0xFF)
+        // ((width - 1) << 6) | hops = (1 << 6) | 2
+        assertEquals(0x42, frame[34].toInt() and 0xFF)
+        // Hop order reversed for the way back; each 2-byte hash intact.
+        assertContentEquals(
+            byteArrayOf(0xCC.toByte(), 0xDD.toByte(), 0xAA.toByte(), 0xBB.toByte()),
+            frame.copyOfRange(35, frame.size),
+        )
+    }
+
+    @Test
+    fun floodRegionsSilenceIsNull() = runTest {
+        // Rate-limited (4 per 3 min) and flooded requests are dropped
+        // without a reply; that must not read as "floods nothing".
+        val radio = FakeRadio()
+        radio.responder = { frame ->
+            when (frame[0].toInt() and 0xFF) {
+                Codes.CMD_SEND_ANON_REQ -> listOf(
+                    BufferWriter().apply {
+                        writeByte(Codes.RESP_CODE_SENT)
+                        writeByte(0)
+                        writeUInt32LE(7L)
+                        writeUInt32LE(1000L)
+                    }.toBytes(),
+                )
+                else -> standardResponder(radio)(frame)
+            }
+        }
+        val engine = MeshCoreEngine(backgroundScope, crypto, { now })
+        engine.attach(radio)
+        radio.connect()
+        engine.awaitReady()
+
+        assertNull(engine.requestFloodRegions(peerKey, ByteArray(0), 0))
+    }
+
+    @Test
     fun discoveryCollectsOnlyRepliesCarryingOurOwnTag() = runTest {
         val radio = FakeRadio()
         radio.responder = { frame ->
@@ -1728,6 +1814,60 @@ class MeshCoreEngineTest {
         val acl = engine.requestAccessList(peerKey)
         assertEquals(1, acl?.size, "took the decoy: ${acl?.size} entries")
         assertEquals(AccessList.ROLE_READ_WRITE, acl?.first()?.role)
+    }
+
+    @Test
+    fun ownerInfoSendsTheBareRequestTypeAndReadsTheTaggedReply() = runTest {
+        // The builder, pinned against the firmware's READER: handleRequest
+        // looks at payload[0] == REQ_TYPE_GET_OWNER_INFO (0x07) and nothing
+        // else (simple_repeater/MyMesh.cpp:51, :375). The companion takes
+        // the rest of the frame after the pubkey as the request
+        // (companion_radio/MyMesh.cpp:1655-1657), so the frame must end
+        // at that one byte.
+        val radio = FakeRadio()
+        val tag = 0x0A0B0C0DL
+        val reply = "v1.16.0\nSpartaMI\nRob KD8\nGrand Rapids".encodeToByteArray() +
+            ByteArray(9)   // cipher-block padding
+        radio.responder = { frame ->
+            when (frame[0].toInt() and 0xFF) {
+                Codes.CMD_SEND_BINARY_REQ -> listOf(
+                    binarySentFrame(tag),
+                    // A decoy for someone else's request must not be taken.
+                    binaryResponseFrame(0x99999999L, "v0.0.1\nWrong\n".encodeToByteArray()),
+                    binaryResponseFrame(tag, reply),
+                )
+                else -> standardResponder(radio)(frame)
+            }
+        }
+        val engine = readyEngine(radio)
+
+        val info = engine.requestOwnerInfo(peerKey)
+
+        val sent = radio.sentFrames.single { (it[0].toInt() and 0xFF) == Codes.CMD_SEND_BINARY_REQ }
+        assertContentEquals(
+            byteArrayOf(Codes.CMD_SEND_BINARY_REQ.toByte()) + peerKey + byteArrayOf(0x07),
+            sent,
+        )
+        assertEquals("v1.16.0", info?.firmwareVersion)
+        assertEquals("SpartaMI", info?.nodeName)
+        assertEquals("Rob KD8\nGrand Rapids", info?.ownerInfo)
+    }
+
+    @Test
+    fun ownerInfoSilenceIsNullNotAnEmptyOwner() = runTest {
+        // A repeater older than FIRMWARE_VER_LEVEL 2 returns 0 from
+        // handleRequest and sends nothing. That must not read as "no
+        // owner set".
+        val radio = FakeRadio()
+        radio.responder = { frame ->
+            when (frame[0].toInt() and 0xFF) {
+                Codes.CMD_SEND_BINARY_REQ -> listOf(binarySentFrame(0x12121212L))
+                else -> standardResponder(radio)(frame)
+            }
+        }
+        val engine = readyEngine(radio)
+
+        assertNull(engine.requestOwnerInfo(peerKey, timeoutMs = 5_000))
     }
 
     @Test

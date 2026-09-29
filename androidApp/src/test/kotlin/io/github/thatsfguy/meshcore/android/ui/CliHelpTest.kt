@@ -5,7 +5,6 @@ import io.github.thatsfguy.meshcore.protocol.CliCatalog
 import io.github.thatsfguy.meshcore.protocol.CliKind
 import io.github.thatsfguy.meshcore.protocol.NodeRole
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -33,18 +32,6 @@ class CliHelpTest {
     }
 
     @Test
-    fun `a guest is never shown a command the node would refuse`() {
-        for (role in listOf(NodeRole.Repeater, NodeRole.Room)) {
-            val guest = CliCatalog.forRole(role, admin = false)
-            assertTrue(guest.isNotEmpty())
-            assertFalse(
-                "admin-only command offered to a guest on $role",
-                guest.any { it.adminOnly },
-            )
-        }
-    }
-
-    @Test
     fun `every listed command belongs to the role it is listed under`() {
         for (role in NodeRole.entries) {
             for (command in CliCatalog.forRole(role)) {
@@ -57,11 +44,14 @@ class CliHelpTest {
     }
 
     @Test
-    fun `admin sees at least as much as a guest`() {
+    fun `the reference is the same catalogue whoever is looking`() {
+        // There is no guest subset to show: over the air a guest runs no
+        // CLI at all (simple_repeater/MyMesh.cpp:689). The old filter
+        // offered guests `get` commands the node then dropped.
         for (role in listOf(NodeRole.Repeater, NodeRole.Room)) {
-            val guest = CliCatalog.forRole(role, admin = false).map { it.id }.toSet()
-            val admin = CliCatalog.forRole(role, admin = true).map { it.id }.toSet()
-            assertTrue(admin.containsAll(guest))
+            val listed = CliCatalog.forRole(role).map { it.id }.toSet()
+            assertEquals(CliCatalog.all.filter { role in it.roles }.map { it.id }.toSet(), listed)
+            assertTrue("reads missing for $role", listed.any { !CliCatalog.byId(it)!!.changesState })
         }
     }
 

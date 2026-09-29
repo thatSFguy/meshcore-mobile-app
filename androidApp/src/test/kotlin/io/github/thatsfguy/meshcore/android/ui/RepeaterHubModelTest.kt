@@ -5,6 +5,11 @@ import io.github.thatsfguy.meshcore.presentation.decodePrefill
 import io.github.thatsfguy.meshcore.presentation.encodePrefill
 import io.github.thatsfguy.meshcore.presentation.repeaterHubTiles
 import io.github.thatsfguy.meshcore.presentation.repeaterRoleLabel
+import io.github.thatsfguy.meshcore.presentation.showsGuestQueries
+import io.github.thatsfguy.meshcore.presentation.floodRegionsRoute
+import io.github.thatsfguy.meshcore.presentation.floodRegionsSummary
+import io.github.thatsfguy.meshcore.protocol.Regions
+import org.junit.Assert.assertNull
 import io.github.thatsfguy.meshcore.android.ui.screens.cliHelpSummary
 import io.github.thatsfguy.meshcore.android.ui.screens.usageOf
 import io.github.thatsfguy.meshcore.protocol.CliCatalog
@@ -40,11 +45,18 @@ class RepeaterHubModelTest {
     }
 
     @Test
-    fun `a guest is offered the read-only tools`() {
-        val guest = routes(NodeRole.Repeater, AdminSession.Guest)
-        assertTrue("status" in guest)
-        assertTrue("settings" in guest)
-        assertTrue("regions" in guest)
+    fun `a guest is offered what the node answers a guest`() {
+        // Status is a binary request the repeater answers for guests
+        // (MyMesh.cpp:219). Nothing else: no CLI, so no Command help.
+        assertEquals(
+            listOf("status"),
+            routes(NodeRole.Repeater, AdminSession.Guest),
+        )
+    }
+
+    @Test
+    fun `a guest on a repeater gets the guest card`() {
+        assertTrue(showsGuestQueries(NodeRole.Repeater, AdminSession.Guest))
     }
 
     // --- the withholding rules ------------------------------------------
@@ -63,11 +75,41 @@ class RepeaterHubModelTest {
     }
 
     @Test
-    fun `no session offers nothing that talks to the node`() {
+    fun `a guest is not offered the screens that read over CLI`() {
+        // The defect this pins: Settings and Regions were offered to
+        // guests as "read-only", and every value stayed empty — the
+        // repeater runs CLI text from admins only, reads included
+        // (simple_repeater/MyMesh.cpp:689, `client->isAdmin()`).
         for (role in NodeRole.entries) {
-            val none = routes(role, AdminSession.None)
-            // Command help is a local catalogue — no node round-trip.
-            assertEquals(listOf("help"), none)
+            val guest = routes(role, AdminSession.Guest)
+            assertFalse("settings offered to a $role guest", "settings" in guest)
+            assertFalse("regions offered to a $role guest", "regions" in guest)
+        }
+        // And an admin still gets both — the rule withholds, it does not delete.
+        val admin = routes(NodeRole.Repeater, AdminSession.Admin)
+        assertTrue("settings" in admin)
+        assertTrue("regions" in admin)
+    }
+
+    @Test
+    fun `the guest card is only where it will be answered and needed`() {
+        // Repeater-only: room servers and sensors handle neither
+        // REQ_TYPE_GET_OWNER_INFO nor ANON_REQ_TYPE_REGIONS. Admin sees
+        // both, and more, in Settings and Regions, and
+        // no session means no request at all.
+        for (role in listOf(NodeRole.Room, NodeRole.Sensor, NodeRole.Companion)) {
+            for (session in AdminSession.entries) {
+                assertFalse("$role/$session", showsGuestQueries(role, session))
+            }
+        }
+        assertFalse(showsGuestQueries(NodeRole.Repeater, AdminSession.Admin))
+        assertFalse(showsGuestQueries(NodeRole.Repeater, AdminSession.None))
+    }
+
+    @Test
+    fun `no session offers nothing`() {
+        for (role in NodeRole.entries) {
+            assertEquals(emptyList<String>(), routes(role, AdminSession.None))
         }
     }
 
@@ -85,15 +127,17 @@ class RepeaterHubModelTest {
     }
 
     @Test
-    fun `command help is reachable in every state`() {
+    fun `command help goes where the console goes`() {
+        // Help documents the console. Without CLI access it would list
+        // commands the node drops, so it is offered exactly when the
+        // console is.
         for (role in NodeRole.entries) {
             for (session in AdminSession.entries) {
-                assertTrue(
-                    "help missing for $role/$session",
-                    "help" in routes(role, session),
-                )
+                val r = routes(role, session)
+                assertEquals("$role/$session", "console" in r, "help" in r)
             }
         }
+        assertTrue("help" in routes(NodeRole.Repeater, AdminSession.Admin))
     }
 
     @Test
@@ -107,22 +151,61 @@ class RepeaterHubModelTest {
     }
 
     @Test
-    fun `a guest sees read-only stated once, on the tools it applies to`() {
-        // PLAYBOOK §6.3 budgets one line per control. The grant is on the
-        // chip; the tiles say it only where it changes what you can do.
-        val guest = repeaterHubTiles(NodeRole.Repeater, AdminSession.Guest)
-        val admin = repeaterHubTiles(NodeRole.Repeater, AdminSession.Admin)
-        for (tile in guest.filter { it.route in setOf("settings", "regions") }) {
-            assertTrue(
-                "${tile.route} does not say it is read-only",
-                tile.subtitle.endsWith("read-only"),
-            )
+    fun `no tile claims to be read-only`() {
+        // There is no read-only CLI tool left to label: a guest cannot
+        // read over CLI at all, so "— read-only" would promise data.
+        for (session in AdminSession.entries) {
+            for (tile in repeaterHubTiles(NodeRole.Repeater, session)) {
+                assertFalse("${tile.route} says read-only", tile.subtitle.contains("read-only"))
+                // One line's worth of text, not a paragraph.
+                assertTrue("${tile.route} subtitle too long", tile.subtitle.length <= 72)
+                assertFalse("${tile.route} subtitle has two sentences", tile.subtitle.contains(". "))
+            }
         }
-        assertTrue(admin.none { it.subtitle.contains("read-only") })
-        // Every subtitle is one line's worth of text, not a paragraph.
-        for (tile in guest + admin) {
-            assertTrue("${tile.route} subtitle too long", tile.subtitle.length <= 72)
-            assertFalse("${tile.route} subtitle has two sentences", tile.subtitle.contains(". "))
+    }
+
+    // --- the guest card's regions request ----------------------------------
+
+    @Test
+    fun `no stored route means the regions request is not sent`() {
+        // The firmware answers it only when it arrives direct
+        // (MyMesh.cpp:584); the companion floods it without a path. Both
+        // spellings of "flood" the radio uses.
+        assertNull(floodRegionsRoute(0xFF))
+        assertNull(floodRegionsRoute(-1))
+    }
+
+    @Test
+    fun `a stored route is used at its own width`() {
+        // Positive controls. Zero hops is a direct send with no path.
+        assertEquals(0, floodRegionsRoute(0)?.hops)
+        // 0x44 is a real captured path_len: 4 hops at 2-byte hashes. A
+        // width read as 1 here would make 4 hops look like 68 bytes of
+        // nonsense — the recurring defect in this codebase.
+        val real = floodRegionsRoute(0x44)
+        assertEquals(4, real?.hops)
+        assertEquals(2, real?.hashWidth)
+        assertEquals(8, real?.byteLength)
+    }
+
+    @Test
+    fun `the summary says floods, never has`() {
+        // A region set to deny flooding is missing from the answer, not
+        // from the repeater. Every wording must keep that distinction.
+        val cases = listOf(
+            Regions.FloodList(listOf("grr", "kent"), untaggedFloods = true) to
+                "Floods grr, kent, and untagged traffic.",
+            Regions.FloodList(listOf("grr"), untaggedFloods = false) to
+                "Floods grr. Untagged traffic is not flooded.",
+            Regions.FloodList(emptyList(), untaggedFloods = true) to
+                "Floods untagged traffic only — no named regions.",
+            Regions.FloodList(emptyList(), untaggedFloods = false) to
+                "Floods no regions, and not untagged traffic.",
+        )
+        for ((list, expected) in cases) {
+            val text = floodRegionsSummary(list)
+            assertEquals(expected, text)
+            assertFalse("'$text' claims possession", Regex("\\bhas\\b").containsMatchIn(text))
         }
     }
 
@@ -200,9 +283,13 @@ class RepeaterHubModelTest {
         assertFalse(none.contains("guest"))
         assertTrue(none.contains("12 commands this repeater accepts"))
 
+        // Not "accepts as a guest": the node takes no CLI from a guest.
         assertEquals(
-            "12 commands this repeater accepts as a guest.",
+            "12 commands this repeater accepts from an admin — none from a guest session.",
             cliHelpSummary(12, NodeRole.Repeater, AdminSession.Guest),
+        )
+        assertFalse(
+            cliHelpSummary(12, NodeRole.Repeater, AdminSession.Guest).contains("as a guest"),
         )
         assertEquals(
             "12 commands this repeater accepts.",

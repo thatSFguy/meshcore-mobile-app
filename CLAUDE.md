@@ -396,6 +396,17 @@ someone else sees on your repeater, or what you see on theirs. So: never add a r
 and never build a "switch to guest" affordance. The real scenario behind that screen is a
 wrong password — error recovery, which the dialog already does.
 
+**A guest can run no CLI at all — reads included.** Verified 2026-09-29 against the firmware
+and on hardware: a repeater takes CLI text only from an admin (`simple_repeater/MyMesh.cpp:689`,
+`client->isAdmin()`; room server and sensor the same), dropping a guest's `get` with no reply or
+ACK. Settings and Regions shipped to guests as "read-only" and never showed a value. What a guest
+CAN read is binary/anonymous: Status, `REQ_TYPE_GET_OWNER_INFO` (0x07) and the anonymous regions
+request, which lists only the FLOODED regions and is answered only when sent direct. Two traps
+for testing it: a blank password is an ACL lookup (`MyMesh.cpp:91-93`), so any node you have ever
+admin'd gives you admin forever, and the app's "Sign out" is local — the firmware has no logout.
+To get a guest session on your own node, `setperm <your-radio-pubkey> 0` as admin first; restoring
+admin then needs the admin password.
+
 **Don't invent the user.** The guest→admin "re-authentication flow" was proposed here on the
 strength of it sounding plausible, for a person who does not exist. Before building an
 affordance, name who needs it and what they were doing — if that story needs inventing, the

@@ -1,5 +1,6 @@
 package io.github.thatsfguy.meshcore.android.ui
 
+import io.github.thatsfguy.meshcore.presentation.FloodRegionsAsk
 import io.github.thatsfguy.meshcore.presentation.Inbox
 import io.github.thatsfguy.meshcore.presentation.DiscoveredAdd
 import io.github.thatsfguy.meshcore.model.ChannelList
@@ -2290,6 +2291,51 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /**
+     * A repeater's firmware version, name and owner text, over the binary
+     * request — the only configuration a guest session can read, since
+     * the firmware runs CLI `get`s for admins alone. See OwnerInfo.
+     */
+    suspend fun repeaterOwnerInfo(
+        keyHex: String,
+    ): io.github.thatsfguy.meshcore.protocol.OwnerInfo.Reply? {
+        val svc = _service.value ?: return null
+        val key = hexToBytesOrNull(keyHex) ?: return null
+        return try {
+            withPathRecovery(keyHex) {
+                svc.engine.requestOwnerInfo(key) { markInFlight(keyHex, it) }
+            }
+        } finally {
+            markInFlight(keyHex, null)
+        }
+    }
+
+    /**
+     * Which regions one repeater floods, over the anonymous regions
+     * request — the only region information a guest can get. Declines to
+     * send without a stored direct route, since the firmware drops the
+     * request unanswered unless it arrives direct. See
+     * [io.github.thatsfguy.meshcore.presentation.FloodRegionsAsk].
+     */
+    suspend fun repeaterFloodRegions(
+        keyHex: String,
+    ): FloodRegionsAsk {
+        val svc = _service.value ?: return FloodRegionsAsk.NoAnswer
+        val contact = svc.engine.contacts.value.values.firstOrNull { it.publicKeyHex == keyHex }
+            ?: return FloodRegionsAsk.NoRoute
+        val route = io.github.thatsfguy.meshcore.presentation.floodRegionsRoute(contact.pathLen)
+            ?: return FloodRegionsAsk.NoRoute
+        val list = runCatching {
+            svc.engine.requestFloodRegions(
+                contact.publicKey,
+                replyPath = contact.storedPath,
+                replyHopCount = route.hops,
+                replyPathHashWidth = route.hashWidth,
+            )
+        }.getOrNull()
+        return list?.let { FloodRegionsAsk.Answered(it) } ?: FloodRegionsAsk.NoAnswer
+    }
+
     /** Names a neighbour prefix could belong to — plural stays plural. */
     fun neighbourNames(
         neighbour: io.github.thatsfguy.meshcore.protocol.Neighbours.Neighbour,
@@ -2997,6 +3043,7 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
                     repeater.publicKey,
                     replyPath = repeater.storedPath,
                     replyHopCount = hops,
+                    replyPathHashWidth = repeater.pathInfo.hashWidth,
                 )?.let { answered++; found += it }
             }
             RegionDiscovery(found.toList().sorted(), answered, targets.size)

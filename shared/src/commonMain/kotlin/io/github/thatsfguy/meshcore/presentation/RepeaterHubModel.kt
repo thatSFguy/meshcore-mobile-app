@@ -1,6 +1,8 @@
 package io.github.thatsfguy.meshcore.presentation
 
 import io.github.thatsfguy.meshcore.protocol.NodeRole
+import io.github.thatsfguy.meshcore.protocol.PathCodec
+import io.github.thatsfguy.meshcore.protocol.Regions
 
 /**
  * What the NODE granted this session — never what the user asked for.
@@ -52,20 +54,29 @@ data class HubTile(
  * `repeater_hub_screen` — the surface that replaced a six-tab
  * mega-screen here (LESSONS §13, REBUILD-PLAYBOOK §1.4a, §6.2).
  *
- * Two gating rules, and they differ on purpose:
+ * Two gating rules, set by what the FIRMWARE will answer:
  *
- *  - **Signed in** is enough for Status, Settings and Regions. Those
- *    panels already degrade to read-only for a guest (every `Save` is
- *    `enabled = isAdmin`), and a guest reading a repeater's settings is
- *    a legitimate thing to do. Hiding them would tell the user less
- *    than the node is willing to.
- *  - **Admin** is required for Identity and Console, which is where the
- *    irreversible commands live (`set prv.key`, `erase`, `reboot`).
- *    A guest session cannot run them, so offering them would be a
- *    control that exists only to fail.
+ *  - **Signed in** is enough for Status. It is a binary request
+ *    (`REQ_TYPE_GET_STATUS`), and the repeater answers it for guests
+ *    (`simple_repeater/MyMesh.cpp:219`, "guests can also access this now").
+ *  - **Admin** is required for everything that speaks CLI — Settings,
+ *    Regions, Identity, Console and Firmware. The repeater only runs CLI
+ *    text from an admin (`MyMesh.cpp:689`,
+ *    `type == PAYLOAD_TYPE_TXT_MSG && len > 5 && client->isAdmin()`);
+ *    room servers and sensors have the same check. A guest's `get` is
+ *    dropped with no reply and no ACK.
  *
- * Command help needs no session at all — it is a local catalogue, not a
- * request to the node.
+ * Settings and Regions used to be offered to guests as "read-only", on
+ * the belief that a guest could read what it could not write. It could
+ * not read either: every field sat empty and every refresh timed out.
+ * What a guest CAN read of a repeater's configuration is its firmware
+ * version and owner text (`REQ_TYPE_GET_OWNER_INFO`) and the regions it
+ * floods (`ANON_REQ_TYPE_REGIONS`) — the card [showsGuestQueries] puts on
+ * the hub.
+ *
+ * Command help is admin-only too. It is a local catalogue and needs no
+ * round-trip, but it documents the console, and without the console it
+ * lists commands this session cannot send.
  *
  * Regions are repeater-only: a room server and a sensor do not run the
  * `region` CLI, so the tile would 404 against the node.
@@ -79,15 +90,13 @@ fun repeaterHubTiles(role: NodeRole, session: AdminSession): List<HubTile> = bui
                 subtitle = "Battery, uptime, airtime and queue depth",
             ),
         )
+    }
+    if (session.isAdmin) {
         add(
             HubTile(
                 route = "settings",
                 title = "Settings",
-                subtitle = if (session.isAdmin) {
-                    "Radio, position, timing and policy"
-                } else {
-                    "Radio, position, timing and policy — read-only"
-                },
+                subtitle = "Radio, position, timing and policy",
             ),
         )
         if (role == NodeRole.Repeater) {
@@ -95,16 +104,10 @@ fun repeaterHubTiles(role: NodeRole, session: AdminSession): List<HubTile> = bui
                 HubTile(
                     route = "regions",
                     title = "Regions",
-                    subtitle = if (session.isAdmin) {
-                        "Which areas this repeater serves"
-                    } else {
-                        "Which areas this repeater serves — read-only"
-                    },
+                    subtitle = "Which areas this repeater serves",
                 ),
             )
         }
-    }
-    if (session.isAdmin) {
         add(
             HubTile(
                 route = "identity",
@@ -130,14 +133,70 @@ fun repeaterHubTiles(role: NodeRole, session: AdminSession): List<HubTile> = bui
                 subtitle = "Update this node — you must be within Bluetooth range",
             ),
         )
+        // A reference for the console, so it goes where the console
+        // goes: a guest can run no CLI at all, and a list of commands
+        // the node will drop is not help.
+        add(
+            HubTile(
+                route = "help",
+                title = "Command help",
+                subtitle = "What each command does, and what it expects",
+            ),
+        )
     }
-    add(
-        HubTile(
-            route = "help",
-            title = "Command help",
-            subtitle = "What each command does, and what it expects",
-        ),
-    )
+}
+
+/**
+ * Whether the hub shows the guest card: owner info and flood regions,
+ * each asked for on a tap. For a guest on a repeater.
+ *
+ * Guest-only because an admin reads all of it, and more, from Settings
+ * and Regions. Repeater-only because both requests are `simple_repeater`
+ * handlers — `REQ_TYPE_GET_OWNER_INFO` (MyMesh.cpp:375) and
+ * `ANON_REQ_TYPE_REGIONS` (MyMesh.cpp:584); a room server or sensor
+ * would never answer either.
+ */
+fun showsGuestQueries(role: NodeRole, session: AdminSession): Boolean =
+    role == NodeRole.Repeater && session == AdminSession.Guest
+
+/**
+ * The outcome of asking one repeater which regions it floods, for the
+ * guest card. Three answers that must not be shown the same way: we did
+ * not ask (no route), we asked and heard nothing, and the node answered.
+ */
+sealed interface FloodRegionsAsk {
+    /** No stored direct route, so nothing was sent — see [floodRegionsRoute]. */
+    data object NoRoute : FloodRegionsAsk
+    data object NoAnswer : FloodRegionsAsk
+    data class Answered(val list: Regions.FloodList) : FloodRegionsAsk
+}
+
+/**
+ * The stored route to use for the anonymous regions request, or null
+ * when there is none and the request should not be sent.
+ *
+ * The repeater answers it only when it arrives DIRECT
+ * (simple_repeater/MyMesh.cpp:584), and the companion floods it when the
+ * contact has no path (BaseChatMesh.cpp:607) — so without a route the
+ * request is airtime spent on a guaranteed silence. Zero hops is a
+ * route: a direct send with an empty path.
+ */
+fun floodRegionsRoute(pathLen: Int): PathCodec.PathInfo? =
+    PathCodec.decodePathLen(pathLen).takeUnless { it.isFlood }
+
+/**
+ * One line for what the node answered. It says "floods", never "has":
+ * a region set to deny flooding is absent from the answer, not absent
+ * from the repeater.
+ */
+fun floodRegionsSummary(list: Regions.FloodList): String {
+    val named = list.regions
+    return when {
+        named.isEmpty() && list.untaggedFloods -> "Floods untagged traffic only — no named regions."
+        named.isEmpty() -> "Floods no regions, and not untagged traffic."
+        list.untaggedFloods -> "Floods ${named.joinToString(", ")}, and untagged traffic."
+        else -> "Floods ${named.joinToString(", ")}. Untagged traffic is not flooded."
+    }
 }
 
 /** Screen title for a node of [role] — the hub's app-bar subtitle. */

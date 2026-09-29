@@ -196,8 +196,9 @@ fun RemoteSettingsForm(
         }
         if (!isAdmin) {
             HintText(
-                "Read-only session: values can be fetched, but saving and destructive " +
-                    "actions need an admin login.",
+                // Not "values can be fetched": every `get` here is CLI, and
+                // the node runs CLI text from admins only (MyMesh.cpp:689).
+                "Not signed in as admin — this node will not answer these queries.",
             )
         }
 
