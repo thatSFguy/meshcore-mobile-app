@@ -402,6 +402,29 @@ object Frames {
         return w.toBytes()
     }
 
+    /**
+     * CMD_SET_DEFAULT_FLOOD_SCOPE: `[cmd][name cstr(31)][key x16]`, saved
+     * in the radio's prefs. The firmware takes the name only when
+     * `0 < strlen < 31` (companion_radio/MyMesh.cpp:1941-1950); null here
+     * for a name it would refuse, rather than a frame that gets an error.
+     */
+    fun setDefaultFloodScope(name: String, key: ByteArray): ByteArray? {
+        require(key.size == 16) { "flood scope key must be 16 bytes" }
+        val bytes = name.encodeToByteArray()
+        if (bytes.isEmpty() || bytes.size > FloodScope.MAX_DEFAULT_NAME) return null
+        val w = BufferWriter()
+        w.writeByte(Codes.CMD_SET_DEFAULT_FLOOD_SCOPE)
+        w.writeBytesPadded(bytes, ResponseParser.DEFAULT_SCOPE_NAME_BYTES)
+        w.writeBytes(key)
+        return w.toBytes()
+    }
+
+    /** CMD_SET_DEFAULT_FLOOD_SCOPE with no payload: no saved default (MyMesh.cpp:1951-1955). */
+    fun clearDefaultFloodScope(): ByteArray = byteArrayOf(Codes.CMD_SET_DEFAULT_FLOOD_SCOPE.toByte())
+
+    /** CMD_GET_DEFAULT_FLOOD_SCOPE: `[cmd]` — the radio's saved default scope. */
+    fun getDefaultFloodScope(): ByteArray = byteArrayOf(Codes.CMD_GET_DEFAULT_FLOOD_SCOPE.toByte())
+
     /** CMD_SEND_TRACE_PATH: [cmd][tag u32][auth u32][flags][payload?] */
     fun sendTracePath(tag: Long, auth: Long, flags: Int, payload: ByteArray = ByteArray(0)): ByteArray {
         val w = BufferWriter()

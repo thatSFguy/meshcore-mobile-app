@@ -11,6 +11,30 @@ Every entry describes what is in **that tagged build**. A feature that landed af
 belongs in the next section, not this one — 0.3.0 was once credited with four features that
 shipped after it, which misled nobody so much as the author, three months later.
 
+## 0.10.11
+
+**The app-wide region is saved on the radio itself.** Settings → Mesh policies → Global flood
+scope now sets the radio's saved default region, on firmware that has one. Before, the app set
+a temporary region that the radio forgets on every reboot, and sent it again each time it
+connected.
+
+- **Clear now really means no region.** Before, clearing only removed the app's temporary
+  setting. A radio with a saved default region (set by another app, or built into its
+  firmware) kept tagging messages with it while the screen said "global".
+- **The screen shows the radio's saved region**, read from the radio on every connect, including
+  one set by another app or built into the firmware.
+- **Your radio's own flooded adverts now carry the region too.** The radio always sends those
+  with its saved default and ignores the temporary setting, so a region set in the app before
+  never reached them.
+- **A region you set in an earlier version is saved to the radio once**, if the radio has none.
+  If the radio already has one, the radio's is kept.
+- **A channel with its own region still uses it for that send**, then goes back to the saved
+  default.
+- **Older firmware** that can't save a default keeps the old behaviour.
+
+**The channel region picker no longer claims "None" floods the whole mesh.** It uses the
+app-wide region, which may be set.
+
 ## 0.10.10
 
 **A repeater's hub no longer offers a guest screens the repeater won't answer.** A repeater runs

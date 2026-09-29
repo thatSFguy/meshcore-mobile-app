@@ -154,6 +154,15 @@ sealed class DeviceEvent {
         override val isPush get() = false
     }
 
+    /**
+     * RESP_CODE_DEFAULT_FLOOD_SCOPE. [name] and [key] are both null when
+     * the radio has no saved default. The name is whatever the radio was
+     * given, unvalidated; [key] is what it actually tags floods with.
+     */
+    class DefaultFloodScope(val name: String?, val key: ByteArray?) : DeviceEvent() {
+        override val isPush get() = false
+    }
+
     // --- Pushes ---
 
     /**

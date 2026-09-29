@@ -2079,6 +2079,16 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
         it?.engine?.customVars ?: flowOf(emptyMap())
     }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
 
+    val radioDefaultScope: StateFlow<io.github.thatsfguy.meshcore.protocol.RadioDefaultScope> =
+        _service.flatMapLatest {
+            it?.engine?.radioDefaultScope
+                ?: flowOf(io.github.thatsfguy.meshcore.protocol.RadioDefaultScope.NotRead)
+        }.stateIn(
+            viewModelScope,
+            SharingStarted.Eagerly,
+            io.github.thatsfguy.meshcore.protocol.RadioDefaultScope.NotRead,
+        )
+
     val floodScopeRegion: StateFlow<String?> = _service.flatMapLatest {
         it?.engine?.floodScopeRegion ?: flowOf(null)
     }.stateIn(viewModelScope, SharingStarted.Eagerly, null)

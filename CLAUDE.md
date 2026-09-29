@@ -407,6 +407,15 @@ admin'd gives you admin forever, and the app's "Sign out" is local — the firmw
 To get a guest session on your own node, `setperm <your-radio-pubkey> 0` as admin first; restoring
 admin then needs the admin password.
 
+**A companion radio has two flood-scope slots, and the saved default is the one to use.**
+Verified 2026-09-29 against `companion_radio/MyMesh.cpp` and on Blue Base. `CMD_SET_FLOOD_SCOPE`
+(54) is a RAM-only override, cleared only at boot (line 875) or by `[54][0]` — NOT on app
+connect or disconnect, so it outlives the app that set it. `CMD_SET/GET_DEFAULT_FLOOD_SCOPE`
+(63/64) is saved in prefs and applies whenever the override is empty. Flooded self-adverts use
+the default ONLY, never the override (line 1258-1262). The app-wide scope is the default since
+0.10.11; the override is only the per-channel send window (the firmware has no per-channel scope,
+line 513). Clearing only the override is not "no region" — it falls back to the default.
+
 **Don't invent the user.** The guest→admin "re-authentication flow" was proposed here on the
 strength of it sounding plausible, for a person who does not exist. Before building an
 affordance, name who needs it and what they were doing — if that story needs inventing, the

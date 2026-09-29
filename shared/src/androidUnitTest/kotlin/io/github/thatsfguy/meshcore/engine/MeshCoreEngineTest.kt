@@ -5,6 +5,7 @@ import io.github.thatsfguy.meshcore.platform.AndroidCryptoProvider
 import io.github.thatsfguy.meshcore.protocol.BufferWriter
 import io.github.thatsfguy.meshcore.protocol.ChannelCrypto
 import io.github.thatsfguy.meshcore.protocol.AccessList
+import io.github.thatsfguy.meshcore.protocol.RadioDefaultScope
 import io.github.thatsfguy.meshcore.protocol.BinaryRequestBudget
 import io.github.thatsfguy.meshcore.protocol.PathRecovery
 import io.github.thatsfguy.meshcore.protocol.Advert
@@ -169,9 +170,65 @@ class MeshCoreEngineTest {
                 listOf(w.toBytes())
             }
             Codes.CMD_SEND_LOGIN -> listOf(loginSentFrame(), loginSuccessPush())
+            // Firmware without a saved default answers the unknown command
+            // with an error. defaultScopeResponder models firmware with one.
+            Codes.CMD_GET_DEFAULT_FLOOD_SCOPE, Codes.CMD_SET_DEFAULT_FLOOD_SCOPE ->
+                listOf(byteArrayOf(Codes.RESP_CODE_ERR.toByte(), 1))
             else -> listOf(byteArrayOf(Codes.RESP_CODE_OK.toByte()))
         }
     }
+
+    /**
+     * Firmware that keeps a saved default scope, answering 63/64 the way
+     * companion_radio/MyMesh.cpp:1940-1966 does — including taking the
+     * name only when 0 < strlen < 31 and treating a short frame as "clear".
+     */
+    private class DefaultScopeRadio(var name: String? = null, var key: ByteArray? = null)
+
+    private fun defaultScopeResponder(
+        radio: FakeRadio,
+        held: DefaultScopeRadio,
+    ): (ByteArray) -> List<ByteArray> {
+        val base = standardResponder(radio)
+        return { frame ->
+            when (frame[0].toInt() and 0xFF) {
+                Codes.CMD_GET_DEFAULT_FLOOD_SCOPE -> {
+                    val n = held.name
+                    val k = held.key
+                    if (n.isNullOrEmpty() || k == null) {
+                        listOf(byteArrayOf(Codes.RESP_CODE_DEFAULT_FLOOD_SCOPE.toByte()))
+                    } else {
+                        val w = BufferWriter()
+                        w.writeByte(Codes.RESP_CODE_DEFAULT_FLOOD_SCOPE)
+                        w.writeBytesPadded(n.encodeToByteArray(), 31)
+                        w.writeBytes(k)
+                        listOf(w.toBytes())
+                    }
+                }
+                Codes.CMD_SET_DEFAULT_FLOOD_SCOPE -> {
+                    if (frame.size >= 1 + 31 + 16) {
+                        val raw = frame.copyOfRange(1, 32)
+                        val end = raw.indexOfFirst { it.toInt() == 0 }.let { if (it < 0) 31 else it }
+                        if (end in 1..30) {
+                            held.name = raw.copyOfRange(0, end).decodeToString()
+                            held.key = frame.copyOfRange(32, 48)
+                            listOf(byteArrayOf(Codes.RESP_CODE_OK.toByte()))
+                        } else {
+                            listOf(byteArrayOf(Codes.RESP_CODE_ERR.toByte(), 6))
+                        }
+                    } else {
+                        held.name = null
+                        held.key = null
+                        listOf(byteArrayOf(Codes.RESP_CODE_OK.toByte()))
+                    }
+                }
+                else -> base(frame)
+            }
+        }
+    }
+
+    private fun FakeRadio.framesOf(cmd: Int): List<ByteArray> =
+        sentFrames.filter { it[0].toInt() and 0xFF == cmd }
 
 
     /**
@@ -763,6 +820,140 @@ class MeshCoreEngineTest {
         engine.awaitReady()
         withTimeout(10_000) { while (radio.scopeFrames().isEmpty()) kotlinx.coroutines.delay(10) }
         assertEquals(listOf<ByteArray?>(null), radio.scopeFrames())
+    }
+
+    // --- radios that keep a saved default scope ----------------------------
+
+    @Test
+    fun connectReadsTheRadiosDefaultAndTakesItAsTheAppScope() = runTest {
+        val radio = FakeRadio()
+        val held = DefaultScopeRadio("mi", ChannelCrypto.floodScopeHash(crypto, "mi"))
+        radio.responder = defaultScopeResponder(radio, held)
+        val engine = MeshCoreEngine(backgroundScope, crypto, { now })
+        engine.attach(radio)
+        radio.connect()
+        engine.awaitReady()
+        withTimeout(10_000) { while (radio.scopeFrames().isEmpty()) kotlinx.coroutines.delay(10) }
+
+        assertEquals(RadioDefaultScope.Set("mi", isPublicRegion = true), engine.radioDefaultScope.value)
+        assertEquals("mi", engine.floodScopeRegion.value)
+        // The override is cleared, never set: the default is what floods use.
+        assertEquals(listOf<ByteArray?>(null), radio.scopeFrames())
+    }
+
+    @Test
+    fun settingTheScopeSavesItAsTheRadiosDefault() = runTest {
+        val radio = FakeRadio()
+        val held = DefaultScopeRadio()
+        radio.responder = defaultScopeResponder(radio, held)
+        val engine = MeshCoreEngine(backgroundScope, crypto, { now })
+        engine.attach(radio)
+        radio.connect()
+        engine.awaitReady()
+        withTimeout(10_000) { while (engine.radioDefaultScope.value == RadioDefaultScope.NotRead) kotlinx.coroutines.delay(10) }
+        radio.sentFrames.clear()
+
+        assertTrue(engine.setFloodScope("grr"))
+
+        assertEquals("grr", held.name)
+        assertContentEquals(ChannelCrypto.floodScopeHash(crypto, "grr"), held.key)
+        // Not the override: no keyed CMD_SET_FLOOD_SCOPE went out.
+        assertTrue(radio.scopeFrames().all { it == null })
+        assertEquals(RadioDefaultScope.Set("grr", isPublicRegion = true), engine.radioDefaultScope.value)
+        assertEquals("grr", engine.floodScopeRegion.value)
+    }
+
+    @Test
+    fun clearingTheScopeClearsTheRadiosDefault() = runTest {
+        // The defect this fixes: clearing only the override left a radio
+        // with a saved default still tagging floods while the screen said
+        // "no scope". Clearing must reach the default.
+        val radio = FakeRadio()
+        val held = DefaultScopeRadio("mi", ChannelCrypto.floodScopeHash(crypto, "mi"))
+        radio.responder = defaultScopeResponder(radio, held)
+        val engine = MeshCoreEngine(backgroundScope, crypto, { now })
+        engine.attach(radio)
+        radio.connect()
+        engine.awaitReady()
+        withTimeout(10_000) { while (engine.radioDefaultScope.value == RadioDefaultScope.NotRead) kotlinx.coroutines.delay(10) }
+        radio.sentFrames.clear()
+
+        assertTrue(engine.setFloodScope(null))
+
+        assertContentEquals(byteArrayOf(63), radio.framesOf(Codes.CMD_SET_DEFAULT_FLOOD_SCOPE).single())
+        assertNull(held.name)
+        assertEquals(RadioDefaultScope.None, engine.radioDefaultScope.value)
+        assertEquals("", engine.floodScopeRegion.value)
+    }
+
+    @Test
+    fun aChannelScopeIsReleasedToTheDefaultNotReassertedAsAnOverride() = runTest {
+        val radio = FakeRadio()
+        val held = DefaultScopeRadio("mi", ChannelCrypto.floodScopeHash(crypto, "mi"))
+        radio.responder = defaultScopeResponder(radio, held)
+        val engine = MeshCoreEngine(backgroundScope, crypto, { now })
+        engine.attach(radio)
+        radio.connect()
+        engine.awaitReady()
+        withTimeout(10_000) { while (engine.floodScopeRegion.value == null) kotlinx.coroutines.delay(10) }
+        radio.sentFrames.clear()
+
+        assertTrue(engine.sendChannelMessage(0, "hello", now, region = "bayarea"))
+
+        val scopes = radio.scopeFrames()
+        assertContentEquals(ChannelCrypto.floodScopeHash(crypto, "bayarea"), scopes[0])
+        // Released by clearing: the radio falls back to its saved "mi".
+        assertNull(scopes[1])
+        assertEquals("mi", held.name)
+    }
+
+    @Test
+    fun aRegionSetBeforeDefaultsExistedIsSavedOnce() = runTest {
+        val radio = FakeRadio()
+        val held = DefaultScopeRadio()
+        radio.responder = defaultScopeResponder(radio, held)
+        val engine = MeshCoreEngine(backgroundScope, crypto, { now })
+        engine.restoreFloodScope("mi")
+        engine.attach(radio)
+        radio.connect()
+        engine.awaitReady()
+        withTimeout(10_000) { while (held.name == null) kotlinx.coroutines.delay(10) }
+        assertEquals("mi", held.name)
+        assertEquals("mi", engine.floodScopeRegion.value)
+    }
+
+    @Test
+    fun aRadioWithItsOwnDefaultIsNotOverwrittenByTheAppsMemory() = runTest {
+        val radio = FakeRadio()
+        val held = DefaultScopeRadio("grr", ChannelCrypto.floodScopeHash(crypto, "grr"))
+        radio.responder = defaultScopeResponder(radio, held)
+        val engine = MeshCoreEngine(backgroundScope, crypto, { now })
+        engine.restoreFloodScope("mi")
+        engine.attach(radio)
+        radio.connect()
+        engine.awaitReady()
+        withTimeout(10_000) { while (engine.floodScopeRegion.value != "grr") kotlinx.coroutines.delay(10) }
+        assertEquals("grr", held.name)
+        assertTrue(radio.framesOf(Codes.CMD_SET_DEFAULT_FLOOD_SCOPE).isEmpty())
+    }
+
+    @Test
+    fun olderFirmwareKeepsTheOverride() = runTest {
+        // Positive control for the legacy path: an error to the read means
+        // no default slot, so setting a scope must still set the override.
+        val radio = FakeRadio()
+        radio.responder = standardResponder(radio)
+        val engine = MeshCoreEngine(backgroundScope, crypto, { now })
+        engine.attach(radio)
+        radio.connect()
+        engine.awaitReady()
+        withTimeout(10_000) { while (engine.radioDefaultScope.value == RadioDefaultScope.NotRead) kotlinx.coroutines.delay(10) }
+        assertEquals(RadioDefaultScope.Unsupported, engine.radioDefaultScope.value)
+        radio.sentFrames.clear()
+
+        assertTrue(engine.setFloodScope("mi"))
+        assertContentEquals(ChannelCrypto.floodScopeHash(crypto, "mi"), radio.scopeFrames().single())
+        assertTrue(radio.framesOf(Codes.CMD_SET_DEFAULT_FLOOD_SCOPE).isEmpty())
     }
 
     @Test

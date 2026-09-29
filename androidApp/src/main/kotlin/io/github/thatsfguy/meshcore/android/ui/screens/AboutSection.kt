@@ -90,6 +90,14 @@ fun AboutSection(vm: MeshCoreViewModel) {
  * is a changelog you can't read in the field.
  */
 private val CHANGELOG: List<Pair<String, List<String>>> = listOf(
+    "0.10.11" to listOf(
+        "Mesh policies → Global flood scope is saved on the radio as its default region, so it " +
+            "holds across reboots. The screen shows what the radio has saved.",
+        "Clear now means no region. It used to leave a radio's saved default in place while " +
+            "the screen said global.",
+        "The radio's own flooded adverts now carry the region too. A region set in an earlier " +
+            "version is saved to a radio that has none.",
+    ),
     "0.10.10" to listOf(
         "As a guest, a repeater's hub shows Status and a card to ask for its owner info and the " +
             "regions it floods. Settings, Regions and Command help are admin-only: a repeater " +

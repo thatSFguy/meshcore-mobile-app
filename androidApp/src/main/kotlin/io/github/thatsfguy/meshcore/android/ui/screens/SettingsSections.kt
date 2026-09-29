@@ -485,15 +485,18 @@ internal fun PoliciesSection(vm: MeshCoreViewModel) {
 
     Spacer(Modifier.height(8.dp))
     Text("Global flood scope", style = MaterialTheme.typography.labelLarge)
-    ExpandableHint("Restricts flood routing to a named region. Blank = global.") {
+    ExpandableHint("Restricts flood routing to a named region. Blank = untagged.") {
         Text(
-            "Per-channel regions (below) override this for the duration of each send. " +
-                "The radio cannot be asked what its scope is, so the value shown is the " +
-                "last one set from this app — not necessarily what the radio holds.",
+            "Saved on the radio as its default, so it holds across reboots and applies " +
+                "whichever app is connected. Per-channel regions (below) override it for " +
+                "each send. On firmware too old to save a default, the app sets it on every " +
+                "connect instead.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
+    val radioDefault by vm.radioDefaultScope.collectAsState()
+    io.github.thatsfguy.meshcore.presentation.radioDefaultScopeLine(radioDefault)?.let { HintText(it) }
     val currentRegion by vm.floodScopeRegion.collectAsState()
     var region by remember(currentRegion) { mutableStateOf(currentRegion ?: "") }
     Row(verticalAlignment = Alignment.CenterVertically) {

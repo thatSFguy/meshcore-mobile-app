@@ -18,6 +18,9 @@ import io.github.thatsfguy.meshcore.util.isPlausiblePosition
  */
 object ResponseParser {
 
+    /** `_prefs.default_scope_name` is 31 bytes on the wire (MyMesh.cpp:1960). */
+    const val DEFAULT_SCOPE_NAME_BYTES = 31
+
     fun parse(frame: ByteArray): DeviceEvent? {
         if (frame.isEmpty()) return null
         val code = frame[0].toInt() and 0xFF
@@ -132,6 +135,20 @@ object ResponseParser {
             val r = BufferReader(frame)
             r.skipBytes(1)
             DeviceEvent.AutoAddConfig(r.readByte())
+        }
+
+        Codes.RESP_CODE_DEFAULT_FLOOD_SCOPE -> {
+            // companion_radio/MyMesh.cpp:1957-1965: one byte means "no
+            // default"; otherwise a 31-byte name field then the 16-byte key.
+            // Anything between is truncated and degrades to Unknown.
+            if (frame.size == 1) {
+                DeviceEvent.DefaultFloodScope(null, null)
+            } else {
+                val r = BufferReader(frame)
+                r.skipBytes(1)
+                val name = r.readFixedCString(DEFAULT_SCOPE_NAME_BYTES)
+                DeviceEvent.DefaultFloodScope(name, r.readBytes(16))
+            }
         }
 
         Codes.PUSH_CODE_ADVERT -> {

@@ -24,6 +24,8 @@ import io.github.thatsfguy.meshcore.protocol.AccessList
 import io.github.thatsfguy.meshcore.protocol.BinaryRequestBudget
 import io.github.thatsfguy.meshcore.protocol.Neighbours
 import io.github.thatsfguy.meshcore.protocol.OwnerInfo
+import io.github.thatsfguy.meshcore.protocol.FloodScope
+import io.github.thatsfguy.meshcore.protocol.RadioDefaultScope
 import io.github.thatsfguy.meshcore.protocol.NodeDiscovery
 import io.github.thatsfguy.meshcore.protocol.PathCodec
 import io.github.thatsfguy.meshcore.protocol.PathRecovery
@@ -307,8 +309,9 @@ class MeshCoreEngine(
     private val _contactsFull = MutableStateFlow(false)
     val contactsFull: StateFlow<Boolean> = _contactsFull.asStateFlow()
 
-    /** Last flood-scope region set through this app ("" = cleared; the
-     *  radio can't be queried for it, so this is app-side memory only). */
+    /** Last flood-scope region set through this app ("" = cleared). This
+     *  is the OVERRIDE, which the radio cannot report back, so it is
+     *  app-side memory; the radio's saved default is [radioDefaultScope]. */
     private val _floodScopeRegion = MutableStateFlow<String?>(null)
     val floodScopeRegion: StateFlow<String?> = _floodScopeRegion.asStateFlow()
 
@@ -318,6 +321,11 @@ class MeshCoreEngine(
      * non-null every flood packet the radio sends may carry that scope,
      * so the UI must say so rather than let it pass silently.
      */
+    private val _radioDefaultScope = MutableStateFlow<RadioDefaultScope>(RadioDefaultScope.NotRead)
+
+    /** The radio's saved default scope, read on every connect. See [RadioDefaultScope]. */
+    val radioDefaultScope: StateFlow<RadioDefaultScope> = _radioDefaultScope.asStateFlow()
+
     private val _floodScopeStuck = MutableStateFlow<String?>(null)
     val floodScopeStuck: StateFlow<String?> = _floodScopeStuck.asStateFlow()
 
@@ -481,6 +489,8 @@ class MeshCoreEngine(
         syncingContacts = null
         syncingIsIncremental = false
         _contactsFull.value = false
+        // The next radio's saved scope is its own.
+        _radioDefaultScope.value = RadioDefaultScope.NotRead
         contactRefreshJob?.cancel(); contactRefreshJob = null
         drainingQueue = false
         // The next radio's slots are unknown until we read them, even
@@ -529,13 +539,8 @@ class MeshCoreEngine(
             refreshBattery()
             requestCustomVars()
             requestAutoAddConfig()
-            // A reconnect (or a radio reboot) starts from an unknown
-            // flood scope. Re-assert whatever this app last set, so a
-            // scope left behind by a failed restore can't outlive the
-            // link that created it.
-            _floodScopeRegion.value?.let {
-                scopedSendMutex.withLock { applyFloodScope(it.takeIf(String::isNotBlank)) }
-            }
+            requestDefaultFloodScope()
+            scopedSendMutex.withLock { settleFloodScopeOnConnect() }
             drainMessageQueue()
         } catch (t: Throwable) {
             log("Handshake error: ${t.message}")
@@ -1384,7 +1389,9 @@ class MeshCoreEngine(
             // Restore the *user's* global scope, not blank: the Settings
             // screen owns that value and a per-channel send must not
             // quietly clear it.
-            if (!applyFloodScope(_floodScopeRegion.value?.takeIf { it.isNotBlank() })) {
+            // With a saved default, clearing the override IS the restore.
+            val restore = if (radioKeepsDefault) null else _floodScopeRegion.value?.takeIf { it.isNotBlank() }
+            if (!applyFloodScope(restore)) {
                 _floodScopeStuck.value = scoped
                 log("Flood scope restore failed — radio may still be scoped to #$scoped")
             }
@@ -2316,9 +2323,72 @@ class MeshCoreEngine(
         } else {
             Regions.canonical(wanted) ?: return@withLock false
         }
+        if (radioKeepsDefault) return@withLock writeRadioDefault(canonical)
         val ok = applyFloodScope(canonical.ifEmpty { null })
         if (ok) _floodScopeRegion.value = canonical
         ok
+    }
+
+    /**
+     * True when the radio can hold the app-wide scope itself, in its
+     * saved default (`CMD_SET/GET_DEFAULT_FLOOD_SCOPE`). Then the app-wide
+     * scope IS the radio's default: it survives a reboot on its own, and
+     * "no scope" can mean untagged — clearing only the override, as this
+     * app used to, left the radio on its saved default while the screen
+     * said "global". Older firmware keeps the override-and-re-assert path.
+     */
+    private val radioKeepsDefault: Boolean
+        get() = _radioDefaultScope.value.let {
+            it is RadioDefaultScope.None || it is RadioDefaultScope.Set
+        }
+
+    /**
+     * Save [canonical] ("" = none) as the radio's default, clear the
+     * override so the default is what floods use, and read it back so the
+     * screen shows what the radio holds rather than what was asked for.
+     */
+    private suspend fun writeRadioDefault(canonical: String): Boolean {
+        val key = canonical.takeIf { it.isNotEmpty() }?.let { ChannelCrypto.floodScopeHash(crypto, it) }
+        val frame = if (key == null) {
+            Frames.clearDefaultFloodScope()
+        } else {
+            Frames.setDefaultFloodScope(canonical, key) ?: return false
+        }
+        val ok = sendAndAwait(frame) { it is DeviceEvent.Ok || it is DeviceEvent.Err } is DeviceEvent.Ok
+        if (!ok) return false
+        applyFloodScope(null)
+        requestDefaultFloodScope()
+        _floodScopeRegion.value = defaultScopeName()
+        return true
+    }
+
+    /** The radio's default as the app-wide scope value: a name, or "" for none. */
+    private fun defaultScopeName(): String? = when (val d = _radioDefaultScope.value) {
+        is RadioDefaultScope.Set -> d.name
+        RadioDefaultScope.None -> ""
+        else -> _floodScopeRegion.value
+    }
+
+    /**
+     * After every connect. On a radio that keeps a default, clear any
+     * override a failed restore may have left, and take the radio's
+     * default as the app-wide scope — except once: a region set in this
+     * app before it knew about defaults, on a radio with none saved, is
+     * written to the radio rather than dropped. Older firmware: re-assert
+     * the app's remembered override, as before.
+     */
+    private suspend fun settleFloodScopeOnConnect() {
+        if (!radioKeepsDefault) {
+            _floodScopeRegion.value?.let { applyFloodScope(it.takeIf(String::isNotBlank)) }
+            return
+        }
+        val remembered = _floodScopeRegion.value?.let { Regions.canonical(it) }
+        if (_radioDefaultScope.value == RadioDefaultScope.None && remembered != null) {
+            log("Saving app flood scope #$remembered as the radio's default")
+            if (writeRadioDefault(remembered)) return
+        }
+        applyFloodScope(null)
+        _floodScopeRegion.value = defaultScopeName()
     }
 
     /**
@@ -2338,6 +2408,22 @@ class MeshCoreEngine(
             region == null -> null
             region.isBlank() -> ""
             else -> Regions.canonical(region)
+        }
+    }
+
+    /**
+     * Read the radio's saved default scope into [radioDefaultScope].
+     * An error reply means firmware without the command; silence leaves
+     * it [RadioDefaultScope.NotRead] rather than guessing.
+     */
+    suspend fun requestDefaultFloodScope() {
+        val ev = sendAndAwait(Frames.getDefaultFloodScope()) {
+            it is DeviceEvent.DefaultFloodScope || it is DeviceEvent.Err
+        }
+        _radioDefaultScope.value = when (ev) {
+            is DeviceEvent.DefaultFloodScope -> FloodScope.defaultFrom(ev, crypto)
+            is DeviceEvent.Err -> RadioDefaultScope.Unsupported
+            else -> RadioDefaultScope.NotRead
         }
     }
 

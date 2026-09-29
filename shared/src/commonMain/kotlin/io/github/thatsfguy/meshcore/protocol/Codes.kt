@@ -48,6 +48,10 @@ object Codes {
     const val CMD_SET_AUTO_ADD_CONFIG = 58
     const val CMD_GET_AUTO_ADD_CONFIG = 59
     const val CMD_SET_PATH_HASH_MODE = 61
+    /** The radio's SAVED flood scope, used whenever no override is set.
+     *  companion_radio/MyMesh.cpp:1940-1966. */
+    const val CMD_SET_DEFAULT_FLOOD_SCOPE = 63
+    const val CMD_GET_DEFAULT_FLOOD_SCOPE = 64
 
     // Text message types
     const val TXT_TYPE_PLAIN = 0
@@ -76,6 +80,8 @@ object Codes {
     const val RESP_CODE_STATS = 24
     const val RESP_CODE_AUTO_ADD_CONFIG = 25
     const val RESP_CODE_CHANNEL_DATA_RECV = 27
+    /** `[28]` alone = no default; else `[28][name cstr(31)][key x16]`. */
+    const val RESP_CODE_DEFAULT_FLOOD_SCOPE = 28
 
     const val STATS_TYPE_CORE = 0
     const val STATS_TYPE_RADIO = 1

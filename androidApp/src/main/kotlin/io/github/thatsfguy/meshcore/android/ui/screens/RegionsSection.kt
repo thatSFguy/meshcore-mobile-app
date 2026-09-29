@@ -140,7 +140,7 @@ fun RegionsSection(vm: MeshCoreViewModel) {
                         // region would keep scoping its traffic to a name
                         // the user believes is gone.
                         "Channel " + usedBy.joinToString(", ") { it.toString() } +
-                            " will go back to sending unscoped (global flood). Nothing " +
+                            " will go back to the app-wide flood scope. Nothing " +
                             "changes on the radio or on any repeater."
                     },
                 )
@@ -245,7 +245,8 @@ fun ChannelRegionPicker(vm: MeshCoreViewModel, channelIndex: Int) {
     }
     HintText(
         if (current == null) {
-            "Unscoped: messages on this channel flood the whole mesh."
+            "No channel region: messages use the app-wide flood scope " +
+                "(Settings → Mesh policies)."
         } else {
             "Messages on this channel are sent scoped to region $current. This " +
                 "changes which repeaters carry them, not who can read them."
