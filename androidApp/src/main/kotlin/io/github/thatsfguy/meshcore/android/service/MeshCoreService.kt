@@ -549,7 +549,7 @@ class MeshCoreService : Service() {
         val title = if (isChannel) {
             val idx = peerKey.toIntOrNull()
             val name = engine.channels.value.firstOrNull { it.index == idx }?.name
-            "# ${name?.ifBlank { null } ?: "Channel $peerKey"}" +
+            (name?.ifBlank { null } ?: "Channel $peerKey") +
                 (senderName?.let { " · $it" } ?: "")
         } else {
             val contact = engine.contacts.value[peerKey]

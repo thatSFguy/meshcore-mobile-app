@@ -1,5 +1,9 @@
 package io.github.thatsfguy.meshcore.android.ui.screens
 
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.material.icons.filled.Lock
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
@@ -33,6 +37,13 @@ fun NodeAvatar(
     type: Int? = null,
     isChannel: Boolean = false,
     size: Dp = 40.dp,
+    /**
+     * A channel's kind, from its key. Only a [ChannelKind.Hashtag]
+     * channel gets a '#': putting one on every channel made private
+     * channels look like ones anyone can join. Null (key not readable)
+     * falls back to the name's initial rather than claiming a kind.
+     */
+    channelKind: io.github.thatsfguy.meshcore.protocol.ChannelKind? = null,
 ) {
     // Infrastructure nodes reuse the MAP marker artwork (same colors +
     // glyphs) so a repeater looks identical in the list and on the map.
@@ -57,8 +68,28 @@ fun NodeAvatar(
     val background = Color(c.backgroundArgb)
     val darkText = c.useDarkText
 
+    val ink = if (darkText) Color.Black else Color.White
+    if (isChannel && channelKind != null && channelKind != io.github.thatsfguy.meshcore.protocol.ChannelKind.Hashtag) {
+        Box(
+            modifier = Modifier.size(size).background(background, CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (channelKind == io.github.thatsfguy.meshcore.protocol.ChannelKind.Private) {
+                androidx.compose.material3.Icon(
+                    androidx.compose.material.icons.Icons.Filled.Lock,
+                    contentDescription = "Private channel",
+                    tint = ink,
+                    modifier = Modifier.size(size * 0.5f),
+                )
+            } else {
+                GlobeGlyph(ink, Modifier.size(size * 0.52f))
+            }
+        }
+        return
+    }
+
     val glyph = when {
-        isChannel -> "#"
+        isChannel && channelKind == io.github.thatsfguy.meshcore.protocol.ChannelKind.Hashtag -> "#"
         // Not the first character: an emoji is two, and half of one drew
         // "�". See AvatarGlyph.
         else -> io.github.thatsfguy.meshcore.presentation.AvatarGlyph.of(label)
@@ -77,6 +108,29 @@ fun NodeAvatar(
             fontWeight = FontWeight.Bold,
             fontSize = (size.value * 0.42f).sp,
         )
+    }
+}
+
+/**
+ * A globe for the Public channel, drawn rather than imported: the core
+ * icon set has none, and the extended set is a large dependency for one
+ * glyph.
+ */
+@Composable
+private fun GlobeGlyph(color: Color, modifier: Modifier) {
+    androidx.compose.foundation.Canvas(modifier.semantics { contentDescription = "Public channel" }) {
+        val stroke = androidx.compose.ui.graphics.drawscope.Stroke(width = size.minDimension * 0.09f)
+        val r = size.minDimension / 2f - stroke.width / 2f
+        drawCircle(color, radius = r, style = stroke)
+        // Meridian and the equator.
+        drawOval(
+            color,
+            topLeft = androidx.compose.ui.geometry.Offset(center.x - r * 0.45f, center.y - r),
+            size = androidx.compose.ui.geometry.Size(r * 0.9f, r * 2f),
+            style = stroke,
+        )
+        drawLine(color, androidx.compose.ui.geometry.Offset(center.x - r, center.y),
+            androidx.compose.ui.geometry.Offset(center.x + r, center.y), strokeWidth = stroke.width)
     }
 }
 

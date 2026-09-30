@@ -68,6 +68,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -589,6 +590,26 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
     val dbChannels: StateFlow<List<ChannelEntity>> = selfKey.flatMapLatest { key ->
         if (key.isEmpty()) flowOf(emptyList()) else db.channels().all(key)
     }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    /**
+     * Each channel slot's kind, from its key (see ChannelKinds). A slot
+     * missing from the map is one whose key couldn't be unsealed — shown
+     * without a kind rather than guessed at from its name.
+     */
+    val channelKinds: StateFlow<Map<Int, io.github.thatsfguy.meshcore.protocol.ChannelKind>> =
+        combine(dbChannels, _service) { channels, svc -> channels to svc }
+            .mapLatest { (channels, svc) ->
+                val secrets = svc?.secrets ?: return@mapLatest emptyMap()
+                val crypto = io.github.thatsfguy.meshcore.platform.androidCryptoProvider()
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+                    channels.mapNotNull { ch ->
+                        if (ch.pskSealed.isEmpty()) return@mapNotNull null
+                        val psk = secrets.unsealPsk(ch.pskSealed) ?: return@mapNotNull null
+                        ch.idx to io.github.thatsfguy.meshcore.protocol.ChannelKinds.of(ch.name, psk, crypto)
+                    }.toMap()
+                }
+            }
+            .stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
 
     /** Bumped when a private nickname changes, so [conversations] recomputes. */
     private val nicknameRevision = MutableStateFlow(0)
@@ -1535,18 +1556,43 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
      * contained.
      */
     fun addChannel(name: String, pskHexOrEmpty: String, regionScope: String = "") {
+        val crypto = io.github.thatsfguy.meshcore.platform.androidCryptoProvider()
+        val psk = when {
+            pskHexOrEmpty.isNotBlank() -> hexToBytesOrNull(pskHexOrEmpty.replace(" ", ""))
+            name.startsWith("#") -> ChannelCrypto.hashtagPsk(crypto, name)
+            else -> crypto.randomBytes(16)
+        }
+        if (psk == null || psk.size != 16) {
+            transientMessage.value = "PSK must be 32 hex characters"
+            return
+        }
+        addChannelWithKey(name, psk, regionScope)
+    }
+
+    // The add sheet's four choices. Each says exactly which key it means,
+    // instead of inferring it from how the name is spelled — a private
+    // channel named "#x" used to silently become the public #x.
+
+    fun joinPublicChannel() =
+        addChannelWithKey(io.github.thatsfguy.meshcore.presentation.ChannelSetup.PUBLIC_NAME, ChannelCrypto.PUBLIC_CHANNEL_PSK)
+
+    /** [label] must already be a valid "#name" (ChannelSetup.hashtag). */
+    fun joinHashtagChannel(label: String) {
+        val crypto = io.github.thatsfguy.meshcore.platform.androidCryptoProvider()
+        addChannelWithKey(label, ChannelCrypto.hashtagPsk(crypto, label))
+    }
+
+    /** A new private channel under a fresh random key. */
+    fun createPrivateChannel(name: String) {
+        val crypto = io.github.thatsfguy.meshcore.platform.androidCryptoProvider()
+        addChannelWithKey(name, crypto.randomBytes(16))
+    }
+
+    fun joinPrivateChannel(name: String, key: ByteArray) = addChannelWithKey(name, key)
+
+    private fun addChannelWithKey(name: String, psk: ByteArray, regionScope: String = "") {
         val svc = _service.value ?: return
         viewModelScope.launch {
-            val crypto = io.github.thatsfguy.meshcore.platform.androidCryptoProvider()
-            val psk = when {
-                pskHexOrEmpty.isNotBlank() -> hexToBytesOrNull(pskHexOrEmpty.replace(" ", ""))
-                name.startsWith("#") -> ChannelCrypto.hashtagPsk(crypto, name)
-                else -> crypto.randomBytes(16)
-            }
-            if (psk == null || psk.size != 16) {
-                transientMessage.value = "PSK must be 32 hex characters"
-                return@launch
-            }
             // Joining is idempotent, and keyed on the SECRET rather than
             // the name — the key is the channel; the name is a local
             // label. Without this, scanning a code you already hold

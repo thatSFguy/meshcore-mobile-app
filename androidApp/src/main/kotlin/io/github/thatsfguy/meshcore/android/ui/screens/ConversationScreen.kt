@@ -110,6 +110,7 @@ fun ConversationScreen(
     // drawn at the bottom.
     val contacts by vm.dbContacts.collectAsState()
     val channels by vm.dbChannels.collectAsState()
+    val channelKinds by vm.channelKinds.collectAsState()
 
     // A room relays posts from many people, so — like a channel — each
     // bubble has to say who wrote it. The room server is not the author.
@@ -119,8 +120,10 @@ fun ConversationScreen(
 
     val title = if (isChannel) {
         val idx = peerKey.toIntOrNull()
-        "# " + (channels.firstOrNull { it.idx == idx }?.name?.ifBlank { "Channel $idx" }
-            ?: "Channel $idx")
+        // The name as stored: a hashtag channel's already starts with '#',
+        // and prefixing one to every channel made private ones look public.
+        channels.firstOrNull { it.idx == idx }?.name?.ifBlank { "Channel $idx" }
+            ?: "Channel $idx"
     } else {
         contacts.firstOrNull { it.keyHex == peerKey }?.name?.ifBlank { null }
             ?: peerKey.take(12)
@@ -222,8 +225,11 @@ fun ConversationScreen(
                 // changes who carries it — worth seeing before sending,
                 // without diluting the "not secure" part.
                 subtitle = if (isChannel) {
-                    val region = peerKey.toIntOrNull()?.let { channelRegions[it] }
-                    if (region != null) "Obfuscated, not secure · #$region" else "Obfuscated, not secure"
+                    val idx = peerKey.toIntOrNull()
+                    io.github.thatsfguy.meshcore.presentation.channelSubtitle(
+                        idx?.let { channelKinds[it] },
+                        idx?.let { channelRegions[it] },
+                    )
                 } else {
                     null
                 },

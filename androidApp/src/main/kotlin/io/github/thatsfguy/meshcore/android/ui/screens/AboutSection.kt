@@ -90,6 +90,14 @@ fun AboutSection(vm: MeshCoreViewModel) {
  * is a changelog you can't read in the field.
  */
 private val CHANGELOG: List<Pair<String, List<String>>> = listOf(
+    "0.10.12" to listOf(
+        "Only hashtag channels show a #. Public shows a globe and private channels a lock, read " +
+            "from the key, not the name. Names are shown as saved.",
+        "A conversation's subtitle says who can read it: Public, Hashtag (anyone can read) or " +
+            "Private (not secure).",
+        "Adding a channel offers Public, Create private, Join private and Hashtag, each explained. " +
+            "A private channel can't be named #x, which used to make it the public #x.",
+    ),
     "0.10.11" to listOf(
         "Mesh policies → Global flood scope is saved on the radio as its default region, so it " +
             "holds across reboots. The screen shows what the radio has saved.",

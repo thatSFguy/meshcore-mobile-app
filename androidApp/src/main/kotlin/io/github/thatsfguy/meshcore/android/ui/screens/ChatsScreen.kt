@@ -113,6 +113,7 @@ fun ChatsScreen(vm: MeshCoreViewModel, nav: NavController) {
                     row.subtitle.contains(query, ignoreCase = true)
             }
             val pinnedRows = filtered.filter { "${it.kind}|${it.key}" in pinned }
+            val kinds by vm.channelKinds.collectAsState()
             val rest = filtered.filter { "${it.kind}|${it.key}" !in pinned }
 
             Column(Modifier.fillMaxSize().padding(padding)) {
@@ -129,6 +130,7 @@ fun ChatsScreen(vm: MeshCoreViewModel, nav: NavController) {
                         items(pinnedRows, key = { "p|${it.kind}|${it.key}" }) { row ->
                             ConversationRowItem(
                                 row,
+                                channelKind = if (row.isChannel) kinds[row.key.toIntOrNull()] else null,
                                 pinned = true,
                                 onClick = { nav.navigate(conversationRoute(row.kind, row.key)) },
                                 onTogglePin = {
@@ -143,6 +145,7 @@ fun ChatsScreen(vm: MeshCoreViewModel, nav: NavController) {
                     items(rest, key = { "${it.kind}|${it.key}" }) { row ->
                         ConversationRowItem(
                             row,
+                            channelKind = if (row.isChannel) kinds[row.key.toIntOrNull()] else null,
                             pinned = false,
                             onClick = { nav.navigate(conversationRoute(row.kind, row.key)) },
                             onTogglePin = {
@@ -178,6 +181,7 @@ fun ChatsScreen(vm: MeshCoreViewModel, nav: NavController) {
 @Composable
 private fun ConversationRowItem(
     row: ConversationRow,
+    channelKind: io.github.thatsfguy.meshcore.protocol.ChannelKind? = null,
     pinned: Boolean = false,
     onClick: () -> Unit,
     onTogglePin: () -> Unit = {},
@@ -198,6 +202,7 @@ private fun ConversationRowItem(
             label = row.title,
             type = row.contactType,
             isChannel = row.isChannel,
+            channelKind = channelKind,
         )
         androidx.compose.foundation.layout.Spacer(
             Modifier.padding(start = 12.dp),

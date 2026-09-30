@@ -11,6 +11,36 @@ Every entry describes what is in **that tagged build**. A feature that landed af
 belongs in the next section, not this one — 0.3.0 was once credited with four features that
 shipped after it, which misled nobody so much as the author, three months later.
 
+## 0.10.12
+
+**Channels show what kind they are, and only hashtag channels get a `#`.** Every channel used to
+show a `#`, which made private channels look like ones anyone can join.
+
+- **The kind is read from the channel's key, not its name.** A globe marks Public, `#` marks a
+  hashtag channel, and a lock marks a private channel.
+- **A channel named "#something" with a private key shows as private.** A `#` in the name
+  doesn't make a channel public; only a key made from that name does.
+- **Names are shown exactly as saved**, with nothing added in front: in the list, the
+  conversation title and notifications.
+- **The line under a conversation's title says who can read it**: "Public · anyone can read
+  it", "Hashtag · anyone can read it" or "Private · not secure".
+
+**Adding a channel explains the choice.** The add sheet starts by saying that a channel is its
+secret key: everyone with the same key is in the same channel, whatever each of them calls it.
+Then it offers the four choices the MeshCore app does, each with its own short form:
+
+- **Join the Public Channel.**
+- **Create a Private Channel**, with a new random key. Share it from the channel's settings.
+- **Join a Private Channel**, with a key someone gave you. The name can be anything, because
+  only the key must match.
+- **Join a Hashtag Channel.** The name is lowercased and limited to a–z, 0–9 and hyphens,
+  because the key is made from the exact name.
+- **Scanning a channel or community QR** is still there.
+
+A private channel's name can't start with `#` any more. Before, naming one "#x" silently made it
+the public #x channel instead. An all-zeros key is refused. Adding a channel you already have
+says so and doesn't use a second slot.
+
 ## 0.10.11
 
 **The app-wide region is saved on the radio itself.** Settings → Mesh policies → Global flood
