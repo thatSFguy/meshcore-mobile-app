@@ -201,6 +201,13 @@ sealed class DeviceEvent {
         val permissions: Int,
         val pubKeyPrefix: ByteArray,
         val serverTimestamp: Long?,
+        /**
+         * The node's ACL entry for us (low two bits: 0 guest, 1 read-only,
+         * 2 read-write, 3 admin), or null from firmware that predates it.
+         * On a room server this — not [permissions] — says whether we
+         * may post.
+         */
+        val aclPermissions: Int? = null,
     ) : DeviceEvent() {
         override val isPush get() = true
     }

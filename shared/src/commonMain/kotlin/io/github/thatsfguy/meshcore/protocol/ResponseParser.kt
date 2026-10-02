@@ -177,7 +177,11 @@ object ResponseParser {
             val perm = r.readByte()
             val prefix = r.readBytes(6)
             val ts = if (r.remaining >= 4) r.readUInt32LE() else null
-            DeviceEvent.LoginSuccess(perm, prefix, ts?.takeIf { it != 0L })
+            // [12] the node's ACL permissions, appended in companion
+            // frame v7 (companion_radio/MyMesh.cpp:701). Optional: older
+            // firmware ends the frame at the timestamp.
+            val acl = if (ts != null && r.remaining >= 1) r.readByte() else null
+            DeviceEvent.LoginSuccess(perm, prefix, ts?.takeIf { it != 0L }, acl)
         }
 
         Codes.PUSH_CODE_LOGIN_FAIL -> DeviceEvent.LoginFail

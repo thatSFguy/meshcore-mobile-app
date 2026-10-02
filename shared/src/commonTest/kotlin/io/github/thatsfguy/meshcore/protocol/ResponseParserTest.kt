@@ -235,6 +235,38 @@ class ResponseParserTest {
         val e = assertIs<DeviceEvent.LoginSuccess>(ResponseParser.parse(w.toBytes()))
         assertEquals(1, e.permissions)
         assertEquals(99999L, e.serverTimestamp)
+        // No ACL byte from firmware that predates it.
+        assertNull(e.aclPermissions)
+    }
+
+    @Test
+    fun loginSuccessCarriesTheAclByte() {
+        // The v7 layout, companion_radio/MyMesh.cpp:695-702: a room
+        // member's grant — [1] 0 (not admin), [12] 2 (READ_WRITE),
+        // [13] firmware level.
+        val w = BufferWriter()
+        w.writeByte(Codes.PUSH_CODE_LOGIN_SUCCESS)
+        w.writeByte(0)
+        w.writeBytes(ByteArray(6) { 3 })
+        w.writeUInt32LE(99999L)
+        w.writeByte(2)
+        w.writeByte(1)
+        val e = assertIs<DeviceEvent.LoginSuccess>(ResponseParser.parse(w.toBytes()))
+        assertEquals(0, e.permissions)
+        assertEquals(2, e.aclPermissions)
+    }
+
+    @Test
+    fun loginSuccessWithoutATimestampHasNoAclByte() {
+        // Truncated after the prefix: neither optional field is invented.
+        val w = BufferWriter()
+        w.writeByte(Codes.PUSH_CODE_LOGIN_SUCCESS)
+        w.writeByte(0)
+        w.writeBytes(ByteArray(6) { 3 })
+        w.writeByte(2)
+        val e = assertIs<DeviceEvent.LoginSuccess>(ResponseParser.parse(w.toBytes()))
+        assertNull(e.serverTimestamp)
+        assertNull(e.aclPermissions)
     }
 
     @Test

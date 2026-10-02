@@ -404,7 +404,7 @@ private fun NoAnswerText(text: String) {
 private fun GrantChip(session: AdminSession) {
     val color = when (session) {
         AdminSession.Admin -> MaterialTheme.colorScheme.primary
-        AdminSession.Guest -> MaterialTheme.colorScheme.tertiary
+        AdminSession.Guest, AdminSession.Member -> MaterialTheme.colorScheme.tertiary
         AdminSession.None -> MaterialTheme.colorScheme.outline
     }
     Surface(

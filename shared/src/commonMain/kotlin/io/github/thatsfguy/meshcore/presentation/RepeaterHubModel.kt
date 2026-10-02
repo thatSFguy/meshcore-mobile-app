@@ -22,6 +22,14 @@ import io.github.thatsfguy.meshcore.protocol.Regions
 enum class AdminSession {
     None,
     Guest,
+
+    /**
+     * Signed in to a ROOM with the right to post — the room password's
+     * grant (`PERM_ACL_READ_WRITE`, simple_room_server/MyMesh.cpp:348).
+     * Not an admin, and not read-only: the ordinary member of a room.
+     * Only [grantedSession] produces it, and only for a room server.
+     */
+    Member,
     Admin,
     ;
 
@@ -33,9 +41,44 @@ enum class AdminSession {
         get() = when (this) {
             None -> "NOT SIGNED IN"
             Guest -> "GUEST"
+            Member -> "MEMBER"
             Admin -> "ADMIN"
         }
 }
+
+/**
+ * What a successful login granted, from the bytes the node sent.
+ *
+ * Admin is `PUSH_CODE_LOGIN_SUCCESS[1]` == 1 for every role. Below admin,
+ * a repeater and a sensor make no distinction the app can use — a
+ * non-admin runs no CLI — so that is [AdminSession.Guest]. A room server
+ * does: the room password grants READ_WRITE and may post, while
+ * `allow.read.only` grants GUEST, which receives the room's posts but
+ * whose own are dropped with no ACK (simple_room_server/MyMesh.cpp:480,
+ * `== PERM_ACL_GUEST` only — so READ_ONLY, set by `setperm`, may post).
+ *
+ * The ACL byte [aclPermissions] (`[12]`, companion frame v7) says this
+ * directly. Older firmware sends only [legacyPermission], which a room
+ * fills as `isAdmin ? 1 : (permissions == 0 ? 2 : 0)` (MyMesh.cpp:387):
+ * 2 is the read-only guest, 0 a member.
+ */
+fun grantedSession(
+    role: NodeRole,
+    isAdmin: Boolean,
+    legacyPermission: Int,
+    aclPermissions: Int?,
+): AdminSession = when {
+    isAdmin -> AdminSession.Admin
+    role != NodeRole.Room -> AdminSession.Guest
+    aclPermissions != null ->
+        if (aclPermissions and ACL_ROLE_MASK == ACL_GUEST) AdminSession.Guest else AdminSession.Member
+    legacyPermission == ROOM_LEGACY_GUEST -> AdminSession.Guest
+    else -> AdminSession.Member
+}
+
+private const val ACL_ROLE_MASK = 3
+private const val ACL_GUEST = 0
+private const val ROOM_LEGACY_GUEST = 2
 
 /**
  * One row on the repeater hub. [route] is the sub-route appended to
@@ -78,8 +121,13 @@ data class HubTile(
  * round-trip, but it documents the console, and without the console it
  * lists commands this session cannot send.
  *
- * Regions are repeater-only: a room server and a sensor do not run the
- * `region` CLI, so the tile would 404 against the node.
+ * Regions are for every infrastructure role, not just repeaters. The
+ * `region` commands live in the shared CLI (`helpers/CommonCLI.cpp:320`,
+ * `:1046`), and a room server and a sensor both hand it their own
+ * `region_map` (`simple_room_server/MyMesh.cpp:634`,
+ * `simple_sensor/SensorMesh.cpp:703`). Both also forward packets unless
+ * `repeat off` — so a room is often a repeater as well, and its scoping
+ * matters as much as a repeater's.
  */
 fun repeaterHubTiles(role: NodeRole, session: AdminSession): List<HubTile> = buildList {
     if (session.signedIn) {
@@ -99,12 +147,12 @@ fun repeaterHubTiles(role: NodeRole, session: AdminSession): List<HubTile> = bui
                 subtitle = "Radio, position, timing and policy",
             ),
         )
-        if (role == NodeRole.Repeater) {
+        if (role != NodeRole.Companion) {
             add(
                 HubTile(
                     route = "regions",
                     title = "Regions",
-                    subtitle = "Which areas this repeater serves",
+                    subtitle = "Which areas this node serves",
                 ),
             )
         }

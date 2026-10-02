@@ -44,6 +44,7 @@ import io.github.thatsfguy.meshcore.protocol.CliIds
 import io.github.thatsfguy.meshcore.protocol.IdentityKeygen
 import io.github.thatsfguy.meshcore.protocol.ChannelCrypto
 import io.github.thatsfguy.meshcore.protocol.Codes
+import io.github.thatsfguy.meshcore.protocol.NodeRole
 import io.github.thatsfguy.meshcore.protocol.ConfigBackup
 import io.github.thatsfguy.meshcore.protocol.NodeDiscovery
 import io.github.thatsfguy.meshcore.protocol.Quoting
@@ -1842,6 +1843,7 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
                 result.session == AdminSession.Admin -> "Logged in as admin$sealNote"
                 // Say what was GRANTED, not what was asked for. A guest
                 // grant is a successful login, not a failure.
+                result.session == AdminSession.Member -> "Signed in to the room$sealNote"
                 result.session == AdminSession.Guest -> "Logged in as guest — read-only$sealNote"
                 result.answered -> "Password rejected"
                 else -> "No answer from the node"
@@ -1915,11 +1917,23 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
         if (outcome.accepted && savePassword) {
             sealFailed = !svc.secrets.storeLoginPassword(keyHex, password)
         }
-        // What the NODE granted, straight from its reply byte.
-        val granted = when {
-            !outcome.accepted -> AdminSession.None
-            outcome.isAdmin -> AdminSession.Admin
-            else -> AdminSession.Guest
+        // What the NODE granted, straight from its reply bytes. A room
+        // distinguishes a member who may post from a read-only guest;
+        // see grantedSession.
+        val role = when (dbContacts.value.firstOrNull { it.keyHex == keyHex }?.type) {
+            Codes.ADV_TYPE_ROOM -> NodeRole.Room
+            Codes.ADV_TYPE_SENSOR -> NodeRole.Sensor
+            else -> NodeRole.Repeater
+        }
+        val granted = if (!outcome.accepted) {
+            AdminSession.None
+        } else {
+            io.github.thatsfguy.meshcore.presentation.grantedSession(
+                role,
+                isAdmin = outcome.isAdmin,
+                legacyPermission = outcome.permissions,
+                aclPermissions = outcome.aclPermissions,
+            )
         }
         _adminSessions.value = _adminSessions.value + (keyHex to granted)
         // A node that answered at all is not in update mode.

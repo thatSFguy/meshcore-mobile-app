@@ -65,7 +65,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
+import io.github.thatsfguy.meshcore.presentation.AdminSession
 import io.github.thatsfguy.meshcore.presentation.Inbox
+import io.github.thatsfguy.meshcore.presentation.roomAccessAction
+import io.github.thatsfguy.meshcore.presentation.roomAccessNotice
 import io.github.thatsfguy.meshcore.presentation.Mentions
 import io.github.thatsfguy.meshcore.android.storage.MessageEntity
 import io.github.thatsfguy.meshcore.android.ui.MeshCoreViewModel
@@ -117,6 +120,9 @@ fun ConversationScreen(
     val isRoom = contacts.firstOrNull { it.keyHex == peerKey }?.type ==
         io.github.thatsfguy.meshcore.protocol.Codes.ADV_TYPE_ROOM
     val showSenders = isChannel || isRoom
+    // A room needs a session to work at all — see roomAccessNotice.
+    val roomSession = vm.adminSessions.collectAsState().value[peerKey] ?: AdminSession.None
+    var roomSignIn by remember { mutableStateOf(false) }
 
     val title = if (isChannel) {
         val idx = peerKey.toIntOrNull()
@@ -207,8 +213,15 @@ fun ConversationScreen(
             MenuAction("Clear thread…", destructive = true) { clearConfirm = true },
         )
     } else {
-        listOf(
+        listOfNotNull(
             MenuAction("Mark unread") { vm.markUnread(kind, peerKey); nav.popBackStack() },
+            // A room's admin tools live inside the room: the hub, which
+            // is gated on this same session.
+            if (isRoom && roomSession.isAdmin) {
+                MenuAction("Manage room…") { nav.navigate("repeater/$peerKey") }
+            } else {
+                null
+            },
             MenuAction("Contact details…") { showContact = true },
             MenuAction("Routing / paths…") { showContact = true },
             MenuAction("Clear thread…", destructive = true) { clearConfirm = true },
@@ -288,6 +301,16 @@ fun ConversationScreen(
                     onHttpLink = { pendingUrl = it },
                     onMeshcoreLink = { vm.importContactUri(it) },
                 )
+            }
+
+            if (isRoom) {
+                roomAccessNotice(roomSession)?.let { notice ->
+                    RoomAccessBanner(
+                        text = notice,
+                        action = roomAccessAction(roomSession),
+                        onAction = { roomSignIn = true },
+                    )
+                }
             }
 
             replyingTo?.let { target ->
@@ -394,6 +417,16 @@ fun ConversationScreen(
         LeaveTheMeshDialog(url, onDismiss = { pendingUrl = null })
     }
 
+    if (roomSignIn) {
+        RepeaterLoginDialog(
+            vm = vm,
+            keyHex = peerKey,
+            nodeName = title,
+            isRoom = true,
+            onDismiss = { roomSignIn = false },
+        )
+    }
+
     if (clearConfirm) {
         AlertDialog(
             onDismissRequest = { clearConfirm = false },
@@ -476,6 +509,34 @@ private fun LeaveTheMeshDialog(url: String, onDismiss: () -> Unit) {
 }
 
 /** "Replying to …" strip above the composer, with a cancel affordance. */
+/**
+ * Why a room conversation is not working yet, above the composer, with
+ * the sign-in that fixes it. Shown for no session and for a read-only
+ * one; the wording is [roomAccessNotice].
+ */
+@Composable
+private fun RoomAccessBanner(text: String, action: String?, onAction: () -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 4.dp)
+            .background(
+                MaterialTheme.colorScheme.errorContainer,
+                RoundedCornerShape(8.dp),
+            )
+            .padding(start = 12.dp, top = 4.dp, bottom = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onErrorContainer,
+            modifier = Modifier.weight(1f),
+        )
+        action?.let { TextButton(onClick = onAction) { Text(it) } }
+    }
+}
+
 @Composable
 private fun ReplyBanner(target: MessageEntity, onCancel: () -> Unit) {
     Row(

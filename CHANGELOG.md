@@ -11,6 +11,33 @@ Every entry describes what is in **that tagged build**. A feature that landed af
 belongs in the next section, not this one — 0.3.0 was once credited with four features that
 shipped after it, which misled nobody so much as the author, three months later.
 
+## 0.10.13
+
+**A room server opens as a room.** A room is something you sign in to and then read and post
+in. Tapping one used to open its admin screen. Its conversation was a separate button that
+skipped signing in, so posts went nowhere and nothing new arrived: a room only accepts posts
+from, and sends new posts to, people who have signed in.
+
+- **Tapping a room in Nodes signs you in, then opens the room.** If you're already signed in it
+  goes straight there.
+- **The sign-in dialog mentions the usual room password.** Stock room firmware ships with
+  "hello", and many rooms keep it. The dialog says so but doesn't fill it in, since some owners
+  change it or use none.
+- **A room opened without signing in says so**, above the message box, with a Sign in button.
+  The same applies to a read-only sign-in, whose posts the room drops.
+- **An admin finds the room's tools inside the room** (menu → Manage room…). Long-pressing a
+  room still offers both Open room and Administer this node.
+
+**Signing in with the room password no longer reports "read-only".** The room grants the right
+to post, and the app now reads that from its reply. The grant shows as MEMBER; read-only guests
+are still GUEST.
+
+**Rooms and sensors can be configured as repeaters too.** Both forward packets unless `repeat`
+is off, and both keep their own regions, but the app treated forwarding and regions as
+repeater-only. Their admin screens now have Regions, Settings has Packet forwarding, and Command
+help lists `repeat`, `flood.max` and the `region` commands. Neighbours, loop detection and the
+serial bridge stay repeater-only, because only repeater firmware uses them.
+
 ## 0.10.12
 
 **Channels show what kind they are, and only hashtag channels get a `#`.** Every channel used to

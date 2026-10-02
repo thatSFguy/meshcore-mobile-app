@@ -176,6 +176,7 @@ fun cliHelpSummary(total: Int, role: NodeRole, session: AdminSession): String {
     return when (session) {
         AdminSession.Admin -> "$head."
         AdminSession.Guest -> "$head from an admin — none from a guest session."
+        AdminSession.Member -> "$head from an admin — none from a member session."
         AdminSession.None -> "$head from an admin."
     }
 }

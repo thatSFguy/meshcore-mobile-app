@@ -1,5 +1,6 @@
 package io.github.thatsfguy.meshcore.android.ui.screens
 
+import io.github.thatsfguy.meshcore.presentation.AdminSession
 import android.graphics.Bitmap
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.foundation.Image
@@ -95,6 +96,19 @@ import java.util.Date
 fun NodesScreen(vm: MeshCoreViewModel, nav: NavController) {
     val contacts by vm.dbContacts.collectAsState()
     var detail by remember { mutableStateOf<ContactEntity?>(null) }
+    // A room being signed into on the way to its conversation.
+    var roomSignIn by remember { mutableStateOf<ContactEntity?>(null) }
+    // A room is one thing — sign in, then read and post — so it opens
+    // its conversation, through the sign-in when this app has no
+    // session (RoomModel.kt says why the sign-in is not optional).
+    // Management is inside the room, for an admin.
+    fun openRoom(room: ContactEntity) {
+        if ((vm.adminSessions.value[room.keyHex] ?: AdminSession.None).signedIn) {
+            nav.navigate(conversationRoute(MessageRepository.KIND_DM, room.keyHex))
+        } else {
+            roomSignIn = room
+        }
+    }
     // A heard-but-not-added node's sheet, and the key of one just added
     // from it: when the radio's contact list gains that key, its full
     // contact sheet opens in the heard sheet's place.
@@ -339,13 +353,20 @@ fun NodesScreen(vm: MeshCoreViewModel, nav: NavController) {
                         // in the way and "Administer" was below the fold.
                         // Long-press still opens the sheet for the things that
                         // live there (routing, rename, favourite, QR).
+                        //
+                        // A room is the exception: what you come to a room
+                        // for is its conversation, so that is where a tap
+                        // goes, signing in first.
                         val adminable = c.type == Codes.ADV_TYPE_REPEATER ||
-                            c.type == Codes.ADV_TYPE_ROOM ||
                             c.type == Codes.ADV_TYPE_SENSOR
                         ContactRow(
                             c = c,
                             onClick = {
-                                if (adminable) nav.navigate("repeater/${c.keyHex}") else detail = c
+                                when {
+                                    c.type == Codes.ADV_TYPE_ROOM -> openRoom(c)
+                                    adminable -> nav.navigate("repeater/${c.keyHex}")
+                                    else -> detail = c
+                                }
                             },
                             onLongClick = { detail = c },
                         )
@@ -383,6 +404,23 @@ fun NodesScreen(vm: MeshCoreViewModel, nav: NavController) {
         )
     }
 
+    roomSignIn?.let { room ->
+        RepeaterLoginDialog(
+            vm = vm,
+            keyHex = room.keyHex,
+            nodeName = room.name.ifBlank { room.keyHex.take(12) },
+            isRoom = true,
+            onDismiss = {
+                roomSignIn = null
+                // Called on success and on cancel alike; only a session
+                // the room actually granted goes on into it.
+                if ((vm.adminSessions.value[room.keyHex] ?: AdminSession.None).signedIn) {
+                    nav.navigate(conversationRoute(MessageRepository.KIND_DM, room.keyHex))
+                }
+            },
+        )
+    }
+
     detail?.let { contact ->
         ContactDetailSheet(
             vm = vm,
@@ -390,7 +428,11 @@ fun NodesScreen(vm: MeshCoreViewModel, nav: NavController) {
             onDismiss = { detail = null },
             onOpenChat = {
                 detail = null
-                nav.navigate(conversationRoute(MessageRepository.KIND_DM, contact.keyHex))
+                if (contact.type == Codes.ADV_TYPE_ROOM) {
+                    openRoom(contact)
+                } else {
+                    nav.navigate(conversationRoute(MessageRepository.KIND_DM, contact.keyHex))
+                }
             },
             onOpenAdmin = {
                 detail = null
@@ -987,8 +1029,14 @@ fun ContactDetailSheet(
 
             Spacer(Modifier.height(16.dp))
 
-            if (contact.type == Codes.ADV_TYPE_CHAT || contact.type == Codes.ADV_TYPE_ROOM) {
+            if (contact.type == Codes.ADV_TYPE_CHAT) {
                 TextButton(onClick = onOpenChat) { Text("Open conversation") }
+            }
+            // A room is where you read and post, so that comes first —
+            // but it is also a node someone configures (and may run as
+            // a repeater too), so its owner keeps a direct way in.
+            if (contact.type == Codes.ADV_TYPE_ROOM) {
+                TextButton(onClick = onOpenChat) { Text("Open room") }
             }
             if (isAdminable) {
                 TextButton(onClick = onOpenAdmin) { Text("Administer this node") }

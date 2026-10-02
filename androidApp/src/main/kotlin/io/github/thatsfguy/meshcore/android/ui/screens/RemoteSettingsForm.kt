@@ -403,7 +403,11 @@ fun RemoteSettingsForm(
             }
         }
 
-        if (role == NodeRole.Repeater) {
+        // Every role forwards unless `repeat off` (allowPacketForward in
+        // simple_room_server and simple_sensor alike), and `repeat`,
+        // `flood.max` and the delays are CommonCLI settings — so a room
+        // server that doubles as a repeater is configured here too.
+        if (role != NodeRole.Companion) {
             RemoteSection(
                 title = "Packet forwarding",
                 isReady = isReady,

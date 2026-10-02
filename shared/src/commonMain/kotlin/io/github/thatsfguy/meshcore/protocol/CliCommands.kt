@@ -93,6 +93,13 @@ data class CliCommand(
 object CliCatalog {
 
     private val REPEATER_AND_ROOM = setOf(NodeRole.Repeater, NodeRole.Room)
+    // Every node that runs the text CLI. Forwarding and regions belong
+    // here, not to repeaters alone: room servers and sensors forward
+    // unless `repeat off`, checking flood.max as they do
+    // (allowPacketForward in simple_room_server and simple_sensor), and
+    // each has its own region_map behind the shared CLI
+    // (CommonCLI.cpp:320).
+    private val INFRASTRUCTURE = setOf(NodeRole.Repeater, NodeRole.Room, NodeRole.Sensor)
     // Universal node commands. Sensors are included: they have a name,
     // a position and radio parameters like anything else on the mesh.
     private val ALL = setOf(
@@ -194,12 +201,12 @@ object CliCatalog {
         // ---- Mesh / routing -----------------------------------------------
         CliCommand(
             "repeat", CliKind.GetSet, "Repeat (forwarding)",
-            "Enable/disable packet forwarding.", setOf(NodeRole.Repeater), "Mesh",
+            "Enable/disable packet forwarding.", INFRASTRUCTURE, "Mesh",
             argHint = "<on|off>",
         ),
         CliCommand(
             "flood.max", CliKind.GetSet, "Flood max hops",
-            "Maximum flood hop count.", setOf(NodeRole.Repeater), "Mesh", argHint = "<hops>",
+            "Maximum flood hop count.", INFRASTRUCTURE, "Mesh", argHint = "<hops>",
         ),
         CliCommand(
             "multi.acks", CliKind.GetSet, "Multi-acks",
@@ -371,55 +378,55 @@ object CliCatalog {
             "region get", CliKind.ActionWithArg, "Find region",
             "Search for a region by name prefix, or \"*\" for the global scope. " +
                 "Replies \"-> region-name (parent-name) 'F'\".",
-            setOf(NodeRole.Repeater), "Region", argHint = "<* | name-prefix>",
+            INFRASTRUCTURE, "Region", argHint = "<* | name-prefix>",
         ),
         CliCommand(
             "region put", CliKind.ActionWithArg, "Add/update region",
             "Add or update a region definition under a parent (\"*\" = global scope).",
-            setOf(NodeRole.Repeater), "Region", argHint = "<name> <* | parent-prefix>",
+            INFRASTRUCTURE, "Region", argHint = "<name> <* | parent-prefix>",
         ),
         CliCommand(
             "region remove", CliKind.ActionWithArg, "Remove region",
             "Remove a region definition. Name must match exactly and have no child regions.",
-            setOf(NodeRole.Repeater), "Region", argHint = "<name>", requiresConfirm = true,
+            INFRASTRUCTURE, "Region", argHint = "<name>", requiresConfirm = true,
         ),
         CliCommand(
             "region allowf", CliKind.ActionWithArg, "Allow flood",
             "Grant the 'F'lood permission for a region (\"*\" = global scope).",
-            setOf(NodeRole.Repeater), "Region", argHint = "<* | name-prefix>",
+            INFRASTRUCTURE, "Region", argHint = "<* | name-prefix>",
         ),
         CliCommand(
             "region denyf", CliKind.ActionWithArg, "Deny flood",
             "Revoke the 'F'lood permission. The firmware itself warns against doing " +
                 "this to the global scope \"*\" — it stops flood traffic entirely.",
-            setOf(NodeRole.Repeater), "Region", argHint = "<* | name-prefix>",
+            INFRASTRUCTURE, "Region", argHint = "<* | name-prefix>",
             requiresConfirm = true,
         ),
         CliCommand(
             "region home", CliKind.Action, "Home region",
             "Read the 'home' region (reserved by the firmware; not applied anywhere yet). " +
                 "`region home <* | name-prefix>` sets it.",
-            setOf(NodeRole.Repeater), "Region",
+            INFRASTRUCTURE, "Region",
         ),
         CliCommand(
             "region default", CliKind.Action, "Default region scope",
             "Read the default region scope. `region default <* | name-prefix | <null>>` " +
                 "sets it; \"<null>\" clears it.",
-            setOf(NodeRole.Repeater), "Region",
+            INFRASTRUCTURE, "Region",
         ),
         CliCommand(
             "region list allowed", CliKind.Action, "List allowed regions",
-            "Regions that allow flood traffic.", setOf(NodeRole.Repeater), "Region",
+            "Regions that allow flood traffic.", INFRASTRUCTURE, "Region",
         ),
         CliCommand(
             "region list denied", CliKind.Action, "List denied regions",
-            "Regions that deny flood traffic.", setOf(NodeRole.Repeater), "Region",
+            "Regions that deny flood traffic.", INFRASTRUCTURE, "Region",
         ),
         CliCommand(
             "region save", CliKind.Action, "Save regions",
             "Persist the region list to the node's storage. Region edits are lost on " +
                 "reboot until this runs.",
-            setOf(NodeRole.Repeater), "Region",
+            INFRASTRUCTURE, "Region",
         ),
 
         // ---- Maintenance ---------------------------------------------------

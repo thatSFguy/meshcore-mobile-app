@@ -114,16 +114,16 @@ class RepeaterHubModelTest {
     }
 
     @Test
-    fun `regions are repeater-only`() {
-        // A room server and a sensor do not run the `region` CLI, so the
-        // tile would open a screen whose every request the node refuses.
-        for (role in listOf(NodeRole.Room, NodeRole.Sensor, NodeRole.Companion)) {
-            assertFalse(
-                "regions offered to $role",
-                "regions" in routes(role, AdminSession.Admin),
-            )
+    fun `every infrastructure role has regions`() {
+        // The `region` CLI is in CommonCLI, which a room server and a
+        // sensor run too (CommonCLI.cpp:320), and both forward packets
+        // unless `repeat off`. This test used to assert the opposite.
+        for (role in listOf(NodeRole.Repeater, NodeRole.Room, NodeRole.Sensor)) {
+            assertTrue("regions withheld from $role", "regions" in routes(role, AdminSession.Admin))
         }
-        assertTrue("regions" in routes(NodeRole.Repeater, AdminSession.Admin))
+        assertFalse("regions" in routes(NodeRole.Companion, AdminSession.Admin))
+        // Still admin-only: it is CLI.
+        assertFalse("regions" in routes(NodeRole.Room, AdminSession.Member))
     }
 
     @Test
@@ -294,6 +294,15 @@ class RepeaterHubModelTest {
         assertEquals(
             "12 commands this repeater accepts.",
             cliHelpSummary(12, NodeRole.Repeater, AdminSession.Admin),
+        )
+    }
+
+    @Test
+    fun `command help calls a room member a member, not a guest`() {
+        // A room member may post; "guest" would repeat the read-only claim.
+        assertEquals(
+            "12 commands this room server accepts from an admin — none from a member session.",
+            cliHelpSummary(12, NodeRole.Room, AdminSession.Member),
         )
     }
 

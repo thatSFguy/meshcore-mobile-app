@@ -1,6 +1,7 @@
 package io.github.thatsfguy.meshcore.android.ui.screens
 
 import io.github.thatsfguy.meshcore.presentation.AdminSession
+import io.github.thatsfguy.meshcore.presentation.roomPasswordHint
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -58,6 +59,7 @@ fun RepeaterLoginDialog(
     vm: MeshCoreViewModel,
     keyHex: String,
     nodeName: String,
+    isRoom: Boolean = false,
     onDismiss: () -> Unit,
 ) {
     var password by remember { mutableStateOf("") }
@@ -97,11 +99,26 @@ fun RepeaterLoginDialog(
         text = {
             Column(Modifier.verticalScroll(rememberScrollState())) {
                 Text(
-                    "The node decides what this password unlocks and says so " +
-                        "when it replies. Many nodes accept a blank password " +
-                        "for read-only access.",
+                    if (isRoom) {
+                        // The room password is the one its members share;
+                        // an admin password also opens the room's tools.
+                        "Enter the room's password to read and post. The room " +
+                            "decides what it grants and says so when it replies."
+                    } else {
+                        "The node decides what this password unlocks and says so " +
+                            "when it replies. Many nodes accept a blank password " +
+                            "for read-only access."
+                    },
                     style = MaterialTheme.typography.bodyMedium,
                 )
+                if (isRoom) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        roomPasswordHint(),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
                 Spacer(Modifier.height(16.dp))
 
                 OutlinedTextField(

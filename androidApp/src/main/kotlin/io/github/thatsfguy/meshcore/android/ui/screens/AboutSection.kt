@@ -90,6 +90,16 @@ fun AboutSection(vm: MeshCoreViewModel) {
  * is a changelog you can't read in the field.
  */
 private val CHANGELOG: List<Pair<String, List<String>>> = listOf(
+    "0.10.13" to listOf(
+        "Tapping a room signs you in, then opens the room. A room only takes posts from, and " +
+            "sends new ones to, people who have signed in.",
+        "The room sign-in says rooms often keep the default password \"hello\". A room opened " +
+            "without signing in says so above the message box.",
+        "Signing in with the room password shows MEMBER and lets you post, not \"read-only\". " +
+            "Admins find the room's tools in its menu → Manage room…",
+        "Rooms and sensors get Regions, Packet forwarding and the repeat, flood.max and region " +
+            "commands: both forward packets unless repeat is off.",
+    ),
     "0.10.12" to listOf(
         "Only hashtag channels show a #. Public shows a globe and private channels a lock, read " +
             "from the key, not the name. Names are shown as saved.",

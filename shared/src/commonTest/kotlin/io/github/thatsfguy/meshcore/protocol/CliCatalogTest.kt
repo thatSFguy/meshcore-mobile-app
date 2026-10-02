@@ -138,15 +138,32 @@ class CliCatalogTest {
         // Room-specific present:
         assertTrue("allow.read.only" in room)
         assertTrue("guest.password" in room)
-        // Repeater-only absent:
-        assertTrue("repeat" !in room)
-        assertTrue("flood.max" !in room)
+        // A room forwards, so it is configured as a repeater too
+        // (simple_room_server allowPacketForward; CommonCLI.cpp:320):
+        assertTrue("repeat" in room)
+        assertTrue("flood.max" in room)
+        assertTrue("region get" in room)
+        assertTrue("region list allowed" in room)
+        // Repeater-only absent — the neighbour table and the bridge are
+        // repeater firmware, and a room's forwarding never reads loop.detect:
         assertTrue("neighbors" !in room)
         assertTrue("bridge.enabled" !in room)
         assertTrue("loop.detect" !in room)
         // Common present:
         assertTrue("ver" in room)
         assertTrue("advert.interval" in room)
+    }
+
+    @Test
+    fun sensorsForwardAndScopeToo() {
+        val sensor = CliCatalog.forRole(NodeRole.Sensor).map { it.id }.toSet()
+        assertTrue("repeat" in sensor)
+        assertTrue("flood.max" in sensor)
+        assertTrue("region get" in sensor)
+        // A companion runs no text CLI at all.
+        val companion = CliCatalog.forRole(NodeRole.Companion).map { it.id }.toSet()
+        assertTrue("repeat" !in companion)
+        assertTrue("region get" !in companion)
     }
 
     @Test
@@ -192,10 +209,9 @@ class CliCatalogTest {
         // Universal node commands apply to a sensor too.
         assertTrue("ver" in sensor)
         assertTrue("name" in sensor)
-        // Repeater/room-only surface does not.
-        assertTrue("repeat" !in sensor)
+        // Room access control does not. (Forwarding and regions do —
+        // see sensorsForwardAndScopeToo.)
         assertTrue("guest.password" !in sensor)
-        assertTrue("region get" !in sensor)
     }
 
     @Test

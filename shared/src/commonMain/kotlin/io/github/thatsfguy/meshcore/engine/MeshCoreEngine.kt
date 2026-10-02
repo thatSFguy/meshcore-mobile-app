@@ -95,6 +95,10 @@ data class LoginOutcome(
      * did neither.
      */
     val answered: Boolean,
+    /** `PUSH_CODE_LOGIN_SUCCESS[1]` as sent; 0 when not accepted. */
+    val permissions: Int = 0,
+    /** `PUSH_CODE_LOGIN_SUCCESS[12]`, the ACL byte, when the firmware sends it. */
+    val aclPermissions: Int? = null,
 ) {
     companion object {
         /** The node said no. Do not retry. */
@@ -1490,6 +1494,8 @@ class MeshCoreEngine(
                     accepted = true,
                     isAdmin = ev.permissions == PERMISSION_ADMIN,
                     answered = true,
+                    permissions = ev.permissions,
+                    aclPermissions = ev.aclPermissions,
                 )
             is DeviceEvent.LoginFail -> LoginOutcome.Rejected
             else -> LoginOutcome.NoAnswer
