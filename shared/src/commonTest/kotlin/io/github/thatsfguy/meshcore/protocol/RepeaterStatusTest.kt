@@ -200,4 +200,12 @@ class RepeaterStatusTest {
         val r = CayenneLpp.parse(byteArrayOf(2, 0x67, 0x00, 0xD2.toByte(), 2, 0x78))
         assertEquals(1, r.size)
     }
+
+    @Test
+    fun cayenneChannelZeroIsEndOfData() {
+        // LPPReader.readHeader: "channel 0 is End-of-data". Zero padding
+        // after real readings must not become a "Digital in 0".
+        val r = CayenneLpp.parse(byteArrayOf(1, 0x74, 0x01, 0x96.toByte(), 0, 0, 0, 0))
+        assertEquals(listOf("Voltage"), r.map { it.label })
+    }
 }

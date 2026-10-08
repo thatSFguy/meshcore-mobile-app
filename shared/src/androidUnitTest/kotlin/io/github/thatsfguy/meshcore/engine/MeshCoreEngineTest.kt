@@ -2045,6 +2045,47 @@ class MeshCoreEngineTest {
     }
 
     @Test
+    fun telemetryReadsTheBodyAfterTheTagAndStopsAtThePadding() = runTest {
+        // Reconstructed from a live reply (MobileTruckBase, 2026-10-08) that
+        // the app showed as "Digital out 150 / Temperature / Digital in 0":
+        // the repeater writes its voltage first on channel 1, then the MCU
+        // temperature (simple_repeater/MyMesh.cpp:244, :255), and the
+        // companion pushes it as [0x8C][0][tag u32][body]
+        // (companion_radio/MyMesh.cpp:740-746). The body carries the
+        // cipher's zero padding, which LPPReader treats as end-of-data.
+        val radio = FakeRadio()
+        val tag = 0x51525354L
+        val lpp = byteArrayOf(
+            0x01, 0x74, 0x01, 0x96.toByte(),   // ch 1 voltage, 406 × 0.01 V
+            0x01, 0x67, 0x00, 0xF2.toByte(),   // ch 1 temperature, 242 × 0.1 °C
+            0, 0, 0, 0, 0, 0, 0, 0,            // padding
+        )
+        radio.responder = { frame ->
+            when (frame[0].toInt() and 0xFF) {
+                Codes.CMD_SEND_BINARY_REQ -> listOf(
+                    binarySentFrame(tag),
+                    binaryResponseFrame(0x99999999L, byteArrayOf(0x01, 0x74, 0x00, 0x01)),
+                    binaryResponseFrame(tag, lpp),
+                )
+                else -> standardResponder(radio)(frame)
+            }
+        }
+        val engine = readyEngine(radio)
+
+        val readings = engine.requestTelemetry(peerKey)
+
+        val sent = radio.sentFrames.single { (it[0].toInt() and 0xFF) == Codes.CMD_SEND_BINARY_REQ }
+        assertContentEquals(
+            byteArrayOf(Codes.CMD_SEND_BINARY_REQ.toByte()) + peerKey + byteArrayOf(0x03, 0, 0, 0, 0),
+            sent,
+        )
+        assertEquals(listOf("Voltage", "Temperature"), readings.map { it.label })
+        assertEquals(4.06, readings[0].value, 1e-9)
+        assertEquals(1, readings[0].channel)
+        assertEquals(24.2, readings[1].value, 1e-9)
+    }
+
+    @Test
     fun ownerInfoSilenceIsNullNotAnEmptyOwner() = runTest {
         // A repeater older than FIRMWARE_VER_LEVEL 2 returns 0 from
         // handleRequest and sends nothing. That must not read as "no

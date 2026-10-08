@@ -1749,22 +1749,30 @@ class MeshCoreEngine(
         return Neighbours.parse(body, request)
     }
 
-    /** Request Cayenne-LPP telemetry from a node; empty on timeout. */
+    /**
+     * Request Cayenne-LPP telemetry from a node; empty on timeout.
+     *
+     * The reply is a PUSH_CODE_BINARY_RESPONSE like every other binary
+     * request — `[0x8C][reserved][tag u32][body]`
+     * (companion_radio/MyMesh.cpp:740-746) — so it goes through
+     * [binaryRequest]: correlated by tag, body at
+     * [Codes.BINARY_RESPONSE_BODY_OFFSET]. This used to strip a guessed
+     * six bytes, which is one too many: it ate the LPP channel byte of
+     * the node's battery voltage (always first, simple_repeater
+     * MyMesh.cpp:244) and showed 4.06 V as "Digital out 150".
+     *
+     * The four bytes after the type are reserved; the first is an
+     * inverted permission mask (MyMesh.cpp:241), so 0 asks for all the
+     * node will grant.
+     */
     suspend fun requestTelemetry(
         pubKey: ByteArray,
-        timeoutMs: Long = 30_000,
+        timeoutMs: Long = BinaryRequestBudget.MAX_BUDGET_MS,
     ): List<TelemetryReading> {
-        val ev = sendAndAwait(
+        val body = binaryRequest(
             Frames.sendBinaryRequest(pubKey, byteArrayOf(Codes.REQ_TYPE_GET_TELEMETRY.toByte(), 0, 0, 0, 0)),
             timeoutMs = timeoutMs,
-        ) { it is DeviceEvent.TelemetryResponse || it is DeviceEvent.BinaryResponse }
-        val payload = when (ev) {
-            is DeviceEvent.TelemetryResponse -> ev.payload
-            is DeviceEvent.BinaryResponse -> ev.payload
-            else -> return emptyList()
-        }
-        // Skip the 6-byte sender prefix the firmware prepends, when present.
-        val body = if (payload.size > 7) payload.copyOfRange(6, payload.size) else payload
+        ) ?: return emptyList()
         return CayenneLpp.parse(body)
     }
 

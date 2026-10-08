@@ -143,6 +143,11 @@ object CayenneLpp {
         try {
             while (r.remaining >= 2) {
                 val channel = r.readByte()
+                // Channel 0 is end-of-data (firmware LPPReader.readHeader,
+                // src/helpers/sensors/LPPDataHelpers.h). It is also what
+                // the cipher's zero padding looks like, which otherwise
+                // decodes as a phantom "Digital in 0".
+                if (channel == 0) return out
                 when (val type = r.readByte()) {
                     DIGITAL_INPUT ->
                         out.add(reading(channel, type, "Digital in", r.readByte().toDouble(), ""))
