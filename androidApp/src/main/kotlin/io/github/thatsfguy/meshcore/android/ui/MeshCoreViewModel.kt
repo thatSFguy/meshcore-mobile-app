@@ -2014,15 +2014,22 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
      * signed into, a blank-password probe cannot be answered and the
      * escalation would only spend the user's time confirming that the
      * node is not talking to us.
+     *
+     * [requireSession] false lifts that gate for a request that a node
+     * answers on its client table alone, whatever this app thinks — see
+     * [fetchTelemetry].
      */
     private suspend fun <T> withPathRecovery(
         keyHex: String,
+        requireSession: Boolean = true,
         request: suspend () -> T?,
     ): T? {
         val svc = _service.value ?: return null
         val key = hexToBytesOrNull(keyHex) ?: return null
         val attempt: suspend () -> T? = { runCatching { request() }.getOrNull() }
-        if ((_adminSessions.value[keyHex] ?: AdminSession.None) == AdminSession.None) {
+        if (requireSession &&
+            (_adminSessions.value[keyHex] ?: AdminSession.None) == AdminSession.None
+        ) {
             return attempt()
         }
         // A route the user pinned cannot be repaired from here: the
@@ -2070,29 +2077,27 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /**
-     * A node's telemetry, signing in first where the node requires it
-     * ([TelemetryFetch]) — the same shape as [collectNeighbours]: the
-     * saved password, else blank, and nothing saved by doing so.
+     * A node's telemetry ([TelemetryFetch]).
      *
-     * Once signed in, the request runs under [withPathRecovery], so a
-     * stale return path is repaired rather than reported as silence.
+     * The request goes out first, as it is. A repeater, room or sensor
+     * answers any radio in its client table, and that table outlives
+     * this app's idea of a session — so a node that knows this radio
+     * answers with no sign-in, as it does for other clients.
+     *
+     * Silence from one of those runs [withPathRecovery] with the session
+     * gate lifted: path reset and a blank-password probe (free, and the
+     * flood is what makes the node drop a dead return path), then the
+     * saved password, asking again after each. The password goes on the
+     * air only when the cheaper repairs have failed. A chat node is
+     * asked once, since it has neither a client table nor a sign-in.
      */
     suspend fun fetchTelemetry(keyHex: String, contactType: Int): TelemetryFetch {
         val svc = _service.value ?: return TelemetryFetch.NotConnected
-        val key = hexToBytesOrNull(keyHex) ?: return TelemetryFetch.NoAnswer(signedIn = false)
-        val gated = TelemetryFetch.needsSignIn(contactType)
-        if (gated && !(_adminSessions.value[keyHex] ?: AdminSession.None).signedIn) {
-            val saved = savedLoginPassword(keyHex)
-            val login = performLogin(keyHex, saved ?: "", savePassword = false)
-            if (!login.session.signedIn) {
-                return TelemetryFetch.SignInRefused(
-                    blank = saved.isNullOrEmpty(),
-                    answered = login.answered,
-                )
-            }
-        }
+        val key = hexToBytesOrNull(keyHex)
+            ?: return TelemetryFetch.NoAnswer(clientTable = false)
+        val gated = TelemetryFetch.usesClientTable(contactType)
         val readings = try {
-            withPathRecovery(keyHex) {
+            withPathRecovery(keyHex, requireSession = !gated) {
                 // Empty is no reply: a node that answers always sends
                 // at least its own voltage (simple_repeater MyMesh.cpp:244).
                 svc.engine.requestTelemetry(key) { markInFlight(keyHex, it) }.ifEmpty { null }
@@ -2101,7 +2106,7 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
             markInFlight(keyHex, null)
         }
         return if (readings == null) {
-            TelemetryFetch.NoAnswer(signedIn = gated)
+            TelemetryFetch.NoAnswer(clientTable = gated)
         } else {
             TelemetryFetch.Readings(readings)
         }

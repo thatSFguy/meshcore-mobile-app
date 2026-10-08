@@ -11,6 +11,21 @@ Every entry describes what is in **that tagged build**. A feature that landed af
 belongs in the next section, not this one — 0.3.0 was once credited with four features that
 shipped after it, which misled nobody so much as the author, three months later.
 
+## 0.10.15
+
+**Telemetry asks first and no longer signs in up front.** 0.10.14 signed in to a repeater, room or
+sensor before asking for its telemetry, which sent the saved password over the air every time.
+That wasn't needed. A node answers any radio it has ever let sign in, and it remembers that
+radio indefinitely, whatever the app says. What signing in had really fixed was a stale route.
+
+- **The request goes out as it is.** A node that knows your radio answers straight away, with
+  no sign-in, as it does in other apps.
+- **If it doesn't answer, the app repairs the route and asks again.** It resets the path and
+  sends a blank-password probe first, which refreshes the route without sending a password.
+  The saved password is tried only if that fails.
+- **If nothing works, the app says so.** It suggests signing in once from the node's admin
+  screen, in case the node has never seen this radio.
+
 ## 0.10.14
 
 **Telemetry shows the battery again.** Every telemetry reply was read one byte off, which hid the

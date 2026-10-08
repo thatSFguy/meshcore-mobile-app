@@ -2,71 +2,59 @@ package io.github.thatsfguy.meshcore.presentation
 
 import io.github.thatsfguy.meshcore.protocol.Codes
 import kotlin.test.Test
-import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
- * Which nodes need a sign-in before telemetry, and what each outcome says.
+ * Which nodes get route repair when a telemetry request goes quiet, and
+ * what each outcome says.
  *
- * The gate follows the firmware: repeater, room server and sensor all
+ * The split follows the firmware: repeater, room server and sensor all
  * decrypt a request only for a sender in their client table
- * (`simple_repeater/MyMesh.cpp:663-669`; the room server and sensor have
- * the same `onPeerDataRecv` guard). A companion grants telemetry per
- * contact instead and has no sign-in.
+ * (`src/Mesh.cpp:147-152`), which a flooded login re-routes. A companion
+ * grants telemetry per contact instead and has nothing to sign in to.
  */
 class TelemetryFetchTest {
 
     @Test
-    fun infrastructureSignsInFirst() {
-        assertTrue(TelemetryFetch.needsSignIn(Codes.ADV_TYPE_REPEATER))
-        assertTrue(TelemetryFetch.needsSignIn(Codes.ADV_TYPE_ROOM))
-        assertTrue(TelemetryFetch.needsSignIn(Codes.ADV_TYPE_SENSOR))
+    fun infrastructureIsRepairedOnSilence() {
+        assertTrue(TelemetryFetch.usesClientTable(Codes.ADV_TYPE_REPEATER))
+        assertTrue(TelemetryFetch.usesClientTable(Codes.ADV_TYPE_ROOM))
+        assertTrue(TelemetryFetch.usesClientTable(Codes.ADV_TYPE_SENSOR))
     }
 
     @Test
-    fun aCompanionIsAskedDirectly() {
-        assertFalse(TelemetryFetch.needsSignIn(Codes.ADV_TYPE_CHAT))
+    fun aCompanionIsAskedOnce() {
+        assertFalse(TelemetryFetch.usesClientTable(Codes.ADV_TYPE_CHAT))
     }
 
     @Test
-    fun unknownTypesAreNotSignedInto() {
-        // A login to a node of unknown kind would put a password on the
-        // air for nothing.
-        assertFalse(TelemetryFetch.needsSignIn(0))
-        assertFalse(TelemetryFetch.needsSignIn(5))
-        assertFalse(TelemetryFetch.needsSignIn(-1))
-        assertFalse(TelemetryFetch.needsSignIn(255))
+    fun unknownTypesGetNoLoginBasedRepair() {
+        // Repair ends in a login, and a login to a node of unknown kind
+        // would put a password on the air for nothing.
+        assertFalse(TelemetryFetch.usesClientTable(0))
+        assertFalse(TelemetryFetch.usesClientTable(5))
+        assertFalse(TelemetryFetch.usesClientTable(-1))
+        assertFalse(TelemetryFetch.usesClientTable(255))
     }
 
     @Test
-    fun aRefusedSignInSaysTheSameAsTheNeighbourFetch() {
-        for (blank in listOf(true, false)) for (answered in listOf(true, false)) {
-            assertEquals(
-                NeighbourFetch.SignInRefused(blank, answered).message,
-                TelemetryFetch.SignInRefused(blank, answered).message,
-            )
-        }
-    }
-
-    @Test
-    fun aRefusalNeverClaimsToBeOne() {
-        // A repeater is silent when it turns a password down, so an
-        // unanswered sign-in must offer both explanations.
-        val m = TelemetryFetch.SignInRefused(blank = true, answered = false).message!!
+    fun silenceAfterRepairPointsAtReachAndTheClientTable() {
+        val m = TelemetryFetch.NoAnswer(clientTable = true).message!!
         assertTrue("out of reach" in m, m)
+        // The one fix the user can make: be known to the node.
+        assertTrue("sign in" in m, m)
+        // Not the companion's per-contact permission story.
+        assertFalse("permission" in m, m)
     }
 
     @Test
-    fun silenceAfterSigningInDoesNotBlamePermissions() {
-        // Once signed in, access is settled; only reach is left.
-        val signedIn = TelemetryFetch.NoAnswer(signedIn = true).message!!
-        val companion = TelemetryFetch.NoAnswer(signedIn = false).message!!
-        assertFalse("permission" in signedIn, signedIn)
-        assertTrue("permission" in companion, companion)
-        assertNotEquals(signedIn, companion)
+    fun aCompanionsSilenceIsAboutItsPermissions() {
+        val m = TelemetryFetch.NoAnswer(clientTable = false).message!!
+        assertTrue("permission" in m, m)
+        assertNotEquals(TelemetryFetch.NoAnswer(clientTable = true).message, m)
     }
 
     @Test

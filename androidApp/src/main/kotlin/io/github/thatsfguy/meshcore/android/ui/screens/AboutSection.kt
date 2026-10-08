@@ -90,6 +90,12 @@ fun AboutSection(vm: MeshCoreViewModel) {
  * is a changelog you can't read in the field.
  */
 private val CHANGELOG: List<Pair<String, List<String>>> = listOf(
+    "0.10.15" to listOf(
+        "Telemetry asks first instead of signing in, so the saved password isn't sent each time. " +
+            "A node answers any radio that has ever signed in to it.",
+        "If a node doesn't answer, the app repairs the route and asks again, trying a blank " +
+            "probe before the saved password.",
+    ),
     "0.10.14" to listOf(
         "Telemetry shows the battery again. Replies were read one byte off, which turned the " +
             "voltage into a \"Digital out\" and added a phantom \"Digital in 0\".",

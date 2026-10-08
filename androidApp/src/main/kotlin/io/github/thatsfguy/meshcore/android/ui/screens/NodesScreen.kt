@@ -1281,11 +1281,7 @@ private fun ContactTelemetryDialog(
                 when {
                     loading -> Column {
                         Text(
-                            if (TelemetryFetch.needsSignIn(contact.type)) {
-                                "Signing in if needed, then asking the node…"
-                            } else {
-                                "Asking the node…"
-                            },
+                            "Asking the node…",
                             style = MaterialTheme.typography.bodySmall,
                         )
                         RequestProgressHint(vm, contact.keyHex)
