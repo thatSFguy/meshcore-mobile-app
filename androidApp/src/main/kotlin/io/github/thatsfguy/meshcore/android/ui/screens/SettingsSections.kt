@@ -42,6 +42,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.launch
 import io.github.thatsfguy.meshcore.android.storage.ChannelEntity
 import io.github.thatsfguy.meshcore.android.ui.MeshCoreViewModel
+import io.github.thatsfguy.meshcore.presentation.BatteryLevel
 import io.github.thatsfguy.meshcore.presentation.Units
 import io.github.thatsfguy.meshcore.presentation.UnitSystem
 import io.github.thatsfguy.meshcore.engine.EngineState
@@ -85,7 +86,7 @@ internal fun ConnectionSection(vm: MeshCoreViewModel, onAddNode: () -> Unit) {
         )
     }
     battery?.let {
-        HintText("Battery: %.2f V".format(it.batteryMillivolts / 1000.0))
+        HintText("Battery: " + BatteryLevel.label(it.batteryMillivolts))
     }
     deviceIdentityLine(deviceInfo)?.let { HintText(it) }
     lastError?.let {

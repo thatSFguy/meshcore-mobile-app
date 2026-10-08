@@ -28,6 +28,7 @@ import io.github.thatsfguy.meshcore.android.ui.MeshCoreViewModel
 import io.github.thatsfguy.meshcore.protocol.RepeaterStatus
 import io.github.thatsfguy.meshcore.protocol.StatusCodec
 import io.github.thatsfguy.meshcore.presentation.Units
+import io.github.thatsfguy.meshcore.presentation.BatteryLevel
 import io.github.thatsfguy.meshcore.protocol.TelemetryReading
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -105,7 +106,7 @@ fun RepeaterStatusPanel(vm: MeshCoreViewModel, keyHex: String) {
         status?.let { s ->
             Spacer(Modifier.height(8.dp))
             Text("Status", style = MaterialTheme.typography.titleSmall)
-            StatField("Battery", "%.2f V".format(s.batteryVolts))
+            StatField("Battery", BatteryLevel.label(s.batteryMillivolts))
             StatField("Uptime", StatusCodec.formatUptime(s.uptimeSeconds))
             StatField("Queue length", s.queueLength.toString())
             StatField("Last RSSI / SNR", "${s.lastRssi} dBm / %.1f dB".format(s.lastSnr))
@@ -133,7 +134,11 @@ fun RepeaterStatusPanel(vm: MeshCoreViewModel, keyHex: String) {
                 val (value, unit) = Units.reading(t.value, t.unit, units)
                 StatField(
                     "${t.label} (ch ${t.channel})",
-                    if (unit.isEmpty()) "%.2f".format(value) else "%.2f %s".format(value, unit),
+                    when {
+                        BatteryLevel.isSelfBattery(t) -> BatteryLevel.label(BatteryLevel.millivolts(t))
+                        unit.isEmpty() -> "%.2f".format(value)
+                        else -> "%.2f %s".format(value, unit)
+                    },
                 )
             }
         }

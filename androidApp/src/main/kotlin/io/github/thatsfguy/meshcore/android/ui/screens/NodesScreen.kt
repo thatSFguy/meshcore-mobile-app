@@ -62,6 +62,7 @@ import io.github.thatsfguy.meshcore.android.platform.Qr
 import io.github.thatsfguy.meshcore.android.storage.ContactEntity
 import io.github.thatsfguy.meshcore.android.storage.MessageRepository
 import io.github.thatsfguy.meshcore.android.ui.MeshCoreViewModel
+import io.github.thatsfguy.meshcore.presentation.BatteryLevel
 import io.github.thatsfguy.meshcore.presentation.LastHeard
 import io.github.thatsfguy.meshcore.presentation.NodeListModel
 import androidx.compose.material3.Badge
@@ -1291,8 +1292,12 @@ private fun ContactTelemetryDialog(
                             Text(
                                 // Converted here and only here: the reading
                                 // keeps the unit the sensor encoded.
-                                Units.reading(r.value, r.unit, units).let { (v, u) ->
-                                    formatReading(v) + (if (u.isBlank()) "" else " $u")
+                                if (BatteryLevel.isSelfBattery(r)) {
+                                    BatteryLevel.label(BatteryLevel.millivolts(r))
+                                } else {
+                                    Units.reading(r.value, r.unit, units).let { (v, u) ->
+                                        formatReading(v) + (if (u.isBlank()) "" else " $u")
+                                    }
                                 },
                                 style = MaterialTheme.typography.bodySmall,
                                 fontFamily = FontFamily.Monospace,

@@ -169,4 +169,35 @@ class RepeaterStatusTest {
         assertEquals(250.0, r[0].value, 1e-9)
         assertEquals("m", r[0].unit)
     }
+
+    @Test
+    fun cayennePercentageIsOneByteAndDoesNotEndTheParse() {
+        // The RAK12035 sequence (EnvironmentSensorManager.cpp
+        // query_rak12035): addTemperature then addPercentage on the same
+        // channel, then whatever comes next. 0x78 is LPP_PERCENTAGE, one
+        // unsigned byte. The trailing voltage is the positive control: it
+        // only parses if the percentage consumed exactly one byte.
+        val payload = byteArrayOf(
+            2, 0x67, 0x00, 0xD2.toByte(),      // 21.0 °C
+            2, 0x78, 63,                        // 63 %
+            1, 0x74, 0x01, 0x88.toByte(),      // 3.92 V
+        )
+        val r = CayenneLpp.parse(payload)
+        assertEquals(3, r.size)
+        assertEquals(63.0, r[1].value, 1e-9); assertEquals("%", r[1].unit)
+        assertEquals("Percentage", r[1].label)
+        assertEquals(3.92, r[2].value, 1e-9); assertEquals("V", r[2].unit)
+    }
+
+    @Test
+    fun cayennePercentageIsUnsigned() {
+        val r = CayenneLpp.parse(byteArrayOf(2, 0x78, 0xFF.toByte()))
+        assertEquals(255.0, r.single().value, 1e-9)
+    }
+
+    @Test
+    fun cayenneTruncatedPercentageYieldsWhatCameBefore() {
+        val r = CayenneLpp.parse(byteArrayOf(2, 0x67, 0x00, 0xD2.toByte(), 2, 0x78))
+        assertEquals(1, r.size)
+    }
 }

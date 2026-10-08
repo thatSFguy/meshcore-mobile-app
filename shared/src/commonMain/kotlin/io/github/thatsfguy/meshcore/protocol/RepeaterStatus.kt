@@ -132,6 +132,7 @@ object CayenneLpp {
     private const val BAROMETER = 0x73
     private const val VOLTAGE = 0x74
     private const val CURRENT = 0x75
+    private const val PERCENTAGE = 0x78
     private const val POWER = 0x80
     private const val ALTITUDE = 0x79
     private const val GPS = 0x88
@@ -165,6 +166,14 @@ object CayenneLpp {
                         out.add(reading(channel, type, "Voltage", r.readUInt16BE() / 100.0, "V"))
                     CURRENT ->
                         out.add(reading(channel, type, "Current", r.readUInt16BE() / 1000.0, "A"))
+                    // One unsigned byte, multiplier 1 (`LPP_PERCENTAGE`,
+                    // firmware `src/helpers/sensors/LPPDataHelpers.h:19,48`;
+                    // its own reader skips it as one byte). The RAK12035
+                    // soil sensor sends moisture this way, straight after
+                    // its temperature — before this case existed, the
+                    // parser stopped there and dropped everything after.
+                    PERCENTAGE ->
+                        out.add(reading(channel, type, "Percentage", r.readByte().toDouble(), "%"))
                     POWER ->
                         out.add(reading(channel, type, "Power", r.readUInt16BE().toDouble(), "W"))
                     ALTITUDE ->
