@@ -13,7 +13,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -67,11 +66,10 @@ fun CliHelpPanel(
     val total = filtered.values.sumOf { it.size }
 
     Column(Modifier.fillMaxWidth()) {
-        OutlinedTextField(
-            value = query,
-            onValueChange = { query = it },
-            label = { Text("Search commands") },
-            singleLine = true,
+        SearchField(
+            query = query,
+            onQueryChange = { query = it },
+            label = "Search commands",
             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
         )
         HintText(cliHelpSummary(total, role, session))

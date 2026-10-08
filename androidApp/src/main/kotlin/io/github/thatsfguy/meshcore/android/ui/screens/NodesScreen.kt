@@ -63,6 +63,7 @@ import io.github.thatsfguy.meshcore.android.storage.ContactEntity
 import io.github.thatsfguy.meshcore.android.storage.MessageRepository
 import io.github.thatsfguy.meshcore.android.ui.MeshCoreViewModel
 import io.github.thatsfguy.meshcore.presentation.BatteryLevel
+import io.github.thatsfguy.meshcore.presentation.TelemetryFetch
 import io.github.thatsfguy.meshcore.presentation.LastHeard
 import io.github.thatsfguy.meshcore.presentation.NodeListModel
 import androidx.compose.material3.Badge
@@ -492,11 +493,10 @@ private fun NodeListControls(
         Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        OutlinedTextField(
-            value = query,
-            onValueChange = onQueryChange,
-            label = { Text("Search name or key") },
-            singleLine = true,
+        SearchField(
+            query = query,
+            onQueryChange = onQueryChange,
+            label = "Search name or key",
             modifier = Modifier.weight(1f),
         )
         Box {
@@ -1256,12 +1256,16 @@ private fun ContactTelemetryDialog(
     var readings by remember {
         mutableStateOf<List<io.github.thatsfguy.meshcore.protocol.TelemetryReading>?>(null)
     }
+    var failure by remember { mutableStateOf<String?>(null) }
     var loading by remember { mutableStateOf(true) }
     var attempt by remember { mutableIntStateOf(0) }
     val units by vm.unitSystem.collectAsState()
     LaunchedEffect(contact.keyHex, attempt) {
         loading = true
-        readings = vm.repeaterTelemetry(contact.keyHex)
+        when (val r = vm.fetchTelemetry(contact.keyHex, contact.type)) {
+            is TelemetryFetch.Readings -> { readings = r.readings; failure = null }
+            else -> { readings = null; failure = r.message }
+        }
         loading = false
     }
     AlertDialog(
@@ -1275,10 +1279,19 @@ private fun ContactTelemetryDialog(
                 )
                 Spacer(Modifier.height(8.dp))
                 when {
-                    loading -> Text("Asking the node…", style = MaterialTheme.typography.bodySmall)
+                    loading -> Column {
+                        Text(
+                            if (TelemetryFetch.needsSignIn(contact.type)) {
+                                "Signing in if needed, then asking the node…"
+                            } else {
+                                "Asking the node…"
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        RequestProgressHint(vm, contact.keyHex)
+                    }
                     readings.isNullOrEmpty() -> Text(
-                        "No reply. The node may publish no telemetry, or may not grant " +
-                            "this device permission to read it.",
+                        failure ?: "No reply.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )

@@ -1,5 +1,6 @@
 package io.github.thatsfguy.meshcore.android.ui
 
+import io.github.thatsfguy.meshcore.presentation.TelemetryFetch
 import io.github.thatsfguy.meshcore.presentation.FloodRegionsAsk
 import io.github.thatsfguy.meshcore.presentation.Inbox
 import io.github.thatsfguy.meshcore.presentation.DiscoveredAdd
@@ -2068,10 +2069,42 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    suspend fun repeaterTelemetry(keyHex: String): List<io.github.thatsfguy.meshcore.protocol.TelemetryReading> {
-        val svc = _service.value ?: return emptyList()
-        val key = hexToBytesOrNull(keyHex) ?: return emptyList()
-        return runCatching { svc.engine.requestTelemetry(key) }.getOrDefault(emptyList())
+    /**
+     * A node's telemetry, signing in first where the node requires it
+     * ([TelemetryFetch]) — the same shape as [collectNeighbours]: the
+     * saved password, else blank, and nothing saved by doing so.
+     *
+     * Once signed in, the request runs under [withPathRecovery], so a
+     * stale return path is repaired rather than reported as silence.
+     */
+    suspend fun fetchTelemetry(keyHex: String, contactType: Int): TelemetryFetch {
+        val svc = _service.value ?: return TelemetryFetch.NotConnected
+        val key = hexToBytesOrNull(keyHex) ?: return TelemetryFetch.NoAnswer(signedIn = false)
+        val gated = TelemetryFetch.needsSignIn(contactType)
+        if (gated && !(_adminSessions.value[keyHex] ?: AdminSession.None).signedIn) {
+            val saved = savedLoginPassword(keyHex)
+            val login = performLogin(keyHex, saved ?: "", savePassword = false)
+            if (!login.session.signedIn) {
+                return TelemetryFetch.SignInRefused(
+                    blank = saved.isNullOrEmpty(),
+                    answered = login.answered,
+                )
+            }
+        }
+        val readings = try {
+            withPathRecovery(keyHex) {
+                // Empty is no reply: a node that answers always sends
+                // at least its own voltage (simple_repeater MyMesh.cpp:244).
+                svc.engine.requestTelemetry(key) { markInFlight(keyHex, it) }.ifEmpty { null }
+            }
+        } finally {
+            markInFlight(keyHex, null)
+        }
+        return if (readings == null) {
+            TelemetryFetch.NoAnswer(signedIn = gated)
+        } else {
+            TelemetryFetch.Readings(readings)
+        }
     }
 
     /** Awaitable CLI round-trip for the form-based remote settings:

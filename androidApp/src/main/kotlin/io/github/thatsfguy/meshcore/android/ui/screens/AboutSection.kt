@@ -90,6 +90,16 @@ fun AboutSection(vm: MeshCoreViewModel) {
  * is a changelog you can't read in the field.
  */
 private val CHANGELOG: List<Pair<String, List<String>>> = listOf(
+    "0.10.14" to listOf(
+        "Telemetry shows the battery again. Replies were read one byte off, which turned the " +
+            "voltage into a \"Digital out\" and added a phantom \"Digital in 0\".",
+        "Telemetry from a repeater, room or sensor signs in first, with the saved or a blank " +
+            "password, since those only answer someone signed in.",
+        "Battery readings show an estimated percentage, the figure the radio draws on its own " +
+            "screen (3.0 V to 4.2 V). Outside one lithium cell's range, volts only.",
+        "Soil-moisture sensor telemetry is no longer cut off at its moisture reading.",
+        "Search boxes have an ✕ to clear them.",
+    ),
     "0.10.13" to listOf(
         "Tapping a room signs you in, then opens the room. A room only takes posts from, and " +
             "sends new ones to, people who have signed in.",

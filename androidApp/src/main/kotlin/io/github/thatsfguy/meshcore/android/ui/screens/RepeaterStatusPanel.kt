@@ -29,6 +29,8 @@ import io.github.thatsfguy.meshcore.protocol.RepeaterStatus
 import io.github.thatsfguy.meshcore.protocol.StatusCodec
 import io.github.thatsfguy.meshcore.presentation.Units
 import io.github.thatsfguy.meshcore.presentation.BatteryLevel
+import io.github.thatsfguy.meshcore.presentation.TelemetryFetch
+import io.github.thatsfguy.meshcore.protocol.Codes
 import io.github.thatsfguy.meshcore.protocol.TelemetryReading
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -81,8 +83,14 @@ fun RepeaterStatusPanel(vm: MeshCoreViewModel, keyHex: String) {
                 onClick = {
                     scope.launch {
                         loading = true; note = null
-                        telemetry = vm.repeaterTelemetry(keyHex)
-                        if (telemetry.isEmpty()) note = "No telemetry reply (or none published)"
+                        // Only infrastructure reaches this panel, so a
+                        // contact missing from the table is a repeater.
+                        val type = vm.dbContacts.value.firstOrNull { it.keyHex == keyHex }?.type
+                            ?: Codes.ADV_TYPE_REPEATER
+                        when (val r = vm.fetchTelemetry(keyHex, type)) {
+                            is TelemetryFetch.Readings -> telemetry = r.readings
+                            else -> note = r.message
+                        }
                         loading = false
                     }
                 },

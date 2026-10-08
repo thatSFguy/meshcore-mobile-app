@@ -299,16 +299,7 @@ sealed class NeighbourFetch(val message: String) {
      * repeater with a guest password set simply goes quiet.
      */
     class SignInRefused(blank: Boolean, answered: Boolean) : NeighbourFetch(
-        when {
-            answered && blank -> "The node answered but would not take a blank password."
-            answered -> "The node answered but refused the saved password."
-            blank ->
-                "No answer to a blank password. A repeater stays silent when it refuses one, " +
-                    "so it may want a guest password — or be out of reach."
-            else ->
-                "No answer to the saved password. A repeater stays silent when it refuses one, " +
-                    "so it may be the wrong password — or out of reach."
-        },
+        signInRefusedMessage(blank, answered),
     )
 
     data object NoAnswer : NeighbourFetch("No reply from the node — is it in range?")
@@ -358,4 +349,21 @@ fun neighbourWrite(offset: Int, entryCount: Int, rejected: Boolean): NeighbourWr
     rejected -> NeighbourWrite(clearFirst = false, store = false)
     offset == 0 -> NeighbourWrite(clearFirst = true, store = entryCount > 0)
     else -> NeighbourWrite(clearFirst = false, store = entryCount > 0)
+}
+
+/**
+ * Why a sign-in made on the user's behalf — before a fetch that needs
+ * one — produced no session. Shared by every fetch that signs in first
+ * (neighbours, telemetry); see [NeighbourFetch.SignInRefused] for why a
+ * refusal and a silence read the same.
+ */
+fun signInRefusedMessage(blank: Boolean, answered: Boolean): String = when {
+    answered && blank -> "The node answered but would not take a blank password."
+    answered -> "The node answered but refused the saved password."
+    blank ->
+        "No answer to a blank password. A repeater stays silent when it refuses one, " +
+            "so it may want a guest password — or be out of reach."
+    else ->
+        "No answer to the saved password. A repeater stays silent when it refuses one, " +
+            "so it may be the wrong password — or out of reach."
 }

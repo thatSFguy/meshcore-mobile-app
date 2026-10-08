@@ -1768,10 +1768,12 @@ class MeshCoreEngine(
     suspend fun requestTelemetry(
         pubKey: ByteArray,
         timeoutMs: Long = BinaryRequestBudget.MAX_BUDGET_MS,
+        onSent: ((BinaryRequestBudget.InFlight) -> Unit)? = null,
     ): List<TelemetryReading> {
         val body = binaryRequest(
             Frames.sendBinaryRequest(pubKey, byteArrayOf(Codes.REQ_TYPE_GET_TELEMETRY.toByte(), 0, 0, 0, 0)),
             timeoutMs = timeoutMs,
+            onSent = onSent,
         ) ?: return emptyList()
         return CayenneLpp.parse(body)
     }

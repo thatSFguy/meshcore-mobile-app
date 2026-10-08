@@ -11,6 +11,34 @@ Every entry describes what is in **that tagged build**. A feature that landed af
 belongs in the next section, not this one — 0.3.0 was once credited with four features that
 shipped after it, which misled nobody so much as the author, three months later.
 
+## 0.10.14
+
+**Telemetry shows the battery again.** Every telemetry reply was read one byte off, which hid the
+node's battery voltage, always the first reading, and turned it into a "Digital out" with a
+nonsense value. The zero padding at the end of a reply also showed as a phantom "Digital in 0".
+Both are fixed, on the repeater Status screen and in a contact's Telemetry dialog.
+
+**Telemetry signs in first when the node needs it.** Repeaters, rooms and sensors only answer
+someone signed in, so asking one you hadn't signed into got silence that looked like no
+telemetry. The fetch now signs in the way the map's neighbour fetch does: with the saved password,
+or a blank one, without saving anything. A node that won't have you says so. A chat node is
+asked directly, as before.
+
+**Battery readings show an estimated percentage**, like `3.92 V · ~76%`.
+
+- **It's the figure the radio draws on its own screen**: a straight line from 3.0 V (0%) to
+  4.2 V (100%). No MeshCore node sends a percentage, so the `~` marks it as an estimate.
+- **It assumes one lithium cell.** Outside 2.5–4.5 V, which means no battery sense, USB power, a
+  two-cell pack or solar, the app shows the voltage alone rather than a wrong percentage.
+- **Only the node's own battery gets one.** Other voltages a sensor reports stay plain volts.
+- **It appears on** telemetry, the repeater Status block and the radio's battery line in
+  Settings.
+
+**Soil-moisture sensor telemetry is no longer cut off.** The app didn't know the percentage
+reading these sensors send, and stopped at it, dropping everything after.
+
+**Search boxes have an ✕ to clear them**: Chats, Nodes, Command help and the radio presets.
+
 ## 0.10.13
 
 **A room server opens as a room.** A room is something you sign in to and then read and post

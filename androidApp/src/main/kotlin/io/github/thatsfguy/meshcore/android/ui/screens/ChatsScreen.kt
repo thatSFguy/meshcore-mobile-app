@@ -117,11 +117,10 @@ fun ChatsScreen(vm: MeshCoreViewModel, nav: NavController) {
             val rest = filtered.filter { "${it.kind}|${it.key}" !in pinned }
 
             Column(Modifier.fillMaxSize().padding(padding)) {
-                OutlinedTextField(
-                    value = query,
-                    onValueChange = { query = it },
-                    label = { Text("Search conversations") },
-                    singleLine = true,
+                SearchField(
+                    query = query,
+                    onQueryChange = { query = it },
+                    label = "Search conversations",
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
                 )
                 LazyColumn(Modifier.fillMaxSize()) {
