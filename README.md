@@ -101,6 +101,18 @@ Download `MeshCoreHardened-Android-<version>-release.apk` from the
 Every release is built and signed by CI from a tagged commit; `versionName` / `versionCode` are
 derived from the git tag, so what you install matches what the release page advertises.
 
+### Verifying the signature
+
+Every release is signed with the same key. Before installing, you can check that an APK carries it:
+
+- **Package:** `io.github.thatsfguy.meshcore.native`
+- **Signing certificate SHA-256:**
+  `4C:2D:84:71:EA:DA:13:A3:D5:AC:32:01:64:06:2A:DE:1A:16:10:43:09:05:2E:7D:E5:39:6F:48:41:EF:8B:2B`
+
+Check it with `apksigner verify --print-certs <apk>` (Android SDK build-tools), or on the phone with
+an app such as AppVerifier. Android will also refuse to install an update signed with any other key
+over an existing install.
+
 Requires **Android 8.0 (API 26)** or newer.
 
 ## Which LoRa radios does it work with?
