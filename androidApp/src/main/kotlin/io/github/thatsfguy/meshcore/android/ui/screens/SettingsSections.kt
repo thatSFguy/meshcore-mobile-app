@@ -350,6 +350,68 @@ internal fun RadioSection(vm: MeshCoreViewModel) {
             tx.toIntOrNull()?.takeIf { it in 1..info.maxTxPowerDbm }?.let { vm.setTxPower(it) }
         }) { Text("Set") }
     }
+
+    SignalReadings(vm)
+}
+
+/**
+ * The connected radio's own signal readings (issue #6): noise floor, the
+ * last packet heard, and receive counters, polled every 2 s while this
+ * screen is open. A local query to our own radio — no airtime — so,
+ * unlike a repeater's noise-floor watch, it needs no start button.
+ */
+@Composable
+private fun SignalReadings(vm: MeshCoreViewModel) {
+    val SignalReadout = io.github.thatsfguy.meshcore.presentation.SignalReadout
+    // The poll's rules (stop on unsupported, keep the last reading through
+    // silence) live in shared/presentation/SignalPoll, where they are tested.
+    val poll = remember { io.github.thatsfguy.meshcore.presentation.SignalPoll() }
+    var view by remember { mutableStateOf(poll.view) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            val keepGoing = poll.onResult(vm.radioStats())
+            view = poll.view
+            if (!keepGoing) break
+            kotlinx.coroutines.delay(2_000)
+        }
+    }
+
+    Spacer(Modifier.height(16.dp))
+    Text("Signal", style = MaterialTheme.typography.titleSmall)
+    when (val v = view) {
+        io.github.thatsfguy.meshcore.presentation.SignalPoll.View.Waiting -> HintText("Reading…")
+        io.github.thatsfguy.meshcore.presentation.SignalPoll.View.NoAnswer ->
+            HintText("The radio did not answer.")
+        io.github.thatsfguy.meshcore.presentation.SignalPoll.View.Unsupported ->
+            HintText("This radio's firmware does not report signal statistics.")
+        is io.github.thatsfguy.meshcore.presentation.SignalPoll.View.Showing -> {
+            val s = v.reading
+            StatLine("Noise floor", SignalReadout.noiseFloor(s.radio.noiseFloorDbm))
+            v.range?.let { HintText(it) }
+            StatLine("Last packet heard", SignalReadout.lastPacket(s.radio, s.packets))
+            SignalReadout.counters(s.packets)?.let { StatLine("Since boot", it) }
+            ExpandableHint(
+                "Last packet is from whichever node your radio heard last — not a reading for any one link.",
+            ) {
+                DetailText(
+                    "It only changes when something new arrives, so on a quiet mesh it can sit " +
+                        "still for minutes. To check the link to a particular repeater, long-press " +
+                        "it on the Nodes screen and use Ping.\n\n" +
+                        "The noise floor is the live one. If it climbs when the radio is moved " +
+                        "next to something — a charger, a USB hub, the phone itself — that thing " +
+                        "is costing you range.",
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun StatLine(label: String, value: String) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
+        Text(label, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+        Text(value, style = MaterialTheme.typography.bodyMedium)
+    }
 }
 
 @Composable

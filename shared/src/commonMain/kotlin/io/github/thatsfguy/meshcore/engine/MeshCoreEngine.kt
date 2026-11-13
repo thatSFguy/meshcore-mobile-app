@@ -11,6 +11,7 @@ import io.github.thatsfguy.meshcore.protocol.Advert
 import io.github.thatsfguy.meshcore.protocol.AdvertInfo
 import io.github.thatsfguy.meshcore.protocol.BufferReader
 import io.github.thatsfguy.meshcore.protocol.ChannelCrypto
+import io.github.thatsfguy.meshcore.protocol.RadioStats
 import io.github.thatsfguy.meshcore.protocol.CliExchange
 import io.github.thatsfguy.meshcore.protocol.CliResend
 import io.github.thatsfguy.meshcore.protocol.CliStragglers
@@ -2320,6 +2321,35 @@ class MeshCoreEngine(
         val ok = sendAndAwait(Frames.setAutoAddConfig(flags)) { it is DeviceEvent.Ok } is DeviceEvent.Ok
         if (ok) requestAutoAddConfig()
         return ok
+    }
+
+    /**
+     * The connected radio's own stats (companion v8+). A local query — no
+     * airtime. [Stats.Unsupported] when the radio refuses the command
+     * (older firmware), null when it does not answer at all.
+     */
+    suspend fun getRadioStats(): Stats? {
+        val radio = sendAndAwait(Frames.getStats(Codes.STATS_TYPE_RADIO)) {
+            (it is DeviceEvent.Stats && it.statsType == Codes.STATS_TYPE_RADIO) || it is DeviceEvent.Err
+        } ?: return null
+        if (radio is DeviceEvent.Err) return Stats.Unsupported
+        val parsedRadio = (radio as DeviceEvent.Stats)
+            .let { RadioStats.parseRadio(it.statsType, it.payload) } ?: return null
+        // Packet counters are optional to the screen; a radio that answers
+        // one sub-type answers both, but a missing reply must not hide the
+        // reading we do have.
+        val packets = (
+            sendAndAwait(Frames.getStats(Codes.STATS_TYPE_PACKETS)) {
+                (it is DeviceEvent.Stats && it.statsType == Codes.STATS_TYPE_PACKETS) ||
+                    it is DeviceEvent.Err
+            } as? DeviceEvent.Stats
+            )?.let { RadioStats.parsePackets(it.statsType, it.payload) }
+        return Stats.Reading(parsedRadio, packets)
+    }
+
+    sealed class Stats {
+        data class Reading(val radio: RadioStats.Radio, val packets: RadioStats.Packets?) : Stats()
+        data object Unsupported : Stats()
     }
 
     suspend fun requestAutoAddConfig() {

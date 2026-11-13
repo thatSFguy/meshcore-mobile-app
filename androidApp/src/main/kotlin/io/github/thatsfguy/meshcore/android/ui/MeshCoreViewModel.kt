@@ -1330,6 +1330,12 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
         return Ping.outcome(result, Ping.hashHex(path), System.currentTimeMillis() - started)
     }
 
+    /** The connected radio's own signal stats; null when not connected or silent. */
+    suspend fun radioStats(): io.github.thatsfguy.meshcore.engine.MeshCoreEngine.Stats? {
+        val svc = _service.value ?: return null
+        return runCatching { svc.engine.getRadioStats() }.getOrNull()
+    }
+
     fun resetPath(keyHex: String) {
         val key = hexToBytesOrNull(keyHex) ?: return
         viewModelScope.launch {

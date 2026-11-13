@@ -361,6 +361,14 @@ object Frames {
     fun reboot(): ByteArray =
         byteArrayOf(Codes.CMD_REBOOT.toByte()) + "reboot".encodeToByteArray()
 
+    /**
+     * CMD_GET_STATS: [cmd][stats_type]. The firmware requires exactly the
+     * sub-type byte (`len >= 2`) and answers an unknown one with
+     * ERR_CODE_ILLEGAL_ARG.
+     */
+    fun getStats(statsType: Int): ByteArray =
+        byteArrayOf(Codes.CMD_GET_STATS.toByte(), statsType.toByte())
+
     /** CMD_GET_BATT_AND_STORAGE: [cmd] */
     fun getBattAndStorage(): ByteArray = byteArrayOf(Codes.CMD_GET_BATT_AND_STORAGE.toByte())
 

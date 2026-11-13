@@ -34,6 +34,7 @@ import kotlinx.coroutines.yield
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
+import kotlin.test.assertIs
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
@@ -730,6 +731,106 @@ class MeshCoreEngineTest {
         assertEquals("carol", msg.senderName)
         assertEquals("off grid", msg.text)
         assertEquals(0, msg.channelIndex)
+    }
+
+    @Test
+    fun radioStatsReadBothSubtypesFromTheRadio() = runTest {
+        val radio = FakeRadio()
+        val base = standardResponder(radio)
+        radio.responder = { frame ->
+            if ((frame[0].toInt() and 0xFF) == Codes.CMD_GET_STATS) {
+                when (frame[1].toInt()) {
+                    Codes.STATS_TYPE_RADIO -> listOf(
+                        byteArrayOf(24, 1, 0x90.toByte(), 0xFF.toByte(), (-87).toByte(), 26) +
+                            ByteArray(8),
+                    )
+                    Codes.STATS_TYPE_PACKETS -> listOf(
+                        byteArrayOf(24, 2) + ByteArray(28).also { it[0] = 12; it[24] = 3 },
+                    )
+                    else -> listOf(byteArrayOf(Codes.RESP_CODE_ERR.toByte(), 6))
+                }
+            } else {
+                base(frame)
+            }
+        }
+        val engine = MeshCoreEngine(backgroundScope, crypto, { now })
+        engine.attach(radio)
+        radio.connect()
+        engine.awaitReady()
+
+        val s = assertIs<MeshCoreEngine.Stats.Reading>(engine.getRadioStats())
+        assertEquals(-112, s.radio.noiseFloorDbm)
+        assertEquals(-87, s.radio.lastRssiDbm)
+        assertEquals(6.5, s.radio.lastSnrDb)
+        assertEquals(12, s.packets?.received)
+        assertEquals(3, s.packets?.receiveErrors)
+    }
+
+    @Test
+    fun olderFirmwareRefusingStatsIsUnsupportedNotSilence() = runTest {
+        // Pre-v8 firmware has no CMD_GET_STATS and answers with an error.
+        // That must read as "not supported" — a definite answer — so the
+        // screen stops asking, rather than as a radio that went quiet.
+        val radio = FakeRadio()
+        val base = standardResponder(radio)
+        radio.responder = { frame ->
+            if ((frame[0].toInt() and 0xFF) == Codes.CMD_GET_STATS) {
+                listOf(byteArrayOf(Codes.RESP_CODE_ERR.toByte(), 1))
+            } else {
+                base(frame)
+            }
+        }
+        val engine = MeshCoreEngine(backgroundScope, crypto, { now })
+        engine.attach(radio)
+        radio.connect()
+        engine.awaitReady()
+
+        assertEquals(MeshCoreEngine.Stats.Unsupported, engine.getRadioStats())
+    }
+
+    @Test
+    fun radioStatsWithoutPacketCountersStillShowTheRadioReading() = runTest {
+        // The packet counters are a second request. If that one goes
+        // unanswered, the noise floor already in hand must not be thrown
+        // away with it.
+        val radio = FakeRadio()
+        val base = standardResponder(radio)
+        radio.responder = { frame ->
+            if ((frame[0].toInt() and 0xFF) == Codes.CMD_GET_STATS) {
+                if (frame[1].toInt() == Codes.STATS_TYPE_RADIO) {
+                    listOf(byteArrayOf(24, 1, 0x90.toByte(), 0xFF.toByte(), (-87).toByte(), 26) + ByteArray(8))
+                } else {
+                    emptyList() // PACKETS: silence
+                }
+            } else {
+                base(frame)
+            }
+        }
+        val engine = MeshCoreEngine(backgroundScope, crypto, { now })
+        engine.attach(radio)
+        radio.connect()
+        engine.awaitReady()
+
+        val s = assertIs<MeshCoreEngine.Stats.Reading>(engine.getRadioStats())
+        assertEquals(-112, s.radio.noiseFloorDbm)
+        assertNull(s.packets)
+    }
+
+    @Test
+    fun aSilentRadioIsNoReadingNotUnsupported() = runTest {
+        // Silence is not a refusal: Unsupported would make the screen stop
+        // asking for good, over what may be one dropped frame.
+        val radio = FakeRadio()
+        val base = standardResponder(radio)
+        radio.responder = { frame ->
+            if ((frame[0].toInt() and 0xFF) == Codes.CMD_GET_STATS) emptyList() else base(frame)
+        }
+        val engine = MeshCoreEngine(backgroundScope, crypto, { now })
+        engine.attach(radio)
+        radio.connect()
+        engine.awaitReady()
+
+        assertNull(engine.getRadioStats())
     }
 
     @Test
