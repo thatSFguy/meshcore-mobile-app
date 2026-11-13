@@ -1,5 +1,6 @@
 package io.github.thatsfguy.meshcore.android.ui
 
+import io.github.thatsfguy.meshcore.presentation.Ping
 import io.github.thatsfguy.meshcore.presentation.TelemetryFetch
 import io.github.thatsfguy.meshcore.presentation.FloodRegionsAsk
 import io.github.thatsfguy.meshcore.presentation.Inbox
@@ -1301,6 +1302,32 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
         val path = contact?.storedPath ?: ByteArray(0)
         val width = deviceInfo.value?.pathHashByteWidth ?: 1
         return runCatching { svc.engine.tracePath(tag, path, width) }.getOrNull()
+    }
+
+    /**
+     * Ping the node [keyHex] — a one-hop trace through it (see
+     * [io.github.thatsfguy.meshcore.presentation.Ping]). Works on any key,
+     * added to the radio or only heard: a trace names a hop by hash and
+     * needs no contact record, which is what makes it useful for deciding
+     * whether a heard repeater is worth adding at all.
+     */
+    suspend fun ping(keyHex: String): Ping.Outcome {
+        val svc = _service.value
+            ?: return Ping.Outcome.CannotSend("Not connected to a radio.")
+        val width = deviceInfo.value?.pathHashByteWidth ?: 1
+        val path = Ping.path(keyHex, width)
+            ?: return Ping.Outcome.CannotSend(
+                if (width in Ping.TRACE_WIDTHS) {
+                    "This node's key is not usable."
+                } else {
+                    "This mesh uses $width-byte hop hashes, which a trace cannot " +
+                        "express (only 1, 2 or 4) — so it cannot be pinged."
+                },
+            )
+        val tag = (System.currentTimeMillis() and 0xFFFFFFFFL)
+        val started = System.currentTimeMillis()
+        val result = runCatching { svc.engine.tracePath(tag, path, width) }.getOrNull()
+        return Ping.outcome(result, Ping.hashHex(path), System.currentTimeMillis() - started)
     }
 
     fun resetPath(keyHex: String) {

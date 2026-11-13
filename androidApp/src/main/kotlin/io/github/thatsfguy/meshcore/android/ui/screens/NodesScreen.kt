@@ -46,8 +46,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
@@ -816,6 +818,59 @@ private fun ContactRow(
 }
 
 /**
+ * Whether a node of advert [type] can answer a ping. A ping is a trace,
+ * and only a node that forwards packets passes a trace on: repeaters and
+ * room servers do (`allowPacketForward`, off only when the operator has
+ * set `disable_fwd`), while sensors and chat nodes do not.
+ */
+private fun canPing(type: Int): Boolean =
+    type == Codes.ADV_TYPE_REPEATER || type == Codes.ADV_TYPE_ROOM
+
+/**
+ * Ping, for either node sheet (issue #5): can this node be reached
+ * directly, and how well. One copy, as with [PositionRows].
+ */
+@Composable
+private fun PingSection(vm: MeshCoreViewModel, keyHex: String) {
+    val scope = rememberCoroutineScope()
+    var pinging by remember(keyHex) { mutableStateOf(false) }
+    var result by remember(keyHex) { mutableStateOf<String?>(null) }
+    val contacts by vm.dbContacts.collectAsState()
+    val heard by vm.discovered.collectAsState()
+    val width = vm.deviceInfo.collectAsState().value?.pathHashByteWidth ?: 1
+    Spacer(Modifier.height(12.dp))
+    Text("Ping", style = MaterialTheme.typography.titleSmall)
+    HintText(
+        "Checks whether this node can hear you directly and you can hear it, " +
+            "with the signal each way. Useful for choosing the first hop of a path.",
+    )
+    TextButton(
+        enabled = !pinging,
+        onClick = {
+            scope.launch {
+                pinging = true
+                result = null
+                val outcome = vm.ping(keyHex)
+                val shared = io.github.thatsfguy.meshcore.presentation.Ping.path(keyHex, width)
+                    ?.let { path ->
+                        io.github.thatsfguy.meshcore.presentation.Ping.sharedPrefixCount(
+                            io.github.thatsfguy.meshcore.presentation.Ping.hashHex(path),
+                            keyHex,
+                            contacts.map { it.keyHex } + heard.map { it.keyHex },
+                        )
+                    } ?: 0
+                result = io.github.thatsfguy.meshcore.presentation.Ping.describe(outcome, shared)
+                pinging = false
+            }
+        },
+    ) { Text(if (pinging) "Pinging…" else "Ping") }
+    if (pinging) SectionSpinner("Waiting for a reply…")
+    result?.let {
+        Text(it, style = MaterialTheme.typography.bodyMedium)
+    }
+}
+
+/**
  * Position and distance, for either node sheet. One copy on purpose: the
  * two rows once used different rules and contradicted each other in the
  * same sheet (a node a few microdegrees from Null Island printed
@@ -910,6 +965,10 @@ private fun HeardDetailSheet(
             }?.let { io.github.thatsfguy.meshcore.presentation.RepeaterSignals.describe(it) }
                 ?.let { DetailRow("Why add it", it) }
 
+            // Before Add, not after: whether you can reach it directly is
+            // the question that decides whether it is worth adding.
+            if (canPing(node.type)) PingSection(vm, node.keyHex)
+
             Spacer(Modifier.height(12.dp))
             Text(
                 "Messaging, " +
@@ -995,6 +1054,8 @@ fun ContactDetailSheet(
             // Distance directly underneath it said "Unknown". Reported
             // from the Public channel, 2026-09-07.
             PositionRows(contact.latitude, contact.longitude, self?.latitude, self?.longitude, units)
+
+            if (canPing(contact.type)) PingSection(vm, contact.keyHex)
 
             if (LastHeard.seconds(contact) > 0) {
                 DetailRow(
