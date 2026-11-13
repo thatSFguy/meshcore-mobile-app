@@ -733,6 +733,46 @@ class MeshCoreEngineTest {
     }
 
     @Test
+    fun aQueuedChannelMessageKeepsItsSnr() = runTest {
+        // The same message reaches the app two ways: decrypted from the RX
+        // log (which always carried SNR) or as RESP_CODE_CHANNEL_MSG_RECV_V3,
+        // whose byte 1 is `(int8_t)(pkt->getSNR() * 4)`
+        // (companion_radio/MyMesh.cpp:563). The parser skipped that byte,
+        // so which route won decided whether the bubble showed a signal.
+        // This pins it all the way through to the event the UI stores.
+        val radio = FakeRadio()
+        radio.responder = standardResponder(radio)
+        val engine = MeshCoreEngine(backgroundScope, crypto, { now })
+        engine.attach(radio)
+        radio.connect()
+        engine.awaitReady()
+
+        val w = BufferWriter()
+        w.writeByte(Codes.RESP_CODE_CHANNEL_MSG_RECV_V3)
+        w.writeByte(0xE6)            // -26 quarter-dB = -6.5 dB
+        w.writeByte(0)               // reserved1
+        w.writeByte(0)               // reserved2
+        w.writeByte(0)               // channel 0
+        w.writeByte(0x02)            // flooded, 2 hops, 1-byte hashes
+        w.writeByte(Codes.TXT_TYPE_PLAIN)
+        w.writeUInt32LE(4321L)
+        w.writeString("dave: queued")
+        w.writeByte(0)
+
+        val waiter = async {
+            withTimeout(5_000) {
+                engine.meshEvents.first { it is MeshEvent.ChannelMessageReceived }
+            }
+        }
+        yield()
+        radio.push(w.toBytes())
+        val msg = waiter.await() as MeshEvent.ChannelMessageReceived
+        assertEquals("queued", msg.text)
+        assertEquals(2, msg.hops)
+        assertEquals(-6.5, msg.snr)
+    }
+
+    @Test
     fun rxLogForgedAdvertIsDropped() = runTest {
         val radio = FakeRadio()
         radio.responder = standardResponder(radio)

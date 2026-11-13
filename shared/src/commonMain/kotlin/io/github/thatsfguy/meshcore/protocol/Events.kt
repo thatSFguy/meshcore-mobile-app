@@ -88,6 +88,8 @@ sealed class DeviceEvent {
         val timestamp: Long,
         val pathLen: Int,
         val pathHashWidth: Int?,
+        /** dB at this radio; null on pre-V3 frames, which carry none. */
+        val snr: Double? = null,
     ) : DeviceEvent() {
         override val isPush get() = false
     }

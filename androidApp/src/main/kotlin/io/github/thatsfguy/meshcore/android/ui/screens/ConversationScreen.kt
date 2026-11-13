@@ -776,7 +776,10 @@ private fun MessageBubble(
                         // about whether the mesh is healthy than the
                         // delivery tick does.
                         hopsLabel(m.hops)?.let { append("  ·  $it") }
-                        m.snr?.let { append("  ·  %.1f dB".format(it)) }
+                        // "last hop" unless heard direct: after a relay the
+                        // SNR is the last repeater's, not the sender's.
+                        io.github.thatsfguy.meshcore.presentation.MessageSignal
+                            .bubble(m.snr, m.hops)?.let { append("  ·  $it") }
                     },
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -1112,7 +1115,8 @@ private fun MessageInfoSheet(
                 if (m.attempts > 0) InfoRow("Attempts", m.attempts.toString())
                 m.ackHash?.let { InfoRow("Ack hash", "%08x".format(it), mono = true) }
             }
-            m.snr?.let { InfoRow("SNR", "%.1f dB".format(it)) }
+            io.github.thatsfguy.meshcore.presentation.MessageSignal.info(m.snr, m.hops)
+                ?.let { InfoRow("SNR", it) }
             // A COUNT, not a path. The inbound message frame carries
             // path_len only (MESHCORE_PROTOCOL §9) — the radio keeps the
             // route to itself — so calling it "Path" implied we knew

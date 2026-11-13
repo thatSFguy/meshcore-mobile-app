@@ -191,6 +191,28 @@ class ResponseParserTest {
         assertEquals(2, m3.pathLen)
         assertEquals("eve", m3.senderName)
         assertEquals("no-space", m3.text)
+        // Byte 1 is the SNR in quarter-dB (companion_radio/MyMesh.cpp:563),
+        // not padding: 20 → 5.0 dB.
+        assertEquals(5.0, m3.snr)
+    }
+
+    @Test
+    fun channelV3SnrIsSignedQuarterDb() {
+        // A weak signal is the common case on a mesh and is negative; read
+        // unsigned, -22 (0xEA) would land as +58.5 dB.
+        val w = BufferWriter()
+        w.writeByte(Codes.RESP_CODE_CHANNEL_MSG_RECV_V3)
+        w.writeByte(0xEA)            // snr = -22 quarter-dB
+        w.writeByte(0)
+        w.writeByte(0)
+        w.writeByte(0)               // channel 0
+        w.writeByte(0x01)            // flooded, 1 hop, 1-byte hashes
+        w.writeByte(Codes.TXT_TYPE_PLAIN)
+        w.writeUInt32LE(1L)
+        w.writeString("al: hi")
+        w.writeByte(0)
+        val m = assertIs<DeviceEvent.ChannelMessage>(ResponseParser.parse(w.toBytes()))
+        assertEquals(-5.5, m.snr)
     }
 
     @Test

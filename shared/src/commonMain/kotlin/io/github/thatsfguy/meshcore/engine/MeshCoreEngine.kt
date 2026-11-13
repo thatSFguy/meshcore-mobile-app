@@ -782,6 +782,7 @@ class MeshCoreEngine(
                     } else {
                         PathCodec.decodeArrival(event.pathLen).storedHops
                     },
+                    snr = event.snr,
                 )
             }
 
