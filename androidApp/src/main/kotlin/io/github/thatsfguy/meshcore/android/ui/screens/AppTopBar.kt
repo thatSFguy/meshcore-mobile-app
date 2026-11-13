@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -26,6 +27,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import io.github.thatsfguy.meshcore.android.ui.MeshCoreViewModel
@@ -60,13 +62,24 @@ fun AppTopBar(
     TopAppBar(
         title = {
             androidx.compose.foundation.layout.Column {
-                Text(title, maxLines = 1)
+                // softWrap = false + ellipsis, not just maxLines = 1. With
+                // wrapping on, a long name with no spaces ("#somelongchannel")
+                // broke after the '#' and only that first line was shown —
+                // the bar read "#" and nothing else (issue #8).
+                Text(
+                    title,
+                    maxLines = 1,
+                    softWrap = false,
+                    overflow = TextOverflow.Ellipsis,
+                )
                 subtitle?.let {
                     Text(
                         it,
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
             }
@@ -158,7 +171,11 @@ fun ConnectionInfoChip(vm: MeshCoreViewModel) {
                 MaterialTheme.colorScheme.onSurfaceVariant
             },
             maxLines = 1,
-            modifier = Modifier.padding(start = 6.dp),
+            softWrap = false,
+            overflow = TextOverflow.Ellipsis,
+            // The bar lays out its actions first and gives the title what
+            // is left, so an uncapped radio name here starved the title.
+            modifier = Modifier.padding(start = 6.dp).widthIn(max = 120.dp),
         )
     }
 }
