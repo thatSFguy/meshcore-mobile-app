@@ -27,6 +27,8 @@ class NodeListModelTest {
         override val lastModified: Long = 0,
         override val lastMessageAt: Long = 0,
         override val unread: Int = 0,
+        override val latitude: Double? = null,
+        override val longitude: Double? = null,
     ) : NodeListItem
 
     private val favourite = Codes.CONTACT_FLAG_FAVORITE
@@ -161,6 +163,47 @@ class NodeListModelTest {
             Node("dd", name = "Direct", pathLen = 0x00),
         )
         assertEquals(listOf("dd", "cc", "bb", "aa"), arrange(nodes, sort = Sort.Hops))
+    }
+
+    // --- distance ----------------------------------------------------------
+
+    /** Downtown Grand Rapids — region-level, as the repo allows. */
+    private val here = SelfPosition(42.9634, -85.6681)
+
+    @Test
+    fun `nearest orders by distance and puts the unplaceable last`() {
+        val nodes = listOf(
+            // ~40 km south-west.
+            Node("aa", name = "Far", latitude = 42.70, longitude = -86.05),
+            // No position at all.
+            Node("bb", name = "Nowhere"),
+            // ~2 km.
+            Node("cc", name = "Near", latitude = 42.98, longitude = -85.66),
+            // Advertising 0,0 — a node with no fix, not one in the Gulf of
+            // Guinea. Measured naively it is merely "far"; it must be last.
+            Node("dd", name = "Null Island", latitude = 0.0, longitude = 0.0),
+            // ~15 km.
+            Node("ee", name = "Middling", latitude = 43.09, longitude = -85.62),
+        )
+        assertEquals(
+            // The two unplaceable ones last, A–Z: "Nowhere" before "Null Island".
+            listOf("cc", "ee", "aa", "bb", "dd"),
+            NodeListModel.arrange(nodes, "", Sort.Distance, emptySet(), now, here).map { it.keyHex },
+        )
+    }
+
+    @Test
+    fun `nearest with no fix of our own falls back to name rather than guessing`() {
+        val nodes = listOf(
+            Node("aa", name = "Zulu", latitude = 42.98, longitude = -85.66),
+            Node("bb", name = "Alpha", latitude = 42.70, longitude = -86.05),
+        )
+        for (self in listOf(null, SelfPosition(0.0, 0.0), SelfPosition(null, null))) {
+            assertEquals(
+                listOf("bb", "aa"),
+                NodeListModel.arrange(nodes, "", Sort.Distance, emptySet(), now, self).map { it.keyHex },
+            )
+        }
     }
 
     @Test

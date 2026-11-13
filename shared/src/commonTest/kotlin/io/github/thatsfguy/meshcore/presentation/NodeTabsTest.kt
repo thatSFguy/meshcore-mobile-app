@@ -12,6 +12,9 @@ class NodeTabsTest {
         override val name: String,
         override val type: Int,
         override val lastHeardAt: Long,
+        override val latitude: Double? = null,
+        override val longitude: Double? = null,
+        override val minHops: Int? = null,
     ) : HeardNode
 
     private val rptA = Heard("aa11", "Kent Hill", Codes.ADV_TYPE_REPEATER, 3_000L)
@@ -118,5 +121,40 @@ class NodeTabsTest {
         assertEquals("Hiding 1 node not added", NodeTabsModel.hiddenNote(NodeTab.Rooms, all, hidden = true))
         assertEquals("Hiding nodes not added", NodeTabsModel.hiddenNote(NodeTab.Sensors, all, hidden = true))
         assertEquals(null, NodeTabsModel.hiddenNote(NodeTab.Repeaters, all, hidden = false))
+    }
+
+    // --- the heard section follows the list's sort ---------------------------
+
+    private val near = Heard("a1", "Near", Codes.ADV_TYPE_REPEATER, 1_000L, 42.98, -85.66, minHops = 2)
+    private val far = Heard("b2", "Far", Codes.ADV_TYPE_REPEATER, 3_000L, 42.70, -86.05, minHops = 0)
+    private val noFix = Heard("c3", "Alpha", Codes.ADV_TYPE_REPEATER, 2_000L, minHops = null)
+    private val repeaters = listOf(near, far, noFix)
+    private val here = SelfPosition(42.9634, -85.6681)
+
+    private fun heard(sort: NodeListModel.Sort, self: SelfPosition? = here) =
+        NodeTabsModel.heardFor(
+            NodeTab.Repeaters, repeaters, query = "", filtersActive = false, sort = sort, self = self,
+        ).map { it.name }
+
+    @Test
+    fun `nearest orders heard repeaters by distance with the unplaceable last`() {
+        // The request that prompted this: skim the heard repeaters for the
+        // close ones before adding any.
+        assertEquals(listOf("Near", "Far", "Alpha"), heard(NodeListModel.Sort.Distance))
+    }
+
+    @Test
+    fun `fewest hops orders heard nodes by heard hops with unrecorded last`() {
+        // This section used to ignore the sort and stay newest-first, which
+        // on a Repeaters tab of mostly-unadded nodes made the sort look
+        // broken. Positive control: the order differs from newest-first.
+        assertEquals(listOf("Far", "Near", "Alpha"), heard(NodeListModel.Sort.Hops))
+        assertEquals(listOf("Far", "Alpha", "Near"), heard(NodeListModel.Sort.LastHeard))
+    }
+
+    @Test
+    fun `name and the default order still behave`() {
+        assertEquals(listOf("Alpha", "Far", "Near"), heard(NodeListModel.Sort.Name))
+        assertEquals(listOf("Far", "Alpha", "Near"), heard(NodeListModel.Sort.Activity))
     }
 }

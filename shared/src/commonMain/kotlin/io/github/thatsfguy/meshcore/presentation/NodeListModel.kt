@@ -2,6 +2,8 @@ package io.github.thatsfguy.meshcore.presentation
 
 import io.github.thatsfguy.meshcore.protocol.Codes
 import io.github.thatsfguy.meshcore.protocol.PathCodec
+import io.github.thatsfguy.meshcore.util.haversineMetres
+import io.github.thatsfguy.meshcore.util.isPlausiblePosition
 
 /**
  * The fields the node list orders and filters on.
@@ -47,6 +49,27 @@ interface NodeListItem {
     val lastMessageAt: Long
 
     val unread: Int
+
+    /** Last advertised position; null or 0,0 when it has none. */
+    val latitude: Double? get() = null
+    val longitude: Double? get() = null
+}
+
+/**
+ * Where this radio is, for ordering by distance. Null-safe on purpose:
+ * a radio with no fix is ordinary, and the model must answer "unknown"
+ * rather than measure from the Gulf of Guinea.
+ */
+data class SelfPosition(val latitude: Double?, val longitude: Double?) {
+    /** Metres to a node, or null when either end cannot be placed. */
+    fun metresTo(lat: Double?, lon: Double?): Double? =
+        if (isPlausiblePosition(latitude, longitude) && isPlausiblePosition(lat, lon)) {
+            haversineMetres(latitude!!, longitude!!, lat!!, lon!!)
+        } else {
+            null
+        }
+
+    val isKnown: Boolean get() = isPlausiblePosition(latitude, longitude)
 }
 
 /**
@@ -99,6 +122,14 @@ object NodeListModel {
          * asking before sending anything large.
          */
         Hops("Fewest hops"),
+
+        /**
+         * Nearest first, by straight-line distance from this radio's own
+         * position. Nodes with no position — or every node, when this
+         * radio has none — go last, A–Z. Asked for so a list of heard
+         * repeaters can be skimmed for the close ones before adding any.
+         */
+        Distance("Nearest"),
     }
 
     /**
@@ -136,10 +167,11 @@ object NodeListModel {
         sort: Sort,
         filters: Set<Filter>,
         nowSeconds: Long,
+        self: SelfPosition? = null,
     ): List<T> = items
         .filter { matchesQuery(it, query) }
         .filter { item -> filters.all { keeps(item, it, nowSeconds) } }
-        .sortedWith(comparatorFor(sort))
+        .sortedWith(comparatorFor(sort, self))
 
     private fun matchesQuery(item: NodeListItem, query: String): Boolean {
         val q = query.trim()
@@ -159,7 +191,7 @@ object NodeListModel {
             now - LastHeard.seconds(item) <= ACTIVE_WINDOW_SECONDS
     }
 
-    private fun <T : NodeListItem> comparatorFor(sort: Sort): Comparator<T> {
+    private fun <T : NodeListItem> comparatorFor(sort: Sort, self: SelfPosition?): Comparator<T> {
         val byName = compareBy<T> { it.name.ifBlank { it.keyHex }.lowercase() }
             .thenBy { it.keyHex }
         return when (sort) {
@@ -185,6 +217,24 @@ object NodeListModel {
                 compareBy<T> { PathCodec.decodePathLen(it.pathLen).isFlood }
                     .thenBy { PathCodec.decodePathLen(it.pathLen).hops }
                     .then(byName)
+
+            Sort.Distance -> byDistance<T>(self) { it.latitude to it.longitude }.then(byName)
         }
+    }
+
+    /**
+     * Nearest first; anything that cannot be placed after everything that
+     * can. Shared with the heard section ([NodeTabsModel.heardFor]) so
+     * the two halves of one list cannot disagree about what "nearest" is.
+     */
+    internal fun <T> byDistance(
+        self: SelfPosition?,
+        position: (T) -> Pair<Double?, Double?>,
+    ): Comparator<T> {
+        val metres = { item: T ->
+            val (lat, lon) = position(item)
+            self?.metresTo(lat, lon)
+        }
+        return compareBy<T> { metres(it) == null }.thenBy { metres(it) ?: 0.0 }
     }
 }

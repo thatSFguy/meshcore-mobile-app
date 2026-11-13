@@ -132,8 +132,8 @@ data class ContactEntity(
     val type: Int,
     override val flags: Int,
     override val pathLen: Int,
-    val latitude: Double?,
-    val longitude: Double?,
+    override val latitude: Double?,
+    override val longitude: Double?,
     override val lastSeen: Long,       // advert timestamp, epoch seconds
     /** The RADIO's own clock, when it last heard from this node. */
     override val lastModified: Long,
@@ -328,8 +328,8 @@ data class DiscoveredEntity(
     override val keyHex: String,
     override val name: String,
     override val type: Int,
-    val latitude: Double?,
-    val longitude: Double?,
+    override val latitude: Double?,
+    override val longitude: Double?,
     val firstHeardAt: Long,
     override val lastHeardAt: Long,
     val snr: Double,
@@ -340,7 +340,7 @@ data class DiscoveredEntity(
      * The fewest hops any of its adverts arrived with; 0 is "heard
      * direct". Null when never recorded (rows from before 0.10.4).
      */
-    val minHops: Int? = null,
+    override val minHops: Int? = null,
     /**
      * The SNR of the latest copy heard direct — the node's own signal at
      * this radio. [snr] is the latest copy of any kind, which after a

@@ -66,6 +66,7 @@ import io.github.thatsfguy.meshcore.presentation.BatteryLevel
 import io.github.thatsfguy.meshcore.presentation.TelemetryFetch
 import io.github.thatsfguy.meshcore.presentation.LastHeard
 import io.github.thatsfguy.meshcore.presentation.NodeListModel
+import io.github.thatsfguy.meshcore.presentation.SelfPosition
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.ui.semantics.contentDescription
@@ -204,27 +205,46 @@ fun NodesScreen(vm: MeshCoreViewModel, nav: NavController) {
             // Searching, narrowing and ordering are all NodeListModel's,
             // so the rules are pinned by tests rather than by driving a
             // phone (CLAUDE.md — logic that carries decisions is pure).
+            // Distance is measured from the radio's own advertised
+            // position — the same one the sheets measure from.
+            val selfInfo by vm.selfInfo.collectAsState()
+            val units by vm.unitSystem.collectAsState()
+            val selfPos = SelfPosition(selfInfo?.latitude, selfInfo?.longitude)
+            val distanceOf = { lat: Double?, lon: Double? ->
+                selfPos.metresTo(lat, lon)?.let { Units.distance(it, units) }
+            }
             val tabContacts = NodeListModel.arrange(
                 items = ofThisType,
                 query = query,
                 sort = sort,
                 filters = filters,
                 nowSeconds = vm.nowSeconds(),
+                self = selfPos,
             )
             // Heard but not added: on the tab for their own kind, not in a
             // tab of their own. See [NodeTab].
             val newCounts = NodeTabsModel.counts(discovered, hidden = hideHeard)
             val signals by vm.heardSignals.collectAsState()
-            // Useful ones first — relayed your traffic or heard direct —
-            // then the rest, each group newest first (the sort is stable).
+            // In the chosen order. Only the default one also floats the
+            // useful ones — relayed your traffic or heard direct — then the
+            // rest newest first (the sort is stable); any other choice is
+            // a request for that key alone, as it is for contacts.
             val heard = NodeTabsModel.heardFor(
                 tab = tab,
                 heard = discovered,
                 query = query,
                 filtersActive = filters.isNotEmpty(),
                 hidden = hideHeard,
-            ).sortedByDescending { d ->
-                signals[d.keyHex]?.let { it.provenRelay || it.heardDirect } == true
+                sort = sort,
+                self = selfPos,
+            ).let { list ->
+                if (sort != NodeListModel.Sort.Activity) {
+                    list
+                } else {
+                    list.sortedByDescending { d ->
+                        signals[d.keyHex]?.let { it.provenRelay || it.heardDirect } == true
+                    }
+                }
             }
 
             // ScrollableTabRow, not TabRow: a fixed row divides the width
@@ -293,6 +313,16 @@ fun NodesScreen(vm: MeshCoreViewModel, nav: NavController) {
                 },
             )
 
+            if (sort == NodeListModel.Sort.Distance && !selfPos.isKnown) {
+                // Otherwise "Nearest" silently becomes A–Z and looks broken.
+                Text(
+                    "Your radio has no position set, so nothing can be ordered by distance.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                )
+            }
+
             if (tabContacts.isEmpty() && heard.isEmpty()) {
                 EmptyHint(
                     // An empty list with an active filter is the app
@@ -337,6 +367,7 @@ fun NodesScreen(vm: MeshCoreViewModel, nav: NavController) {
                             items(heard, key = { "heard_${it.keyHex}" }) { d ->
                                 DiscoveredRow(
                                     node = d,
+                                    distance = distanceOf(d.latitude, d.longitude),
                                     signals = signals[d.keyHex],
                                     onOpen = { heardDetail = d },
                                     onAdd = { vm.addDiscovered(d.keyHex) },
@@ -363,6 +394,7 @@ fun NodesScreen(vm: MeshCoreViewModel, nav: NavController) {
                             c.type == Codes.ADV_TYPE_SENSOR
                         ContactRow(
                             c = c,
+                            distance = distanceOf(c.latitude, c.longitude),
                             onClick = {
                                 when {
                                     c.type == Codes.ADV_TYPE_ROOM -> openRoom(c)
@@ -604,6 +636,7 @@ private fun SelectedTick() {
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 private fun DiscoveredRow(
     node: io.github.thatsfguy.meshcore.android.storage.DiscoveredEntity,
+    distance: String? = null,
     signals: io.github.thatsfguy.meshcore.presentation.RepeaterSignals.Signals? = null,
     onOpen: () -> Unit,
     onAdd: () -> Unit,
@@ -638,6 +671,7 @@ private fun DiscoveredRow(
                 listOfNotNull(
                     typeLabel(node.type).dropLast(1),
                     io.github.thatsfguy.meshcore.presentation.HeardReach.of(node.minHops, node.directSnr),
+                    distance,
                     DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(node.lastHeardAt)),
                 ).joinToString(" · "),
                 style = MaterialTheme.typography.bodySmall,
@@ -721,6 +755,7 @@ internal fun typeLabel(type: Int): String = when (type) {
 @Composable
 private fun ContactRow(
     c: ContactEntity,
+    distance: String? = null,
     onClick: () -> Unit,
     onLongClick: (() -> Unit)? = null,
 ) {
@@ -751,6 +786,7 @@ private fun ContactRow(
                     val info = PathCodec.decodePathLen(c.pathLen)
                     if (!info.isFlood) append(" · ${info.hops} hop path")
                     else append(" · flood")
+                    distance?.let { append(" · $it") }
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,

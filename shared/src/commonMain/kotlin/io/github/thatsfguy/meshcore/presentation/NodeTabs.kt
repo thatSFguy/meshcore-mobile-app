@@ -16,6 +16,13 @@ interface HeardNode {
 
     /** When this radio last heard it, epoch milliseconds. */
     val lastHeardAt: Long
+
+    /** Advertised position; null or 0,0 when it has none. */
+    val latitude: Double? get() = null
+    val longitude: Double? get() = null
+
+    /** Fewest hops any of its adverts arrived with; null when unrecorded. */
+    val minHops: Int? get() = null
 }
 
 /**
@@ -81,7 +88,14 @@ object NodeTabsModel {
         if (newCount <= 0) tab.title else "${tab.title}, $newCount new"
 
     /**
-     * The heard nodes [tab] shows, newest first.
+     * The heard nodes [tab] shows, in [sort] order — newest first for
+     * [NodeListModel.Sort.Activity] and [NodeListModel.Sort.LastHeard].
+     *
+     * The section used to ignore the sort entirely and always list
+     * newest first, which on a tab where most rows are heard-not-added
+     * (Repeaters, with auto-add off) made "Fewest hops" look broken.
+     * Hops here are the heard hops ([HeardNode.minHops]) — a node not
+     * added has no stored route to rank by — with never-recorded last.
      *
      * The search applies to them as it does to the list below, so a name
      * typed into the box finds a node whether or not it has been added.
@@ -97,6 +111,8 @@ object NodeTabsModel {
         query: String,
         filtersActive: Boolean,
         hidden: Boolean = false,
+        sort: NodeListModel.Sort = NodeListModel.Sort.Activity,
+        self: SelfPosition? = null,
     ): List<T> {
         if (filtersActive || hidden) return emptyList()
         val q = query.trim()
@@ -106,6 +122,22 @@ object NodeTabsModel {
                 q.isEmpty() || it.name.contains(q, ignoreCase = true) ||
                     it.keyHex.startsWith(q.lowercase())
             }
-            .sortedWith(compareByDescending<T> { it.lastHeardAt }.thenBy { it.keyHex })
+            .sortedWith(comparatorFor(sort, self))
+    }
+
+    private fun <T : HeardNode> comparatorFor(
+        sort: NodeListModel.Sort,
+        self: SelfPosition?,
+    ): Comparator<T> {
+        val newest = compareByDescending<T> { it.lastHeardAt }.thenBy { it.keyHex }
+        val byName = compareBy<T> { it.name.ifBlank { it.keyHex }.lowercase() }.thenBy { it.keyHex }
+        return when (sort) {
+            NodeListModel.Sort.Activity, NodeListModel.Sort.LastHeard -> newest
+            NodeListModel.Sort.Name -> byName
+            NodeListModel.Sort.Hops ->
+                compareBy<T> { it.minHops == null }.thenBy { it.minHops ?: 0 }.then(newest)
+            NodeListModel.Sort.Distance ->
+                NodeListModel.byDistance<T>(self) { it.latitude to it.longitude }.then(byName)
+        }
     }
 }
