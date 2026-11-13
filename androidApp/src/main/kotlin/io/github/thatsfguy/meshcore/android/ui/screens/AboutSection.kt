@@ -90,6 +90,17 @@ fun AboutSection(vm: MeshCoreViewModel) {
  * is a changelog you can't read in the field.
  */
 private val CHANGELOG: List<Pair<String, List<String>>> = listOf(
+    "0.10.16" to listOf(
+        "Settings → Radio shows your radio's noise floor, the last packet's signal and packet " +
+            "counts, read every 2 seconds without using airtime.",
+        "Ping a repeater or room server from its sheet to check a direct link, with the " +
+            "signal each way.",
+        "Relayed message bubbles say \"last hop\", since that SNR is the last repeater's, " +
+            "not the sender's. Queued channel messages keep their SNR.",
+        "Heard repeaters show their distance, the list sorts by nearest, and the heard section " +
+            "follows the sort.",
+        "Long channel names stay on one line in the top bar instead of showing only \"#\".",
+    ),
     "0.10.15" to listOf(
         "Telemetry asks first instead of signing in, so the saved password isn't sent each time. " +
             "A node answers any radio that has ever signed in to it.",
