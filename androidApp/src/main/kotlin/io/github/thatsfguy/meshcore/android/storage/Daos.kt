@@ -17,6 +17,13 @@ data class ThreadKey(val kind: String, val peerKey: String)
  */
 data class ChannelSender(val name: String, val messageCount: Int, val lastSeenAt: Long)
 
+/**
+ * One contact's delivery record across all its routes: the newest
+ * confirmed delivery and the newest attempt, epoch millis (0 = never).
+ * What Reachability reads — a delivered message is proof both ways.
+ */
+data class PathSummary(val contactKey: String, val lastWorkedAt: Long, val lastUsedAt: Long, val attempts: Int)
+
 @Dao
 interface MessageDao {
 
@@ -505,6 +512,14 @@ interface PathHistoryDao {
 
     @Query("DELETE FROM path_history WHERE selfKey = :selfKey AND contactKey = :contactKey")
     suspend fun clear(selfKey: String, contactKey: String)
+
+    /** Per contact: newest delivery and newest attempt, over every route. */
+    @Query(
+        "SELECT contactKey, MAX(lastWorkedAt) AS lastWorkedAt, MAX(lastUsedAt) AS lastUsedAt, " +
+            "SUM(successes + failures) AS attempts " +
+            "FROM path_history WHERE selfKey = :selfKey GROUP BY contactKey",
+    )
+    fun summaries(selfKey: String): Flow<List<PathSummary>>
 
     /** Every row for this radio — the repair pass reads them all once. */
     @Query("SELECT * FROM path_history WHERE selfKey = :selfKey")

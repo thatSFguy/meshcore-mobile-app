@@ -243,6 +243,11 @@ sealed class DeviceEvent {
         override val isPush get() = true
     }
 
+    /** PUSH_CODE_PATH_DISCOVERY_RESPONSE, already parsed; see [PathDiscovery]. */
+    data class PathDiscovered(val result: PathDiscovery.Result) : DeviceEvent() {
+        override val isPush get() = true
+    }
+
     data class ControlData(val payload: ByteArray) : DeviceEvent() {
         override val isPush get() = true
     }

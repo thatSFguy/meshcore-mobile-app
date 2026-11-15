@@ -2226,6 +2226,75 @@ class MeshCoreEngineTest {
         assertEquals(24.2, readings[1].value, 1e-9)
     }
 
+    /**
+     * The push as the firmware writes it (companion_radio/MyMesh.cpp:793-801):
+     * `[0x8D][0][key prefix x6][out_len][out path][in_len][in path]`.
+     */
+    private fun pathDiscoveryFrame(
+        key: ByteArray,
+        outLen: Int,
+        outPath: ByteArray,
+        inLen: Int,
+        inPath: ByteArray,
+    ): ByteArray =
+        byteArrayOf(Codes.PUSH_CODE_PATH_DISCOVERY_RESPONSE.toByte(), 0) +
+            key.copyOf(6) + byteArrayOf(outLen.toByte()) + outPath +
+            byteArrayOf(inLen.toByte()) + inPath
+
+    @Test
+    fun pathDiscoveryReturnsBothRoutesForTheNodeAsked() = runTest {
+        // Positive control: a real answer must come through, with each
+        // route at its own hash width. 0x42 = 2 hops of 2 bytes, 0x01 = 1
+        // hop of 1 byte. An answer for another node (a stale discovery)
+        // arrives first and must be skipped.
+        val radio = FakeRadio()
+        val other = ByteArray(32) { 7 }
+        radio.responder = { frame ->
+            when (frame[0].toInt() and 0xFF) {
+                Codes.CMD_SEND_PATH_DISCOVERY_REQ -> listOf(
+                    binarySentFrame(0x01020304L),
+                    pathDiscoveryFrame(other, 0x01, byteArrayOf(0x11), 0x00, ByteArray(0)),
+                    pathDiscoveryFrame(
+                        peerKey,
+                        0x42, byteArrayOf(0xB3.toByte(), 0x89.toByte(), 0xC9.toByte(), 0x85.toByte()),
+                        0x01, byteArrayOf(0x5A),
+                    ),
+                )
+                else -> standardResponder(radio)(frame)
+            }
+        }
+        val engine = readyEngine(radio)
+
+        val found = assertNotNull(engine.discoverPath(peerKey))
+
+        // Built as the firmware reads it: [52][0][pubkey] (MyMesh.cpp:1651-1652).
+        val sent = radio.sentFrames.single { (it[0].toInt() and 0xFF) == Codes.CMD_SEND_PATH_DISCOVERY_REQ }
+        assertContentEquals(byteArrayOf(52, 0) + peerKey, sent)
+        assertEquals(peerKey.copyOf(6).toHex(), found.keyPrefixHex)
+        assertEquals("b389c985", found.outPath.toHex())
+        assertEquals(2, found.outHashWidth)
+        assertEquals(2, found.outHops)
+        assertEquals("5a", found.inPath.toHex())
+        assertEquals(1, found.inHops)
+    }
+
+    @Test
+    fun pathDiscoverySilenceIsNull() = runTest {
+        // A person who doesn't share telemetry never answers
+        // (BaseChatMesh.cpp:314-316). That must come back as "no answer",
+        // and within the radio's own estimate, not hang.
+        val radio = FakeRadio()
+        radio.responder = { frame ->
+            when (frame[0].toInt() and 0xFF) {
+                Codes.CMD_SEND_PATH_DISCOVERY_REQ -> listOf(binarySentFrame(0x01020304L, estTimeoutMs = 2_000))
+                else -> standardResponder(radio)(frame)
+            }
+        }
+        val engine = readyEngine(radio)
+
+        assertNull(engine.discoverPath(peerKey))
+    }
+
     @Test
     fun ownerInfoSilenceIsNullNotAnEmptyOwner() = runTest {
         // A repeater older than FIRMWARE_VER_LEVEL 2 returns 0 from

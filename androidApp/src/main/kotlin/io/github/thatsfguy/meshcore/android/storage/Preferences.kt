@@ -84,6 +84,37 @@ class Preferences(context: Context) {
 
     fun isRoutePinned(keyHex: String): Boolean = keyHex.lowercase() in pinnedRoutes
 
+    /**
+     * When each node last ANSWERED us — a ping, sign-in, telemetry or path
+     * discovery — per own radio, epoch seconds. Kept because an answer
+     * proves both directions and the screen that showed it forgets it
+     * (Reachability). Stored as "selfKey|nodeKey|seconds"; newest 500 kept.
+     */
+    fun reachProofs(selfKey: String): Map<String, Long> {
+        val prefix = "${selfKey.lowercase()}|"
+        return (prefs.getStringSet("reach_proofs", emptySet()) ?: emptySet())
+            .filter { it.startsWith(prefix) }
+            .mapNotNull { row ->
+                val parts = row.split('|')
+                if (parts.size != 3) return@mapNotNull null
+                val at = parts[2].toLongOrNull() ?: return@mapNotNull null
+                parts[1] to at
+            }
+            .groupBy({ it.first }, { it.second })
+            .mapValues { (_, times) -> times.max() }
+    }
+
+    fun recordReachProof(selfKey: String, nodeKey: String, atSeconds: Long) {
+        val self = selfKey.lowercase()
+        val node = nodeKey.lowercase()
+        if (self.isEmpty() || node.isEmpty()) return
+        val kept = (prefs.getStringSet("reach_proofs", emptySet()) ?: emptySet())
+            .filterNot { it.startsWith("$self|$node|") }
+            .sortedByDescending { it.substringAfterLast('|').toLongOrNull() ?: 0L }
+            .take(499) // newest 500, this one included
+        prefs.edit().putStringSet("reach_proofs", (kept + "$self|$node|$atSeconds").toSet()).apply()
+    }
+
     var lastKind: String?
         get() = prefs.getString("last_kind", null)
         set(v) { prefs.edit().putString("last_kind", v).apply() }
@@ -262,6 +293,11 @@ class Preferences(context: Context) {
     var nodesHeardCollapsed: Boolean
         get() = prefs.getBoolean("nodes_heard_collapsed", false)
         set(v) { prefs.edit().putBoolean("nodes_heard_collapsed", v).apply() }
+
+    /** The "far away, heard only" fold on the Nodes list. Folded by default. */
+    var nodesFarCollapsed: Boolean
+        get() = prefs.getBoolean("nodes_far_collapsed", true)
+        set(v) { prefs.edit().putBoolean("nodes_far_collapsed", v).apply() }
 
     /**
      * Nodes-list ordering, stored by enum NAME rather than ordinal.

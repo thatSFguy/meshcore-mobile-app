@@ -484,6 +484,24 @@ object Frames {
     /** CMD_GET_AUTO_ADD_CONFIG: [cmd] */
     fun getAutoAddConfig(): ByteArray = byteArrayOf(Codes.CMD_GET_AUTO_ADD_CONFIG.toByte())
 
+    /**
+     * CMD_SEND_PATH_DISCOVERY_REQ: `[cmd][0][pubkey x32]`.
+     *
+     * Written against the firmware's reader, not ours: it takes the
+     * command only when `cmd_frame[1] == 0 && len >= 2 + PUB_KEY_SIZE`
+     * and reads the key from `&cmd_frame[2]`
+     * (companion_radio/MyMesh.cpp:1651-1652). The zero is not padding;
+     * any other value and the radio treats the frame as unknown.
+     */
+    fun sendPathDiscovery(pubKey: ByteArray): ByteArray {
+        require(pubKey.size == PUB_KEY_SIZE) { "pubkey must be 32 bytes" }
+        val w = BufferWriter()
+        w.writeByte(Codes.CMD_SEND_PATH_DISCOVERY_REQ)
+        w.writeByte(0)
+        w.writeBytes(pubKey)
+        return w.toBytes()
+    }
+
     /** CMD_SEND_BINARY_REQ: [cmd][pubkey x32][payload] (payload[0] = req_type) */
     fun sendBinaryRequest(pubKey: ByteArray, payload: ByteArray): ByteArray {
         require(pubKey.size == PUB_KEY_SIZE) { "pubkey must be 32 bytes" }

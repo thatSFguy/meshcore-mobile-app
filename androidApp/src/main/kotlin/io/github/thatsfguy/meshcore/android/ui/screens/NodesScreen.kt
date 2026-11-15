@@ -136,6 +136,21 @@ fun NodesScreen(vm: MeshCoreViewModel, nav: NavController) {
         }
     }
     var staleOpen by remember { mutableStateOf(false) }
+    // A far heard-only node waiting on "Add anyway?".
+    var confirmFarAdd by remember {
+        mutableStateOf<io.github.thatsfguy.meshcore.android.storage.DiscoveredEntity?>(null)
+    }
+    val reach by vm.reachability.collectAsState()
+    val ownPosition = vm.selfInfo.collectAsState().value.let { SelfPosition(it?.latitude, it?.longitude) }
+    val distanceUnits by vm.unitSystem.collectAsState()
+    fun isFar(d: io.github.thatsfguy.meshcore.android.storage.DiscoveredEntity): Boolean =
+        reach[d.keyHex]?.let {
+            io.github.thatsfguy.meshcore.presentation.Reachability.isFarHeardOnly(
+                it,
+                d.minHops,
+                ownPosition.metresTo(d.latitude, d.longitude),
+            )
+        } == true
 
     val scanLauncher = rememberLauncherForActivityResult(ScanContract()) { result ->
         result.contents?.let { vm.importScannedCode(it) }
@@ -350,6 +365,7 @@ fun NodesScreen(vm: MeshCoreViewModel, nav: NavController) {
                 // auto-add a kind may still not want its newcomers above
                 // their list every time they open it.
                 var heardCollapsed by remember { mutableStateOf(vm.prefs.nodesHeardCollapsed) }
+                var farCollapsed by remember { mutableStateOf(vm.prefs.nodesFarCollapsed) }
                 val radioFull by vm.contactsFull.collectAsState()
                 LazyColumn(Modifier.fillMaxSize()) {
                     if (heard.isNotEmpty()) {
@@ -365,16 +381,46 @@ fun NodesScreen(vm: MeshCoreViewModel, nav: NavController) {
                                 onDismissAll = { heard.forEach { vm.dismissDiscovered(it.keyHex) } },
                             )
                         }
+                        // Far away and heard only — the Chicago case — fold
+                        // into their own group: still one tap away, no
+                        // longer crowding the nodes that can answer.
+                        val (far, near) = heard.partition { isFar(it) }
                         if (!heardCollapsed) {
-                            items(heard, key = { "heard_${it.keyHex}" }) { d ->
+                            items(near, key = { "heard_${it.keyHex}" }) { d ->
                                 DiscoveredRow(
                                     node = d,
                                     distance = distanceOf(d.latitude, d.longitude),
                                     signals = signals[d.keyHex],
+                                    verdict = reach[d.keyHex],
                                     onOpen = { heardDetail = d },
                                     onAdd = { vm.addDiscovered(d.keyHex) },
                                     onDismiss = { vm.dismissDiscovered(d.keyHex) },
                                 )
+                            }
+                            if (far.isNotEmpty()) {
+                                item(key = "far_header") {
+                                    FarHeader(
+                                        count = far.size,
+                                        collapsed = farCollapsed,
+                                        onToggle = {
+                                            farCollapsed = !farCollapsed
+                                            vm.prefs.nodesFarCollapsed = farCollapsed
+                                        },
+                                    )
+                                }
+                                if (!farCollapsed) {
+                                    items(far, key = { "far_${it.keyHex}" }) { d ->
+                                        DiscoveredRow(
+                                            node = d,
+                                            distance = distanceOf(d.latitude, d.longitude),
+                                            signals = signals[d.keyHex],
+                                            verdict = reach[d.keyHex],
+                                            onOpen = { heardDetail = d },
+                                            onAdd = { confirmFarAdd = d },
+                                            onDismiss = { vm.dismissDiscovered(d.keyHex) },
+                                        )
+                                    }
+                                }
                             }
                         }
                         item(key = "heard_divider") { HorizontalDivider() }
@@ -397,6 +443,7 @@ fun NodesScreen(vm: MeshCoreViewModel, nav: NavController) {
                         ContactRow(
                             c = c,
                             distance = distanceOf(c.latitude, c.longitude),
+                            verdict = reach[c.keyHex],
                             onClick = {
                                 when {
                                     c.type == Codes.ADV_TYPE_ROOM -> openRoom(c)
@@ -427,15 +474,46 @@ fun NodesScreen(vm: MeshCoreViewModel, nav: NavController) {
             vm = vm,
             node = node,
             signals = vm.heardSignals.collectAsState().value[node.keyHex],
+            verdict = reach[node.keyHex],
             onDismiss = { heardDetail = null },
             onAdd = {
                 heardDetail = null
-                openWhenAdded = node.keyHex
-                vm.addDiscovered(node.keyHex)
+                if (isFar(node)) {
+                    confirmFarAdd = node
+                } else {
+                    openWhenAdded = node.keyHex
+                    vm.addDiscovered(node.keyHex)
+                }
             },
             onForget = {
                 heardDetail = null
                 vm.dismissDiscovered(node.keyHex)
+            },
+        )
+    }
+
+    confirmFarAdd?.let { node ->
+        AlertDialog(
+            onDismissRequest = { confirmFarAdd = null },
+            title = { Text("Add ${node.name.ifBlank { "this node" }}?") },
+            text = {
+                Text(
+                    io.github.thatsfguy.meshcore.presentation.Reachability.addWarning(
+                        node.minHops,
+                        ownPosition.metresTo(node.latitude, node.longitude)
+                            ?.let { Units.distance(it, distanceUnits) },
+                    ),
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmFarAdd = null
+                    openWhenAdded = node.keyHex
+                    vm.addDiscovered(node.keyHex)
+                }) { Text("Add anyway") }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmFarAdd = null }) { Text("Cancel") }
             },
         )
     }
@@ -640,6 +718,7 @@ private fun DiscoveredRow(
     node: io.github.thatsfguy.meshcore.android.storage.DiscoveredEntity,
     distance: String? = null,
     signals: io.github.thatsfguy.meshcore.presentation.RepeaterSignals.Signals? = null,
+    verdict: io.github.thatsfguy.meshcore.presentation.Reachability.Verdict? = null,
     onOpen: () -> Unit,
     onAdd: () -> Unit,
     onDismiss: () -> Unit,
@@ -691,6 +770,11 @@ private fun DiscoveredRow(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.primary,
                 )
+            }
+            // A ping that came back. "Repeats your messages" is already
+            // said by the line above, so only a dated proof adds anything.
+            verdict?.takeIf { it.isTwoWay && signals?.provenRelay != true }?.let {
+                ReachLine(it)
             }
         }
         TextButton(onClick = onAdd) { Text("Add") }
@@ -745,6 +829,54 @@ private fun HeardHeader(
     }
 }
 
+/** The fold inside the heard section for far-away nodes nothing shows can hear you. */
+@Composable
+private fun FarHeader(count: Int, collapsed: Boolean, onToggle: () -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onToggle)
+            .padding(start = 16.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text("Far away, heard only · $count", style = MaterialTheme.typography.titleSmall)
+            Text(
+                "Many hops or a long way off, and nothing shows they can hear you.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Icon(
+            if (collapsed) Icons.Filled.KeyboardArrowDown else Icons.Filled.KeyboardArrowUp,
+            contentDescription = if (collapsed) "Show them" else "Hide them",
+        )
+    }
+}
+
+/**
+ * The answer to "can I talk to this node?" — green-ish when both ways are
+ * proven, quiet otherwise. [short] for list rows, the full sentence for
+ * sheets.
+ */
+@Composable
+private fun ReachLine(
+    verdict: io.github.thatsfguy.meshcore.presentation.Reachability.Verdict,
+    short: Boolean = false,
+) {
+    val text = (if (short) verdict.short else verdict.line)?.takeIf { it.isNotBlank() } ?: return
+    Text(
+        text,
+        style = if (short) MaterialTheme.typography.labelSmall else MaterialTheme.typography.bodyMedium,
+        color = if (verdict.isTwoWay) {
+            MaterialTheme.colorScheme.primary
+        } else {
+            MaterialTheme.colorScheme.onSurfaceVariant
+        },
+        maxLines = if (short) 1 else Int.MAX_VALUE,
+    )
+}
+
 internal fun typeLabel(type: Int): String = when (type) {
     Codes.ADV_TYPE_CHAT -> "Contacts"
     Codes.ADV_TYPE_REPEATER -> "Repeaters"
@@ -758,6 +890,7 @@ internal fun typeLabel(type: Int): String = when (type) {
 private fun ContactRow(
     c: ContactEntity,
     distance: String? = null,
+    verdict: io.github.thatsfguy.meshcore.presentation.Reachability.Verdict? = null,
     onClick: () -> Unit,
     onLongClick: (() -> Unit)? = null,
 ) {
@@ -795,6 +928,7 @@ private fun ContactRow(
                 maxLines = 1,
                 overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
             )
+            verdict?.short?.let { ReachLine(verdict, short = true) }
         }
         if (LastHeard.seconds(c) > 0) {
             // "14 min ago", not "8/19/26". A date answers a question
@@ -871,6 +1005,31 @@ private fun PingSection(vm: MeshCoreViewModel, keyHex: String) {
 }
 
 /**
+ * "Check" on a person's or sensor's sheet: a path discovery, which asks
+ * the node for both routes between you. It transmits, so it runs only on
+ * the tap; silence is explained, never called "unreachable".
+ */
+@Composable
+private fun CheckSection(vm: MeshCoreViewModel, keyHex: String, type: Int) {
+    val scope = rememberCoroutineScope()
+    var checking by remember(keyHex) { mutableStateOf(false) }
+    var result by remember(keyHex) { mutableStateOf<String?>(null) }
+    TextButton(
+        enabled = !checking,
+        onClick = {
+            scope.launch {
+                checking = true
+                result = null
+                result = vm.checkReachability(keyHex, type)
+                checking = false
+            }
+        },
+    ) { Text(if (checking) "Checking…" else "Check if they can hear you") }
+    if (checking) SectionSpinner("Asking them for the route both ways…")
+    result?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
+}
+
+/**
  * Position and distance, for either node sheet. One copy on purpose: the
  * two rows once used different rules and contradicted each other in the
  * same sheet (a node a few microdegrees from Null Island printed
@@ -911,6 +1070,7 @@ private fun HeardDetailSheet(
     vm: MeshCoreViewModel,
     node: io.github.thatsfguy.meshcore.android.storage.DiscoveredEntity,
     signals: io.github.thatsfguy.meshcore.presentation.RepeaterSignals.Signals?,
+    verdict: io.github.thatsfguy.meshcore.presentation.Reachability.Verdict? = null,
     onDismiss: () -> Unit,
     onAdd: () -> Unit,
     onForget: () -> Unit,
@@ -932,6 +1092,10 @@ private fun HeardDetailSheet(
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.primary,
             )
+            verdict?.let {
+                Spacer(Modifier.height(4.dp))
+                ReachLine(it)
+            }
             Spacer(Modifier.height(12.dp))
 
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1031,6 +1195,14 @@ fun ContactDetailSheet(
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.primary,
             )
+            // First, because it is the question the sheet is opened for.
+            vm.reachability.collectAsState().value[contact.keyHex]?.let {
+                Spacer(Modifier.height(4.dp))
+                ReachLine(it)
+            }
+            // Repeaters and rooms answer a ping (below); people and
+            // sensors are asked for both routes instead.
+            if (!canPing(contact.type)) CheckSection(vm, contact.keyHex, contact.type)
             Spacer(Modifier.height(12.dp))
 
             Row(verticalAlignment = Alignment.CenterVertically) {

@@ -41,6 +41,12 @@ object Codes {
     const val CMD_GET_CUSTOM_VAR = 40
     const val CMD_SET_CUSTOM_VAR = 41
     const val CMD_SEND_BINARY_REQ = 50
+
+    /**
+     * A flooded telemetry request whose answer carries both routes
+     * (companion_radio/MyMesh.cpp:1651-1680). `[52][0][pubkey x32]`.
+     */
+    const val CMD_SEND_PATH_DISCOVERY_REQ = 52
     const val CMD_SET_FLOOD_SCOPE = 54
     const val CMD_SEND_CONTROL_DATA = 55
     const val CMD_GET_STATS = 56
@@ -100,6 +106,9 @@ object Codes {
     const val PUSH_CODE_NEW_ADVERT = 0x8A
     const val PUSH_CODE_TELEMETRY_RESPONSE = 0x8B
     const val PUSH_CODE_BINARY_RESPONSE = 0x8C
+
+    /** The answer to [CMD_SEND_PATH_DISCOVERY_REQ]; see `PathDiscovery`. */
+    const val PUSH_CODE_PATH_DISCOVERY_RESPONSE = 0x8D
     const val PUSH_CODE_CONTROL_DATA = 0x8E
     /**
      * `[code][pubkey x32]` — the radio dropped this contact to make room

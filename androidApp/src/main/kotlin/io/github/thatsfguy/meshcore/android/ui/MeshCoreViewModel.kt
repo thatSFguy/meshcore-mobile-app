@@ -514,6 +514,139 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
             }
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
+    // ------------------------------------------------------------------
+    // Reachability — "can I talk to this node?" (GUIDED-UX.md)
+    // ------------------------------------------------------------------
+
+    /** Nodes that answered us, per own radio (Preferences.reachProofs). */
+    private val reachProofs = MutableStateFlow<Map<String, Long>>(emptyMap())
+
+    /** Bumped when a route is pinned or unpinned; pins live in prefs. */
+    private val pinnedRoutesTick = MutableStateFlow(0)
+
+    init {
+        viewModelScope.launch {
+            selfKey.collect { key -> reachProofs.value = if (key.isEmpty()) emptyMap() else prefs.reachProofs(key) }
+        }
+    }
+
+    /**
+     * Note that [keyHex] answered something we sent — proof both ways.
+     * Callers pass only real answers: a rejected password still counts
+     * (the node heard us and replied), silence never does.
+     */
+    private fun recordReachProof(keyHex: String) {
+        val self = selfKey.value
+        if (self.isEmpty()) return
+        prefs.recordReachProof(self, keyHex, nowSeconds())
+        reachProofs.value = prefs.reachProofs(self)
+    }
+
+    /**
+     * A verdict for every contact and heard node, from evidence already
+     * on the phone — nothing is transmitted to work it out.
+     */
+    val reachability: StateFlow<Map<String, io.github.thatsfguy.meshcore.presentation.Reachability.Verdict>> =
+        selfKey.flatMapLatest { key ->
+            if (key.isEmpty()) {
+                flowOf(emptyMap())
+            } else {
+                val since = System.currentTimeMillis() -
+                    io.github.thatsfguy.meshcore.presentation.RepeaterSignals.RELAY_WINDOW_MS
+                combine(
+                    dbContacts,
+                    discovered,
+                    db.paths().summaries(key),
+                    db.messages().observeRoutes(key, since),
+                    combine(reachProofs, pinnedRoutesTick) { proofs, _ -> proofs },
+                ) { contacts, heard, summaries, routes, proofs ->
+                    reachabilityOf(contacts, heard, summaries, routes, proofs)
+                }
+            }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
+    private fun reachabilityOf(
+        contacts: List<ContactEntity>,
+        heard: List<io.github.thatsfguy.meshcore.android.storage.DiscoveredEntity>,
+        summaries: List<io.github.thatsfguy.meshcore.android.storage.PathSummary>,
+        routes: List<io.github.thatsfguy.meshcore.android.storage.RouteRow>,
+        proofs: Map<String, Long>,
+    ): Map<String, io.github.thatsfguy.meshcore.presentation.Reachability.Verdict> {
+        val signals = io.github.thatsfguy.meshcore.presentation.RepeaterSignals
+        val reach = io.github.thatsfguy.meshcore.presentation.Reachability
+        val counts = signals.relayCounts(
+            routes.map {
+                io.github.thatsfguy.meshcore.presentation.RepeaterSignals.RouteSample(it.arrivalPathHex, it.arrivalHashWidth)
+            },
+        )
+        val known = contacts.map { it.keyHex } + heard.map { it.keyHex }
+        fun repeatsUs(keyHex: String, type: Int) =
+            type == Codes.ADV_TYPE_REPEATER && signals.signalsFor(keyHex, null, counts, known).provenRelay
+        val byKey = summaries.associateBy { it.contactKey }
+        val now = nowSeconds()
+        val out = HashMap<String, io.github.thatsfguy.meshcore.presentation.Reachability.Verdict>()
+        for (c in contacts) {
+            val s = byKey[c.keyHex]
+            val delivered = s?.lastWorkedAt?.takeIf { it > 0 }?.div(1000)
+            out[c.keyHex] = reach.of(
+                io.github.thatsfguy.meshcore.presentation.Reachability.Evidence(
+                    confirmedAt = listOfNotNull(delivered, proofs[c.keyHex]).maxOrNull(),
+                    repeatsUs = repeatsUs(c.keyHex, c.type),
+                    // A route the radio holds came from them — the app
+                    // adds contacts with none (addContactFromCard writes
+                    // flood) — unless the user pinned it by hand.
+                    routeFromThem = !PathCodec.decodePathLen(c.pathLen).isFlood &&
+                        !prefs.isRoutePinned(c.keyHex),
+                    // An advert from them arrived. Not lastmod: the firmware
+                    // stamps that with "now" on every add, rename or
+                    // favourite (companion_radio/MyMesh.cpp:1331-1340), so
+                    // it would call a contact added from a QR "heard". The
+                    // app adds contacts with a zero advert timestamp
+                    // (addContactFromCard), so non-zero means one came in.
+                    heardThem = c.lastSeen > 0,
+                    tried = s != null && (s.attempts > 0 || s.lastUsedAt > 0),
+                ),
+                now,
+            )
+        }
+        for (d in heard) {
+            if (d.keyHex in out) continue
+            out[d.keyHex] = reach.of(
+                io.github.thatsfguy.meshcore.presentation.Reachability.Evidence(
+                    confirmedAt = proofs[d.keyHex],
+                    repeatsUs = repeatsUs(d.keyHex, d.type),
+                    heardThem = true,
+                ),
+                now,
+            )
+        }
+        return out
+    }
+
+    /**
+     * "Check" on a node's sheet: a path discovery, which asks the node for
+     * both routes between us. An answer is recorded as proof. Returns the
+     * sentence to show.
+     */
+    suspend fun checkReachability(keyHex: String, type: Int): String {
+        val svc = _service.value ?: return "Not connected to a radio."
+        val key = hexToBytesOrNull(keyHex) ?: return "This node's key is not usable."
+        val result = runCatching { svc.engine.discoverPath(key) }.getOrNull()
+        val asksPermission = type == Codes.ADV_TYPE_CHAT || type == Codes.ADV_TYPE_SENSOR
+        if (result == null) {
+            return io.github.thatsfguy.meshcore.presentation.Reachability.describeCheck(null, null, asksPermission)
+        }
+        recordReachProof(keyHex)
+        val names = svc.engine.contacts.value.mapValues { (_, c) -> c.name }
+        fun labels(path: ByteArray, width: Int) =
+            PathCodec.resolveHops(path, width, names).map { it.label }
+        return io.github.thatsfguy.meshcore.presentation.Reachability.describeCheck(
+            labels(result.outPath, result.outHashWidth),
+            labels(result.inPath, result.inHashWidth),
+            asksPermission,
+        )
+    }
+
     /** Switch an app-side repeater auto-add rule, and act on it at once. */
     fun setRepeaterRule(relaysMyTraffic: Boolean? = null, heardDirect: Boolean? = null) {
         relaysMyTraffic?.let { prefs.autoAddRelayingRepeaters = it }
@@ -1285,6 +1418,7 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
                     keyHex,
                     mode == io.github.thatsfguy.meshcore.protocol.RoutingMode.Manual,
                 )
+                pinnedRoutesTick.value++
             }
             transientMessage.value =
                 if (ok) "Routing set to ${mode.name.lowercase()}" else "Radio rejected the route"
@@ -1349,6 +1483,7 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
         val started = System.currentTimeMillis()
         val result = runCatching { svc.engine.tracePath(tag, path, width) }.getOrNull()
         return Ping.outcome(result, Ping.hashHex(path), System.currentTimeMillis() - started)
+            .also { if (it is Ping.Outcome.Reached) recordReachProof(keyHex) }
     }
 
     /** The connected radio's own signal stats; null when not connected or silent. */
@@ -2146,6 +2281,9 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
                 }
                 )
         }
+        // Any answer, a refusal included, means the node heard us and we
+        // heard it back.
+        if (outcome.answered) recordReachProof(keyHex)
         return LoginResult(granted, answered = outcome.answered, sealFailed = sealFailed)
     }
 
@@ -2295,6 +2433,7 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
         return if (readings == null) {
             TelemetryFetch.NoAnswer(clientTable = gated)
         } else {
+            recordReachProof(keyHex)
             TelemetryFetch.Readings(readings)
         }
     }

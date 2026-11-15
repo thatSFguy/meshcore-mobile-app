@@ -202,6 +202,12 @@ object ResponseParser {
             DeviceEvent.TelemetryResponse(frame.copyOfRange(1, frame.size))
         Codes.PUSH_CODE_BINARY_RESPONSE ->
             DeviceEvent.BinaryResponse(frame.copyOfRange(1, frame.size))
+        // Malformed (short, or a path length the firmware itself would
+        // refuse) is dropped, not half-read: a route that is wrong is
+        // worse than no route.
+        Codes.PUSH_CODE_PATH_DISCOVERY_RESPONSE ->
+            PathDiscovery.parse(frame)?.let { DeviceEvent.PathDiscovered(it) }
+                ?: DeviceEvent.Unknown(code, frame)
         Codes.PUSH_CODE_CONTROL_DATA ->
             DeviceEvent.ControlData(frame.copyOfRange(1, frame.size))
 

@@ -30,6 +30,7 @@ import io.github.thatsfguy.meshcore.protocol.FloodScope
 import io.github.thatsfguy.meshcore.protocol.RadioDefaultScope
 import io.github.thatsfguy.meshcore.protocol.NodeDiscovery
 import io.github.thatsfguy.meshcore.protocol.PathCodec
+import io.github.thatsfguy.meshcore.protocol.PathDiscovery
 import io.github.thatsfguy.meshcore.protocol.PathRecovery
 import io.github.thatsfguy.meshcore.protocol.Regions
 import io.github.thatsfguy.meshcore.protocol.RoutingMode
@@ -2763,6 +2764,29 @@ class MeshCoreEngine(
             ?.let { binaryResponseBody(it) }
     }
 
+
+    /**
+     * Ask [pubKey] for both routes between us (see [PathDiscovery]).
+     * Null when nothing came back — which, for a person, usually means
+     * they don't share telemetry, not that they can't hear us.
+     *
+     * The push carries no tag, only the node's key prefix, so that is what
+     * the answer is matched on. The radio keeps one discovery pending at
+     * a time and drops the previous one when a new one starts
+     * (MyMesh.cpp:1669), so there is nothing to gain from overlapping them.
+     */
+    suspend fun discoverPath(
+        pubKey: ByteArray,
+        timeoutMs: Long = BinaryRequestBudget.MAX_BUDGET_MS,
+    ): PathDiscovery.Result? {
+        val prefix = pubKey.copyOf(6).toHex()
+        return sendThenAwait(
+            timeoutMs = timeoutMs,
+            buildFrame = { Frames.sendPathDiscovery(pubKey) },
+        ) { event, _ ->
+            (event as? DeviceEvent.PathDiscovered)?.result?.takeIf { it.keyPrefixHex == prefix }
+        }
+    }
 
     /** u32 tag echoed in a PUSH_CODE_BINARY_RESPONSE, or null if short. */
     private fun binaryResponseTag(payload: ByteArray): Long? {
