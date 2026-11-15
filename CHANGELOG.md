@@ -11,6 +11,19 @@ Every entry describes what is in **that tagged build**. A feature that landed af
 belongs in the next section, not this one — 0.3.0 was once credited with four features that
 shipped after it, which misled nobody so much as the author, three months later.
 
+## 0.10.17
+
+Two fixes for a phone that looked connected but wasn't.
+
+- **Reconnects when Bluetooth dies under it.** If the phone's Bluetooth service restarted while
+  the app was connected, the app went on showing "connected" with nothing getting through either
+  way. Sends failed silently and incoming messages waited on the radio until the app was
+  force-stopped. A failed send now counts as a lost link, and the app reconnects on its own.
+- **Drops the link when Bluetooth is turned off**, straight away, rather than waiting to notice.
+- **No more crash when Android restarts the app in the background.** On Android 17 the app could
+  crash in a loop when the system restarted it in the background and refused it a foreground
+  service. It now stops quietly and starts again the next time you open it.
+
 ## 0.10.16
 
 **Signal readings for your own radio (#6).** Settings → Radio now ends with a Signal section,

@@ -90,6 +90,13 @@ fun AboutSection(vm: MeshCoreViewModel) {
  * is a changelog you can't read in the field.
  */
 private val CHANGELOG: List<Pair<String, List<String>>> = listOf(
+    "0.10.17" to listOf(
+        "Reconnects on its own when the phone's Bluetooth service restarts, instead of showing " +
+            "\"connected\" while nothing gets through.",
+        "Drops the link straight away when Bluetooth is turned off.",
+        "No longer crashes in a loop when Android restarts the app in the background and " +
+            "refuses it a foreground service.",
+    ),
     "0.10.16" to listOf(
         "Settings → Radio shows your radio's noise floor, the last packet's signal and packet " +
             "counts, read every 2 seconds without using airtime.",
