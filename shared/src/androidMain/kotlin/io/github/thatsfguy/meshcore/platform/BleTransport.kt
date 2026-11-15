@@ -1,6 +1,7 @@
 package io.github.thatsfguy.meshcore.platform
 
 import android.annotation.SuppressLint
+import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCallback
@@ -8,7 +9,11 @@ import android.bluetooth.BluetoothGattCharacteristic
 import android.bluetooth.BluetoothGattDescriptor
 import android.bluetooth.BluetoothManager
 import android.bluetooth.BluetoothProfile
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.os.Build
 import io.github.thatsfguy.meshcore.firmware.BootloaderCapableTransport
 import io.github.thatsfguy.meshcore.firmware.LegacyDfu
 import io.github.thatsfguy.meshcore.transport.IncomingFrame
@@ -263,6 +268,7 @@ class BleTransport(
             }
             log("Connected (MTU $negotiatedMtu)")
             _state.value = TransportState.Connected
+            watchAdapter()
         } catch (t: Throwable) {
             _state.value = TransportState.Error
             disconnectInternal()
@@ -321,6 +327,45 @@ class BleTransport(
     }
 
     /**
+     * Bluetooth being switched off — or the phone's Bluetooth service
+     * restarting, which goes through the same states — ends the link
+     * without a GATT disconnect callback. Nothing else would tell the
+     * supervisor, so an idle link would sit "connected" with no radio
+     * behind it (WriteWatchedTransport catches the case where a write
+     * notices first). The broadcast is a protected system one, so
+     * exporting the receiver lets nobody else send it.
+     */
+    private var adapterReceiver: BroadcastReceiver? = null
+
+    private fun watchAdapter() {
+        if (adapterReceiver != null) return
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(c: Context, intent: Intent) {
+                val st = intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR)
+                if (st == BluetoothAdapter.STATE_TURNING_OFF || st == BluetoothAdapter.STATE_OFF) {
+                    log("Bluetooth turned off; dropping the link")
+                    disconnectInternal()
+                }
+            }
+        }
+        val filter = IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED)
+        runCatching {
+            if (Build.VERSION.SDK_INT >= 33) {
+                context.registerReceiver(receiver, filter, Context.RECEIVER_EXPORTED)
+            } else {
+                context.registerReceiver(receiver, filter)
+            }
+            adapterReceiver = receiver
+        }.onFailure { log("Could not watch the Bluetooth adapter: ${it.message}") }
+    }
+
+    private fun unwatchAdapter() {
+        val r = adapterReceiver ?: return
+        adapterReceiver = null
+        runCatching { context.unregisterReceiver(r) }
+    }
+
+    /**
      * Tear the link down and release the GATT client.
      *
      * close() is not optional and not deferrable: Android hands out a
@@ -332,6 +377,7 @@ class BleTransport(
      * nothing is left waiting on callbacks from a client we just closed.
      */
     private fun disconnectInternal() {
+        unwatchAdapter()
         pending.failAll(IllegalStateException("BLE link torn down"))
         try { gatt?.disconnect() } catch (_: Throwable) {}
         try { gatt?.close() } catch (_: Throwable) {}
@@ -348,7 +394,9 @@ class BleTransport(
         // frame can never be split across writes. MTU 247 - 3 ATT
         // overhead covers MAX_FRAME_SIZE (172).
         val maxWrite = (negotiatedMtu - 3).coerceAtLeast(20)
-        check(frame.size <= maxWrite) {
+        // require, not check: an oversized frame is the caller's bug,
+        // and WriteWatchedTransport must not read it as a dead link.
+        require(frame.size <= maxWrite) {
             "Frame of ${frame.size} B exceeds BLE write limit $maxWrite (MTU $negotiatedMtu)"
         }
         writeLock.withLock {

@@ -72,12 +72,21 @@ class ReconnectSupervisorTest {
             _state.value = TransportState.Disconnected
         }
 
-        override suspend fun send(frame: ByteArray) = Unit
+        /** What the next send() throws, or null to accept it. */
+        var sendFails: Throwable? = null
+        var sends = 0
+
+        override suspend fun send(frame: ByteArray) {
+            sends++
+            sendFails?.let { throw it }
+        }
     }
 
     private class Harness(val scope: TestScope) {
         val built = mutableListOf<ReconnectAttempt>()
         val attached = mutableListOf<FakeTransport>()
+        /** What the engine was handed, in step with [attached]. */
+        val forEngine = mutableListOf<Transport>()
         val errors = mutableListOf<String?>()
         val logs = mutableListOf<String>()
         var script: (ReconnectAttempt) -> FakeTransport = { FakeTransport(FakeTransport.Outcome.Holds) }
@@ -85,7 +94,7 @@ class ReconnectSupervisorTest {
         val supervisor = ReconnectSupervisor(
             scope = scope,
             build = { attempt -> built += attempt; script(attempt) },
-            onTransport = { attached += it as FakeTransport },
+            onTransport = { raw, engine -> attached += raw as FakeTransport; forEngine += engine },
             onError = { errors += it },
             log = { logs += it },
             now = { scope.testScheduler.currentTime },
@@ -137,6 +146,107 @@ class ReconnectSupervisorTest {
 
         assertEquals(1, reconnected.connectCalls, "the radio must be reconnected once back in range")
         assertEquals(TransportState.Connected, reconnected._state.value)
+        h.supervisor.stop()
+    }
+
+    // ------------------------------------------------------------------
+    // A link that dies without saying so (2026-11-15, Pixel, 0.10.16).
+    // The phone's Bluetooth service died; every write threw
+    // DeadObjectException while the transport still said Connected, and
+    // the app sat "connected" to nothing until it was force-stopped.
+    // ------------------------------------------------------------------
+
+    /** A write from the engine, through what the engine was given. */
+    private suspend fun Harness.engineWrites(i: Int = forEngine.lastIndex) =
+        runCatching { forEngine[i].send(byteArrayOf(0x16)) }
+
+    @Test
+    fun aWriteThatFailsOnALinkThatSaysItIsUpTriggersAReconnect() = runTest {
+        val h = Harness(this)
+        h.supervisor.start()
+        runCurrent()
+        val dead = h.attached.single()
+        assertEquals(TransportState.Connected, dead._state.value)
+
+        dead.sendFails = IllegalStateException("writeCharacteristic returned false after 5 attempts")
+        assertTrue(h.engineWrites().isFailure, "the engine still sees its write fail")
+        runCurrent()
+        advanceTimeBy(5_000L)
+        runCurrent()
+
+        assertEquals(1, dead.disconnectCalls, "the dead link must be torn down")
+        assertEquals(2, h.built.size, "and a fresh one built")
+        assertEquals(1, h.attached[1].connectCalls)
+        assertTrue(h.logs.any { "Write failed" in it }, "say why, in the diagnostics: ${h.logs}")
+        h.supervisor.stop()
+    }
+
+    @Test
+    fun writesThatSucceedLeaveTheLinkAlone() = runTest {
+        // Positive control for the test above: the watcher must not
+        // reconnect on ordinary traffic.
+        val h = Harness(this)
+        h.supervisor.start()
+        runCurrent()
+        repeat(50) { assertTrue(h.engineWrites().isSuccess) }
+        advanceTimeBy(10 * 60_000L)
+        runCurrent()
+
+        assertEquals(1, h.built.size)
+        assertEquals(50, h.attached.single().sends, "every write reached the real transport")
+        assertEquals(0, h.attached.single().disconnectCalls)
+        h.supervisor.stop()
+    }
+
+    @Test
+    fun aWriteThatFailsBeforeTheLinkIsUpIsNotADeadLink() = runTest {
+        // onTransport attaches the engine BEFORE connect(). A write in
+        // that gap fails because the link is not up yet; reading it as
+        // "dead" would tear down every connection the moment it formed.
+        val h = Harness(this)
+        val slow = FakeTransport(FakeTransport.Outcome.Hangs)
+        h.script = { slow }
+        h.supervisor.start()
+        runCurrent()
+        slow.sendFails = IllegalStateException("BleTransport not connected")
+        assertTrue(h.engineWrites().isFailure)
+        // Now the link comes up and writes work.
+        slow.sendFails = null
+        slow._state.value = TransportState.Connected
+        runCurrent()
+
+        val watched = h.forEngine.single() as WriteWatchedTransport
+        assertEquals(null, watched.broken.value)
+        assertEquals(0, slow.disconnectCalls)
+        h.supervisor.stop()
+    }
+
+    @Test
+    fun anOversizedFrameIsTheCallersBugNotADeadLink() = runTest {
+        val h = Harness(this)
+        h.supervisor.start()
+        runCurrent()
+        h.attached.single().sendFails = IllegalArgumentException("Frame of 300 B exceeds BLE write limit 244")
+        assertTrue(h.engineWrites().exceptionOrNull() is IllegalArgumentException)
+        advanceTimeBy(5 * 60_000L)
+        runCurrent()
+
+        assertEquals(1, h.built.size)
+        assertEquals(0, h.attached.single().disconnectCalls)
+        h.supervisor.stop()
+    }
+
+    @Test
+    fun theEngineIsGivenTheWatchedTransportAndTheServiceTheRealOne() = runTest {
+        // The firmware updater casts the service's transport to
+        // BootloaderCapableTransport, so it must get the real one; the
+        // engine must get the watched one or nothing notices a dead write.
+        val h = Harness(this)
+        h.supervisor.start()
+        runCurrent()
+        val watched = h.forEngine.single()
+        assertTrue(watched is WriteWatchedTransport)
+        assertTrue(watched.inner === h.attached.single())
         h.supervisor.stop()
     }
 
@@ -276,7 +386,7 @@ class ReconnectSupervisorTest {
                 builds++
                 if (builds < 3) throw IllegalArgumentException("bad MAC") else good
             },
-            onTransport = {},
+            onTransport = { _, _ -> },
             onError = { h.errors += it },
             log = { h.logs += it },
             now = { testScheduler.currentTime },

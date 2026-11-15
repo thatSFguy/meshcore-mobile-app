@@ -5,6 +5,11 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -50,8 +55,14 @@ class ReconnectSupervisor(
     private val scope: CoroutineScope,
     /** Construct a fresh transport for this attempt. May throw. */
     private val build: (ReconnectAttempt) -> Transport,
-    /** Publish the transport and attach the engine, before connecting. */
-    private val onTransport: (Transport) -> Unit,
+    /**
+     * Publish the transport and attach the engine, before connecting.
+     * `raw` is the transport as built (for anything that needs its real
+     * type, like the firmware updater); `forEngine` wraps it so a failed
+     * write is noticed — the engine must be given that one, or a dead
+     * link is never torn down.
+     */
+    private val onTransport: (raw: Transport, forEngine: Transport) -> Unit,
     /** Surface a user-visible error, or null to clear it. */
     private val onError: (String?) -> Unit,
     private val log: (String) -> Unit,
@@ -92,17 +103,23 @@ class ReconnectSupervisor(
 
             // Null until the link is actually up — see the class doc.
             var upAt: Long? = null
+            val watched = WriteWatchedTransport(transport)
             try {
-                onTransport(transport)
+                onTransport(transport, watched)
                 transport.connect()
                 upAt = now()
+                watched.arm()
                 onError(null)
-                // Park until the link drops.
-                transport.state.collect { st ->
-                    if (st == TransportState.Disconnected || st == TransportState.Error) {
-                        throw LinkDownException()
-                    }
-                }
+                // Park until the link drops — reported by the transport, or
+                // shown by a write that failed (see WriteWatchedTransport).
+                val dead = merge(
+                    transport.state
+                        .filter { it == TransportState.Disconnected || it == TransportState.Error }
+                        .map { null },
+                    watched.broken.filterNotNull(),
+                ).first()
+                if (dead != null) log("Write failed on a link that said it was up: ${dead.message}")
+                throw LinkDownException()
             } catch (t: CancellationException) {
                 withContext(NonCancellable) { runCatching { transport.disconnect() } }
                 throw t
