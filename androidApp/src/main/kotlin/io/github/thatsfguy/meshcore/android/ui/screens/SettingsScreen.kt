@@ -103,9 +103,13 @@ fun SettingsScreen(vm: MeshCoreViewModel, nav: NavController) {
             AppTopBar(
                 title = "Settings",
                 vm = vm,
-                menuActions = listOf(
-                    MenuAction("Reboot radio…", destructive = true) { rebootConfirm = true },
-                ),
+                menuActions = if (vm.prefs.appModeFlow.collectAsState().value ==
+                    io.github.thatsfguy.meshcore.presentation.AppMode.Simple
+                ) {
+                    emptyList()
+                } else {
+                    listOf(MenuAction("Reboot radio…", destructive = true) { rebootConfirm = true })
+                },
             )
         },
     ) { padding ->
@@ -115,7 +119,36 @@ fun SettingsScreen(vm: MeshCoreViewModel, nav: NavController) {
                 .padding(padding)
                 .verticalScroll(rememberScrollState()),
         ) {
-            for ((index, group) in settingsGroups().withIndex()) {
+            // Simple or full app. First, because it decides what the rest of
+            // this screen holds; a row rather than a spoke because it is one
+            // switch (presentation/AppMode).
+            val mode by vm.prefs.appModeFlow.collectAsState()
+            val simple = mode == io.github.thatsfguy.meshcore.presentation.AppMode.Simple
+            SettingsTileRow(
+                title = if (simple) "Simple mode is on" else "Simple mode",
+                subtitle = if (simple) {
+                    "Tap to show the full app. Nothing is lost either way."
+                } else {
+                    "Just chats and channels, for people who only want to talk"
+                },
+                dimmed = false,
+                onClick = {
+                    vm.prefs.appMode = if (simple) {
+                        io.github.thatsfguy.meshcore.presentation.AppMode.Full
+                    } else {
+                        io.github.thatsfguy.meshcore.presentation.AppMode.Simple
+                    }
+                },
+            )
+            HorizontalDivider(Modifier.padding(top = 8.dp))
+            val groups = settingsGroups().map { g ->
+                g.copy(
+                    tiles = g.tiles.filter {
+                        io.github.thatsfguy.meshcore.presentation.AppModes.showsSettingsTile(mode, it.route)
+                    },
+                )
+            }.filter { it.tiles.isNotEmpty() }
+            for ((index, group) in groups.withIndex()) {
                 if (index > 0) HorizontalDivider(Modifier.padding(top = 8.dp))
                 GroupLabel(group.title)
                 for (tile in group.tiles) {

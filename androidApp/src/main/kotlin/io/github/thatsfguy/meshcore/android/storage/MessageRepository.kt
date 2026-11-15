@@ -120,6 +120,15 @@ class MessageRepository(
 
     @Volatile var filteredChannelNames: Set<String> = emptySet()
 
+    /**
+     * Direct-message requests this phone has made (DmRequest.Outstanding),
+     * read fresh for each reply, and what to do when one is answered. Set
+     * by the service from prefs.
+     */
+    @Volatile var dmOutstanding: () -> io.github.thatsfguy.meshcore.presentation.DmRequest.Outstanding =
+        { io.github.thatsfguy.meshcore.presentation.DmRequest.Outstanding.NONE }
+    @Volatile var onDmAccepted: ((accepterName: String, accepterKeyHex: String) -> Unit)? = null
+
     /** Thread the UI currently displays ("dm|<key>" / "ch|<idx>") —
      *  suppresses unread bumps for the open conversation. */
     @Volatile var activeThread: String? = null
@@ -443,6 +452,24 @@ class MessageRepository(
                 // carries no sender key), so this stops a spammer who
                 // keeps their name and nothing more.
                 if (BlockList.isFilteredChannelName(event.senderName, filteredChannelNames)) return
+                // A reply to a direct-message request we made: add them, so
+                // direct messages work both ways. Only for a request we
+                // actually sent — see DmRequest.decide. The message is still
+                // stored below, and the thread renders it as a line.
+                (io.github.thatsfguy.meshcore.presentation.DmRequest.parse(event.text)
+                    as? io.github.thatsfguy.meshcore.presentation.DmRequest.Parsed.Accept)?.let { reply ->
+                    val action = io.github.thatsfguy.meshcore.presentation.DmRequest.decide(
+                        reply,
+                        event.senderName,
+                        null,
+                        selfKey,
+                        dmOutstanding(),
+                        System.currentTimeMillis() / 1000,
+                    )
+                    if (action is io.github.thatsfguy.meshcore.presentation.DmRequest.Action.TheyAccepted) {
+                        onDmAccepted?.invoke(action.accepterName, action.accepterKeyHex)
+                    }
+                }
                 val channelKey = event.channelIndex.toString()
                 when (
                     val r = applyReaction(

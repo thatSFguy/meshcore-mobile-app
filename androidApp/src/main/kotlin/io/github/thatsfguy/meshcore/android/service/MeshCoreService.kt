@@ -185,6 +185,20 @@ class MeshCoreService : Service() {
         repository.onNewMessage = { kind, peerKey, senderName, text ->
             postMessageNotification(kind, peerKey, senderName, text)
         }
+        repository.dmOutstanding = { prefs.dmRequestsOutstanding }
+        repository.onDmAccepted = { name, keyHex ->
+            scope.launch {
+                val key = io.github.thatsfguy.meshcore.util.hexToBytesOrNull(keyHex) ?: return@launch
+                val added = runCatching {
+                    engine.addContactFromCard(key, name, io.github.thatsfguy.meshcore.protocol.Codes.ADV_TYPE_CHAT)
+                }.getOrDefault(false)
+                diagnostics.log("Inbox", "DM request accepted by $name — contact added: $added")
+                if (added) {
+                    prefs.dmRequestsOutstanding = prefs.dmRequestsOutstanding
+                        .answered(name, System.currentTimeMillis() / 1000)
+                }
+            }
+        }
 
         androidx.core.content.ContextCompat.registerReceiver(
             this,

@@ -217,14 +217,20 @@ object ShareUri {
 
     sealed interface Decoded {
         /**
-         * An unsigned contact card. Nothing here is authenticated: treat
-         * [name] as display text supplied by whoever made the QR, and
+         * A contact to confirm. Treat [name] as display text and
          * [pubKeyHex] as the only field that identifies anyone.
+         *
+         * [signed] is true only when this came from an advert code whose
+         * Ed25519 signature verified: then the name was chosen by whoever
+         * holds the key. A plain contact card carries no signature, so its
+         * name is whatever the person who made the code typed. Neither
+         * stops someone from choosing a name that isn't theirs.
          */
         data class Contact(
             val name: String,
             val pubKeyHex: String,
             val type: Int,
+            val signed: Boolean = false,
         ) : Decoded
 
         /**

@@ -1433,9 +1433,11 @@ private fun formatReading(value: Double): String =
 fun SelfQrDialog(vm: MeshCoreViewModel, onDismiss: () -> Unit) =
     ShareQrDialog(
         title = "Share this node",
-        hint = "Scan with another MeshCore app to add this node as a contact.",
+        hint = "Scan with another MeshCore app to add this node as a contact, or send " +
+            "the link in a text.",
         load = { vm.selfShareUri() },
         onDismiss = onDismiss,
+        sendable = true,
     )
 
 /** Share an existing contact so someone else can add the same node. */
@@ -1484,9 +1486,15 @@ internal fun ContactCardConfirmDialog(
                 )
                 Spacer(Modifier.height(12.dp))
                 Text(
-                    "This code carries no signature — the name is whatever " +
-                        "the sender typed. Only add it if you scanned it from " +
-                        "someone you trust, and check the key matches theirs.",
+                    if (card.signed) {
+                        "This code is signed by its key, so it came from whoever holds " +
+                            "that key — but anyone can choose any name. Only add it if it " +
+                            "came from someone you trust, and check the key matches theirs."
+                    } else {
+                        "This code carries no signature — the name is whatever " +
+                            "the sender typed. Only add it if it came from " +
+                            "someone you trust, and check the key matches theirs."
+                    },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error,
                 )
@@ -1508,7 +1516,9 @@ private fun ShareQrDialog(
     hint: String,
     load: suspend () -> String?,
     onDismiss: () -> Unit,
+    sendable: Boolean = false,
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     var qr by remember { mutableStateOf<Bitmap?>(null) }
     var uri by remember { mutableStateOf<String?>(null) }
     var failed by remember { mutableStateOf(false) }
@@ -1542,9 +1552,22 @@ private fun ShareQrDialog(
         confirmButton = { TextButton(onClick = onDismiss) { Text("Done") } },
         dismissButton = {
             uri?.let { text ->
-                TextButton(onClick = {
-                    clipboard.setText(androidx.compose.ui.text.AnnotatedString(text))
-                }) { Text("Copy link") }
+                Row {
+                    // Through the share sheet, so it can go by text message,
+                    // where tapping it opens this app on the other phone.
+                    if (sendable) {
+                        TextButton(onClick = {
+                            val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                                type = "text/plain"
+                                putExtra(android.content.Intent.EXTRA_TEXT, text)
+                            }
+                            context.startActivity(android.content.Intent.createChooser(send, "Send your link"))
+                        }) { Text("Send link") }
+                    }
+                    TextButton(onClick = {
+                        clipboard.setText(androidx.compose.ui.text.AnnotatedString(text))
+                    }) { Text("Copy link") }
+                }
             }
         },
     )

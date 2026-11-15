@@ -2400,40 +2400,57 @@ class MeshCoreEngineTest {
     }
 
     @Test
-    fun scanningAnAdvertUriImportsTheContact() = runTest {
-        // End to end, the way another client's QR arrives: hex of a raw
-        // advert packet behind the bare `meshcore://` scheme. This is
-        // the path that had no encoder pointed at it and so was never
-        // exercised — ShareUri.encodeAdvert has no callers.
+    fun anAdvertCodeBecomesASignedCardToConfirmThenAnAddNotAnImport() = runTest {
+        // End to end, the way another client's QR or link arrives: hex of a
+        // raw advert packet behind the bare `meshcore://` scheme.
+        //
+        // This used to go to CMD_IMPORT_CONTACT, which the firmware replays
+        // through its receive path, where the auto-add filter applies
+        // (BaseChatMesh.cpp:588-595, :158-162). With auto-add off the node
+        // is only noted as heard and the radio still answers OK, so the app
+        // reported "Contact imported" for a contact that did not exist. The
+        // old test pinned that: it asserted the OK. A fake radio cannot
+        // show the silent decline, so what is pinned here is the command
+        // that does not depend on it.
         val radio = FakeRadio()
         radio.responder = standardResponder(radio)
         val engine = readyEngine(radio)
 
         val them = MeshIdentity.generate(crypto)
         val blob = advertPacket(signedAdvert(them, "Someone"))
-        val decoded = ShareUri.decode(ShareUri.encodeAdvert(blob))
-        assertTrue(decoded is ShareUri.Decoded.Advert, "decoded as $decoded")
+        val decoded = assertIs<ShareUri.Decoded.Advert>(ShareUri.decode(ShareUri.encodeAdvert(blob)))
 
-        assertTrue(engine.importContact((decoded as ShareUri.Decoded.Advert).blob))
+        val card = assertNotNull(engine.contactCardFromAdvert(decoded.blob))
+        assertEquals(
+            ShareUri.Decoded.Contact("Someone", them.publicKeyHex, Codes.ADV_TYPE_CHAT, signed = true),
+            card,
+        )
+        // Decoding asked the radio for nothing: the user has not confirmed.
+        assertTrue(radio.sentFrames.none { (it[0].toInt() and 0xFF) == Codes.CMD_IMPORT_CONTACT })
 
-        // The RADIO must receive the packet, not the payload: the
-        // firmware's importContact() parses it with readFrom().
-        val sent = radio.sentFrames.last { (it[0].toInt() and 0xFF) == Codes.CMD_IMPORT_CONTACT }
-        assertContentEquals(blob, sent.copyOfRange(1, sent.size))
+        assertTrue(engine.addContactFromCard(them.publicKey, card.name, card.type))
+        val add = radio.sentFrames.last { (it[0].toInt() and 0xFF) == Codes.CMD_ADD_UPDATE_CONTACT }
+        assertContentEquals(them.publicKey, add.copyOfRange(1, 33))
+        assertTrue(radio.sentFrames.none { (it[0].toInt() and 0xFF) == Codes.CMD_IMPORT_CONTACT })
     }
 
     @Test
-    fun aForgedAdvertUriIsStillRejected() {
-        // The verification this fix moved must still bite. Flip a byte
-        // in the signed region: extraction succeeds, verification does
-        // not, and importContact refuses before anything reaches the
-        // radio.
+    fun aForgedAdvertCodeYieldsNoCard() = runTest {
+        // Flip a byte in the signed region: extraction succeeds,
+        // verification does not, and there is nothing to confirm.
+        val radio = FakeRadio()
+        radio.responder = standardResponder(radio)
+        val engine = readyEngine(radio)
+
         val them = MeshIdentity.generate(crypto)
         val payload = signedAdvert(them, "Someone").copyOf()
         payload[35] = (payload[35] + 1).toByte()   // last byte of the timestamp
-        val extracted = MeshCoreEngine.extractAdvertPayload(advertPacket(payload))
-        assertNotNull(extracted)
-        assertFalse(Advert.verifySignature(crypto, extracted))
+        val blob = advertPacket(payload)
+        assertNotNull(MeshCoreEngine.extractAdvertPayload(blob))
+        assertNull(engine.contactCardFromAdvert(blob))
+        // Garbage of every shape is refused rather than thrown.
+        assertNull(engine.contactCardFromAdvert(ByteArray(0)))
+        assertNull(engine.contactCardFromAdvert(byteArrayOf(0x11, 0x00)))
     }
 
     // ------------------------------------------------------------------

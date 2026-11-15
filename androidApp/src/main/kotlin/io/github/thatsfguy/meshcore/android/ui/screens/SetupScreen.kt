@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -44,6 +45,13 @@ fun SetupScreen(vm: MeshCoreViewModel, onDone: () -> Unit) {
     val connected = engineState == EngineState.Ready
     var presetSheet by remember { mutableStateOf(false) }
     var name by remember(self?.name) { mutableStateOf(self?.name.orEmpty()) }
+    val mode by vm.prefs.appModeFlow.collectAsState()
+    val simple = mode == io.github.thatsfguy.meshcore.presentation.AppMode.Simple
+    val channelKinds by vm.channelKinds.collectAsState()
+    val inAGroup = channelKinds.values.any { it == io.github.thatsfguy.meshcore.protocol.ChannelKind.Private }
+    val scanLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        com.journeyapps.barcodescanner.ScanContract(),
+    ) { result -> result.contents?.let { vm.importScannedCode(it) } }
 
     val matches = remember(self?.freqKhz, self?.bwHz, self?.sf, self?.cr) {
         val info = self
@@ -69,6 +77,35 @@ fun SetupScreen(vm: MeshCoreViewModel, onDone: () -> Unit) {
                 "there is nothing to send messages with — there is no internet fallback, " +
                 "by design.",
         )
+
+        // Asked first: it decides how much of the app the rest of setup,
+        // and everything after it, shows. Changeable any time in Settings.
+        Spacer(Modifier.height(16.dp))
+        Text("How will you use it?", style = MaterialTheme.typography.titleSmall)
+        // The whole row is the target, label included: driving this on a
+        // phone, a tap on the words "Full: …" did nothing and setup
+        // finished in the mode the user had just tried to leave.
+        for ((choice, label) in listOf(
+            io.github.thatsfguy.meshcore.presentation.AppMode.Simple to
+                "Simple: chats and channels with my group",
+            io.github.thatsfguy.meshcore.presentation.AppMode.Full to
+                "Full: nodes, map, repeaters and radio settings",
+        )) {
+            androidx.compose.foundation.layout.Row(
+                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .selectable(
+                        selected = mode == choice,
+                        role = androidx.compose.ui.semantics.Role.RadioButton,
+                        onClick = { vm.prefs.appMode = choice },
+                    ),
+            ) {
+                androidx.compose.material3.RadioButton(selected = mode == choice, onClick = null)
+                Text(label)
+            }
+        }
+        HintText("You can switch at any time in Settings. Nothing is lost either way.")
 
         Spacer(Modifier.height(20.dp))
         SetupStep(
@@ -132,8 +169,26 @@ fun SetupScreen(vm: MeshCoreViewModel, onDone: () -> Unit) {
             }
         }
 
+        if (simple) {
+            SetupStep(
+                number = 4,
+                title = "Join your group's channel",
+                done = inAGroup,
+                detail = "Your group talks on its own channel. Scan the channel code someone " +
+                    "in the group shows you, or tap the link they sent.",
+            ) {
+                if (connected) {
+                    OutlinedButton(onClick = {
+                        scanLauncher.launch(meshScanOptions("Scan your group's channel code"))
+                    }) { Text("Scan the channel code") }
+                } else {
+                    HintText("Connect a radio first.")
+                }
+            }
+        }
+
         SetupStep(
-            number = 4,
+            number = if (simple) 5 else 4,
             title = "Know what this app protects",
             done = false,
             detail = "Direct messages are end-to-end encrypted. Channels are only " +

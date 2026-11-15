@@ -162,11 +162,14 @@ fun ConversationScreen(
     var showContact by remember { mutableStateOf(false) }
     var showChannelEditor by remember { mutableStateOf(false) }
     var showSendersSheet by remember { mutableStateOf(false) }
+    var askDmOf by remember { mutableStateOf<String?>(null) }
     var replyingTo by remember(kind, peerKey) { mutableStateOf<MessageEntity?>(null) }
     var pendingUrl by remember { mutableStateOf<String?>(null) }
     var reactingTo by remember { mutableStateOf<MessageEntity?>(null) }
     var details by remember { mutableStateOf<MessageEntity?>(null) }
     val selfName = vm.selfInfo.collectAsState().value?.name
+    val selfKeyHex by vm.selfKeyHex.collectAsState()
+    val dmHandled by vm.dmRequestsHandled.collectAsState()
     // Who `@` can offer. On a channel that is the names seen posting on
     // it — the same list "Names seen…" shows, and the only names anyone
     // reading the channel would recognise. In a DM there is exactly one
@@ -199,8 +202,14 @@ fun ConversationScreen(
         mutableStateOf(peerKey.toIntOrNull()?.let { vm.prefs.isChannelMuted(it) } ?: false)
     }
     val channelRegions by vm.channelRegions.collectAsState()
+    // Simple mode drops routing, paths, node detail and per-message signal
+    // readings (presentation/AppMode). "Names seen" stays: hiding a noisy
+    // name is what Simple mode is for.
+    val appMode by vm.prefs.appModeFlow.collectAsState()
+    val technical = io.github.thatsfguy.meshcore.presentation.AppModes.showsTechnicalActions(appMode)
+    val signalDetail = io.github.thatsfguy.meshcore.presentation.AppModes.showsSignalDetail(appMode)
     val menu = if (isChannel) {
-        listOf(
+        listOfNotNull(
             MenuAction("Mute notifications", checked = muted) {
                 peerKey.toIntOrNull()?.let {
                     muted = !muted
@@ -208,7 +217,7 @@ fun ConversationScreen(
                 }
             },
             MenuAction("Mark unread") { vm.markUnread(kind, peerKey); nav.popBackStack() },
-            MenuAction("Channel settings…") { showChannelEditor = true },
+            if (technical) MenuAction("Channel settings…") { showChannelEditor = true } else null,
             MenuAction("Names seen…") { showSendersSheet = true },
             MenuAction("Clear thread…", destructive = true) { clearConfirm = true },
         )
@@ -222,8 +231,8 @@ fun ConversationScreen(
             } else {
                 null
             },
-            MenuAction("Contact details…") { showContact = true },
-            MenuAction("Routing / paths…") { showContact = true },
+            if (technical) MenuAction("Contact details…") { showContact = true } else null,
+            if (technical) MenuAction("Routing / paths…") { showContact = true } else null,
             MenuAction("Clear thread…", destructive = true) { clearConfirm = true },
         )
     }
@@ -263,6 +272,27 @@ fun ConversationScreen(
             // It also preserves the reading position for free: someone
             // scrolled up in the scrollback is far from the anchor, so an
             // arriving message doesn't yank the view.
+            askDmOf?.let { name ->
+                AlertDialog(
+                    onDismissRequest = { askDmOf = null },
+                    title = { Text("Message $name privately?") },
+                    text = {
+                        Text(
+                            "This posts a short request on this channel. Everyone here will see " +
+                                "that you asked. If $name accepts, you'll both be able to send " +
+                                "direct messages.",
+                        )
+                    },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            askDmOf = null
+                            vm.askToMessagePrivately(peerKey.toInt(), name)
+                        }) { Text("Send request") }
+                    },
+                    dismissButton = { TextButton(onClick = { askDmOf = null }) { Text("Cancel") } },
+                )
+            }
+
             ThreadList(
                 threadKey = threadKey,
                 messages = messages,
@@ -270,10 +300,51 @@ fun ConversationScreen(
                 modifier = Modifier.weight(1f),
                 onLoadOlder = { pageSize += PAGE_SIZE },
             ) { m ->
+                // A direct-message request or reply (DmRequest): drawn as a
+                // line, with Accept / Decline when it asks us.
+                val dm = if (isChannel) remember(m.text) { io.github.thatsfguy.meshcore.presentation.DmRequest.parse(m.text) } else null
+                val dmLine = dm?.let {
+                    io.github.thatsfguy.meshcore.presentation.DmRequest.describe(it, m.senderName, m.outgoing, selfName, selfKeyHex)
+                }
+                val askedMe = dm?.takeIf { !m.outgoing }?.let {
+                    io.github.thatsfguy.meshcore.presentation.DmRequest.decide(
+                        it, m.senderName, selfName, selfKeyHex,
+                        io.github.thatsfguy.meshcore.presentation.DmRequest.Outstanding.NONE, 0,
+                    ) as? io.github.thatsfguy.meshcore.presentation.DmRequest.Action.AskedMe
+                }?.takeIf { it.requesterKeyHex !in dmHandled }
                 MessageBubble(
                     m,
                     showSender = showSenders,
                     selfName = selfName,
+                    dmLine = dmLine,
+                    signalDetail = signalDetail,
+                    canInfo = technical,
+                    dmAsk = askedMe?.let { a ->
+                        DmAsk(
+                            keyPrefix = a.requesterKeyHex.take(8),
+                            onAccept = {
+                                vm.acceptDmRequest(peerKey.toInt(), a.requesterName, a.requesterKeyHex)
+                            },
+                            onDecline = { vm.declineDmRequest(a.requesterKeyHex) },
+                        )
+                    },
+                    canAskDm = isChannel && !m.outgoing && dm == null &&
+                        io.github.thatsfguy.meshcore.presentation.DmRequest.request(m.senderName.orEmpty(), selfKeyHex) != null,
+                    onAskDm = {
+                        val name = m.senderName.orEmpty().trim()
+                        // Already a contact by that name: just open the chat.
+                        // Names are display text, so only an exact, unique
+                        // match among people counts.
+                        val match = contacts.filter {
+                            it.type == io.github.thatsfguy.meshcore.protocol.Codes.ADV_TYPE_CHAT &&
+                                it.name.trim().equals(name, ignoreCase = true)
+                        }
+                        if (match.size == 1) {
+                            nav.navigate(conversationRoute(MessageRepository.KIND_DM, match[0].keyHex))
+                        } else {
+                            askDmOf = name
+                        }
+                    },
                     // Only worth offering when there is a name to insert
                     // and more than one person who could read it.
                     canMention = isChannel && !m.outgoing &&
@@ -611,6 +682,12 @@ private fun MessageBubble(
     m: MessageEntity,
     showSender: Boolean,
     selfName: String? = null,
+    dmLine: String? = null,
+    signalDetail: Boolean = true,
+    canInfo: Boolean = true,
+    dmAsk: DmAsk? = null,
+    canAskDm: Boolean = false,
+    onAskDm: () -> Unit = {},
     canMention: Boolean = false,
     showAvatar: Boolean = false,
     onSwipeReply: () -> Unit = {},
@@ -731,7 +808,24 @@ private fun MessageBubble(
                     )
                 }
                 quoted?.let { QuoteBlock(it) }
-                if (orphanReaction != null) {
+                if (dmLine != null) {
+                    Text(
+                        dmLine,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontStyle = FontStyle.Italic,
+                    )
+                    dmAsk?.let { ask ->
+                        Text(
+                            "Their key starts ${ask.keyPrefix}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Row {
+                            TextButton(onClick = ask.onDecline) { Text("Decline") }
+                            TextButton(onClick = ask.onAccept) { Text("Accept") }
+                        }
+                    }
+                } else if (orphanReaction != null) {
                     Text(
                         orphanReaction + "  reacted to an earlier message",
                         style = MaterialTheme.typography.bodyMedium,
@@ -768,18 +862,22 @@ private fun MessageBubble(
                             // nothing was heard — which is NOT "nobody
                             // carried it", so it renders as nothing at
                             // all rather than as a zero.
-                            MessageRepeats.badge(m.repeatHopsHex, m.repeatHashWidth)
-                                ?.let { append("  ·  $it") }
+                            if (signalDetail) {
+                                MessageRepeats.badge(m.repeatHopsHex, m.repeatHashWidth)
+                                    ?.let { append("  ·  $it") }
+                            }
                         }
                         // Link quality for received traffic: how far it
                         // came and how strong it landed. Both say more
                         // about whether the mesh is healthy than the
                         // delivery tick does.
-                        hopsLabel(m.hops)?.let { append("  ·  $it") }
-                        // "last hop" unless heard direct: after a relay the
-                        // SNR is the last repeater's, not the sender's.
-                        io.github.thatsfguy.meshcore.presentation.MessageSignal
-                            .bubble(m.snr, m.hops)?.let { append("  ·  $it") }
+                        if (signalDetail) {
+                            hopsLabel(m.hops)?.let { append("  ·  $it") }
+                            // "last hop" unless heard direct: after a relay the
+                            // SNR is the last repeater's, not the sender's.
+                            io.github.thatsfguy.meshcore.presentation.MessageSignal
+                                .bubble(m.snr, m.hops)?.let { append("  ·  $it") }
+                        }
                     },
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -794,6 +892,9 @@ private fun MessageBubble(
                     canReact = !m.outgoing,
                     canResend = m.outgoing && m.status == MessageStatus.Failed.ordinal,
                     canMention = canMention,
+                    canAskDm = canAskDm,
+                    onAskDm = { showActions = false; onAskDm() },
+                    canInfo = canInfo,
                     onReact = { emoji -> showActions = false; onReact(emoji) },
                     onMoreEmoji = { showActions = false; onMoreEmoji() },
                     onReply = { showActions = false; onReply() },
@@ -861,6 +962,9 @@ private fun MessageActionBar(
     canReact: Boolean,
     canResend: Boolean,
     canMention: Boolean,
+    canAskDm: Boolean,
+    onAskDm: () -> Unit,
+    canInfo: Boolean,
     onReact: (String) -> Unit,
     onMoreEmoji: () -> Unit,
     onReply: () -> Unit,
@@ -921,9 +1025,17 @@ private fun MessageActionBar(
                 // implied.
                 if (canMention) ActionLabel("Mention", onMention)
                 ActionLabel("Copy", onCopy)
-                ActionLabel("Info", onInfo)
+                if (canInfo) ActionLabel("Info", onInfo)
                 if (canResend) ActionLabel("Resend", onResend)
                 ActionLabel("Delete", onDelete, color = MaterialTheme.colorScheme.error)
+            }
+            // Its own row: the text actions above already fill a 384dp
+            // phone, and this one starts a conversation rather than
+            // acting on the message.
+            if (canAskDm) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    ActionLabel("Message privately", onAskDm)
+                }
             }
         }
     }
@@ -1329,3 +1441,10 @@ internal fun copiesLabel(copies: Int): String? =
 
 /** Newest-N window; "Load older" grows it. */
 private const val PAGE_SIZE = 50
+
+/** Accept / Decline on a request addressed to us. */
+private class DmAsk(
+    val keyPrefix: String,
+    val onAccept: () -> Unit,
+    val onDecline: () -> Unit,
+)

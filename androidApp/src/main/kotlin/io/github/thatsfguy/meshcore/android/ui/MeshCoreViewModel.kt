@@ -686,6 +686,27 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
         rows.sortedByDescending { it.timestamp }
     }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
+    /**
+     * [conversations] as the current mode shows them: Simple mode leaves out
+     * Public and threads that aren't with a person (presentation/AppMode).
+     * One flow for the Chats list and its tab badge, so the badge never
+     * counts a thread the list hides.
+     */
+    val shownConversations: StateFlow<List<ConversationRow>> = combine(
+        conversations,
+        prefs.appModeFlow,
+        channelKinds,
+    ) { rows, mode, kinds ->
+        rows.filter { row ->
+            io.github.thatsfguy.meshcore.presentation.AppModes.showsThread(
+                mode,
+                row.isChannel,
+                if (row.isChannel) row.key.toIntOrNull()?.let { kinds[it] } else null,
+                row.contactType,
+            )
+        }
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
     fun thread(kind: String, peerKey: String): StateFlow<List<MessageEntity>> =
         selfKey.flatMapLatest { key ->
             if (key.isEmpty()) flowOf(emptyList()) else db.messages().thread(key, kind, peerKey)
@@ -1388,6 +1409,9 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
     suspend fun selfShareUri(): String? {
         val info = selfInfo.value ?: return null
         val key = info.publicKeyHex.ifBlank { return null }
+        // Showing or sending your code is an invitation: whoever adds it can
+        // answer on a shared channel, and that answer should add them here.
+        prefs.dmRequestsOutstanding = prefs.dmRequestsOutstanding.sharedLink(nowSec())
         return ShareUri.encodeContact(
             name = info.name,
             pubKeyHex = key,
@@ -1532,12 +1556,137 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /**
+     * An advert code (another client's QR or link format) goes to the same
+     * confirmation as a contact card, then to the same add command. It
+     * used to import straight to the radio, which with auto-add off is
+     * silently declined — see [MeshCoreEngine.contactCardFromAdvert].
+     */
     private fun importAdvertBlob(blob: ByteArray) {
         val svc = _service.value ?: return
+        val card = svc.engine.contactCardFromAdvert(blob)
+        if (card == null) {
+            transientMessage.value = "Not added: this code's signature doesn't check out"
+            return
+        }
+        pendingContactCard.value = card
+    }
+
+    // ------------------------------------------------------------------
+    // Direct-message requests over a channel (presentation/DmRequest)
+    // ------------------------------------------------------------------
+
+    private fun nowSec() = System.currentTimeMillis() / 1000
+
+    /** Requester keys whose request to us has been answered. */
+    private val dmHandledRevision = MutableStateFlow(0)
+    val dmRequestsHandled: StateFlow<Set<String>> = dmHandledRevision
+        .map { prefs.dmRequestsHandled }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, prefs.dmRequestsHandled)
+
+    /** Our own public key, for deciding whether a request is to us. */
+    val selfKeyHex: StateFlow<String> get() = selfKey
+
+    /** Post a request on [channelIndex] asking [targetName] for direct messages. */
+    fun askToMessagePrivately(channelIndex: Int, targetName: String) {
+        val me = selfInfo.value ?: return
+        val text = io.github.thatsfguy.meshcore.presentation.DmRequest.request(targetName, me.publicKeyHex)
+        if (text == null || !io.github.thatsfguy.meshcore.presentation.DmRequest.fits(me.name, text)) {
+            transientMessage.value = "Can't send a request to that name"
+            return
+        }
+        prefs.dmRequestsOutstanding = prefs.dmRequestsOutstanding.asked(targetName, nowSec())
+        sendChannelMessage(channelIndex, text)
+        transientMessage.value = "Asked ${targetName.trim()}. You can message them once they accept."
+    }
+
+    /**
+     * Accept a request: add the requester to the radio, then answer on the
+     * same channel so their app adds us. Both are needed — each radio only
+     * decrypts direct messages from its own contacts.
+     */
+    fun acceptDmRequest(channelIndex: Int, requesterName: String, requesterKeyHex: String) {
+        val svc = _service.value ?: return
+        val me = selfInfo.value ?: return
+        val key = hexToBytesOrNull(requesterKeyHex) ?: return
+        val reply = io.github.thatsfguy.meshcore.presentation.DmRequest
+            .accept(requesterName, requesterKeyHex, me.publicKeyHex)
+        if (reply == null || !io.github.thatsfguy.meshcore.presentation.DmRequest.fits(me.name, reply)) {
+            transientMessage.value = "Can't answer a request from that name"
+            return
+        }
         viewModelScope.launch {
-            val ok = runCatching { svc.engine.importContact(blob) }.getOrDefault(false)
-            transientMessage.value =
-                if (ok) "Contact imported" else "Import failed (bad signature?)"
+            val added = runCatching {
+                svc.engine.addContactFromCard(key, requesterName.trim(), Codes.ADV_TYPE_CHAT)
+            }.getOrDefault(false)
+            if (!added) {
+                transientMessage.value = "Couldn't add ${requesterName.trim()} — is the radio's contact list full?"
+                return@launch
+            }
+            sendChannelMessage(channelIndex, reply)
+            markDmRequestHandled(requesterKeyHex)
+            transientMessage.value = "Added ${requesterName.trim()}. You can message each other directly."
+        }
+    }
+
+    fun declineDmRequest(requesterKeyHex: String) {
+        markDmRequestHandled(requesterKeyHex)
+    }
+
+    private fun markDmRequestHandled(requesterKeyHex: String) {
+        prefs.dmRequestsHandled = prefs.dmRequestsHandled + requesterKeyHex.lowercase()
+        dmHandledRevision.value++
+    }
+
+    /**
+     * A contact just added from a code or link, whose owner may not have
+     * us yet. Offered after the add so they can be told on a shared channel.
+     */
+    val pendingTellBack = MutableStateFlow<ShareUri.Decoded.Contact?>(null)
+
+    /** Answer [card]'s owner on [channelIndex], as if accepting a request. */
+    fun tellBack(card: ShareUri.Decoded.Contact, channelIndex: Int) {
+        pendingTellBack.value = null
+        val me = selfInfo.value ?: return
+        val reply = io.github.thatsfguy.meshcore.presentation.DmRequest
+            .accept(card.name, card.pubKeyHex, me.publicKeyHex)
+        if (reply == null || !io.github.thatsfguy.meshcore.presentation.DmRequest.fits(me.name, reply)) {
+            transientMessage.value = "Can't post a reply for that name"
+            return
+        }
+        sendChannelMessage(channelIndex, reply)
+        transientMessage.value = "Posted. Once their app sees it, they can message you too."
+    }
+
+    // ------------------------------------------------------------------
+    // Tapped meshcore:// links
+    // ------------------------------------------------------------------
+
+    private val linkInbox = io.github.thatsfguy.meshcore.presentation.LinkInbox()
+
+    /**
+     * A `meshcore://` link opened from outside the app. It goes to the
+     * same decoder and confirmations as a scanned QR code; nothing is
+     * applied without the user confirming. Held until the radio is ready,
+     * since adding or joining anything writes to the radio.
+     */
+    fun openIncomingLink(raw: String?) {
+        val ready = engineState.value == EngineState.Ready
+        when (val offer = linkInbox.offer(raw, ready)) {
+            is io.github.thatsfguy.meshcore.presentation.LinkInbox.Offer.Open ->
+                importScannedCode(offer.link)
+            io.github.thatsfguy.meshcore.presentation.LinkInbox.Offer.Held ->
+                transientMessage.value = "This link will open once your radio is connected"
+            io.github.thatsfguy.meshcore.presentation.LinkInbox.Offer.Ignored ->
+                transientMessage.value = "That isn't a MeshCore link"
+        }
+    }
+
+    init {
+        viewModelScope.launch {
+            engineState.collect { state ->
+                if (state == EngineState.Ready) linkInbox.onReady()?.let(::importScannedCode)
+            }
         }
     }
 
@@ -1551,6 +1700,11 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
                 svc.engine.addContactFromCard(key, card.name, card.type)
             }.getOrDefault(false)
             transientMessage.value = if (ok) "Contact added" else "Add failed"
+            // They may not have us. Offer to answer on a shared channel —
+            // only for a person, and only when there is a channel to use.
+            if (ok && card.type == Codes.ADV_TYPE_CHAT && dbChannels.value.isNotEmpty()) {
+                pendingTellBack.value = card
+            }
         }
     }
 

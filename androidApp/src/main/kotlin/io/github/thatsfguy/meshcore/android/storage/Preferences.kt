@@ -177,6 +177,21 @@ class Preferences(context: Context) {
 
     // --- App settings ---
 
+    /**
+     * Simple or full app (presentation/AppMode). [appModeFlow] mirrors it
+     * so the tab bar, Chats and Settings change the moment it is switched.
+     */
+    val appModeFlow: MutableStateFlow<io.github.thatsfguy.meshcore.presentation.AppMode> by lazy {
+        MutableStateFlow(appMode)
+    }
+
+    var appMode: io.github.thatsfguy.meshcore.presentation.AppMode
+        get() = io.github.thatsfguy.meshcore.presentation.AppMode.of(prefs.getString("app_mode", null))
+        set(v) {
+            prefs.edit().putString("app_mode", v.name).apply()
+            appModeFlow.value = v
+        }
+
     /** "system" | "light" | "dark". [themeFlow] mirrors it observably so
      *  the root composable can re-theme immediately on change. */
     val themeFlow: MutableStateFlow<String> by lazy { MutableStateFlow(theme) }
@@ -536,6 +551,34 @@ class Preferences(context: Context) {
     fun unfilterChannelName(name: String) {
         BlockList.canonicalName(name)?.let { filteredChannelNames = filteredChannelNames - it }
     }
+
+    // --- Direct-message requests (presentation/DmRequest) ---
+
+    /**
+     * Requests this phone has made and not yet seen answered, as
+     * name → when-asked (epoch seconds). Read back through
+     * [DmRequest.Outstanding], which also drops lapsed entries.
+     */
+    var dmRequestsOutstanding: io.github.thatsfguy.meshcore.presentation.DmRequest.Outstanding
+        get() = io.github.thatsfguy.meshcore.presentation.DmRequest.Outstanding(
+            prefs.getStringSet("dm_requests_outstanding", emptySet())!!.mapNotNull { e ->
+                val cut = e.lastIndexOf('|')
+                if (cut <= 0) return@mapNotNull null
+                e.substring(cut + 1).toLongOrNull()?.let { e.substring(0, cut) to it }
+            }.toMap(),
+        )
+        set(v) {
+            val enc = v.toMap().entries.take(64).map { "${it.key}|${it.value}" }.toSet()
+            prefs.edit().putStringSet("dm_requests_outstanding", enc).apply()
+        }
+
+    /**
+     * Requests to us that have been answered (accepted or declined), by the
+     * requester's key, so the buttons do not come back on the next visit.
+     */
+    var dmRequestsHandled: Set<String>
+        get() = prefs.getStringSet("dm_requests_handled", emptySet())!!
+        set(v) { prefs.edit().putStringSet("dm_requests_handled", v.take(BlockList.MAX_ENTRIES).toSet()).apply() }
 
     // --- Message retention (PARITY §3) ---
 

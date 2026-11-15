@@ -94,6 +94,9 @@ class MainActivity : ComponentActivity() {
      */
     private val openThread = MutableStateFlow<Pair<String, String>?>(null)
 
+    /** A `meshcore://` link the app was opened with; consumed by the shell. */
+    private val incomingLink = MutableStateFlow<String?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         if (!BlePermissions.allGranted(this)) {
@@ -108,6 +111,9 @@ class MainActivity : ComponentActivity() {
         // first.
         OsmdroidSetup.apply(this)
         openThread.value = threadFrom(intent)
+        // Only on a fresh start: a recreated activity still holds the
+        // original intent, and replaying its link would ask again.
+        if (savedInstanceState == null) incomingLink.value = linkFrom(intent)
         setContent {
             val vm: MeshCoreViewModel = viewModel()
             val theme by vm.prefs.themeFlow.collectAsStateWithLifecycle()
@@ -118,7 +124,7 @@ class MainActivity : ComponentActivity() {
                     else -> androidx.compose.foundation.isSystemInDarkTheme()
                 },
             ) {
-                AppShell(vm, openThread)
+                AppShell(vm, openThread, incomingLink)
             }
         }
     }
@@ -129,7 +135,11 @@ class MainActivity : ComponentActivity() {
         // replays whichever notification started the activity.
         setIntent(intent)
         openThread.value = threadFrom(intent)
+        linkFrom(intent)?.let { incomingLink.value = it }
     }
+
+    private fun linkFrom(intent: Intent?): String? =
+        intent?.takeIf { it.action == Intent.ACTION_VIEW }?.dataString
 
     private fun threadFrom(intent: Intent?): Pair<String, String>? {
         val kind = intent?.getStringExtra(EXTRA_THREAD_KIND)?.takeIf { it.isNotBlank() }
@@ -155,9 +165,19 @@ private data class Tab(
 private fun AppShell(
     vm: MeshCoreViewModel,
     openThread: MutableStateFlow<Pair<String, String>?>,
+    incomingLink: MutableStateFlow<String?>,
 ) {
     val nav = rememberNavController()
     val snackbar = remember { SnackbarHostState() }
+
+    // A tapped meshcore:// link: decoded into the same confirmations a
+    // scanned QR code gets (hosted below by ScanConfirmations).
+    val link by incomingLink.collectAsStateWithLifecycle()
+    LaunchedEffect(link) {
+        val l = link ?: return@LaunchedEffect
+        incomingLink.value = null
+        vm.openIncomingLink(l)
+    }
 
     // Tapping a notification lands on the conversation it was about.
     // popUpTo("chats") so Back leaves you in the app on the message
@@ -186,15 +206,19 @@ private fun AppShell(
     // the other three tabs, which is the only place it changes anyone's
     // behaviour — a message that arrives while you are on Map or Nodes
     // was otherwise invisible until you happened to look.
-    val conversations by vm.conversations.collectAsStateWithLifecycle()
+    // Simple mode keeps Chats and Settings (presentation/AppMode).
+    val mode by vm.prefs.appModeFlow.collectAsStateWithLifecycle()
+    val conversations by vm.shownConversations.collectAsStateWithLifecycle()
+    // Counted over the threads this mode SHOWS: a badge for a hidden
+    // Public channel is a number with nothing behind it to tap.
     val unreadBadge = Inbox.badgeLabel(Inbox.unreadTotal(conversations.map { it.unread }))
-
+    val shownTabs = io.github.thatsfguy.meshcore.presentation.AppModes.tabs(mode)
     val tabs = listOf(
         Tab("chats", "Chats", unreadBadge) { Icon(Icons.Filled.Email, contentDescription = "Chats") },
         Tab("nodes", "Nodes") { Icon(Icons.Filled.Person, contentDescription = "Nodes") },
         Tab("map", "Map") { Icon(Icons.Filled.LocationOn, contentDescription = "Map") },
         Tab("settings", "Settings") { Icon(Icons.Filled.Settings, contentDescription = "Settings") },
-    )
+    ).filter { it.route in shownTabs }
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },

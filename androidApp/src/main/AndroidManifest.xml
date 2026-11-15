@@ -68,6 +68,16 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!-- Tapped meshcore:// links (contact, channel and settings codes)
+                 from texts and other apps. Any app can send these, so every
+                 one goes to a confirmation dialog; nothing applies on its own.
+                 See presentation/IncomingLink.kt. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="meshcore" />
+            </intent-filter>
         </activity>
 
         <!-- QR scanner pinned to portrait (zxing-android-embedded). -->

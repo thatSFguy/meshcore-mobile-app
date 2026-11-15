@@ -12,6 +12,7 @@ import io.github.thatsfguy.meshcore.protocol.AdvertInfo
 import io.github.thatsfguy.meshcore.protocol.BufferReader
 import io.github.thatsfguy.meshcore.protocol.ChannelCrypto
 import io.github.thatsfguy.meshcore.protocol.RadioStats
+import io.github.thatsfguy.meshcore.protocol.ShareUri
 import io.github.thatsfguy.meshcore.protocol.CliExchange
 import io.github.thatsfguy.meshcore.protocol.CliResend
 import io.github.thatsfguy.meshcore.protocol.CliStragglers
@@ -2098,22 +2099,34 @@ class MeshCoreEngine(
     }
 
     /**
-     * Import a contact from an advert blob (QR-scanned).
-     * SECURITY: verifies the embedded advert signature FIRST — an
-     * unsigned/forged blob is rejected before it reaches the radio.
+     * The contact an advert code describes, for the user to confirm — or
+     * null when the code is malformed or its signature does not verify.
+     *
+     * SECURITY: the embedded advert's Ed25519 signature is checked FIRST,
+     * so a forged code never reaches the confirmation, let alone the radio.
+     *
+     * This replaced handing the blob to CMD_IMPORT_CONTACT. The firmware
+     * replays an imported advert through its normal receive path
+     * (`BaseChatMesh::importContact`, `BaseChatMesh.cpp:588-595`), where the
+     * auto-add filter applies (`:158-162`). With auto-add off, the node is
+     * only noted as heard, yet the command still answers OK — so the app
+     * said "Contact imported" and nothing had been added. The verified card
+     * goes through [addContactFromCard] (CMD_ADD_UPDATE_CONTACT) instead,
+     * which adds whatever the auto-add setting.
      */
-    suspend fun importContact(advertBlob: ByteArray): Boolean {
-        val payload = extractAdvertPayload(advertBlob) ?: return false
-        if (!Advert.verifySignature(crypto, payload)) {
-            log("importContact: advert signature verification FAILED — rejected")
-            return false
+    fun contactCardFromAdvert(advertBlob: ByteArray): ShareUri.Decoded.Contact? {
+        val payload = extractAdvertPayload(advertBlob) ?: return null
+        val info = Advert.parseVerified(crypto, payload)
+        if (info == null) {
+            log("contactCardFromAdvert: advert signature verification FAILED — rejected")
+            return null
         }
-        val ok = sendAndAwait(Frames.importContact(advertBlob)) { it is DeviceEvent.Ok }
-        if (ok is DeviceEvent.Ok) {
-            syncContacts()
-            return true
-        }
-        return false
+        return ShareUri.Decoded.Contact(
+            name = info.name,
+            pubKeyHex = info.publicKeyHex,
+            type = info.type,
+            signed = true,
+        )
     }
 
     /**

@@ -104,6 +104,53 @@ fun ScanConfirmations(vm: MeshCoreViewModel) {
         )
     }
 
+    // Just added someone from a code or link. Their radio drops our direct
+    // messages until they add us too, so offer to answer them on a channel
+    // we share (DmRequest). A private channel first: that is the group.
+    val tellBack by vm.pendingTellBack.collectAsState()
+    tellBack?.let { card ->
+        val channels by vm.dbChannels.collectAsState()
+        val kinds by vm.channelKinds.collectAsState()
+        val mode by vm.prefs.appModeFlow.collectAsState()
+        // Simple mode hides Public everywhere, so it is not offered here
+        // either (presentation/AppMode).
+        val ordered = channels.filter {
+            io.github.thatsfguy.meshcore.presentation.AppModes.showsThread(mode, true, kinds[it.idx], null)
+        }.sortedBy {
+            when (kinds[it.idx]) {
+                io.github.thatsfguy.meshcore.protocol.ChannelKind.Private -> 0
+                io.github.thatsfguy.meshcore.protocol.ChannelKind.Hashtag -> 1
+                else -> 2
+            }
+        }
+        AlertDialog(
+            onDismissRequest = { vm.pendingTellBack.value = null },
+            title = { Text("Let ${card.name.ifBlank { "them" }} know?") },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    Text(
+                        "They can't message you until they add you too. Post a short note " +
+                            "with your key on a channel you both use, and their app will add " +
+                            "you. Everyone on that channel will see it.",
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    if (ordered.isEmpty()) {
+                        Text("Join your group's channel first; there is nowhere to post yet.")
+                    }
+                    for (ch in ordered) {
+                        TextButton(onClick = { vm.tellBack(card, ch.idx) }) {
+                            Text("Post on ${ch.name.ifBlank { "Channel ${ch.idx}" }}")
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { vm.pendingTellBack.value = null }) { Text("Not now") }
+            },
+        )
+    }
+
     val pendingCard by vm.pendingContactCard.collectAsState()
     pendingCard?.let { card ->
         ContactCardConfirmDialog(

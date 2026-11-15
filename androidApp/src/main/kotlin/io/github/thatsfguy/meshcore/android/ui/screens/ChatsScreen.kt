@@ -37,6 +37,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import io.github.thatsfguy.meshcore.android.ui.ConversationRow
+import io.github.thatsfguy.meshcore.android.storage.MessageRepository
 import io.github.thatsfguy.meshcore.android.ui.MeshCoreViewModel
 import io.github.thatsfguy.meshcore.engine.EngineState
 import io.github.thatsfguy.meshcore.protocol.Codes
@@ -46,14 +47,22 @@ import java.util.Date
 /**
  * Merged conversation list: direct-message threads and channels, newest
  * first, with unread badges. FAB opens the channel-add / community-join
- * sheet; DM threads start from the Nodes tab.
+ * sheet or the New message picker.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatsScreen(vm: MeshCoreViewModel, nav: NavController) {
-    val conversations by vm.conversations.collectAsState()
+    // Simple mode leaves out Public and anything that isn't a person
+    // (presentation/AppMode); the filter lives in the view model so the
+    // tab badge counts the same threads.
+    val conversations by vm.shownConversations.collectAsState()
+    val mode by vm.prefs.appModeFlow.collectAsState()
+    var showMyCode by remember { mutableStateOf(false) }
+    val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
     val engineState by vm.engineState.collectAsState()
     var showChannelSheet by remember { mutableStateOf(false) }
+    var showStart by remember { mutableStateOf(false) }
+    var showNewMessage by remember { mutableStateOf(false) }
     // Saveable, not remember: opening a node or a conversation takes this
     // screen off the composition, and coming back used to start the search
     // over — the term typed to find it was gone (reported 2026-09-25).
@@ -72,7 +81,18 @@ fun ChatsScreen(vm: MeshCoreViewModel, nav: NavController) {
             AppTopBar(
                 title = "Chats",
                 vm = vm,
-                menuActions = listOf(
+                menuActions = if (mode == io.github.thatsfguy.meshcore.presentation.AppMode.Simple) {
+                    // Simple mode: the three ways contacts get exchanged.
+                    listOf(
+                        MenuAction("My code…") { showMyCode = true },
+                        MenuAction("Scan a code…") {
+                            communityScanLauncher.launch(
+                                meshScanOptions("Scan a MeshCore code — contact or channel"),
+                            )
+                        },
+                        MenuAction("Paste a code") { vm.importPastedText(clipboard.getText()?.text) },
+                    )
+                } else listOf(
                     // Adverts live here as well as on Settings -> Identity.
                     // Announcing yourself is a frequent, situational thing
                     // ("nobody can see me, say hello again"), and the tidy
@@ -92,16 +112,34 @@ fun ChatsScreen(vm: MeshCoreViewModel, nav: NavController) {
             )
         },
         floatingActionButton = {
-            FloatingActionButton(onClick = { showChannelSheet = true }) {
-                Icon(Icons.Filled.Add, contentDescription = "Add channel")
+            FloatingActionButton(onClick = { showStart = true }) {
+                Icon(Icons.Filled.Add, contentDescription = "New message or channel")
             }
         },
     ) { padding ->
+        if (showMyCode) SelfQrDialog(vm, onDismiss = { showMyCode = false })
+        if (showStart) {
+            StartChooserDialog(
+                onMessage = { showStart = false; showNewMessage = true },
+                onChannel = { showStart = false; showChannelSheet = true },
+                onDismiss = { showStart = false },
+            )
+        }
+        if (showNewMessage) {
+            NewMessageDialog(
+                vm = vm,
+                onPick = { c ->
+                    showNewMessage = false
+                    nav.navigate(conversationRoute(MessageRepository.KIND_DM, c.keyHex))
+                },
+                onDismiss = { showNewMessage = false },
+            )
+        }
         if (conversations.isEmpty()) {
             EmptyHint(
                 modifier = Modifier.padding(padding),
                 text = if (engineState == EngineState.Ready) {
-                    "No conversations yet.\nAdd a channel with +, or message a contact from the Nodes tab."
+                    "No conversations yet.\nTap + to message a contact or add a channel."
                 } else {
                     "Not connected to a radio.\nConnect in Settings → Connection."
                 },
