@@ -90,6 +90,18 @@ fun AboutSection(vm: MeshCoreViewModel) {
  * is a changelog you can't read in the field.
  */
 private val CHANGELOG: List<Pair<String, List<String>>> = listOf(
+    "0.11.0" to listOf(
+        "Simple mode: Chats and Settings only, for people who just need a group's channel. It " +
+            "hides things and changes no settings.",
+        "meshcore:// links from other apps open the same confirmation as a scanned QR code. " +
+            "Contact codes from other apps are now really added.",
+        "Long-press a channel message, \"Message privately\", to ask someone for a DM. On " +
+            "Accept, both phones add each other.",
+        "The Nodes list says whether you can talk to each node: Two-way, They've heard you, " +
+            "Heard only, or No answer yet.",
+        "Far nodes that show no sign of hearing you fold away, adding one asks first, and " +
+            "people and sensors have a Check button.",
+    ),
     "0.10.17" to listOf(
         "Reconnects on its own when the phone's Bluetooth service restarts, instead of showing " +
             "\"connected\" while nothing gets through.",

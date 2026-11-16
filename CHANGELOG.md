@@ -11,6 +11,41 @@ Every entry describes what is in **that tagged build**. A feature that landed af
 belongs in the next section, not this one — 0.3.0 was once credited with four features that
 shipped after it, which misled nobody so much as the author, three months later.
 
+## 0.11.0
+
+**Simple mode.** For handing the app to someone who just needs to talk on a group's channel,
+such as a first-responder team. Choose it at first run or in Settings.
+
+- Shows Chats and Settings only. The Public channel, repeater and room threads, signal detail and
+  routing actions are hidden.
+- It only hides things and never changes a setting. Switching back to Full shows everything again.
+
+**Links from other apps.** A `meshcore://` link tapped in another app opens the same confirmation
+a scanned QR code does. Nothing is added without a tap, and a link that arrives before the radio
+connects waits until it does.
+
+- Contact codes from other apps were reported as "Contact imported" when the radio had in fact
+  declined them (it does when auto-add is off). They now go through the normal confirm-and-add
+  step and really are added.
+- Your own QR code has a "Send link" button.
+
+**Ask someone for a DM from a channel.** Long-press their channel message and choose "Message
+privately". They get Accept or Decline; on Accept, both phones add each other.
+
+- An accept only counts if this phone asked that person in the last 7 days, so nobody can add
+  themselves with a faked reply.
+- Chats + now offers "Message a contact".
+
+**Can I talk to them?** The Nodes list now answers that for every node, from what the app already
+knows and without using airtime.
+
+- Each contact reads Two-way, Two-way before, They've heard you, Heard only, or No answer yet. A
+  delivered message or an answered ping, sign-in or telemetry request counts as two-way for 7 days.
+- Nodes you hear but that show no sign of hearing you, and are 4 or more hops or over 100 km
+  away, fold into a collapsed "Far away, heard only" group. Adding one asks first.
+- People and sensors have a "Check if they can hear you" button. Most radios only answer it if
+  their owner allows it, so no answer is not taken as proof they can't hear you.
+
 ## 0.10.17
 
 Two fixes for a phone that looked connected but wasn't.
