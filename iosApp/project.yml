@@ -62,6 +62,9 @@ targets:
       base:
         TARGETED_DEVICE_FAMILY: "1,2"
         PRODUCT_BUNDLE_IDENTIFIER: io.github.thatsfguy.meshcore.ios
+        # Assets.xcassets/AppIcon: the Android launcher glyph, rendered by
+        # tools/render-ios-icon.py from the same vector coordinates.
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         FRAMEWORK_SEARCH_PATHS:
           - $(SRCROOT)/../shared/build/XCFrameworks/release
         # Shared.xcframework requests autolink for `MeshCoreCrypto` — the

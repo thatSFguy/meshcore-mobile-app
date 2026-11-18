@@ -140,6 +140,8 @@ final class MeshCoreStore: ObservableObject {
     private var bookOwner: String?
     private var saveWork: Task<Void, Never>?
 
+    private let diag = DiagnosticsLog.shared
+
     private static func nowSeconds() -> Int64 { Int64(Date().timeIntervalSince1970) }
     private static func nowMs() -> Int64 { Int64(Date().timeIntervalSince1970 * 1000) }
 
@@ -158,7 +160,7 @@ final class MeshCoreStore: ObservableObject {
             // match the engine's own default — the name the radio is told
             // in APP_START (CLAUDE.md: identify as MeshCoreHardened).
             appName: "MeshCoreHardened",
-            log: { _ in }
+            log: DiagnosticsLog.shared.sink("Engine")
         )
         startWatching()
         startConnectionMemory()
@@ -172,6 +174,7 @@ final class MeshCoreStore: ObservableObject {
             let wasReady = self.isReady
             self.isReady = state == EngineState.ready
             self.engineStateLabel = self.label(for: state)
+            self.diag.log("Store", "engine state \(state.name)")
             if self.isReady && !wasReady {
                 Task { try? await self.engine.refreshBattery() }
                 if let held = self.linkInbox.onReady() { self.pendingLink = held }
@@ -282,6 +285,8 @@ final class MeshCoreStore: ObservableObject {
             scope: scope
         )
         s.onChanged = { [weak self] in self?.scheduleSave() }
+        s.log = DiagnosticsLog.shared.sink("Msg")
+        diag.log("Store", "history opened for radio \(selfKey.prefix(12)): \((book.messages.value as? [Any])?.count ?? 0) messages")
         s.onNewMessage = { [weak self] key, sender, text in
             self?.notify(threadKey: key, sender: sender, text: text)
         }
@@ -478,6 +483,7 @@ final class MeshCoreStore: ObservableObject {
             tcpPort: KotlinInt(int: Int32(clamping: tcpPort)),
             tcpEnabled: tcpEnabled
         )
+        diag.log("Store", "restore connection: \(memory.map { String(describing: type(of: $0)) } ?? "nothing remembered")")
         if let ble = memory as? ConnectionMemoryBle,
            let id = UUID(uuidString: ble.address),
            let peripheral = scanner.knownPeripheral(id) {
@@ -511,6 +517,7 @@ final class MeshCoreStore: ObservableObject {
         // waits in connect() until it is back.
         let central = scanner.takeCentralForConnect()
         linkTarget = name
+        diag.log("Store", "BLE link to \(name)")
         supervise { _ in IosBleTransport(central: central, peripheral: peripheral) }
     }
 
@@ -525,7 +532,7 @@ final class MeshCoreStore: ObservableObject {
                 port: port,
                 scope: scope,
                 socketFactory: { h, p in TcpSocket(host: h, port: p.int32Value) },
-                logger: { _ in }
+                logger: DiagnosticsLog.shared.sink("TCP")
             )
         }
     }
@@ -544,9 +551,12 @@ final class MeshCoreStore: ObservableObject {
             onError: { [weak self] message in
                 // Every failure the transports raise is already a sentence
                 // meant for a person, so surface it rather than replace it.
-                if let message { self?.engineStateLabel = message }
+                if let message {
+                    self?.engineStateLabel = message
+                    self?.diag.log("Link", "error: \(message)")
+                }
             },
-            log: { _ in },
+            log: DiagnosticsLog.shared.sink("Link"),
             now: { KotlinLong(value: MeshCoreStore.nowMs()) }
         )
         supervisor = sup
@@ -565,6 +575,7 @@ final class MeshCoreStore: ObservableObject {
     /// Drop the link and stay down. Auto-reconnect resumes only on the
     /// next launch, and only if it is on.
     func disconnect() {
+        diag.log("Store", "disconnect requested")
         stopSupervisor()
         linkTarget = nil
         objectWillChange.send()
@@ -573,6 +584,7 @@ final class MeshCoreStore: ObservableObject {
     /// Scanning ends any live link: the scanner has to take the BLE
     /// central's delegate back, which silences the transport using it.
     func scanForRadios() {
+        diag.log("Store", "scan for radios")
         if supervisor != nil { disconnect() }
         scanner.startScan()
     }
@@ -585,6 +597,7 @@ final class MeshCoreStore: ObservableObject {
         guard let key = HexKt.hexToBytesOrNull(hex: keyHex) else { return }
         Task {
             let ok = (try? await engine.resetPath(pubKey: key))?.boolValue ?? false
+            self.diag.log("Store", "reset path \(keyHex.prefix(12)): \(ok ? "ok" : "refused")")
             self.nodeActionProblem = ok ? nil : "The radio did not confirm the path reset."
         }
     }
@@ -595,6 +608,7 @@ final class MeshCoreStore: ObservableObject {
         guard let key = HexKt.hexToBytesOrNull(hex: keyHex) else { return }
         Task {
             let ok = (try? await engine.removeContact(pubKey: key))?.boolValue ?? false
+            self.diag.log("Store", "remove contact \(keyHex.prefix(12)): \(ok ? "ok" : "refused")")
             self.nodeActionProblem = ok ? nil : "The radio did not remove the contact."
         }
     }
@@ -604,6 +618,7 @@ final class MeshCoreStore: ObservableObject {
     func sendAdvert(flood: Bool) {
         Task {
             let ok = (try? await engine.sendSelfAdvert(flood: flood))?.boolValue ?? false
+            self.diag.log("Store", "advert (\(flood ? "flood" : "zero hop")): \(ok ? "sent" : "refused")")
             self.nodeActionProblem = ok ? nil : "The radio did not send the advert."
         }
     }
@@ -725,6 +740,8 @@ final class MeshCoreStore: ObservableObject {
         }
         do {
             let outcome = try await repeaterAdmin.signIn(keyHex: keyHex, password: password)
+            // The outcome only — never the password.
+            diag.log("Admin", "sign-in \(keyHex.prefix(12)): \(outcome)")
             let granted = RepeaterReadout.shared.session(advType: type, outcome: outcome)
             if granted.signedIn { adminSessions[keyHex] = granted }
             return RepeaterReadout.shared.failure(outcome: outcome)

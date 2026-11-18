@@ -74,6 +74,19 @@ class MessagingSession(
      */
     var filteredNames: Set<String> = emptySet()
 
+    /**
+     * Diagnostics: one line per send step and per arrival — status,
+     * attempt, ACK, hops, SNR, a 12-hex key prefix. NEVER message text
+     * or a channel sender's name: the log is for "did it go and did it
+     * come back", and gets pasted into issues. The platform redacts and
+     * gates it (off by default, SCOPE.md).
+     */
+    var log: ((String) -> Unit)? = null
+
+    private fun note(line: String) {
+        log?.let { runCatching { it(line) } }
+    }
+
     private var collector: Job? = null
 
     fun start() {
@@ -96,6 +109,7 @@ class MessagingSession(
                 if (BlockList.isBlockableMessage(event.txtType) &&
                     BlockList.isBlockedSender(event.senderKeyHex, blockedKeys)
                 ) {
+                    note("DM from ${event.senderPrefixHex.take(12)} dropped: blocked")
                     return
                 }
                 val peer = event.senderKeyHex ?: event.senderPrefixHex
@@ -110,10 +124,17 @@ class MessagingSession(
                     snr = event.snr,
                     hops = event.hops,
                 )
+                note(
+                    "DM from ${peer.take(12)}${if (event.senderKeyHex == null) " (unresolved)" else ""}: " +
+                        "$outcome, hops=${event.hops ?: "?"} snr=${event.snr ?: "?"}",
+                )
                 after(outcome, key, event.roomAuthorLabel, event.text)
             }
             is MeshEvent.ChannelMessageReceived -> {
-                if (BlockList.isFilteredChannelName(event.senderName, filteredNames)) return
+                if (BlockList.isFilteredChannelName(event.senderName, filteredNames)) {
+                    note("Channel ${event.channelIndex} post dropped: sender name filtered")
+                    return
+                }
                 val key = Inbox.threadKey(Inbox.KIND_CHANNEL, event.channelIndex.toString())
                 val outcome = book.receive(
                     threadKey = key,
@@ -125,6 +146,7 @@ class MessagingSession(
                     snr = event.snr,
                     hops = event.hops,
                 )
+                note("Channel ${event.channelIndex} post: $outcome, hops=${event.hops ?: "?"} snr=${event.snr ?: "?"}")
                 after(outcome, key, event.senderName, event.text)
             }
             else -> Unit
@@ -157,15 +179,30 @@ class MessagingSession(
             storedPathHops = route?.storedHops,
             lastHeardHops = book.thread(threadKey).lastOrNull { !it.outgoing && it.hops != null }?.hops,
         )
+        val who = keyHex.take(12)
+        note(
+            "DM #$id to $who: queued, " +
+                (if (route?.hasStoredPath == true) "stored path ${route.storedHops} hops" else "no stored path (flood)") +
+                ", est hops=${knownHops ?: "?"}",
+        )
         val ladderRadio = object : DirectSend.Radio {
-            override suspend fun send(text: String, attempt: Int, timestampSeconds: Long) =
-                radio.sendDirect(keyHex, text, attempt, timestampSeconds)
-            override suspend fun resetPath() = radio.resetPath(keyHex)
+            override suspend fun send(text: String, attempt: Int, timestampSeconds: Long): DirectSend.Receipt? {
+                val receipt = radio.sendDirect(keyHex, text, attempt, timestampSeconds)
+                note(
+                    "DM #$id attempt ${attempt + 1}: " + (
+                        receipt?.let { "radio accepted, ack=${it.ackHash.toString(16)} wait=${it.timeoutMs}ms flood=${it.isFlood}" }
+                            ?: "radio refused"
+                        ),
+                )
+                return receipt
+            }
+            override suspend fun resetPath(): Boolean =
+                radio.resetPath(keyHex).also { note("DM #$id: path reset before flood ${if (it) "ok" else "refused"}") }
             override val deliveries: Flow<Long> =
                 radio.events.filterIsInstance<MeshEvent.MessageDelivered>().map { it.ackHash }
         }
         scope.launch {
-            DirectSend.run(
+            val final = DirectSend.run(
                 radio = ladderRadio,
                 text = body,
                 timestampSeconds = timestamp,
@@ -175,6 +212,7 @@ class MessagingSession(
                 book.updateStatus(id, update.status, update.ackHash, update.attempts)
                 onChanged?.invoke()
             }
+            note("DM #$id to $who: $final")
         }
         return id
     }
@@ -249,6 +287,7 @@ class MessagingSession(
         onChanged?.invoke()
         scope.launch {
             val ok = runCatching { radio.sendChannel(index, body, timestamp) }.getOrDefault(false)
+            note("Channel $index post #$id: ${if (ok) "radio accepted" else "radio refused"}")
             book.updateStatus(id, if (ok) MessageStatus.Sent else MessageStatus.Failed)
             onChanged?.invoke()
         }

@@ -7,6 +7,7 @@ import io.github.thatsfguy.meshcore.protocol.Regions
 import io.github.thatsfguy.meshcore.protocol.Retention
 import io.github.thatsfguy.meshcore.transport.ConnectionMemory
 import io.github.thatsfguy.meshcore.transport.SavedNode
+import io.github.thatsfguy.meshcore.util.LogRedaction
 import io.github.thatsfguy.meshcore.presentation.UnitSystem
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -794,23 +795,12 @@ class DiagnosticsLog(private val prefs: Preferences) {
     companion object {
         private const val MAX_LINES = 500
 
-        private val PRV_KEY = Regex("""(set\s+prv\.key\s+)\S+""", RegexOption.IGNORE_CASE)
-        private val PASSWORD_CLI = Regex("""(password\s+)\S+""", RegexOption.IGNORE_CASE)
-        private val LONG_HEX = Regex("""\b[0-9a-fA-F]{32,}\b""")
-
         /**
-         * A BLE MAC. The connection log names the radio it is talking
-         * to, which is useful when several are saved and unhelpful in a
-         * log the user has pasted somewhere: a MAC is a permanent
-         * hardware identifier. The last two octets are kept so lines
-         * about different radios stay distinguishable.
+         * Strip anything secret-shaped before it can reach the log, and
+         * mask BLE MACs. The rule lives in shared ([LogRedaction]) since
+         * iOS has a diagnostics log too; one rule, not two copies.
          */
-        private val BLE_MAC =
-            Regex("""\b(?:[0-9A-Fa-f]{2}:){4}([0-9A-Fa-f]{2}:[0-9A-Fa-f]{2})\b""")
-
-        /** Strip anything secret-shaped before it can reach the log. */
-        fun redact(message: String): String =
-            redactSecrets(message).replace(BLE_MAC) { "··:··:··:··:${it.groupValues[1]}" }
+        fun redact(message: String): String = LogRedaction.redact(message)
 
         /**
          * Strip SECRETS only — for text the app keeps and must still be
@@ -827,9 +817,6 @@ class DiagnosticsLog(private val prefs: Preferences) {
          * advertising", and fell back to a 30-second scan by name on
          * every update. Found on the test RAK, 2026-09-24.
          */
-        fun redactSecrets(message: String): String = message
-            .replace(PRV_KEY) { "${it.groupValues[1]}[REDACTED]" }
-            .replace(PASSWORD_CLI) { "${it.groupValues[1]}[REDACTED]" }
-            .replace(LONG_HEX, "[HEX-REDACTED]")
+        fun redactSecrets(message: String): String = LogRedaction.redactSecrets(message)
     }
 }

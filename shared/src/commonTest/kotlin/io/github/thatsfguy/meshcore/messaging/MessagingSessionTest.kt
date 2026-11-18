@@ -313,4 +313,79 @@ class MessagingSessionTest {
         assertEquals(listOf("hi"), s.book.thread("ch|0").map { it.text })
         s.stop()
     }
+
+    // --- diagnostics -------------------------------------------------------
+
+    @Test
+    fun theLogNarratesADeliveredSendWithoutItsText() = runTest {
+        val radio = FakeRadio()
+        val s = session(radio)
+        val lines = mutableListOf<String>()
+        s.log = { lines += it }
+        val id = s.sendDirect(peer, "meet at the north gate")!!
+        runCurrent()
+        radio.bus.emit(MeshEvent.MessageDelivered(ackHash = 500L, tripMs = 900))
+        runCurrent()
+        assertEquals(
+            listOf(
+                "DM #$id to ${peer.take(12)}: queued, stored path 2 hops, est hops=2",
+                "DM #$id attempt 1: radio accepted, ack=1f4 wait=3000ms flood=false",
+                "DM #$id to ${peer.take(12)}: Delivered",
+            ),
+            lines,
+        )
+        assertTrue(lines.none { "north gate" in it })
+        s.stop()
+    }
+
+    @Test
+    fun theLogShowsEveryAttemptOfAnUnansweredSend() = runTest {
+        val radio = FakeRadio()
+        val s = session(radio)
+        val lines = mutableListOf<String>()
+        s.log = { lines += it }
+        s.sendDirect(peer, "hi")
+        advanceUntilIdle()
+        assertEquals(3, lines.count { "attempt" in it })
+        assertTrue(lines.any { "path reset before flood ok" in it })
+        assertTrue(lines.last().endsWith(": Failed"))
+        s.stop()
+    }
+
+    @Test
+    fun arrivalsAreLoggedWithoutTextOrChannelSenderName() = runTest {
+        val radio = FakeRadio()
+        val s = session(radio)
+        val lines = mutableListOf<String>()
+        s.log = { lines += it }
+        radio.bus.emit(dm("secret plans"))
+        radio.bus.emit(
+            MeshEvent.ChannelMessageReceived(
+                channelIndex = 2, senderName = "Bob", text = "hey there", timestamp = 1, contentKey = "c1", hops = 3, snr = 4.5,
+            ),
+        )
+        runCurrent()
+        assertEquals(
+            listOf(
+                "DM from ${peer.take(12)}: Added, hops=? snr=6.0",
+                "Channel 2 post: Added, hops=3 snr=4.5",
+            ),
+            lines,
+        )
+        assertTrue(lines.none { "secret" in it || "hey there" in it || "Bob" in it })
+        s.stop()
+    }
+
+    @Test
+    fun aThrowingLogNeverBreaksASend() = runTest {
+        val radio = FakeRadio()
+        val s = session(radio)
+        s.log = { error("log sink gone") }
+        s.sendDirect(peer, "hi")
+        runCurrent()
+        radio.bus.emit(MeshEvent.MessageDelivered(ackHash = 500L, tripMs = 900))
+        runCurrent()
+        assertEquals(MessageStatus.Delivered, s.book.thread("dm|$peer").single().status)
+        s.stop()
+    }
 }

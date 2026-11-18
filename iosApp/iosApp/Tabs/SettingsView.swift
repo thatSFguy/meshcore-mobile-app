@@ -115,6 +115,8 @@ struct SettingsView: View {
                     }
                 }
 
+                DiagnosticsSection()
+
                 Section("About") {
                     LabeledContent("App", value: "MeshCore Hardened")
                     LabeledContent("Version", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?")
@@ -180,6 +182,57 @@ private struct BluetoothSection: View {
         } footer: {
             if store.isLinked {
                 Text("Scanning disconnects the current radio.")
+            }
+        }
+    }
+}
+
+/// Off by default (SCOPE.md). On: radio traffic, link changes and send
+/// attempts are recorded, redacted, in memory and in the device log.
+private struct DiagnosticsSection: View {
+    @AppStorage(DiagnosticsLog.enabledKey) private var enabled = false
+
+    var body: some View {
+        Section {
+            Toggle("Record diagnostics", isOn: $enabled)
+            if enabled {
+                NavigationLink("View log") { DiagnosticsView() }
+            }
+        } header: {
+            Text("Diagnostics")
+        } footer: {
+            Text("For troubleshooting. Keys, passwords and channel secrets are removed; message text is never recorded. Kept in memory only, and also readable by a computer this phone is plugged into.")
+        }
+    }
+}
+
+private struct DiagnosticsView: View {
+    @ObservedObject private var diag = DiagnosticsLog.shared
+
+    var body: some View {
+        ScrollViewReader { proxy in
+            List {
+                if diag.lines.isEmpty {
+                    Text("Nothing yet. Connect to a radio or send a message.")
+                        .foregroundStyle(.secondary)
+                }
+                ForEach(Array(diag.lines.enumerated()), id: \.offset) { i, line in
+                    Text(line)
+                        .font(.system(.caption2, design: .monospaced))
+                        .textSelection(.enabled)
+                        .id(i)
+                }
+            }
+            .onAppear { proxy.scrollTo(diag.lines.count - 1, anchor: .bottom) }
+        }
+        .navigationTitle("Diagnostics")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                Button("Copy") { UIPasteboard.general.string = diag.lines.joined(separator: "\n") }
+                    .disabled(diag.lines.isEmpty)
+                Button("Clear", role: .destructive) { diag.clear() }
+                    .disabled(diag.lines.isEmpty)
             }
         }
     }

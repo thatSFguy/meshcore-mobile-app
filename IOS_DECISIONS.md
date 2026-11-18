@@ -264,6 +264,28 @@ Keep the pattern for further iOS work: branch, dispatch, merge on green.)
     arguments.** It forwards to the engine with the engine's own retry
     counts and budgets so Swift never restates a default.
 
+## Diagnostics and icon (added 2026-11-18, after the first run on an iPhone)
+
+36. **Diagnostics are off by default, and the unified-log mirror follows
+    the same toggle.** The first hardware session had nothing to read:
+    every log sink in the store was `{ _ in }`. `DiagnosticsLog.swift`
+    now takes the engine, supervisor, TCP and `MessagingSession.log`
+    lines, redacts them with the shared `LogRedaction` (moved out of
+    Android's `DiagnosticsLog`, which now delegates to it), keeps the
+    last 500 in memory, and mirrors them to the unified log
+    (subsystem `io.github.thatsfguy.meshcore`, readable tethered with
+    `idevicesyslog -p iosApp`). Android mirrors to logcat only in debug
+    builds; iOS ships one Release build from CI, so the toggle is the
+    gate instead. Lines are `.public` because they are already redacted.
+    `MessagingSession` logs status, attempt, ACK, hops, SNR and 12-hex
+    key prefixes — never message text or a channel sender's name (pinned
+    by `MessagingSessionTest`).
+
+37. **The app icon is the Android launcher glyph**, rendered to the one
+    1024×1024 PNG iOS needs by `tools/render-ios-icon.py` from the same
+    vector coordinates, cropped to the central 72 of the 108 viewport —
+    what an Android launcher actually shows after masking.
+
 ## Swift interop rules learned from CI (Kotlin 2.0.21)
 
 Written down because each one cost a ~20-minute CI round trip:
