@@ -154,6 +154,26 @@ class ChannelJoin(private val radio: Radio, private val crypto: CryptoProvider) 
         }
     }
 
+    /**
+     * Join a community from its code: KEEP its secret first (via
+     * [keepSecret], the platform keystore — `communityIdHex`, secret),
+     * and refuse the join if it can't be kept; then add the community's
+     * public channel. Android's order and rule.
+     */
+    suspend fun joinCommunity(text: String, keepSecret: (String, ByteArray) -> Boolean): Outcome {
+        val c = io.github.thatsfguy.meshcore.protocol.CommunityCode.parse(text)
+            ?: return Outcome.Refused("That isn't a community code this app can read.")
+        val id = io.github.thatsfguy.meshcore.protocol.CommunityCode.idHex(crypto, c.secret)
+        if (!runCatching { keepSecret(id, c.secret) }.getOrDefault(false)) {
+            return Outcome.Refused("This phone couldn't store the community secret securely, so the community was not joined.")
+        }
+        val psk = io.github.thatsfguy.meshcore.protocol.CommunityCode.publicPsk(crypto, c.secret)
+        return when (val out = add(c.name, psk)) {
+            is Outcome.Added -> out.copy(message = "Joined community \"${c.name}\"")
+            else -> out
+        }
+    }
+
     /** The link that shares [channel], for a person you trust with every message on it. */
     fun shareLink(channel: Channel): String = ShareUri.encodeChannel(channel.name, channel.pskHex)
 

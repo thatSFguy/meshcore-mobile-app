@@ -24,6 +24,20 @@ struct ContentView: View {
                 .tabItem { Label("Settings", systemImage: "gear") }
         }
         .onOpenURL { store.openIncoming($0) }
+        // A community code (scanned or pasted): confirm before joining.
+        .alert("Join community \(store.pendingCommunity.flatMap { store.communityName($0) } ?? "")?",
+               isPresented: Binding(get: { store.pendingCommunity != nil }, set: { if !$0 { store.pendingCommunity = nil } })) {
+            Button("Join") {
+                if let code = store.pendingCommunity { store.joinCommunity(code) }
+                store.pendingCommunity = nil
+            }
+            .disabled(!store.isReady)
+            Button("Cancel", role: .cancel) { store.pendingCommunity = nil }
+        } message: {
+            Text(store.pendingCommunity.flatMap { store.communityName($0) } == nil
+                 ? "This community code can't be read."
+                 : "This adds the community's public channel. Its secret stays in this iPhone's Keychain, so the community's other channels can be joined later. Channels are obfuscated, not secure.")
+        }
         .sheet(isPresented: Binding(
             get: { store.pendingLink != nil },
             set: { if !$0 { store.pendingLink = nil } }

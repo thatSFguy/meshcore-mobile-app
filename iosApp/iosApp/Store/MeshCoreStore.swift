@@ -900,7 +900,31 @@ final class MeshCoreStore: ObservableObject {
     /// A scanned code goes to the same confirmation as an opened link.
     /// Unlike a link it is not filtered to meshcore:// first — a stray
     /// code should be explained ("not a MeshCore link"), not ignored.
+    /// A community code waiting for the person's confirmation.
+    @Published var pendingCommunity: String?
+
+    /// The community's name, for the confirmation; nil if the code can't be read.
+    func communityName(_ text: String) -> String? { CommunityCode.shared.parse(text: text)?.name }
+
+    /// Join a confirmed community code: its secret into the Keychain first,
+    /// then its public channel (shared ChannelJoin.joinCommunity).
+    func joinCommunity(_ text: String) {
+        let join = channelJoin
+        Task {
+            let out = try? await join.joinCommunity(text: text) { idHex, secret in
+                KotlinBoolean(bool: CommunityKeychain.keep(idHex: idHex, secret: secret.toData()))
+            }
+            channelMessage = out?.message ?? "Couldn't join the community."
+            nodeActionNote = channelMessage // the scanner lives on Nodes
+            diag.log("Store", "community join: \(channelMessage ?? "")")
+        }
+    }
+
     func openScanned(_ text: String) {
+        if CommunityCode.shared.isCommunity(text: text) {
+            pendingCommunity = text
+            return
+        }
         pendingLink = text
     }
 
