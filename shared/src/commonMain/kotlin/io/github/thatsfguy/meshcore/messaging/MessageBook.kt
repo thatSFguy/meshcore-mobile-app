@@ -127,6 +127,17 @@ class MessageBook(
 
     fun unreadTotal(): Int = Inbox.unreadTotal(_unread.value.values.toList())
 
+    /**
+     * Mark [threadKey] unread by hand ("come back to this"): at least one
+     * unread, never fewer than it already had. Not for the thread on
+     * screen, which never accrues unread.
+     */
+    fun markUnread(threadKey: String) {
+        if (threadKey == activeThread) return
+        val now = _unread.value[threadKey] ?: 0
+        _unread.value = _unread.value + (threadKey to maxOf(now, 1))
+    }
+
     fun markRead(threadKey: String) {
         if ((_unread.value[threadKey] ?: 0) == 0) return
         _unread.value = _unread.value - threadKey

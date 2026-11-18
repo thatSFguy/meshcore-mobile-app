@@ -188,3 +188,27 @@ extension MeshCoreStore {
         objectWillChange.send()
     }
 }
+
+// MARK: - Unread, drafts, contact sharing, telemetry permission
+
+extension MeshCoreStore {
+    /// The meshcore:// card for a contact, to show as a QR or send.
+    func contactShareLink(_ keyHex: String) -> String? {
+        guard let c = liveContact(keyHex) else { return nil }
+        return ShareUri.shared.encodeContact(name: c.name, pubKeyHex: c.publicKeyHex, type: c.type)
+    }
+
+    /// Whether this contact may read our telemetry of one kind (a flag on
+    /// the radio's record: base = battery, location, environment).
+    func telemetryAllowed(_ keyHex: String, flag: Int32) -> Bool {
+        guard let c = liveContact(keyHex) else { return false }
+        return (c.flags & flag) != 0
+    }
+
+    func setTelemetryAllowed(_ keyHex: String, flag: Int32, _ on: Bool) async -> Bool {
+        guard let key = HexKt.hexToBytesOrNull(hex: keyHex) else { return false }
+        let ok = (try? await engine.setContactFlag(pubKey: key, flag: flag, enabled: on))?.boolValue ?? false
+        objectWillChange.send()
+        return ok
+    }
+}

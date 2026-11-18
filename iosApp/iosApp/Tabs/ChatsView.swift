@@ -43,6 +43,9 @@ struct ChatsView: View {
                                     store.deleteThread(thread.id)
                                 }
                             }
+                            .swipeActions(edge: .leading) {
+                                Button("Unread") { store.markUnread(thread.id) }.tint(.blue)
+                            }
                         }
                     }
                 }

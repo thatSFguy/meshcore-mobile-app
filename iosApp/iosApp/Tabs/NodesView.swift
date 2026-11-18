@@ -251,6 +251,7 @@ struct NodeDetailSheet: View {
     @State private var pingLine: String?
     @State private var nick = ""
     @State private var favourite = false
+    @State private var sharing = false
 
     var body: some View {
         NavigationStack {
@@ -298,6 +299,22 @@ struct NodeDetailSheet: View {
                 } footer: {
                     Text("A favourite is never removed by the stale-node sweep. A nickname replaces the advertised name in this app only.")
                 }
+                if node.type == 1 {
+                    Section {
+                        teleToggle("Battery", Codes.shared.CONTACT_FLAG_TELE_BASE)
+                        teleToggle("Location", Codes.shared.CONTACT_FLAG_TELE_LOC)
+                        teleToggle("Environment", Codes.shared.CONTACT_FLAG_TELE_ENV)
+                    } header: {
+                        Text("May read my telemetry")
+                    } footer: {
+                        Text("Applies when your radio's telemetry access (Settings → Mesh policies) is set to per-contact Flags.")
+                    }
+                }
+                Section {
+                    Button("Share contact…") { sharing = true }
+                } footer: {
+                    Text("A QR code of this contact's name and key, for someone else to add them.")
+                }
                 Section {
                     Button(pinging ? "Pinging…" : "Ping") {
                         Task { pinging = true; pingLine = await store.ping(node.id); pinging = false }
@@ -337,6 +354,7 @@ struct NodeDetailSheet: View {
             }
             .navigationTitle(node.displayName)
             .navigationBarTitleDisplayMode(.inline)
+            .sheet(isPresented: $sharing) { ContactQrSheet(title: node.displayName, link: store.contactShareLink(node.id)) }
             .onAppear {
                 nick = store.nickname(node.id) ?? ""
                 favourite = node.isFavorite
@@ -404,5 +422,44 @@ private struct HeardSection: View {
             }
         }
         .buttonStyle(.borderless)
+    }
+}
+
+extension NodeDetailSheet {
+    /// One of the radio's per-contact telemetry flags, as a switch.
+    func teleToggle(_ title: String, _ flag: Int32) -> some View {
+        Toggle(title, isOn: Binding(
+            get: { store.telemetryAllowed(node.id, flag: flag) },
+            set: { on in Task { _ = await store.setTelemetryAllowed(node.id, flag: flag, on) } }
+        ))
+        .disabled(!store.isReady)
+    }
+}
+
+/// A contact's card as a QR, with the link to copy or share.
+private struct ContactQrSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let title: String
+    let link: String?
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 16) {
+                if let link, let image = QrCode.image(link) {
+                    Image(uiImage: image).interpolation(.none).resizable().scaledToFit().frame(maxWidth: 280)
+                    Text("Unsigned: whoever scans it sees the name you hold for this key, not one the node signed.")
+                        .font(.callout).multilineTextAlignment(.center)
+                    ShareLink(item: link) { Label("Send link", systemImage: "square.and.arrow.up") }
+                    Button("Copy link") { UIPasteboard.general.string = link }
+                } else {
+                    Text("This contact is no longer on the radio.").foregroundStyle(.secondary)
+                }
+                Spacer()
+            }
+            .padding()
+            .navigationTitle(title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+        }
     }
 }

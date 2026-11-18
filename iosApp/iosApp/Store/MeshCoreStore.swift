@@ -484,6 +484,11 @@ final class MeshCoreStore: ObservableObject {
         _ = session?.resend(id: id)
     }
 
+    /// Half-typed messages per thread, kept while the app runs (Android
+    /// keeps them for the ViewModel's life) so stepping out of a
+    /// conversation doesn't throw away what was being written.
+    var drafts: [String: String] = [:]
+
     /// Names that have posted in a thread, newest first (mention candidates).
     func senderNames(_ threadKey: String) -> [String] {
         session?.book.senderNames(threadKey: threadKey) ?? []
@@ -496,6 +501,13 @@ final class MeshCoreStore: ObservableObject {
     /// The thread on screen: it accrues no unread and raises no banner.
     func setActiveThread(_ key: String?) {
         session?.book.activeThread = key
+        refreshThreads()
+        scheduleSave()
+    }
+
+    /// Mark a thread unread by hand ("come back to this").
+    func markUnread(_ key: String) {
+        session?.book.markUnread(threadKey: key)
         refreshThreads()
         scheduleSave()
     }

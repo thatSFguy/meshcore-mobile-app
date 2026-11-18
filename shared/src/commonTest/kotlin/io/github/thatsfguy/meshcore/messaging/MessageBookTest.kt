@@ -350,4 +350,19 @@ class MessageBookTest {
         b.addOutgoing(ch, "Me", "mine", 4, "c4")
         assertEquals(listOf("Bob", "Amy"), b.senderNames(ch))
     }
+
+    @Test
+    fun markingUnreadNeverLowersACountAndSparesTheOpenThread() {
+        val b = book()
+        b.markUnread(dm)
+        assertEquals(1, b.unread.value[dm])
+        b.receive(ch, true, "Bob", "a", 1, "c1")
+        b.receive(ch, true, "Bob", "b", 2, "c2")
+        b.markUnread(ch)
+        assertEquals(2, b.unread.value[ch], "never fewer than it already had")
+        b.markRead(dm)
+        b.activeThread = dm
+        b.markUnread(dm)
+        assertNull(b.unread.value[dm], "the thread on screen accrues no unread")
+    }
 }

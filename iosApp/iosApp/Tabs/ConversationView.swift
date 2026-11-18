@@ -146,8 +146,14 @@ struct ConversationView: View {
         } message: {
             Text(DmRequests.companion.CONFIRM_TEXT)
         }
-        .onAppear { store.setActiveThread(threadKey) }
-        .onDisappear { store.setActiveThread(nil) }
+        .onAppear {
+            store.setActiveThread(threadKey)
+            if draft.isEmpty { draft = store.drafts[threadKey] ?? "" }
+        }
+        .onDisappear {
+            store.setActiveThread(nil)
+            store.drafts[threadKey] = draft.isEmpty ? nil : draft
+        }
     }
 
     // MARK: Reply and mention (shared Quoting / Mentions, as Android)
@@ -243,6 +249,7 @@ struct ConversationView: View {
         let typed = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !typed.isEmpty else { return }
         let text = quotePrefix() + typed
+        store.drafts[threadKey] = nil
         replyingTo = nil
         if isChannel, let idx = Int32(threadKey.dropFirst(3)) {
             store.sendChannelMessage(index: idx, text: text)
