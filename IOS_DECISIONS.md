@@ -446,6 +446,18 @@ Keep the pattern for further iOS work: branch, dispatch, merge on green.)
     iOS text fields expose no cursor, so `@` suggestions appear while
     typing at the end of the draft only.
 
+61. **After 0.1.0** (2026-11-18): favourites (the radio's flag),
+    nicknames (this phone only, Android's `nick_<key>`), ping (shared
+    `Routing.ping`), the discovered-nodes inbox (`DiscoveredBook`, per
+    radio), saved radios (`SavedNodes`, which Android now uses too), mark
+    unread, drafts, share a contact's QR, per-contact telemetry
+    permission, and community codes. A community's secret is kept in the
+    iOS Keychain (this device only, unlocked only) — the first secret iOS
+    stores — because the join is refused without it (shared
+    `ChannelJoin.joinCommunity`, Android's rule). Still not on iOS:
+    Purge local data, the map position picker, and (back burner) firmware
+    updates and repeater rekey.
+
 ## Swift interop rules learned from CI (Kotlin 2.0.21)
 
 Written down because each one cost a ~20-minute CI round trip:
