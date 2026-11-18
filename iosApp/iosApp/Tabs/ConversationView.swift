@@ -230,6 +230,10 @@ private struct MessageInfoSheet: View {
                         Text(MessageDetail.shared.COPIES_EXPLAINED)
                     }
                 }
+                if !m.outgoing,
+                   let sketch = store.arrivalSketch(m, senderLabel: m.senderName ?? store.title(for: m.threadKey)) {
+                    PathSketchMap(title: "Route on map", sketch: sketch)
+                }
                 Section(route.title) {
                     Text(route.summary).font(.callout)
                     ForEach(route.steps, id: \.self) { step in

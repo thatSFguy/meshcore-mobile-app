@@ -39,6 +39,9 @@ struct RoutingView: View {
             }
 
             if mode == Routing.companion.MANUAL { manualSections }
+            if let sketch = store.storedRouteSketch(keyHex) {
+                PathSketchMap(title: "Route on map", sketch: sketch)
+            }
             replySection
             historySection
             traceSection

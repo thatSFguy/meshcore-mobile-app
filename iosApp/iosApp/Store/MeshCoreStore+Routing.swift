@@ -112,3 +112,27 @@ extension MeshCoreStore {
         Gpx.shared.fromContacts(contacts: Array(((engine.contacts.value as? [String: Contact]) ?? [:]).values))
     }
 }
+
+extension MeshCoreStore {
+    private var selfPosition: (lat: KotlinDouble?, lon: KotlinDouble?) {
+        guard let me = node.selfInfo,
+              GeoKt.isPlausiblePosition(lat: KotlinDouble(double: me.latitude), lon: KotlinDouble(double: me.longitude))
+        else { return (nil, nil) }
+        return (KotlinDouble(double: me.latitude), KotlinDouble(double: me.longitude))
+    }
+
+    private var allContacts: [Contact] { Array(((engine.contacts.value as? [String: Contact]) ?? [:]).values) }
+
+    func arrivalSketch(_ m: BookMessage, senderLabel: String) -> PathSketch.Sketch? {
+        let pos = selfPosition
+        return PathMaps.shared.arrival(m: m, senderLabel: senderLabel, contacts: allContacts,
+                                       selfName: selfName, selfLatitude: pos.lat, selfLongitude: pos.lon)
+    }
+
+    func storedRouteSketch(_ keyHex: String) -> PathSketch.Sketch? {
+        guard let dest = liveContact(keyHex) else { return nil }
+        let pos = selfPosition
+        return PathMaps.shared.storedRoute(dest: dest, contacts: allContacts,
+                                           selfName: selfName, selfLatitude: pos.lat, selfLongitude: pos.lon)
+    }
+}
