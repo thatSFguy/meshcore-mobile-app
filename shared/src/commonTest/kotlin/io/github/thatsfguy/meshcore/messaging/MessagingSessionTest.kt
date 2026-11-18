@@ -388,4 +388,27 @@ class MessagingSessionTest {
         assertEquals(MessageStatus.Delivered, s.book.thread("dm|$peer").single().status)
         s.stop()
     }
+
+    @Test
+    fun withFloodFallbackOffAStoredPathIsNeverReset() = runTest {
+        val radio = FakeRadio()
+        val s = session(radio)
+        s.floodFallback = false
+        s.sendDirect(peer, "hi")
+        advanceUntilIdle()
+        assertEquals(0, radio.resets)
+        assertEquals(MessageStatus.Failed, s.book.thread("dm|$peer").single().status)
+        s.stop()
+    }
+
+    @Test
+    fun floodFallbackIsOnByDefault() = runTest {
+        val radio = FakeRadio()
+        val s = session(radio)
+        assertTrue(s.floodFallback)
+        s.sendDirect(peer, "hi")
+        advanceUntilIdle()
+        assertEquals(1, radio.resets)
+        s.stop()
+    }
 }

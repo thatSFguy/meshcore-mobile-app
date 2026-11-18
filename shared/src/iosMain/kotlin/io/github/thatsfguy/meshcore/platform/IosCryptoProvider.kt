@@ -1,6 +1,8 @@
 package io.github.thatsfguy.meshcore.platform
 
 import io.github.thatsfguy.meshcore.crypto.CryptoProvider
+import io.github.thatsfguy.meshcore.crypto.cinterop.mch_aes_gcm_open
+import io.github.thatsfguy.meshcore.crypto.cinterop.mch_aes_gcm_seal
 import io.github.thatsfguy.meshcore.crypto.cinterop.mch_ed25519_pubkey
 import io.github.thatsfguy.meshcore.crypto.cinterop.mch_ed25519_sign
 import io.github.thatsfguy.meshcore.crypto.cinterop.mch_ed25519_verify
@@ -204,31 +206,77 @@ class IosCryptoProvider : CryptoProvider {
         return out
     }
 
-    override val supportsAuthenticatedEncryption: Boolean get() = false
+    override val supportsAuthenticatedEncryption: Boolean get() = true
 
-    // AES-GCM is Phase-2 work alongside the CryptoKit bridge. Sealing
-    // returns nothing and opening fails closed, so an iOS build cannot
-    // silently write an unencrypted "encrypted" backup, and cannot claim
-    // to have read one. The config-backup UI must check
-    // [supportsAuthenticatedEncryption] before offering the option.
+    // AES-256-GCM through the CryptoKit bridge (mch_aes_gcm_*), added for
+    // the config backup in iOS Phase 3. Fails closed: wrong sizes or a
+    // bridge refusal throw on seal and return null on open, so nothing
+    // can be written as "encrypted" that wasn't, or read as authentic
+    // that isn't. ConfigBackupIosTest round-trips it on CI.
     override fun aesGcmSeal(
         key32: ByteArray,
         nonce12: ByteArray,
         plaintext: ByteArray,
         aad: ByteArray,
-    ): ByteArray = throw UnsupportedOperationException(
-        "AES-GCM is not bridged on iOS yet — see iosApp/README.md Phase 2",
-    )
+    ): ByteArray {
+        require(key32.size == 32 && nonce12.size == 12) { "AES-GCM needs a 32-byte key and 12-byte nonce" }
+        val out = ByteArray(plaintext.size + 16)
+        val pt = plaintext.orOneByte()
+        val ad = aad.orOneByte()
+        val rc = key32.usePinned { k ->
+            nonce12.usePinned { n ->
+                pt.usePinned { p ->
+                    ad.usePinned { a ->
+                        out.usePinned { o ->
+                            mch_aes_gcm_seal(
+                                k.addressOf(0).reinterpretUByte(), n.addressOf(0).reinterpretUByte(),
+                                p.addressOf(0).reinterpretUByte(), plaintext.size,
+                                a.addressOf(0).reinterpretUByte(), aad.size,
+                                o.addressOf(0).reinterpretUByte(),
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        check(rc == 0) { "AES-GCM seal failed: $rc" }
+        return out
+    }
 
     override fun aesGcmOpen(
         key32: ByteArray,
         nonce12: ByteArray,
         ciphertextAndTag: ByteArray,
         aad: ByteArray,
-    ): ByteArray? = null
+    ): ByteArray? {
+        if (key32.size != 32 || nonce12.size != 12 || ciphertextAndTag.size < 16) return null
+        // +1 so a 16-byte (empty-plaintext) input still has an address to pin.
+        val out = ByteArray(ciphertextAndTag.size - 16 + 1)
+        val ad = aad.orOneByte()
+        val rc = key32.usePinned { k ->
+            nonce12.usePinned { n ->
+                ciphertextAndTag.usePinned { c ->
+                    ad.usePinned { a ->
+                        out.usePinned { o ->
+                            mch_aes_gcm_open(
+                                k.addressOf(0).reinterpretUByte(), n.addressOf(0).reinterpretUByte(),
+                                c.addressOf(0).reinterpretUByte(), ciphertextAndTag.size,
+                                a.addressOf(0).reinterpretUByte(), aad.size,
+                                o.addressOf(0).reinterpretUByte(),
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        return if (rc == 0) out.copyOf(ciphertextAndTag.size - 16) else null
+    }
 }
 
 @OptIn(ExperimentalForeignApi::class)
 private fun kotlinx.cinterop.CPointer<kotlinx.cinterop.ByteVar>.reinterpretUByte():
     kotlinx.cinterop.CPointer<kotlinx.cinterop.UByteVar> =
     kotlinx.cinterop.interpretCPointer(this.rawValue)!!
+
+/** Pinning needs an address; an empty array has none. The length passed alongside stays 0. */
+private fun ByteArray.orOneByte(): ByteArray = if (isEmpty()) ByteArray(1) else this

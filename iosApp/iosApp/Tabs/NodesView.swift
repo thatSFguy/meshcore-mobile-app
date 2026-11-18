@@ -89,6 +89,8 @@ struct NodesView: View {
 
                 if let problem = store.nodeActionProblem {
                     Text(problem).font(.caption).foregroundStyle(.red)
+                } else if let note = store.nodeActionNote {
+                    Text(note).font(.caption).foregroundStyle(.secondary)
                 }
                 ForEach(rows) { node in
                     row(node)

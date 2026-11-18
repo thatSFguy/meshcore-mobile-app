@@ -83,6 +83,13 @@ class MessagingSession(
      */
     var log: ((String) -> Unit)? = null
 
+    /**
+     * Flood on the last DM attempt, resetting the path first. MeshCore's
+     * documented default is ON and it is a real user setting (CLAUDE.md:
+     * the retry rule earned from the firmware FAQ).
+     */
+    var floodFallback: Boolean = true
+
     private fun note(line: String) {
         log?.let { runCatching { it(line) } }
     }
@@ -208,6 +215,7 @@ class MessagingSession(
                 timestampSeconds = timestamp,
                 hasStoredPath = route?.hasStoredPath == true,
                 knownHops = knownHops,
+                floodFallbackEnabled = floodFallback,
             ) { update ->
                 book.updateStatus(id, update.status, update.ackHash, update.attempts)
                 onChanged?.invoke()

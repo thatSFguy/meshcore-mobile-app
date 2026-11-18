@@ -34,6 +34,7 @@ struct MeshCoreApp: App {
         WindowGroup {
             ContentView()
                 .environmentObject(store)
+                .environmentObject(store.node)
         }
         .onChange(of: scenePhase) { _, phase in
             // Don't lose the last half-second of history to a debounce

@@ -107,6 +107,82 @@ public func mch_ed25519_verify(
     }
 }
 
+// MARK: - AES-256-GCM (config backup)
+//
+// The sealed section of a configuration backup (ConfigBackup.kt) is
+// AES-256-GCM: 12-byte nonce, 16-byte tag appended to the ciphertext,
+// the `kdf …` line as associated data. CommonCrypto exposes no GCM to
+// Swift or Kotlin/Native, so it comes from CryptoKit like Ed25519.
+//
+// seal: writes ptLen + 16 bytes (ciphertext || tag) to `out`; 0 on
+// success, -1 when CryptoKit refused the key or nonce.
+// open: `ct` is ciphertext || tag (ctLen >= 16); writes ctLen - 16 bytes
+// of plaintext to `out`; 0 on success, -1 on a short input, -2 when
+// the tag does not verify — wrong passphrase or a tampered file. A
+// failed open writes nothing the caller may use.
+
+@_cdecl("mch_aes_gcm_seal")
+public func mch_aes_gcm_seal(
+    _ key: UnsafePointer<UInt8>,
+    _ nonce: UnsafePointer<UInt8>,
+    _ pt: UnsafePointer<UInt8>,
+    _ ptLen: Int32,
+    _ aad: UnsafePointer<UInt8>,
+    _ aadLen: Int32,
+    _ out: UnsafeMutablePointer<UInt8>
+) -> Int32 {
+    do {
+        let k = SymmetricKey(data: Data(bytes: key, count: 32))
+        let n = try AES.GCM.Nonce(data: Data(bytes: nonce, count: 12))
+        let box = try AES.GCM.seal(
+            Data(bytes: pt, count: Int(ptLen)),
+            using: k,
+            nonce: n,
+            authenticating: Data(bytes: aad, count: Int(aadLen))
+        )
+        var sealed = Data(box.ciphertext)
+        sealed.append(box.tag)
+        sealed.withUnsafeBytes { src in
+            if let base = src.baseAddress { memcpy(out, base, sealed.count) }
+        }
+        return 0
+    } catch {
+        return -1
+    }
+}
+
+@_cdecl("mch_aes_gcm_open")
+public func mch_aes_gcm_open(
+    _ key: UnsafePointer<UInt8>,
+    _ nonce: UnsafePointer<UInt8>,
+    _ ct: UnsafePointer<UInt8>,
+    _ ctLen: Int32,
+    _ aad: UnsafePointer<UInt8>,
+    _ aadLen: Int32,
+    _ out: UnsafeMutablePointer<UInt8>
+) -> Int32 {
+    guard ctLen >= 16 else { return -1 }
+    do {
+        let all = Data(bytes: ct, count: Int(ctLen))
+        let box = try AES.GCM.SealedBox(
+            nonce: try AES.GCM.Nonce(data: Data(bytes: nonce, count: 12)),
+            ciphertext: all.prefix(all.count - 16),
+            tag: all.suffix(16)
+        )
+        let plain = try AES.GCM.open(
+            box,
+            using: SymmetricKey(data: Data(bytes: key, count: 32)),
+            authenticating: Data(bytes: aad, count: Int(aadLen))
+        )
+        plain.withUnsafeBytes { src in
+            if let base = src.baseAddress { memcpy(out, base, plain.count) }
+        }
+        return 0
+    } catch {
+        return -2
+    }
+}
+
 // MARK: - Secret-vault wrapping key (Keychain)
 //
 // The iOS analogue of Android's Keystore-backed `KeystoreSecretVault`.

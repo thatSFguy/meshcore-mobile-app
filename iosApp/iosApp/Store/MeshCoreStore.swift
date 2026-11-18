@@ -108,6 +108,9 @@ final class MeshCoreStore: ObservableObject {
     @Published private(set) var radioFacts: [(label: String, value: String)] = []
     /// A sentence for the last node action that went wrong, or nil.
     @Published var nodeActionProblem: String?
+    /// A sentence for the last node action that worked (e.g. an advert
+    /// went out) — the first iPhone test found success was silent.
+    @Published var nodeActionNote: String?
     /// Every thread with traffic, most recent first.
     @Published var threads: [UiThread] = []
     @Published var unreadTotal: Int = 0
@@ -125,6 +128,8 @@ final class MeshCoreStore: ObservableObject {
 
     private let engine: MeshCoreEngine
     private let crypto: IosCryptoProvider
+    /// The radio's own settings, for the Settings → This node spokes.
+    let node: NodeSettingsStore
     private lazy var channelJoin = ChannelJoin.companion.over(engine: engine, crypto: crypto)
     private lazy var linkImport = LinkImport.companion.over(engine: engine, channels: channelJoin)
     /// Whichever transport is attached — TCP or BLE.
@@ -152,7 +157,7 @@ final class MeshCoreStore: ObservableObject {
         let crypto = IosCryptoProvider()
         self.scope = scope
         self.crypto = crypto
-        engine = MeshCoreEngine(
+        let engine = MeshCoreEngine(
             scope: scope,
             crypto: crypto,
             nowSeconds: { KotlinLong(value: MeshCoreStore.nowSeconds()) },
@@ -162,6 +167,8 @@ final class MeshCoreStore: ObservableObject {
             appName: "MeshCoreHardened",
             log: DiagnosticsLog.shared.sink("Engine")
         )
+        self.engine = engine
+        node = NodeSettingsStore(engine: engine, scope: scope)
         startWatching()
         startConnectionMemory()
     }
@@ -286,6 +293,7 @@ final class MeshCoreStore: ObservableObject {
         )
         s.onChanged = { [weak self] in self?.scheduleSave() }
         s.log = DiagnosticsLog.shared.sink("Msg")
+        s.floodFallback = floodFallback
         diag.log("Store", "history opened for radio \(selfKey.prefix(12)): \((book.messages.value as? [Any])?.count ?? 0) messages")
         s.onNewMessage = { [weak self] key, sender, text in
             self?.notify(threadKey: key, sender: sender, text: text)
@@ -415,11 +423,31 @@ final class MeshCoreStore: ObservableObject {
 
     // MARK: - Notifications
 
+    @AppStorage("notificationsEnabled") var notificationsEnabled: Bool = true {
+        willSet { objectWillChange.send() }
+    }
+    @AppStorage("notifyDirect") var notifyDirect: Bool = true {
+        willSet { objectWillChange.send() }
+    }
+    @AppStorage("notifyChannels") var notifyChannels: Bool = true {
+        willSet { objectWillChange.send() }
+    }
+
+    /// Flood on the last DM attempt (Settings → Mesh policies). MeshCore's
+    /// documented default is on.
+    @AppStorage("floodFallback") var floodFallback: Bool = true {
+        willSet { objectWillChange.send() }
+        didSet { session?.floodFallback = floodFallback }
+    }
+
     func requestNotificationPermission() {
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
     }
 
     private func notify(threadKey: String, sender: String?, text: String) {
+        guard notificationsEnabled else { return }
+        let isChannel = threadKey.hasPrefix("ch|")
+        if isChannel ? !notifyChannels : !notifyDirect { return }
         let content = UNMutableNotificationContent()
         content.title = title(for: threadKey)
         content.body = sender.map { "\($0): \(text)" } ?? text
@@ -620,6 +648,7 @@ final class MeshCoreStore: ObservableObject {
             let ok = (try? await engine.sendSelfAdvert(flood: flood))?.boolValue ?? false
             self.diag.log("Store", "advert (\(flood ? "flood" : "zero hop")): \(ok ? "sent" : "refused")")
             self.nodeActionProblem = ok ? nil : "The radio did not send the advert."
+            self.nodeActionNote = ok ? (flood ? "Flood advert sent mesh-wide." : "Zero-hop advert sent to nodes in direct range.") : nil
         }
     }
 
@@ -670,8 +699,106 @@ final class MeshCoreStore: ObservableObject {
         }
     }
 
+    /// Apply a confirmed settings code; `region` nil leaves the region alone.
+    func applyRadioLink(_ preview: LinkImport.Preview, region: String?) {
+        let li = linkImport
+        Task {
+            do {
+                channelMessage = try await li.applyRadio(preview: preview, pickedRegion: region)
+            } catch {
+                channelMessage = error.localizedDescription
+            }
+            diag.log("Store", "settings code applied: \(channelMessage ?? "?")")
+        }
+    }
+
     /// The last channel action's outcome, as a sentence to show.
     @Published var channelMessage: String?
+
+    // MARK: - Backup
+    //
+    // The file format, allow-list and restore steps are shared
+    // (ConfigBackup, BackupSettings, BackupRestore), under Android's
+    // preference names, so either app restores the other's file.
+
+    /// This app's settings under the shared backup names.
+    private var backupSettings: [String: String] {
+        [
+            "transport_ble_enabled": "true",
+            BackupSettings.shared.TCP: String(tcpEnabled),
+            "auto_reconnect": String(autoReconnect),
+            "diagnostics_enabled": String(UserDefaults.standard.bool(forKey: DiagnosticsLog.enabledKey)),
+            "notifications_enabled": String(notificationsEnabled),
+        ]
+    }
+
+    /// The backup file's text, or a sentence saying why there is none.
+    /// Slow with a passphrase (PBKDF2), so the work runs off the main thread.
+    func buildBackup(passphrase: String?) async -> Result<String, BackupError> {
+        guard isReady, !selfKeyHex.isEmpty else { return .failure(BackupError("Connect to a radio first: a backup is of a radio's contacts and channels.")) }
+        let contacts = Array(((engine.contacts.value as? [String: Contact]) ?? [:]).values)
+        let channels = (engine.channels.value as? [Channel]) ?? []
+        let plain = BackupRestore.companion.plainFor(
+            selfKeyHex: selfKeyHex,
+            appVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "",
+            nowSeconds: MeshCoreStore.nowSeconds(),
+            settings: backupSettings,
+            contacts: contacts,
+            channels: channels,
+            regions: node.regions
+        )
+        let crypto = self.crypto
+        let result: Result<String, BackupError> = await Task.detached {
+            do {
+                return .success(try BackupRestore.companion.export(crypto: crypto, plain: plain, channels: channels, passphrase: passphrase))
+            } catch {
+                return .failure(BackupError("Couldn't build the backup: \(error.localizedDescription)"))
+            }
+        }.value
+        diag.log("Store", "backup built: \((try? result.get()) != nil ? "ok" : "failed"), secrets: \(passphrase != nil)")
+        return result
+    }
+
+    var backupFileName: String { BackupRestore.companion.suggestedFileName(nowSeconds: MeshCoreStore.nowSeconds()) }
+
+    func readBackup(_ url: URL) -> ConfigBackup.Parsed? {
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+        defer { try? handle.close() }
+        let data = (try? handle.read(upToCount: Int(BackupRestore.companion.MAX_FILE_BYTES) + 1)) ?? Data()
+        guard data.count <= Int(BackupRestore.companion.MAX_FILE_BYTES),
+              let text = String(data: data, encoding: .utf8) else { return nil }
+        return ConfigBackup.shared.decode(text: text)
+    }
+
+    func restoreBackup(_ parsed: ConfigBackup.Parsed, options: BackupRestore.Options, passphrase: String?) async -> String {
+        do {
+            let report = try await BackupRestore.companion.over(engine: engine).restore(
+                crypto: crypto,
+                parsed: parsed,
+                options: options,
+                passphrase: (passphrase?.isEmpty ?? true) ? nil : passphrase,
+                tcpWarningAccepted: tcpWarningAccepted,
+                connected: isReady
+            )
+            for (key, value) in report.settings {
+                let on = value == "true"
+                switch key {
+                case BackupSettings.shared.TCP: tcpEnabled = on
+                case "auto_reconnect": autoReconnect = on
+                case "diagnostics_enabled": UserDefaults.standard.set(on, forKey: DiagnosticsLog.enabledKey)
+                case "notifications_enabled": notificationsEnabled = on
+                default: break // Android-only settings (theme, units, map tiles…)
+                }
+            }
+            node.mergeRegions(report.regions)
+            diag.log("Store", "backup restored: \(report.message)")
+            return report.message
+        } catch {
+            return "Restore failed: \(error.localizedDescription)"
+        }
+    }
 
     func joinHashtag(_ input: String) { runChannel { try await $0.joinHashtag(input: input) } }
     func createPrivateChannel(_ name: String) { runChannel { try await $0.createPrivate(nameInput: name) } }
@@ -817,4 +944,10 @@ final class MeshCoreStore: ObservableObject {
         // Per-channel regions are Android-only for now (IOS_DECISIONS.md).
         _ = session?.sendChannel(index: index, text: text)
     }
+}
+
+/// A backup that could not be built, as the sentence to show.
+struct BackupError: Error {
+    let message: String
+    init(_ message: String) { self.message = message }
 }

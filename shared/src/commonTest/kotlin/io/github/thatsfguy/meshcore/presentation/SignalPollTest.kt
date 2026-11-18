@@ -72,4 +72,19 @@ class SignalPollTest {
             assertIs<View.Showing>(poll.view).range,
         )
     }
+
+    @Test
+    fun `the flat rows and status line follow the view`() {
+        val poll = SignalPoll()
+        assertEquals("Reading…", poll.statusLine)
+        assertEquals(emptyList(), poll.rows)
+        poll.onResult(reading(-110))
+        assertEquals(null, poll.statusLine)
+        assertEquals(listOf("Noise floor", "Last packet heard"), poll.rows.map { it.label })
+        assertEquals(SignalReadout.noiseFloor(-110), poll.rows[0].value)
+        val silent = SignalPoll().also { it.onResult(null) }
+        assertEquals("The radio did not answer.", silent.statusLine)
+        val old = SignalPoll().also { it.onResult(MeshCoreEngine.Stats.Unsupported) }
+        assertEquals("This radio's firmware does not report signal statistics.", old.statusLine)
+    }
 }

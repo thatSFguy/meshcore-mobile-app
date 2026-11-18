@@ -2,6 +2,7 @@ package io.github.thatsfguy.meshcore.messaging
 
 import io.github.thatsfguy.meshcore.engine.MeshCoreEngine
 import io.github.thatsfguy.meshcore.protocol.Codes
+import io.github.thatsfguy.meshcore.protocol.RadioPresets
 import io.github.thatsfguy.meshcore.protocol.ShareUri
 import io.github.thatsfguy.meshcore.util.hexToBytesOrNull
 
@@ -16,7 +17,11 @@ import io.github.thatsfguy.meshcore.util.hexToBytesOrNull
  * whoever made the code. An advert link whose signature does not verify
  * is refused outright, never offered as an unsigned card.
  */
-class LinkImport(private val radio: Radio, private val channels: ChannelJoin) {
+class LinkImport(
+    private val radio: Radio,
+    private val channels: ChannelJoin,
+    private val retune: RadioRetune,
+) {
 
     interface Radio {
         val selfKeyHex: String?
@@ -33,6 +38,17 @@ class LinkImport(private val radio: Radio, private val channels: ChannelJoin) {
         /** True when there is something to confirm. */
         abstract val canApply: Boolean
 
+        // Settings-code fields, on the base type so Swift never has to
+        // name the three-deep `Preview.Radio` (IOS_DECISIONS interop rules).
+        /** True for a settings code, which retunes the radio. */
+        open val isRadio: Boolean get() = false
+        /** Red text to show above the confirm button. */
+        open val warnings: List<String> get() = emptyList()
+        open val regionHeadline: String? get() = null
+        open val regionChoices: List<String> get() = emptyList()
+        open val initialRegion: String? get() = null
+        open val regionStartsTicked: Boolean get() = false
+
         data class Contact(
             val card: ShareUri.Decoded.Contact,
             override val title: String,
@@ -47,6 +63,28 @@ class LinkImport(private val radio: Radio, private val channels: ChannelJoin) {
             override val detail: String,
         ) : Preview() {
             override val canApply: Boolean get() = true
+        }
+
+        /**
+         * A settings code: retunes the radio. Never applied without the
+         * person's confirmation, and the region only if they leave it
+         * ticked ([regionChoices], [defaultRegion]).
+         */
+        data class Radio(
+            val config: ShareUri.Decoded.RadioConfig,
+            override val title: String,
+            override val detail: String,
+            /** Red text: unsigned, regulatory, and anything the code got wrong. */
+            override val warnings: List<String>,
+            override val regionHeadline: String?,
+            override val regionChoices: List<String>,
+            /** The choice selected first; meaningful only when [regionChoices] is non-empty. */
+            override val initialRegion: String?,
+            /** Whether "also set the region" starts ticked: only when the code names a default. */
+            override val regionStartsTicked: Boolean,
+        ) : Preview() {
+            override val canApply: Boolean get() = true
+            override val isRadio: Boolean get() = true
         }
 
         data class Unusable(override val title: String, override val detail: String) : Preview() {
@@ -70,10 +108,7 @@ class LinkImport(private val radio: Radio, private val channels: ChannelJoin) {
                     if (scope.isBlank()) "" else " It asks for region #$scope, which iOS cannot apply yet.",
             )
         }
-        is ShareUri.Decoded.RadioConfig -> Preview.Unusable(
-            "Radio settings",
-            "Settings codes retune the radio; iOS cannot apply them yet. Use the Android app.",
-        )
+        is ShareUri.Decoded.RadioConfig -> radioPreview(d)
         is ShareUri.Decoded.UnsupportedVersion -> Preview.Unusable(
             "Newer code",
             "This code needs a newer version of the app (format v${d.version}).",
@@ -118,6 +153,42 @@ class LinkImport(private val radio: Radio, private val channels: ChannelJoin) {
         )
     }
 
+    private fun radioPreview(c: ShareUri.Decoded.RadioConfig): Preview.Radio {
+        val warnings = buildList {
+            add("Anyone can make one of these codes; nothing in it is signed. " + RadioPresets.REGULATORY_CAVEAT)
+            c.rejectedRegionTree?.let {
+                add(
+                    "It also lists regions \"$it\", which isn't a list this app can use " +
+                        "(up to ${ShareUri.MAX_REGION_TREE} valid names, each once, including the default), so it is ignored.",
+                )
+            }
+            c.rejectedRegion?.let {
+                add("It also names region \"$it\", which isn't a valid region name (lowercase letters, digits and dashes), so it won't be set.")
+            }
+        }
+        val choices = c.regionChoices()
+        return Preview.Radio(
+            config = c,
+            title = "Apply these radio settings?",
+            detail = "${ShareUri.sanitizeName(c.name).ifBlank { "(unnamed mesh)" }}\n${c.summary()}\n\n" +
+                "This retunes your radio. If these values are wrong you will not see errors — you will see an empty mesh.",
+            warnings = warnings,
+            regionHeadline = c.regionHeadline(),
+            regionChoices = choices,
+            initialRegion = c.region ?: choices.lastOrNull(),
+            regionStartsTicked = c.region != null,
+        )
+    }
+
+    /**
+     * Apply a confirmed settings code; [pickedRegion] null = leave the
+     * region alone. Any other preview is applied as [apply] would.
+     */
+    suspend fun applyRadio(preview: Preview, pickedRegion: String?): String = when (preview) {
+        is Preview.Radio -> retune.applyScanned(preview.config, pickedRegion).message
+        else -> apply(preview)
+    }
+
     /** Apply a preview the person confirmed. Returns the sentence to show. */
     suspend fun apply(preview: Preview): String = when (preview) {
         is Preview.Contact -> {
@@ -127,6 +198,8 @@ class LinkImport(private val radio: Radio, private val channels: ChannelJoin) {
             if (ok) "Added ${preview.card.name}" else "Couldn't add ${preview.card.name}: the radio didn't answer."
         }
         is Preview.Channel -> channels.joinShared(preview.link).message
+        // The region is a choice the confirmation makes; this path takes none.
+        is Preview.Radio -> retune.applyScanned(preview.config, null).message
         is Preview.Unusable -> preview.detail
     }
 
@@ -143,6 +216,7 @@ class LinkImport(private val radio: Radio, private val channels: ChannelJoin) {
                 }
             },
             channels,
+            RadioRetune.over(engine),
         )
     }
 }

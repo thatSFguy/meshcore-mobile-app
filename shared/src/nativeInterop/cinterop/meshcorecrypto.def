@@ -20,6 +20,11 @@ int mch_ed25519_pubkey(const unsigned char* seed, unsigned char* out);
 int mch_ed25519_sign(const unsigned char* seed, const unsigned char* msg, int msg_len, unsigned char* out);
 int mch_ed25519_verify(const unsigned char* sig, const unsigned char* msg, int msg_len, const unsigned char* pub);
 
+// AES-256-GCM for the config backup's sealed section. seal writes
+// pt_len + 16 bytes; open writes ct_len - 16 and returns -2 on a bad tag.
+int mch_aes_gcm_seal(const unsigned char* key, const unsigned char* nonce, const unsigned char* pt, int pt_len, const unsigned char* aad, int aad_len, unsigned char* out);
+int mch_aes_gcm_open(const unsigned char* key, const unsigned char* nonce, const unsigned char* ct, int ct_len, const unsigned char* aad, int aad_len, unsigned char* out);
+
 // Secret-vault wrapping key in the iOS Keychain (see MeshCoreCrypto.swift).
 // Fills `out` with the 32-byte AES master key; returns 0 on success.
 int mch_keychain_get_or_create_key(unsigned char* out);

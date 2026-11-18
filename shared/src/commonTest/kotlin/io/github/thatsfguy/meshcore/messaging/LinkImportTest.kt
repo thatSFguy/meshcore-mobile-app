@@ -53,7 +53,16 @@ class LinkImportTest {
         private fun no(): Nothing = throw UnsupportedOperationException()
     }
 
-    private fun import(radio: Radio) = LinkImport(radio, ChannelJoin(NoChannels, NoCrypto))
+    private object NoRetune : RadioRetune.Radio {
+        val calls = mutableListOf<String>()
+        override suspend fun setRadioParams(freqKhz: Long, bwHz: Long, sf: Int, cr: Int): Boolean { calls += "params"; return true }
+        override suspend fun setTxPower(dbm: Int): Boolean { calls += "power"; return true }
+        override suspend fun setPathHashMode(mode: Int): Boolean { calls += "width $mode"; return true }
+        override suspend fun setFloodScope(region: String?): Boolean { calls += "scope $region"; return true }
+    }
+
+    private fun import(radio: Radio, retune: RadioRetune = RadioRetune(NoRetune)) =
+        LinkImport(radio, ChannelJoin(NoChannels, NoCrypto), retune)
 
     @Test
     fun aContactCardIsPreviewedAsUnsignedThenAddedOnConfirm() = runTest {
@@ -128,5 +137,41 @@ class LinkImportTest {
             li.apply(p)
         }
         assertTrue(radio.added.isEmpty())
+    }
+
+    // --- settings codes (iOS Phase 3) --------------------------------------
+
+    @Test
+    fun aSettingsCodeIsOfferedWithItsWarningsAndAppliedOnlyAsTicked() = runTest {
+        val link = io.github.thatsfguy.meshcore.presentation.RadioShare.uriFor(
+            910_525, 62_500, 7, 5, 2, "bayarea", "GR Mesh",
+        )!!
+        val p = assertIs<LinkImport.Preview.Radio>(import(Radio(me)).preview(link))
+        assertTrue(p.canApply)
+        assertTrue("910.525" in p.detail, p.detail)
+        assertTrue(p.warnings.first().startsWith("Anyone can make one of these codes"))
+        assertEquals(listOf("bayarea"), p.regionChoices)
+        assertEquals("bayarea", p.initialRegion)
+        assertTrue(p.regionStartsTicked)
+
+        NoRetune.calls.clear()
+        val unticked = import(Radio(me)).applyRadio(p, null)
+        assertEquals("Applied GR Mesh", unticked)
+        assertEquals(listOf("params", "width 1"), NoRetune.calls, "never TX power, never an unticked region")
+
+        NoRetune.calls.clear()
+        assertEquals("Applied GR Mesh · region #bayarea", import(Radio(me)).applyRadio(p, "bayarea"))
+        assertEquals("scope bayarea", NoRetune.calls.last())
+    }
+
+    @Test
+    fun aSettingsCodeWithoutARegionStartsUnticked() = runTest {
+        val link = io.github.thatsfguy.meshcore.presentation.RadioShare.uriFor(
+            910_525, 62_500, 7, 5, 2, null, null,
+        )!!
+        val p = assertIs<LinkImport.Preview.Radio>(import(Radio(me)).preview(link))
+        assertFalse(p.regionStartsTicked)
+        assertEquals(emptyList(), p.regionChoices)
+        assertTrue(p.detail.startsWith("(unnamed mesh)"))
     }
 }

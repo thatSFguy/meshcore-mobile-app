@@ -668,21 +668,14 @@ class Preferences(context: Context) {
      * Keystore's business and goes in the encrypted section), and
      * `last_*` connection details, which are device-specific.
      */
-    private val EXPORTABLE_KEYS = listOf(
-        "transport_ble_enabled", "transport_usb_enabled", "transport_tcp_enabled",
-        "auto_reconnect", "theme", "units", "diagnostics_enabled",
-        "map_tiles_enabled", "notifications_enabled",
-        "nodes_tab",
-    )
+    // The lists are shared (BackupSettings) so an iOS backup restores
+    // here and vice versa; one list, reviewed in one place.
+    private val EXPORTABLE_KEYS = io.github.thatsfguy.meshcore.messaging.BackupSettings.KEYS
 
     /** Boolean-valued keys, so import can put them back with the right type. */
-    private val BOOLEAN_KEYS = setOf(
-        "transport_ble_enabled", "transport_usb_enabled", "transport_tcp_enabled",
-        "auto_reconnect", "diagnostics_enabled", "map_tiles_enabled",
-        "notifications_enabled",
-    )
+    private val BOOLEAN_KEYS = io.github.thatsfguy.meshcore.messaging.BackupSettings.BOOLEAN_KEYS
 
-    private val INT_KEYS = setOf("nodes_tab")
+    private val INT_KEYS = io.github.thatsfguy.meshcore.messaging.BackupSettings.INT_KEYS
 
     /** The allow-listed preferences, as strings, for a backup file. */
     fun exportableSettings(): Map<String, String> {

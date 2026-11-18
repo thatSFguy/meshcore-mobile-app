@@ -163,6 +163,9 @@ struct LinkConfirmSheet: View {
     let link: String
     @State private var preview: LinkImport.Preview?
     @State private var applied = false
+    // Settings codes only: whether to set the code's region too, and which.
+    @State private var setRegion = false
+    @State private var region: String = ""
 
     var body: some View {
         NavigationStack {
@@ -171,6 +174,31 @@ struct LinkConfirmSheet: View {
                     Section {
                         Text(preview.title).font(.headline)
                         Text(preview.detail).font(.callout)
+                    }
+                    if !preview.warnings.isEmpty {
+                        Section {
+                            ForEach(preview.warnings, id: \.self) { Text($0).foregroundStyle(.red).font(.callout) }
+                        }
+                    }
+                    if preview.isRadio, !preview.regionChoices.isEmpty {
+                        Section {
+                            if let headline = preview.regionHeadline { Text(headline) }
+                            Toggle(preview.regionChoices.count > 1
+                                   ? "Set this phone's region to:"
+                                   : "Also set this phone's region to #\(preview.regionChoices[0])",
+                                   isOn: $setRegion)
+                            if setRegion && preview.regionChoices.count > 1 {
+                                Picker("Region", selection: $region) {
+                                    ForEach(preview.regionChoices, id: \.self) { Text("#\($0)").tag($0) }
+                                }
+                                .pickerStyle(.inline)
+                                .labelsHidden()
+                            }
+                        } header: {
+                            Text("Region")
+                        } footer: {
+                            Text("Your messages then travel only through repeaters that carry that region. Change it later under Settings → Mesh policies.")
+                        }
                     }
                     if applied, let message = store.channelMessage {
                         Section { Text(message) }
@@ -185,16 +213,25 @@ struct LinkConfirmSheet: View {
                 }
                 if let preview, preview.canApply, !applied {
                     ToolbarItem(placement: .confirmationAction) {
-                        Button("Add") {
+                        Button(preview.isRadio ? "Apply" : "Add") {
                             store.channelMessage = nil
-                            store.applyLink(preview)
+                            if preview.isRadio {
+                                store.applyRadioLink(preview, region: setRegion ? region : nil)
+                            } else {
+                                store.applyLink(preview)
+                            }
                             applied = true
                         }
                         .disabled(!store.isReady)
                     }
                 }
             }
-            .onAppear { preview = store.previewLink(link) }
+            .onAppear {
+                let p = store.previewLink(link)
+                preview = p
+                setRegion = p.regionStartsTicked
+                region = p.initialRegion ?? ""
+            }
         }
     }
 }

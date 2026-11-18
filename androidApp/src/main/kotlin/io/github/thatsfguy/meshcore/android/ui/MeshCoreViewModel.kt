@@ -1601,23 +1601,10 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
         pendingRadioConfig.value = null
         val svc = _service.value ?: return
         viewModelScope.launch {
-            runCatching {
-                svc.engine.setRadioParams(
-                    config.frequencyKhz,
-                    config.bandwidthHz,
-                    config.spreadingFactor,
-                    config.codingRate,
-                )
-                svc.engine.setPathHashMode(config.pathHashMode)
-            }
-            val region = config.regionToApply(pickedRegion)
-            val regionSet = region?.let { runCatching { svc.engine.setFloodScope(it) }.getOrDefault(false) }
-            val applied = "Applied ${config.name.ifBlank { "scanned settings" }}"
-            transientMessage.value = when (regionSet) {
-                null -> applied
-                true -> "$applied · region #$region"
-                false -> "$applied, but the radio refused region #$region"
-            }
+            // Shared since 2026-11-18: each step's answer is checked, so a
+            // refused retune is no longer reported as "Applied".
+            transientMessage.value = io.github.thatsfguy.meshcore.messaging.RadioRetune.over(svc.engine)
+                .applyScanned(config, pickedRegion).message
         }
     }
 
@@ -2472,23 +2459,8 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
     fun applyRadioPreset(preset: io.github.thatsfguy.meshcore.protocol.RadioPresets.Preset) {
         val svc = _service.value ?: return
         viewModelScope.launch {
-            val paramsOk = runCatching {
-                svc.engine.setRadioParams(
-                    preset.frequencyKhz, preset.bandwidthHz,
-                    preset.spreadingFactor, preset.codingRate,
-                )
-            }.getOrDefault(false)
-            if (!paramsOk) {
-                transientMessage.value = "Radio rejected the ${preset.name} parameters"
-                return@launch
-            }
-            val powerOk = runCatching { svc.engine.setTxPower(preset.txPowerDbm) }
-                .getOrDefault(false)
-            transientMessage.value = if (powerOk) {
-                "Applied ${preset.name}"
-            } else {
-                "Applied ${preset.name}, but TX power stayed unchanged — set it by hand"
-            }
+            transientMessage.value = io.github.thatsfguy.meshcore.messaging.RadioRetune.over(svc.engine)
+                .applyPreset(preset).message
         }
     }
 

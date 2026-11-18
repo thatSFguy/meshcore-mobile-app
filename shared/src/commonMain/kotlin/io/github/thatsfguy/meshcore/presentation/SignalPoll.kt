@@ -33,6 +33,34 @@ class SignalPoll {
 
     private val watch = SignalReadout.NoiseWatch()
 
+    /**
+     * The sentence to show instead of readings, or null while showing
+     * them. With [rows] and [rangeHint], what a screen needs without
+     * reaching into the reading's nested types (iOS can't name them
+     * cheaply).
+     */
+    val statusLine: String?
+        get() = when (view) {
+            View.Waiting -> "Reading…"
+            View.NoAnswer -> "The radio did not answer."
+            View.Unsupported -> "This radio's firmware does not report signal statistics."
+            is View.Showing -> null
+        }
+
+    val rows: List<RadioFacts.Fact>
+        get() {
+            val s = view as? View.Showing ?: return emptyList()
+            val radio = s.reading.radio
+            val packets = s.reading.packets
+            return buildList {
+                add(RadioFacts.Fact("Noise floor", SignalReadout.noiseFloor(radio.noiseFloorDbm)))
+                add(RadioFacts.Fact("Last packet heard", SignalReadout.lastPacket(radio, packets)))
+                SignalReadout.counters(packets)?.let { add(RadioFacts.Fact("Since boot", it)) }
+            }
+        }
+
+    val rangeHint: String? get() = (view as? View.Showing)?.range
+
     /** Take one poll result. Returns true while the screen should keep polling. */
     fun onResult(result: MeshCoreEngine.Stats?): Boolean {
         val current = view
