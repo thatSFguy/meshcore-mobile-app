@@ -421,6 +421,11 @@ Keep the pattern for further iOS work: branch, dispatch, merge on green.)
     maps an unknown type to Companion, Android to Repeater) cannot show:
     iOS opens admin only for repeaters and rooms.
 
+58. **Back burner, by the user's decision (2026-11-18): repeater identity
+    rekey and firmware updates.** Neither is ported to iOS. Both can cost a
+    node if they go wrong, and the rest of the admin surface gets tried on
+    hardware first. The Firmware hub tile stays marked "On Android only".
+
 ## Swift interop rules learned from CI (Kotlin 2.0.21)
 
 Written down because each one cost a ~20-minute CI round trip:
