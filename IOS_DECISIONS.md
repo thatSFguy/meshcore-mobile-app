@@ -195,11 +195,15 @@ lands on `main`. Merging is left to the author.
     so.** Refusing would block the person; joining silently would flood
     wider than the sharer intended. The sentence names the region.
 
-27. **`meshcore://` links open the Add-channel sheet pre-filled**, held
-    until the radio is ready (shared `LinkInbox`). Never joined without a
-    tap: a link from another app is not authority to write to the radio.
-    Contact links are recognised and refused with a sentence — importing
-    contacts is not ported yet.
+27. **`meshcore://` links open a confirmation sheet**, held until the
+    radio is ready (shared `LinkInbox`), and are applied only on a tap: a
+    link from another app is not authority to write to the radio. What
+    the sheet says comes from a new shared `LinkImport`: contact cards
+    (marked as *typed* names anyone could claim), signed adverts (marked
+    as signed — and refused outright if the signature fails, never
+    downgraded to an unsigned card), channels (with the read-everything
+    warning), and plain refusals for your own key, a contact already
+    held, and radio-settings codes (not applied on iOS yet).
 
 28. **The share link is behind a "Show" tap and the warning**, as
     `ShareUri.encodeChannel` requires: anyone with it reads every message,

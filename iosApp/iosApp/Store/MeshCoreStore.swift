@@ -126,6 +126,7 @@ final class MeshCoreStore: ObservableObject {
     private let engine: MeshCoreEngine
     private let crypto = IosCryptoProvider()
     private lazy var channelJoin = ChannelJoin.companion.over(engine: engine, crypto: crypto)
+    private lazy var linkImport = LinkImport.companion.over(engine: engine, channels: channelJoin)
     /// Whichever transport is attached — TCP or BLE.
     private var transport: Transport?
     private let scope: Kotlinx_coroutines_coreCoroutineScope
@@ -592,6 +593,24 @@ final class MeshCoreStore: ObservableObject {
     func openIncoming(_ url: URL) {
         let offer = linkInbox.offer(raw: url.absoluteString, ready: isReady)
         if let open = offer as? LinkInboxOfferOpen { pendingLink = open.link }
+    }
+
+    /// What a link is, before anything is written (shared LinkImport).
+    func previewLink(_ link: String) -> LinkImportPreview {
+        linkImport.preview(link: link)
+    }
+
+    /// Apply a preview the person confirmed; the outcome lands in
+    /// `channelMessage` (the one sentence slot the sheets show).
+    func applyLink(_ preview: LinkImportPreview) {
+        let li = linkImport
+        Task {
+            do {
+                channelMessage = try await li.apply(preview: preview)
+            } catch {
+                channelMessage = error.localizedDescription
+            }
+        }
     }
 
     /// The last channel action's outcome, as a sentence to show.

@@ -25,7 +25,7 @@ struct ContentView: View {
             get: { store.pendingLink != nil },
             set: { if !$0 { store.pendingLink = nil } }
         )) {
-            AddChannelSheet(initialLink: store.pendingLink)
+            if let link = store.pendingLink { LinkConfirmSheet(link: link) }
         }
     }
 }

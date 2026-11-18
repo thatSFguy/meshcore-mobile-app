@@ -151,3 +151,49 @@ struct ChannelInfoSheet: View {
         }
     }
 }
+
+/// A meshcore:// link opened from another app: say what it is, then
+/// apply it only on a tap. Contact, channel and the refusals all come
+/// from the shared LinkImport, including whether a contact's name was
+/// signed or merely typed.
+struct LinkConfirmSheet: View {
+    @EnvironmentObject var store: MeshCoreStore
+    @Environment(\.dismiss) private var dismiss
+    let link: String
+    @State private var preview: LinkImportPreview?
+    @State private var applied = false
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                if let preview {
+                    Section {
+                        Text(preview.title).font(.headline)
+                        Text(preview.detail).font(.callout)
+                    }
+                    if applied, let message = store.channelMessage {
+                        Section { Text(message) }
+                    }
+                }
+            }
+            .navigationTitle("MeshCore link")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(applied ? "Done" : "Cancel") { dismiss() }
+                }
+                if let preview, preview.canApply, !applied {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Add") {
+                            store.channelMessage = nil
+                            store.applyLink(preview)
+                            applied = true
+                        }
+                        .disabled(!store.isReady)
+                    }
+                }
+            }
+            .onAppear { preview = store.previewLink(link) }
+        }
+    }
+}
