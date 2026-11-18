@@ -65,6 +65,7 @@ private struct RepeaterHub: View {
     @EnvironmentObject var store: MeshCoreStore
     let node: UiNode
     let session: AdminSession
+    @State private var clockNote: String?
 
     private var tiles: [HubTile] {
         RepeaterHubModelKt.repeaterHubTiles(
@@ -93,13 +94,28 @@ private struct RepeaterHub: View {
                         NavigationLink { RepeaterStatusView(node: node) } label: { tileLabel(tile) }
                     case "console":
                         NavigationLink { RepeaterConsoleView(node: node) } label: { tileLabel(tile) }
+                    case "settings":
+                        NavigationLink { RemoteSettingsView(node: node) } label: { tileLabel(tile) }
+                    case "regions":
+                        NavigationLink { RemoteRegionsView(node: node) } label: { tileLabel(tile) }
+                    case "help":
+                        NavigationLink { CommandHelpView(node: node, session: session) } label: { tileLabel(tile) }
                     default:
                         tileLabel(tile, note: "On Android only, for now")
                             .foregroundStyle(.secondary)
                     }
                 }
             }
+            if RepeaterHubModelKt.showsGuestQueries(role: RepeaterReadout.shared.roleOf(advType: node.type), session: session) {
+                GuestCard(node: node)
+            }
             Section {
+                if session.isAdmin {
+                    Button("Sync clock from phone") {
+                        Task { clockNote = await store.syncNodeClock(node.id) ? "Clock sync sent" : "Not sent — is the radio connected?" }
+                    }
+                    if let clockNote { Text(clockNote).font(.caption).foregroundStyle(.secondary) }
+                }
                 Button("Sign out", role: .destructive) { store.signOut(node.id) }
             } footer: {
                 Text("Signing out is local: the node keeps this radio in its access list.")
@@ -137,6 +153,12 @@ private struct RepeaterStatusView: View {
                         LabeledContent(row.label, value: row.value)
                     }
                 }
+            }
+            if store.adminSession(node.id).isAdmin {
+                AccessListSection(node: node)
+            }
+            if node.type == Codes.shared.ADV_TYPE_REPEATER {
+                NeighboursSection(node: node, isAdmin: store.adminSession(node.id).isAdmin)
             }
         }
         .navigationTitle("Status")

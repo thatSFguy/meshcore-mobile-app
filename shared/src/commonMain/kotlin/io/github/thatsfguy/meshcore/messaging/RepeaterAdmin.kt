@@ -2,7 +2,12 @@ package io.github.thatsfguy.meshcore.messaging
 
 import io.github.thatsfguy.meshcore.engine.LoginOutcome
 import io.github.thatsfguy.meshcore.engine.MeshCoreEngine
+import io.github.thatsfguy.meshcore.presentation.floodRegionsRoute
+import io.github.thatsfguy.meshcore.presentation.floodRegionsSummary
+import io.github.thatsfguy.meshcore.protocol.AccessList
 import io.github.thatsfguy.meshcore.protocol.BinaryRequestBudget
+import io.github.thatsfguy.meshcore.protocol.Neighbours
+import io.github.thatsfguy.meshcore.protocol.PathRecovery
 import io.github.thatsfguy.meshcore.protocol.CliExchange
 import io.github.thatsfguy.meshcore.protocol.CliResend
 import io.github.thatsfguy.meshcore.protocol.RepeaterStatus
@@ -36,20 +41,113 @@ class RepeaterAdmin(private val engine: MeshCoreEngine) {
         return engine.sendCliAndAwaitReply(key, command, 15_000, sends, CliResend.RESEND_AFTER_MS)
     }
 
-    companion object {
-        private val PRV_KEY = Regex("""(set\s+prv\.key\s+)\S+""", RegexOption.IGNORE_CASE)
-        private val PASSWORD = Regex("""(password\s+)\S+""", RegexOption.IGNORE_CASE)
-        private val LONG_HEX = Regex("""\b[0-9a-fA-F]{32,}\b""")
+    // --- Phase 5 (2026-11-18): the rest of the admin surface, with the
+    // engine's defaults restated so Swift never has to know them. ---
 
+    /**
+     * The last request's note when recovery ran out or a pinned route
+     * stopped it (PathRecovery's sentences), else null. Read after a
+     * call that returned null.
+     */
+    var lastNote: String? = null
+        private set
+
+    /**
+     * Run [request] with Android's path-recovery gate: once if not signed
+     * in or the route is pinned; otherwise reset the path and retry when
+     * silent. iOS keeps no password, so re-authentication never runs
+     * (PathRecovery.escalate skips it without one).
+     */
+    private suspend fun <T> recovered(
+        key: ByteArray,
+        signedIn: Boolean,
+        pinned: Boolean,
+        request: suspend () -> T?,
+    ): T? {
+        lastNote = null
+        if (!signedIn) return request()
+        if (!PathRecovery.shouldAttempt(pinned)) {
+            return request().also { if (it == null) lastNote = PathRecovery.PINNED_MESSAGE }
+        }
+        var ran = false
+        val out = engine.withPathRecovery(key, null, { ran = true }) { request() }
+        if (out == null && ran) lastNote = PathRecovery.EXHAUSTED_MESSAGE
+        return out
+    }
+
+    /** Status with path recovery. */
+    suspend fun statusRecovered(keyHex: String, signedIn: Boolean, pinned: Boolean): RepeaterStatus? {
+        val key = hexToBytesOrNull(keyHex) ?: return null
+        return recovered(key, signedIn, pinned) { engine.repeaterStatus(key, BinaryRequestBudget.MAX_BUDGET_MS, null) }
+    }
+
+    /** A CLI command sent without waiting for its reply (reboot, probe, clock). */
+    suspend fun sendOnly(keyHex: String, command: String): Boolean {
+        val key = hexToBytesOrNull(keyHex) ?: return false
+        return runCatching { engine.sendCliCommand(key, command) != null }.getOrDefault(false)
+    }
+
+    /** The node's access list; the firmware answers only an admin. */
+    suspend fun accessList(keyHex: String, signedIn: Boolean, pinned: Boolean): List<AccessList.BinEntry>? {
+        val key = hexToBytesOrNull(keyHex) ?: return null
+        return recovered(key, signedIn, pinned) { engine.requestAccessList(key, BinaryRequestBudget.MAX_BUDGET_MS, null) }
+    }
+
+    /** "Owner" on the guest card, as the sentence to show. */
+    suspend fun ownerLine(keyHex: String, signedIn: Boolean, pinned: Boolean): String {
+        val key = hexToBytesOrNull(keyHex) ?: return OWNER_SILENT
+        val reply = recovered(key, signedIn, pinned) { engine.requestOwnerInfo(key, BinaryRequestBudget.MAX_BUDGET_MS, null) }
+            ?: return lastNote ?: OWNER_SILENT
+        return reply.ownerInfo.ifEmpty { "No owner info set" } + "\nFirmware ${reply.firmwareVersion}"
+    }
+
+    /**
+     * "Regions" on the guest card: the anonymous flood-regions request,
+     * which a node answers only when sent DIRECT — so it is never sent
+     * without a stored route — and only 4 times per 3 minutes.
+     */
+    suspend fun floodRegionsLine(keyHex: String): String {
+        val c = engine.contacts.value[keyHex] ?: return REGIONS_NO_ROUTE
+        val route = floodRegionsRoute(c.pathLen) ?: return REGIONS_NO_ROUTE
+        val list = runCatching {
+            engine.requestFloodRegions(c.publicKey, c.storedPath, route.hops, route.hashWidth, 30_000)
+        }.getOrNull() ?: return REGIONS_SILENT
+        return floodRegionsSummary(list) + "\nRegions it doesn't flood aren't shared. The full setup needs an admin."
+    }
+
+    /** One page of the node's neighbour table, newest first. */
+    suspend fun neighbours(keyHex: String, offset: Int, signedIn: Boolean, pinned: Boolean): Neighbours.Table? {
+        val key = hexToBytesOrNull(keyHex) ?: return null
+        val request = Neighbours.Request(offset, Neighbours.Order.NEWEST_FIRST, Neighbours.DEFAULT_PREFIX_BYTES, null)
+        return recovered(key, signedIn, pinned) {
+            engine.requestNeighbours(key, request, BinaryRequestBudget.MAX_BUDGET_MS, null)
+        }
+    }
+
+    /**
+     * Fetch the node's whole neighbour table (up to the page limit) into
+     * [book]; the sentence to show. Sign-in is the caller's: a blank
+     * password works on a node that already knows this radio.
+     */
+    suspend fun collectNeighbours(keyHex: String, signedIn: Boolean, pinned: Boolean, book: NeighbourBook, nowMs: Long): String =
+        book.collect(keyHex, nowMs) { offset -> neighbours(keyHex, offset, signedIn, pinned) }.message
+
+    companion object {
         /**
          * A console line as it is SHOWN. The console is in memory only,
          * but a screen is screenshotted: a private key or password typed
-         * into `set …` must not sit in the scrollback. Same patterns as
-         * Android's diagnostics redaction.
+         * into `set …` must not sit in the scrollback. The shared
+         * LogRedaction rule (one copy, not two).
          */
-        fun displayed(line: String): String = line
-            .replace(PRV_KEY) { "${it.groupValues[1]}[REDACTED]" }
-            .replace(PASSWORD) { "${it.groupValues[1]}[REDACTED]" }
-            .replace(LONG_HEX, "[HEX-REDACTED]")
+        fun displayed(line: String): String = io.github.thatsfguy.meshcore.util.LogRedaction.redactSecrets(line)
+
+        const val OWNER_SILENT = "No answer — out of range, or firmware too old to report it."
+        const val REGIONS_NO_ROUTE =
+            "Not asked — no direct route to this node is stored, and it only answers a direct request."
+        const val REGIONS_SILENT =
+            "No answer — out of range, or asked too often (it answers 4 anonymous requests per 3 minutes)."
+
+        /** Sets the node's clock to the phone's. */
+        fun clockSyncCommand(nowSeconds: Long): String = "time $nowSeconds"
     }
 }

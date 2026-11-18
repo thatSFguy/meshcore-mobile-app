@@ -16,6 +16,7 @@ struct NodeMapView: View {
     @EnvironmentObject var store: MeshCoreStore
     @EnvironmentObject var node: NodeSettingsStore
     @AppStorage("mapLabels") private var showLabels = true
+    @AppStorage("mapNeighbourLinks") private var showLinks = true
     /// Advert types shown, comma-separated; empty = every type (Android's rule).
     @AppStorage("mapTypeFilter") private var filterRaw = ""
     @State private var position: MapCameraPosition = .automatic
@@ -45,6 +46,12 @@ struct NodeMapView: View {
     var body: some View {
         NavigationStack {
             Map(position: $position, selection: $selected) {
+                if showLinks {
+                    ForEach(segments) { seg in
+                        MapPolyline(coordinates: [seg.from, seg.to])
+                            .stroke(seg.colour, lineWidth: seg.width)
+                    }
+                }
                 if let me = selfPoint {
                     Marker(showLabels ? "This node (\(store.selfName.isEmpty ? "unnamed" : store.selfName))" : "",
                            systemImage: "location.fill", coordinate: me)
@@ -88,6 +95,7 @@ struct NodeMapView: View {
     private var menu: some View {
         Menu {
             Toggle("Show labels", isOn: $showLabels)
+            Toggle("Show neighbour links", isOn: $showLinks)
             Button("Fit all nodes") { withAnimation { position = .automatic } }
             Section("Show") {
                 typeToggle("Only contacts", Codes.shared.ADV_TYPE_CHAT)
@@ -109,6 +117,41 @@ struct NodeMapView: View {
                 if on { f.insert(type) } else { f.remove(type) }
                 filterRaw = f.sorted().map(String.init).joined(separator: ",")
             }))
+    }
+
+    /// A line per drawable neighbour link: repeater → the node it heard.
+    /// Readings come from a repeater's Status → Neighbours.
+    private var segments: [LinkSegment] {
+        let records = (store.neighbourBook.records.value as? [NeighbourRecord]) ?? []
+        let repeaters = Set(records.map { $0.repeaterKeyHex })
+        var out: [LinkSegment] = []
+        for key in repeaters {
+            guard let origin = store.nodes.first(where: { $0.keyHex == key }),
+                  let lat = origin.latitude?.doubleValue, let lon = origin.longitude?.doubleValue,
+                  GeoKt.isPlausiblePosition(lat: KotlinDouble(double: lat), lon: KotlinDouble(double: lon)) else { continue }
+            for link in store.neighbourLinks(key) {
+                guard let end = link.endpoint, let elat = end.latitude?.doubleValue, let elon = end.longitude?.doubleValue else { continue }
+                out.append(LinkSegment(
+                    id: key + link.keyPrefixHex,
+                    from: CLLocationCoordinate2D(latitude: lat, longitude: lon),
+                    to: CLLocationCoordinate2D(latitude: elat, longitude: elon),
+                    colour: Color(argb: link.quality.argb),
+                    width: Self.width(link.quality.label)
+                ))
+            }
+        }
+        return out
+    }
+
+    /// Stronger links draw thicker (Android's widths, in points).
+    static func width(_ quality: String) -> CGFloat {
+        switch quality {
+        case "Strong": return 5
+        case "Good": return 4
+        case "Fair": return 3
+        case "Weak": return 2
+        default: return 1.5
+        }
     }
 
     private func uiNode(for id: String) -> UiNode? {
@@ -162,4 +205,22 @@ private struct ActivityView: UIViewControllerRepresentable {
         UIActivityViewController(activityItems: items, applicationActivities: nil)
     }
     func updateUIViewController(_ vc: UIActivityViewController, context: Context) {}
+}
+
+private struct LinkSegment: Identifiable {
+    let id: String
+    let from: CLLocationCoordinate2D
+    let to: CLLocationCoordinate2D
+    let colour: Color
+    let width: CGFloat
+}
+
+private extension Color {
+    /// 0xAARRGGBB, as the shared LinkQuality carries it (a signed Int32).
+    init(argb: Int32) {
+        let v = UInt32(bitPattern: argb)
+        let a = Double((v >> 24) & 0xFF) / 255, r = Double((v >> 16) & 0xFF) / 255
+        let g = Double((v >> 8) & 0xFF) / 255, b = Double(v & 0xFF) / 255
+        self.init(.sRGB, red: r, green: g, blue: b, opacity: a)
+    }
 }

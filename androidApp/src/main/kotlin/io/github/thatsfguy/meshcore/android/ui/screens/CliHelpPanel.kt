@@ -142,39 +142,9 @@ private fun Badge(text: String, color: androidx.compose.ui.graphics.Color) {
     )
 }
 
-/** The line you'd actually type. */
-internal fun usageOf(command: CliCommand): String = when (command.kind) {
-    CliKind.GetOnly -> "get ${command.id}"
-    CliKind.GetSet -> "set ${command.id} ${command.argHint ?: "<value>"}"
-    CliKind.Action -> command.id
-    CliKind.ActionWithArg -> "${command.id} ${command.argHint ?: "<value>"}"
-}
+/** The line you'd actually type. Shared since 2026-11-18 (iOS uses it too). */
+internal fun usageOf(command: CliCommand): String = io.github.thatsfguy.meshcore.presentation.CliHelp.usage(command)
 
-private fun roleWord(role: NodeRole): String = when (role) {
-    NodeRole.Repeater -> "repeater"
-    NodeRole.Room -> "room server"
-    NodeRole.Sensor -> "sensor"
-    NodeRole.Companion -> "node"
-}
-
-/**
- * The one line above the catalogue, qualified by what the node granted.
- *
- * The old wording had two cases and read the second one off `isAdmin`,
- * so a session that had never logged in was described as a guest — a
- * claim about the node's answer made before the node had answered.
- * Command help is reachable without signing in, so that third case is
- * real and gets its own words.
- */
-fun cliHelpSummary(total: Int, role: NodeRole, session: AdminSession): String {
-    // "1 commands" — found by searching the catalogue on a real node.
-    val head = "$total command${if (total == 1) "" else "s"} this ${roleWord(role)} accepts"
-    // Not "as a guest": the node takes CLI text from admins only
-    // (MyMesh.cpp:689), so a guest's share of the catalogue is none of it.
-    return when (session) {
-        AdminSession.Admin -> "$head."
-        AdminSession.Guest -> "$head from an admin — none from a guest session."
-        AdminSession.Member -> "$head from an admin — none from a member session."
-        AdminSession.None -> "$head from an admin."
-    }
-}
+/** The one line above the catalogue — shared ([io.github.thatsfguy.meshcore.presentation.CliHelp.summary]). */
+fun cliHelpSummary(total: Int, role: NodeRole, session: AdminSession): String =
+    io.github.thatsfguy.meshcore.presentation.CliHelp.summary(total, role, session)

@@ -48,10 +48,15 @@ compiled, not proven.
   Repeated by. The map has a self pin, type colours, labels, filters,
   fit-all, tap-to-open and GPX export.
 
-**Not ported yet** (Android has them): repeater settings/regions/identity
-and neighbour links (Phase 5), per-channel regions, the message-path and
-stored-route mini maps, Simple mode. **Out of iOS scope by decision:**
-firmware updates.
+- Repeater admin (Phase 5): remote settings (all sections, validated),
+  regions (tree, default, add/remove/flood/home, save), command help,
+  maintenance commands, the guest card (owner, flooded regions), access
+  list, neighbours with probe, and neighbour links on the map.
+
+**Not ported yet** (Android has them): repeater identity rekey,
+untagged-traffic controls, telemetry and the noise-floor watch,
+per-channel regions, the message-path and stored-route mini maps, Simple
+mode. **Out of iOS scope by decision:** firmware updates.
 
 **Writing Swift against `Shared`:** read the interop rules at the end of
 `IOS_DECISIONS.md` first — nested Kotlin types are nested Swift types,

@@ -899,7 +899,9 @@ final class MeshCoreStore: ObservableObject {
     //
     // Sessions are in memory only, keyed by node; no password is stored.
 
-    private lazy var repeaterAdmin = RepeaterAdmin(engine: engine)
+    lazy var repeaterAdmin = RepeaterAdmin(engine: engine)
+    /// Repeaters' neighbour tables as read, for the map (memory only).
+    let neighbourBook = NeighbourBook()
     @Published private var adminSessions: [String: AdminSession] = [:]
 
     func adminSession(_ keyHex: String) -> AdminSession {

@@ -378,6 +378,49 @@ Keep the pattern for further iOS work: branch, dispatch, merge on green.)
     Neighbour links need a repeater sign-in and move to Phase 5. The
     message-path and stored-route mini maps are not ported yet.
 
+## Phase 5: repeater admin (2026-11-18)
+
+52. **Neighbour readings live in memory** (`NeighbourBook`, shared), not
+    on disk. A reading is only as fresh as the adverts behind it and
+    nothing keeps it current; Android persists them, iOS re-reads.
+
+53. **Admin requests go through the shared `RepeaterAdmin`**, which
+    restates the engine's defaults and applies Android's path-recovery
+    gate (reset the route and retry when silent; once only when not
+    signed in or the route is pinned). iOS keeps no password, so the
+    re-authentication stage never runs. Answers come back as sentences
+    so Swift never names a sealed subtype.
+
+54. **Remote settings are a shared, table-driven form**
+    (`RemoteSettingsForm`): what each section reads, how a `get` reply
+    becomes fields, and which `set` commands an edit becomes — every
+    value validated first. Two defects fixed while lifting it from
+    Android's Compose: owner text kept its line breaks (Android flattened
+    `|` to spaces and wrote that back), and forwarding delays are checked
+    as integers instead of sent raw. A password containing a space is
+    not sent — it would split the command. `get acl` is not offered: it
+    answers only the serial console; the access list is the binary
+    request on Status. `start ota` is out with firmware updates.
+
+55. **Region commands never throw into Swift.** `Regions`' builders throw
+    on an invalid name (they are the injection guard); `RegionPanel`
+    catches and simply does not offer the step. One refusal rule for
+    every region write — silence, "Err" and "??" (Android's panel
+    checked only "Err"). The untagged-traffic controls (relay all /
+    nearby / refuse) are not ported yet.
+
+56. **Command help is shared** (`CliHelp`, ordered categories — a Kotlin
+    map reaches Swift as an unordered dictionary); Android delegates.
+
+57. **Not ported in Phase 5:** identity rekey (read / generate / replace
+    a node's private key — the one admin action that can lock you out of
+    a node if it goes wrong; it gets its own careful pass and a hardware
+    session), untagged-traffic controls, telemetry, the noise-floor
+    watch, and scanning a settings code straight onto a remote node.
+    The role-mapping difference the spec found (`RepeaterReadout.roleOf`
+    maps an unknown type to Companion, Android to Repeater) cannot show:
+    iOS opens admin only for repeaters and rooms.
+
 ## Swift interop rules learned from CI (Kotlin 2.0.21)
 
 Written down because each one cost a ~20-minute CI round trip:
