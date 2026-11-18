@@ -36,6 +36,13 @@ struct ConversationView: View {
                             MessageBubble(message: message, isChannel: isChannel)
                                 .id(message.id)
                                 .contextMenu {
+                                    if store.isReady {
+                                        Menu("React") {
+                                            ForEach(store.quickReactions, id: \.self) { emoji in
+                                                Button(emoji) { store.react(to: message.id, with: emoji) }
+                                            }
+                                        }
+                                    }
                                     Button("Copy") { UIPasteboard.general.string = message.text }
                                     Button("Delete", role: .destructive) { store.deleteMessage(message.id) }
                                 }

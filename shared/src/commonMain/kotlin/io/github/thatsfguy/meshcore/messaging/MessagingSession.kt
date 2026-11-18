@@ -5,6 +5,7 @@ import io.github.thatsfguy.meshcore.engine.MeshEvent
 import io.github.thatsfguy.meshcore.presentation.Inbox
 import io.github.thatsfguy.meshcore.protocol.AckTimeout
 import io.github.thatsfguy.meshcore.protocol.Codes
+import io.github.thatsfguy.meshcore.protocol.Reactions
 import io.github.thatsfguy.meshcore.util.hexToBytesOrNull
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -151,6 +152,60 @@ class MessagingSession(
             }
         }
         return id
+    }
+
+    /**
+     * React to message [id] with [emoji] — one of [Reactions.ALL]. The
+     * wire form is the ordinary text message `r:<hash>:<idx>`, where the
+     * hash is computed exactly as an incoming reaction is matched
+     * ([ReactionRouting]): a channel hash folds in the post's sender
+     * name, a DM hash does not. Returns false when nothing was sent.
+     *
+     * Counted locally at once. A DM reaction goes through the same retry
+     * ladder as a message (its status is not shown — a reaction has no
+     * bubble); a channel reaction is one flood, like any channel post.
+     */
+    fun react(id: Long, emoji: String): Boolean {
+        val target = book.message(id) ?: return false
+        val (kind, peer) = target.threadKey.split('|', limit = 2).let {
+            if (it.size != 2) return false
+            it[0] to it[1]
+        }
+        val isChannel = kind == Inbox.KIND_CHANNEL
+        val hash = Reactions.targetHash(
+            target.timestamp,
+            if (isChannel) target.senderName.orEmpty() else null,
+            target.text,
+        )
+        val wire = Reactions.encode(hash, emoji) ?: return false
+        val timestamp = radio.nowSeconds()
+        if (isChannel) {
+            val index = peer.toIntOrNull() ?: return false
+            val self = radio.selfName().orEmpty()
+            book.addOwnReaction(id, emoji, radio.channelContentKey(index, timestamp, self, wire))
+            onChanged?.invoke()
+            scope.launch { runCatching { radio.sendChannel(index, wire, timestamp) } }
+        } else {
+            if (hexToBytesOrNull(peer) == null) return false
+            book.addOwnReaction(id, emoji, null)
+            onChanged?.invoke()
+            val route = radio.route(peer)
+            val ladderRadio = object : DirectSend.Radio {
+                override suspend fun send(text: String, attempt: Int, timestampSeconds: Long) =
+                    radio.sendDirect(peer, text, attempt, timestampSeconds)
+                override suspend fun resetPath() = radio.resetPath(peer)
+                override val deliveries: Flow<Long> =
+                    radio.events.filterIsInstance<MeshEvent.MessageDelivered>().map { it.ackHash }
+            }
+            scope.launch {
+                DirectSend.run(
+                    ladderRadio, wire, timestamp,
+                    hasStoredPath = route?.hasStoredPath == true,
+                    knownHops = route?.storedHops,
+                ) { }
+            }
+        }
+        return true
     }
 
     /**

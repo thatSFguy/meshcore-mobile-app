@@ -702,6 +702,13 @@ final class MeshCoreStore: ObservableObject {
         _ = session?.sendDirect(keyHex: peerHex, text: text)
     }
 
+    /// The quick-reaction row, in the shared wire order.
+    var quickReactions: [String] { Reactions.shared.QUICK }
+
+    func react(to id: Int64, with emoji: String) {
+        _ = session?.react(id: id, emoji: emoji)
+    }
+
     func sendChannelMessage(index: Int32, text: String) {
         // Unscoped: the session sends on the radio's own flood scope.
         // Per-channel regions are Android-only for now (IOS_DECISIONS.md).

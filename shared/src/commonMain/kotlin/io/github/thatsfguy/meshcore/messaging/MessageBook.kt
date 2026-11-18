@@ -240,6 +240,24 @@ class MessageBook(
         }
     }
 
+    /**
+     * Count a reaction WE sent on message [id]. [contentKey] is the key
+     * our own post will echo back under (channels only); remembering it
+     * here is what stops the echo counting the same reaction twice.
+     */
+    fun addOwnReaction(id: Long, emoji: String, contentKey: String?) {
+        contentKey?.let { seenReactions.remember(it) }
+        val rows = _messages.value
+        val i = rows.indexOfFirst { it.id == id }
+        if (i < 0) return
+        val old = rows[i]
+        _messages.value = rows.toMutableList().also {
+            it[i] = old.copy(reactions = old.reactions + (emoji to (old.reactions[emoji] ?: 0) + 1))
+        }
+    }
+
+    fun message(id: Long): BookMessage? = _messages.value.firstOrNull { it.id == id }
+
     fun delete(id: Long) {
         _messages.value = _messages.value.filterNot { it.id == id }
     }

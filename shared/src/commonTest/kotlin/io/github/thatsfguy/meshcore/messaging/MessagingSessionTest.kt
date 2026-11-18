@@ -9,6 +9,7 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -217,6 +218,57 @@ class MessagingSessionTest {
         s.sendChannel(1, "hi")
         runCurrent()
         assertEquals(MessageStatus.Failed, s.book.thread("ch|1").single().status)
+        s.stop()
+    }
+
+    @Test
+    fun aChannelReactionIsSentInTheWireFormAndItsEchoCountsOnce() = runTest {
+        val radio = FakeRadio()
+        val s = session(radio)
+        radio.bus.emit(MeshEvent.ChannelMessageReceived(1, "Bob", "lunch?", 1_699_999_000L, "c1"))
+        runCurrent()
+        val target = s.book.thread("ch|1").single()
+        val emoji = io.github.thatsfguy.meshcore.protocol.Reactions.ALL[0]
+        assertTrue(s.react(target.id, emoji))
+        runCurrent()
+        val hash = io.github.thatsfguy.meshcore.protocol.Reactions.targetHash(1_699_999_000L, "Bob", "lunch?")
+        val wire = io.github.thatsfguy.meshcore.protocol.Reactions.encode(hash, emoji)!!
+        assertEquals(listOf(1 to wire), radio.channelSends)
+        // Our own reaction echoing back is not a second reaction.
+        radio.bus.emit(
+            MeshEvent.ChannelMessageReceived(1, "Me", wire, 1_700_000_000L,
+                radio.channelContentKey(1, 1_700_000_000L, "Me", wire)),
+        )
+        runCurrent()
+        assertEquals(mapOf(emoji to 1), s.book.thread("ch|1").single().reactions)
+        s.stop()
+    }
+
+    @Test
+    fun aDirectReactionHashesWithoutASenderName() = runTest {
+        val radio = FakeRadio()
+        val s = session(radio)
+        radio.bus.emit(dm("ok?"))
+        runCurrent()
+        val target = s.book.thread("dm|$peer").single()
+        val emoji = io.github.thatsfguy.meshcore.protocol.Reactions.ALL[2]
+        assertTrue(s.react(target.id, emoji))
+        advanceUntilIdle()
+        assertEquals(mapOf(emoji to 1), s.book.thread("dm|$peer").single().reactions)
+        assertEquals(1, s.book.thread("dm|$peer").size, "a reaction is not a bubble")
+        s.stop()
+    }
+
+    @Test
+    fun anEmojiOffTheWireListSendsNothing() = runTest {
+        val radio = FakeRadio()
+        val s = session(radio)
+        radio.bus.emit(dm("ok?"))
+        runCurrent()
+        assertFalse(s.react(s.book.thread("dm|$peer").single().id, "not-an-emoji"))
+        assertFalse(s.react(9_999, io.github.thatsfguy.meshcore.protocol.Reactions.ALL[0]))
+        advanceUntilIdle()
+        assertTrue(radio.sentDirect.isEmpty())
         s.stop()
     }
 }
