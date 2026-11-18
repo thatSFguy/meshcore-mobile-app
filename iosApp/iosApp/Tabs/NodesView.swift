@@ -48,6 +48,8 @@ struct NodesView: View {
     @State private var sort: NodeListModelSort = .activity
     @State private var filters: Set<NodeListModelFilter> = []
     @State private var detail: UiNode?
+    @State private var showMyContact = false
+    @State private var scanning = false
 
     private static let tabs: [NodeTab] = [.contacts, .repeaters, .rooms, .sensors]
 
@@ -109,6 +111,10 @@ struct NodesView: View {
             .navigationDestination(for: String.self) { key in
                 ConversationView(threadKey: key)
             }
+            .sheet(isPresented: $showMyContact) { MyContactSheet() }
+            .sheet(isPresented: $scanning) {
+                QrScannerSheet { text in store.openScanned(text) }
+            }
             .sheet(item: $detail) { node in
                 NodeDetailSheet(node: node)
                     .presentationDetents([.medium, .large])
@@ -158,12 +164,17 @@ struct NodesView: View {
         }
         ToolbarItem(placement: .topBarLeading) {
             Menu {
-                Button("Advert to neighbours (zero hop)") { store.sendAdvert(flood: false) }
-                Button("Advert mesh-wide (flood)") { store.sendAdvert(flood: true) }
+                Button { scanning = true } label: { Label("Scan a code", systemImage: "qrcode.viewfinder") }
+                Button { showMyContact = true } label: { Label("My contact", systemImage: "qrcode") }
+                Section("Advertise this radio") {
+                    Button("To neighbours (zero hop)") { store.sendAdvert(flood: false) }
+                        .disabled(!store.isReady)
+                    Button("Mesh-wide (flood)") { store.sendAdvert(flood: true) }
+                        .disabled(!store.isReady)
+                }
             } label: {
-                Image(systemName: "dot.radiowaves.up.forward")
+                Image(systemName: "plus.circle")
             }
-            .disabled(!store.isReady)
         }
     }
 }

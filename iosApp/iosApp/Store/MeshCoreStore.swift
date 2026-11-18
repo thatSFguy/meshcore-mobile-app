@@ -590,6 +590,20 @@ final class MeshCoreStore: ObservableObject {
     @Published var pendingLink: String?
     private let linkInbox = LinkInbox()
 
+    /// This radio as a contact link, for the "My contact" QR. Nil until
+    /// the radio has said who it is.
+    var myContactLink: String? {
+        guard !selfKeyHex.isEmpty else { return nil }
+        return ShareUri.shared.encodeContact(name: selfName, pubKeyHex: selfKeyHex, type: 1)
+    }
+
+    /// A scanned code goes to the same confirmation as an opened link.
+    /// Unlike a link it is not filtered to meshcore:// first — a stray
+    /// code should be explained ("not a MeshCore link"), not ignored.
+    func openScanned(_ text: String) {
+        pendingLink = text
+    }
+
     func openIncoming(_ url: URL) {
         let offer = linkInbox.offer(raw: url.absoluteString, ready: isReady)
         if let open = offer as? LinkInboxOfferOpen { pendingLink = open.link }
