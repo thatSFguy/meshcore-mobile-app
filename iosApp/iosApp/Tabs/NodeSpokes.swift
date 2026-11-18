@@ -816,9 +816,11 @@ struct BackupSpoke: View {
         }
     }
 
+    /// The parsed file's own identity — a fresh UUID per read of the
+    /// binding would re-present the sheet on every render.
     private struct ParsedRef: Identifiable {
         let parsed: ConfigBackup.Parsed
-        let id = UUID()
+        var id: ObjectIdentifier { ObjectIdentifier(parsed) }
     }
 }
 

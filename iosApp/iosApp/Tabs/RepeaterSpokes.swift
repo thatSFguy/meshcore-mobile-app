@@ -66,6 +66,8 @@ struct RemoteSettingsView: View {
     @State private var confirm: String?
     @State private var replies: [String] = []
     @State private var rebootNote: String?
+    @State private var scanning = false
+    @State private var scanned: RemoteScan?
 
     private var sections: [RemoteSettingsForm.Section] {
         RemoteSettingsForm.companion.sections(role: RepeaterReadout.shared.roleOf(advType: node.type))
@@ -84,6 +86,22 @@ struct RemoteSettingsView: View {
             if let rebootNote { rebootSection(rebootNote) }
         }
         .navigationTitle("Settings")
+        .sheet(isPresented: $scanning) {
+            QrScannerSheet { text in
+                scanning = false
+                if let s = RemoteScan.companion.decode(text: text) {
+                    scanned = s
+                } else {
+                    status[RemoteSettingsForm.companion.RADIO] = "That isn't a settings code."
+                }
+            }
+        }
+        .sheet(item: Binding(get: { scanned.map(ScanRef.init) }, set: { scanned = $0?.scan })) { ref in
+            RemoteScanSheet(node: node, scan: ref.scan) { message, reboot in
+                status[RemoteSettingsForm.companion.RADIO] = message
+                if reboot { rebootNote = "The scanned settings" }
+            }
+        }
         .onAppear {
             form.seed(id: CliIds.shared.NAME, text: node.name)
             tick += 1
@@ -94,6 +112,13 @@ struct RemoteSettingsView: View {
         } message: {
             Text(RemoteSettingsForm.companion.confirmText(command: confirm ?? ""))
         }
+    }
+
+    /// Identity of the Kotlin object itself: a fresh UUID per read of the
+    /// binding would make SwiftUI re-present the sheet on every render.
+    private struct ScanRef: Identifiable {
+        let scan: RemoteScan
+        var id: ObjectIdentifier { ObjectIdentifier(scan) }
     }
 
     private var confirmShown: Binding<Bool> {
@@ -130,7 +155,10 @@ struct RemoteSettingsView: View {
     }
 
     @ViewBuilder private func extras(_ sectionId: String) -> some View {
-        if sectionId == RemoteSettingsForm.companion.RADIO { hashModePicker(sectionId) }
+        if sectionId == RemoteSettingsForm.companion.RADIO {
+            hashModePicker(sectionId)
+            Button("Scan settings QR…") { scanning = true }.disabled(busy != nil || !store.isReady)
+        }
         if sectionId == RemoteSettingsForm.companion.ADVANCED { loopPicker(sectionId) }
         if sectionId == RemoteSettingsForm.companion.ADVERTS {
             Button("Send advert now") { run(sectionId, ["advert"], done: "Advert sent") }
@@ -736,6 +764,85 @@ struct NoiseWatchSection: View {
                 }
                 try? await Task.sleep(nanoseconds: UInt64(NoiseWatch.shared.INTERVAL_MS) * 1_000_000)
             }
+        }
+    }
+}
+
+/// A scanned settings code applied to this repeater (shared RemoteScan):
+/// read what it runs, say what would change, write only on Apply.
+struct RemoteScanSheet: View {
+    @EnvironmentObject var store: MeshCoreStore
+    @Environment(\.dismiss) private var dismiss
+    let node: UiNode
+    let scan: RemoteScan
+    let onDone: (_ message: String, _ needsReboot: Bool) -> Void
+    @State private var reading = true
+    @State private var writeRegions = false
+    @State private var working = false
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    Text(scan.name).font(.headline)
+                    Text(scan.summary)
+                    if reading {
+                        HStack { ProgressView(); Text("Checking what \(node.displayName) has now…") }
+                    } else {
+                        Text(scan.radioLine(node: node.displayName)).font(.callout)
+                    }
+                }
+                Section { Text(scan.warning).font(.callout).foregroundStyle(.red) }
+                if !reading { regionSection }
+            }
+            .navigationTitle("Apply to \(node.displayName)?")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(scan.nothingToDo(writeRegions: writeRegions) ? "Close" : "Apply") { apply() }
+                        .disabled(reading || working)
+                }
+            }
+            .task { await read() }
+        }
+    }
+
+    @ViewBuilder private var regionSection: some View {
+        if let line = scan.regionLine(node: node.displayName) {
+            Section {
+                if scan.canWriteRegions {
+                    Toggle("Also update \(node.displayName)'s regions:", isOn: $writeRegions)
+                    ForEach(scan.regionChanges, id: \.self) { Text("• \($0)").font(.callout) }
+                }
+                Text(line).font(.caption).foregroundStyle(.secondary)
+            } header: { Text("Regions") }
+        }
+    }
+
+    private func read() async {
+        for cmd in scan.readCommands() {
+            scan.take(command: cmd, reply: await store.repeaterCli(node.id, command: cmd))
+        }
+        reading = false
+    }
+
+    private func apply() {
+        let commands = scan.commands(writeRegions: writeRegions)
+        if commands.isEmpty { dismiss(); return }
+        working = true
+        Task {
+            var message = "Settings saved on \(node.displayName)"
+            for cmd in commands {
+                let reply = await store.repeaterCli(node.id, command: cmd)
+                if let refused = scan.refusal(node: node.displayName, command: cmd, reply: reply) {
+                    message = refused
+                    break
+                }
+            }
+            working = false
+            onDone(message, scan.needsReboot && !message.contains("didn't take"))
+            dismiss()
         }
     }
 }
