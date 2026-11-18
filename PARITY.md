@@ -218,7 +218,7 @@ Notes on this block:
 
 | Their surface | Us | Status | Notes |
 |---|---|---|---|
-| Node map | Map tab (osmdroid) | ✅ | Labels, type filter, GPX export, tile cache control. |
+| Node map | Map tab (osmdroid) | ✅ | Labels, type filter, tile cache control. GPX export **removed by decision 2026-11-18** (both apps): no one had a use for it, and it wrote every node's position to a file that left the app through the share sheet. |
 | `ToolsScreen` (hub) | — | ❌ | Organisational; follows once there are tools to hub. |
 | `TracePathScreen`, `TracePathMapScreen`, `ViewPathScreen`, `SetContactPathScreen` | Routing sheet + per-hop location + map route overlay | ✅ | Closed 2026-08-01, verified drawing a real 2-hop route on hardware. ⚠ An **ambiguous** hop is a gap in the line, never pinned to a guess, and a route with gaps is drawn DASHED so a line you can't fully vouch for doesn't look like one you can. Trace verified working on hardware 2026-08-01: a one-hop route through a live node replies in ~1 s with per-hop SNR. |
 | `CoverageMapToolScreen`, `LosMapToolScreen` (+ settings) | — | ⛔ | **Out of scope (2026-08-01, user decision).** RF coverage and line-of-sight modelling is a solved problem with better tools than a phone app can be, and the author maintains their own repo for it. Building a worse one inside a messaging client is not parity, it's duplication. |

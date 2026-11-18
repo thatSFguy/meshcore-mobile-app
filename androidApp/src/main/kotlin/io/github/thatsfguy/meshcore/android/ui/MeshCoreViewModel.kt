@@ -3483,49 +3483,6 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /**
-     * Write every located node to a GPX file in the app's cache and
-     * offer it via a share sheet — nothing leaves the device unless the
-     * user picks a target.
-     */
-    fun exportGpx(@Suppress("UNUSED_PARAMETER") count: Int) {
-        val app = getApplication<Application>()
-        viewModelScope.launch {
-            // Built in shared (Gpx) since 2026-11-18: escaped for XML and
-            // stripped of characters XML 1.0 can't carry — a node name is
-            // attacker-controlled.
-            val points = dbContacts.value.map {
-                io.github.thatsfguy.meshcore.presentation.Gpx.Waypoint(it.keyHex, it.name, it.latitude, it.longitude)
-            }
-            val nodes = points.filter { isPlausiblePosition(it.latitude, it.longitude) }
-            val gpx = io.github.thatsfguy.meshcore.presentation.Gpx.build(points)
-            if (gpx == null) {
-                transientMessage.value = io.github.thatsfguy.meshcore.presentation.Gpx.NOTHING_TO_EXPORT
-                return@launch
-            }
-            val dir = java.io.File(app.cacheDir, "exports").apply {
-                // Clear previous exports — an old GPX is node names, keys
-                // and GPS sitting around for no reason.
-                deleteRecursively()
-                mkdirs()
-            }
-            val file = java.io.File(dir, "meshcore-nodes.gpx")
-            file.writeText(gpx)
-            val uri = androidx.core.content.FileProvider.getUriForFile(
-                app, "${app.packageName}.fileprovider", file,
-            )
-            val share = Intent(Intent.ACTION_SEND).apply {
-                type = "application/gpx+xml"
-                putExtra(Intent.EXTRA_STREAM, uri)
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-            app.startActivity(Intent.createChooser(share, "Export nodes").apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            })
-            transientMessage.value = "Exported ${nodes.size} nodes"
-        }
-    }
-
-    /**
      * Send a binary datagram to a channel (developer tool — see
      * `ChannelDatagramTool`). False when the radio is absent or the
      * frame would be refused; the caller says so rather than pretending.

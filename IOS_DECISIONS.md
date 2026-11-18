@@ -376,6 +376,9 @@ Keep the pattern for further iOS work: branch, dispatch, merge on green.)
     strips characters XML 1.0 cannot carry, which Android's inline
     version did not — a control character in an advert name made the
     whole file unreadable. Its creator is now "MeshCore Hardened".
+    **Superseded 2026-11-18: GPX export was removed from both apps** —
+    no one had a use for it, and it put every node's position in a file
+    that left the app. The shared `Gpx` and its tests went with it.
     Neighbour links need a repeater sign-in and move to Phase 5. The
     message-path and stored-route mini maps are not ported yet.
 

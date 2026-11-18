@@ -107,13 +107,6 @@ extension MeshCoreStore {
 }
 
 extension MeshCoreStore {
-    /// GPX of the radio's contacts with a position, or nil when none has one.
-    func gpxText() -> String? {
-        Gpx.shared.fromContacts(contacts: Array(((engine.contacts.value as? [String: Contact]) ?? [:]).values))
-    }
-}
-
-extension MeshCoreStore {
     private var selfPosition: (lat: KotlinDouble?, lon: KotlinDouble?) {
         guard let me = node.selfInfo,
               GeoKt.isPlausiblePosition(lat: KotlinDouble(double: me.latitude), lon: KotlinDouble(double: me.longitude))

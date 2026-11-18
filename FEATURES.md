@@ -102,7 +102,7 @@ feature rather than a footnote to it.
 ## Map
 
 - Every node advertising GPS, with type-specific markers and always-visible name labels.
-- Filter by node type, fit-all-nodes, **GPX export**, tile-cache clearing, and tile fetching
+- Filter by node type, fit-all-nodes, tile-cache clearing, and tile fetching
   switchable off entirely — the map then plots markers on a blank canvas and nothing leaves the
   device.
 - **Tap a node** for a popup: what it is, when it was last heard, and its tools.

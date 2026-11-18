@@ -48,7 +48,7 @@ changelog for what has and hasn't been tried on hardware.
   relays, the reply route, path history scored by delivery, trace, and
   "Check if they can hear you". Message info shows Arrived via /
   Repeated by. The map has a self pin, type colours, labels, filters,
-  fit-all, tap-to-open and GPX export.
+  fit-all and tap-to-open. (GPX export, in 0.1.0, has since been removed.)
 
 - Repeater admin (Phase 5): remote settings (all sections, validated),
   regions (tree, default, add/remove/flood/home, save), command help,
