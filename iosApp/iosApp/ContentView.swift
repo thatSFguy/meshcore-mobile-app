@@ -10,6 +10,9 @@ struct ContentView: View {
         TabView {
             ChatsView()
                 .tabItem { Label("Chats", systemImage: "message") }
+                // The one number visible from every tab (PARITY: unread
+                // counts on the tabs). Zero shows no badge.
+                .badge(store.unreadTotal)
             NodesView()
                 .tabItem { Label("Nodes", systemImage: "person.2") }
             NodeMapView()
