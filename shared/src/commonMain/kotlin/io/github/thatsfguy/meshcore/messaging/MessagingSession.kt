@@ -271,6 +271,26 @@ class MessagingSession(
     }
 
     /**
+     * Send a FAILED message of ours again: the failed copy goes, and the
+     * text is sent afresh — a new timestamp, so a new packet and a new
+     * ACK, which is what a retry the mesh will carry needs (Android's
+     * rule). Returns the new row's id, or null when [id] is not a failed
+     * outgoing message.
+     */
+    fun resend(id: Long): Long? {
+        val m = book.message(id) ?: return null
+        if (!m.outgoing || m.status != MessageStatus.Failed) return null
+        val (kind, peer) = m.threadKey.split('|', limit = 2).takeIf { it.size == 2 }?.let { it[0] to it[1] } ?: return null
+        book.delete(id)
+        onChanged?.invoke()
+        return if (kind == Inbox.KIND_CHANNEL) {
+            peer.toIntOrNull()?.let { sendChannel(it, m.text) }
+        } else {
+            sendDirect(peer, m.text)
+        }
+    }
+
+    /**
      * React to message [id] with [emoji] — one of [Reactions.ALL]. The
      * wire form is the ordinary text message `r:<hash>:<idx>`, where the
      * hash is computed exactly as an incoming reaction is matched

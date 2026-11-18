@@ -421,6 +421,11 @@ final class MeshCoreStore: ObservableObject {
         )
     }
 
+    /// Send a failed message of ours again (shared MessagingSession.resend).
+    func resend(_ id: Int64) {
+        _ = session?.resend(id: id)
+    }
+
     /// Names that have posted in a thread, newest first (mention candidates).
     func senderNames(_ threadKey: String) -> [String] {
         session?.book.senderNames(threadKey: threadKey) ?? []

@@ -51,6 +51,7 @@ struct NodesView: View {
     @State private var showMyContact = false
     @State private var scanning = false
     @State private var removingStale = false
+    @State private var showRepeats = false
 
     private static let tabs: [NodeTab] = [.contacts, .repeaters, .rooms, .sensors]
 
@@ -115,6 +116,7 @@ struct NodesView: View {
                 ConversationView(threadKey: key)
             }
             .sheet(isPresented: $removingStale) { StaleNodesSheet() }
+            .navigationDestination(isPresented: $showRepeats) { HeardRepeatsView() }
             .sheet(isPresented: $showMyContact) { MyContactSheet() }
             .sheet(isPresented: $scanning) {
                 QrScannerSheet { text in store.openScanned(text) }
@@ -176,6 +178,9 @@ struct NodesView: View {
             Menu {
                 Button { scanning = true } label: { Label("Scan a code", systemImage: "qrcode.viewfinder") }
                 Button { showMyContact = true } label: { Label("My contact", systemImage: "qrcode") }
+                Button { showRepeats = true } label: {
+                    Label("Who repeats me", systemImage: "antenna.radiowaves.left.and.right")
+                }
                 Button(role: .destructive) { removingStale = true } label: {
                     Label("Remove stale nodes…", systemImage: "trash")
                 }

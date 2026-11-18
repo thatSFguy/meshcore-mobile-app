@@ -950,3 +950,64 @@ struct StaleNodesSheet: View {
         }
     }
 }
+
+// MARK: - Who repeats me
+
+/// Which repeaters carry this radio's adverts — measured by sending one
+/// and listening for the copies that come back (shared HeardRepeats).
+struct HeardRepeatsView: View {
+    @EnvironmentObject var store: MeshCoreStore
+    @State private var tick = 0
+
+    var body: some View {
+        let _ = tick
+        let view = store.repeatRows()
+        List {
+            Section {
+                Text(view.summary)
+                Button("Send a flood advert") { store.sendAdvert(flood: true) }
+                    .disabled(!store.isReady)
+            } footer: {
+                Text(store.isReady
+                     ? "Repeaters that relay it will appear below as their copies reach this radio. Give it a minute — an advert has to travel out and come back."
+                     : "Connect a radio first — this measures what the mesh does with your transmissions, so there has to be one.")
+            }
+            if !view.rows.isEmpty {
+                Section {
+                    ForEach(view.rows, id: \.hashHex) { row in repeatRow(row) }
+                } footer: {
+                    Text(HeardRepeats.shared.CAVEAT)
+                }
+            }
+        }
+        .navigationTitle("Who repeats me")
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("Clear", role: .destructive) { store.clearHeardRepeats() }
+            }
+        }
+        // Echoes arrive over the next minute or so; re-read while shown.
+        .task {
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                tick += 1
+            }
+        }
+    }
+
+    private func repeatRow(_ row: RepeatRow) -> some View {
+        let parts: [String] = ["Carried \(row.relayed) of your packet(s)", row.snrText, row.ageText].compactMap { $0 }
+        return VStack(alignment: .leading, spacing: 2) {
+            HStack {
+                Text(row.label).font(row.isAmbiguous ? .system(.body, design: .monospaced) : .body)
+                if row.isTwoWay {
+                    Text("Two-way").font(.caption2.bold())
+                        .padding(.horizontal, 6).padding(.vertical, 2)
+                        .background(Color.green.opacity(0.2), in: Capsule())
+                }
+            }
+            Text(row.direction).font(.caption).foregroundStyle(.secondary)
+            Text(parts.joined(separator: " · ")).font(.caption).foregroundStyle(.secondary)
+        }
+    }
+}

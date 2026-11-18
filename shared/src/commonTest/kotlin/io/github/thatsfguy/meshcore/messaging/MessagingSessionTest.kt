@@ -456,4 +456,22 @@ class MessagingSessionTest {
         assertEquals(listOf<String?>("bayarea", null), radio.channelRegionsSent)
         s.stop()
     }
+
+    @Test
+    fun aFailedSendCanBeResentAndOnlyAFailedOne() = runTest {
+        val radio = FakeRadio()
+        val s = session(radio)
+        val first = s.sendDirect(peer, "hello")!!
+        advanceUntilIdle()
+        assertEquals(MessageStatus.Failed, s.book.message(first)?.status)
+        val again = s.resend(first)!!
+        runCurrent()
+        assertNull(s.book.message(first), "the failed copy is replaced, not kept beside the retry")
+        assertEquals("hello", s.book.message(again)?.text)
+        assertEquals(4, radio.sentDirect.size, "three attempts, then one more")
+        radio.bus.emit(MeshEvent.MessageDelivered(ackHash = 500L, tripMs = 1))
+        runCurrent()
+        assertEquals(null, s.resend(again), "a message that went through is not resent")
+        s.stop()
+    }
 }

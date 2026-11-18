@@ -54,6 +54,9 @@ struct ConversationView: View {
                                         }
                                         .controlGroupStyle(.palette)
                                     }
+                                    if message.outgoing && message.status == .failed && store.isReady {
+                                        Button("Resend") { store.resend(message.id) }
+                                    }
                                     Button("Reply") { replyingTo = message }
                                     if canMention(message) {
                                         Button("Mention") { mention(message.senderName ?? "") }

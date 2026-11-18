@@ -136,3 +136,18 @@ extension MeshCoreStore {
                                            selfName: selfName, selfLatitude: pos.lat, selfLongitude: pos.lon)
     }
 }
+
+extension MeshCoreStore {
+    /// "Who repeats me": the shared tally of our own advert echoes, as rows.
+    func repeatRows() -> (summary: String, rows: [RepeatRow]) {
+        let echoes = (engine.heardRepeats.value as? [HeardRepeats.Echo]) ?? []
+        let rows = HeardRepeatsModelKt.repeatRows(echoes: echoes, contactsByKeyHex: contactNames, nowMillis: engine.nowMillis())
+        let summary = HeardRepeats.shared.summary(echoes: echoes, relays: HeardRepeats.shared.tally(echoes: echoes))
+        return (summary, rows)
+    }
+
+    func clearHeardRepeats() {
+        engine.clearHeardRepeats()
+        objectWillChange.send()
+    }
+}
