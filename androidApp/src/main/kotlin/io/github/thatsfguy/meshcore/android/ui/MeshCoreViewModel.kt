@@ -3497,26 +3497,17 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
     fun exportGpx(@Suppress("UNUSED_PARAMETER") count: Int) {
         val app = getApplication<Application>()
         viewModelScope.launch {
-            val nodes = dbContacts.value.filter {
-                isPlausiblePosition(it.latitude, it.longitude)
+            // Built in shared (Gpx) since 2026-11-18: escaped for XML and
+            // stripped of characters XML 1.0 can't carry — a node name is
+            // attacker-controlled.
+            val points = dbContacts.value.map {
+                io.github.thatsfguy.meshcore.presentation.Gpx.Waypoint(it.keyHex, it.name, it.latitude, it.longitude)
             }
-            if (nodes.isEmpty()) {
-                transientMessage.value = "No nodes with GPS to export"
+            val nodes = points.filter { isPlausiblePosition(it.latitude, it.longitude) }
+            val gpx = io.github.thatsfguy.meshcore.presentation.Gpx.build(points)
+            if (gpx == null) {
+                transientMessage.value = io.github.thatsfguy.meshcore.presentation.Gpx.NOTHING_TO_EXPORT
                 return@launch
-            }
-            val gpx = buildString {
-                append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")
-                append("<gpx version=\"1.1\" creator=\"MeshCore Mobile\" ")
-                append("xmlns=\"http://www.topografix.com/GPX/1/1\">\n")
-                for (n in nodes) {
-                    val name = n.name.ifBlank { n.keyHex.take(12) }
-                        .replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-                    append("  <wpt lat=\"${n.latitude}\" lon=\"${n.longitude}\">\n")
-                    append("    <name>$name</name>\n")
-                    append("    <desc>${n.keyHex}</desc>\n")
-                    append("  </wpt>\n")
-                }
-                append("</gpx>\n")
             }
             val dir = java.io.File(app.cacheDir, "exports").apply {
                 // Clear previous exports — an old GPX is node names, keys

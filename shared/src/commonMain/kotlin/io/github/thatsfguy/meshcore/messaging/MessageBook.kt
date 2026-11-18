@@ -1,6 +1,7 @@
 package io.github.thatsfguy.meshcore.messaging
 
 import io.github.thatsfguy.meshcore.presentation.Inbox
+import io.github.thatsfguy.meshcore.protocol.MessageRepeats
 import io.github.thatsfguy.meshcore.protocol.ReactionRouting
 import io.github.thatsfguy.meshcore.protocol.Reactions
 import io.github.thatsfguy.meshcore.protocol.Retention
@@ -36,7 +37,18 @@ data class BookMessage(
     val attempts: Int = 0,
     val contentKey: String? = null,
     val snr: Double? = null,
+    /**
+     * Hops travelled: 0 direct, N flooded across N, and -1
+     * ([io.github.thatsfguy.meshcore.protocol.PathCodec.HOPS_ROUTED]) when
+     * it came along a route the sender already had, so no count exists.
+     */
     val hops: Int? = null,
+    /** Inbound: the repeaters it came through, in travel order (hex), when known. */
+    val arrivalPathHex: String? = null,
+    val arrivalHashWidth: Int? = null,
+    /** Outgoing: distinct relays heard re-broadcasting it (hex, first-seen order). */
+    val repeatHopsHex: String? = null,
+    val repeatHashWidth: Int? = null,
     /** How many copies of this message arrived (retries, sync + RX log). */
     val copies: Int = 1,
     /** Emoji → count, from reactions that matched this message. */
@@ -145,6 +157,8 @@ class MessageBook(
         contentKey: String?,
         snr: Double? = null,
         hops: Int? = null,
+        arrivalPathHex: String? = null,
+        arrivalHashWidth: Int? = null,
     ): Inbound {
         val reaction = Reactions.parse(text)
         if (reaction != null) return applyReaction(threadKey, isChannel, reaction, contentKey)
@@ -154,12 +168,30 @@ class MessageBook(
             if (held >= 0) {
                 val rows = _messages.value.toMutableList()
                 val old = rows[held]
+                val path = arrivalPathHex?.takeIf { it.isNotEmpty() && arrivalHashWidth in 1..4 }
+                // Our own channel post heard back through the mesh: the
+                // path names the repeaters that re-broadcast it.
+                val repeats = if (old.outgoing && path != null) {
+                    MessageRepeats.merge(old.repeatHopsHex, path, arrivalHashWidth!!)
+                } else {
+                    null
+                }
                 rows[held] = old.copy(
                     // Our own channel post echoing back is not a "copy"
                     // anyone sent; it proves the radio put it on the air.
                     copies = if (old.outgoing) old.copies else old.copies + 1,
-                    hops = old.hops ?: hops?.takeIf { it >= 0 },
+                    // A real count beats "routed"; nothing beats a real count.
+                    hops = when {
+                        old.hops == null -> hops
+                        old.hops < 0 && hops != null && hops >= 0 -> hops
+                        else -> old.hops
+                    },
                     snr = old.snr ?: snr,
+                    // A known route is never overwritten by a later copy's.
+                    arrivalPathHex = if (old.outgoing) old.arrivalPathHex else old.arrivalPathHex ?: path,
+                    arrivalHashWidth = if (old.outgoing) old.arrivalHashWidth else old.arrivalHashWidth ?: path?.let { arrivalHashWidth },
+                    repeatHopsHex = repeats ?: old.repeatHopsHex,
+                    repeatHashWidth = if (repeats != null) arrivalHashWidth else old.repeatHashWidth,
                     status = if (old.outgoing && old.status == MessageStatus.Pending) {
                         MessageStatus.Sent
                     } else {
@@ -182,7 +214,9 @@ class MessageBook(
                 status = MessageStatus.Delivered,
                 contentKey = contentKey,
                 snr = snr,
-                hops = hops?.takeIf { it >= 0 },
+                hops = hops,
+                arrivalPathHex = arrivalPathHex?.takeIf { it.isNotEmpty() && arrivalHashWidth in 1..4 },
+                arrivalHashWidth = arrivalHashWidth?.takeIf { !arrivalPathHex.isNullOrEmpty() && it in 1..4 },
             ),
         )
         bumpUnread(threadKey)
@@ -257,6 +291,37 @@ class MessageBook(
     }
 
     fun message(id: Long): BookMessage? = _messages.value.firstOrNull { it.id == id }
+
+    /**
+     * Credit a heard re-broadcast of one of OUR direct messages to the
+     * sent row it most plausibly belongs to. A rebroadcast DM exposes one
+     * byte of its recipient, so the decision is [MessageRepeats.creditDirect]'s:
+     * the newest send to a matching recipient within the echo window,
+     * and none at all when two sends are too close to tell apart.
+     * Returns whether a row was credited.
+     */
+    fun noteDirectRepeat(destHash: Int, pathHex: String, hashWidth: Int): Boolean {
+        val now = nowMs()
+        val window = now - DM_REPEAT_WINDOW_MS
+        val candidates = _messages.value
+            .filter { it.outgoing && it.threadKey.startsWith("${Inbox.KIND_DM}|") && it.receivedAtMs >= window }
+            .sortedByDescending { it.receivedAtMs }
+            .take(8)
+            .map { MessageRepeats.SentRef(it.id, it.threadKey.substringAfter('|'), it.receivedAtMs) }
+        val credited = MessageRepeats.creditDirect(candidates, destHash, now) ?: return false
+        val rows = _messages.value.toMutableList()
+        val i = rows.indexOfFirst { it.id == credited.id }
+        if (i < 0) return false
+        val merged = MessageRepeats.merge(rows[i].repeatHopsHex, pathHex, hashWidth) ?: return false
+        rows[i] = rows[i].copy(repeatHopsHex = merged, repeatHashWidth = hashWidth)
+        _messages.value = rows
+        return true
+    }
+
+    /** The newest inbound message in [threadKey] whose route is known. */
+    fun latestArrival(threadKey: String): BookMessage? =
+        _messages.value.filter { it.threadKey == threadKey && !it.outgoing && !it.arrivalPathHex.isNullOrEmpty() }
+            .maxByOrNull { it.receivedAtMs }
 
     fun delete(id: Long) {
         _messages.value = _messages.value.filterNot { it.id == id }
@@ -363,6 +428,9 @@ class MessageBook(
     }
 
     companion object {
+        /** How far back a heard DM repeat may reach for its original (Android's window). */
+        const val DM_REPEAT_WINDOW_MS: Long = 180_000
+
         /** Generous: a year of a busy channel at a few hundred bytes a row. */
         const val DEFAULT_KEEP_PER_THREAD = 2_000
 

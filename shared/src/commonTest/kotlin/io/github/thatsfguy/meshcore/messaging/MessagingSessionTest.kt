@@ -22,7 +22,7 @@ class MessagingSessionTest {
         override val events = bus
         override fun nowSeconds() = 1_700_000_000L
         override fun selfName() = "Me"
-        var stored: ContactRoute? = ContactRoute(hasStoredPath = true, storedHops = 2)
+        var stored: ContactRoute? = ContactRoute(hasStoredPath = true, storedHops = 2, storedPathHex = "b389c985", hashWidth = 2)
         override fun route(keyHex: String) = stored
         val sentDirect = mutableListOf<Int>()
         var resets = 0
@@ -409,6 +409,37 @@ class MessagingSessionTest {
         s.sendDirect(peer, "hi")
         advanceUntilIdle()
         assertEquals(1, radio.resets)
+        s.stop()
+    }
+
+    @Test
+    fun aDeliveredFirstAttemptScoresTheStoredRoute() = runTest {
+        val radio = FakeRadio()
+        val s = session(radio)
+        val paths = PathHistoryBook({ testScheduler.currentTime })
+        s.paths = paths
+        s.sendDirect(peer, "hi")
+        runCurrent()
+        radio.bus.emit(MeshEvent.MessageDelivered(ackHash = 500L, tripMs = 900))
+        runCurrent()
+        val row = paths.forContact(peer).single()
+        assertEquals("b389c985", row.pathHex)
+        assertEquals(1, row.successes)
+        assertEquals(0, row.failures)
+        s.stop()
+    }
+
+    @Test
+    fun theFloodFallbackScoresNothingButTheStoredAttemptsCountAgainstTheRoute() = runTest {
+        val radio = FakeRadio()
+        val s = session(radio)
+        val paths = PathHistoryBook({ testScheduler.currentTime })
+        s.paths = paths
+        s.sendDirect(peer, "hi")
+        advanceUntilIdle()
+        val rows = paths.forContact(peer)
+        assertEquals(listOf("b389c985"), rows.map { it.pathHex }, "the reset-and-flood attempt is not scored")
+        assertEquals(2, rows.single().failures)
         s.stop()
     }
 }

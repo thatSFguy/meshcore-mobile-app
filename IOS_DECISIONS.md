@@ -336,6 +336,48 @@ Keep the pattern for further iOS work: branch, dispatch, merge on green.)
     (typed coordinates only), and Purge local data — deleting history is
     per-thread on iOS for now.
 
+## Phase 4: routing, paths, heard-via, map (2026-11-18)
+
+46. **The message store keeps what routing needs.** `BookMessage` gained
+    the arrival route (inbound) and the relays heard re-broadcasting it
+    (outgoing), and keeps `hops = -1` — before, MessageBook discarded it,
+    so a routed arrival could only ever read as nothing, never as
+    "routed". Old history files load unchanged (new fields default).
+    A known route is never overwritten by a later copy; a real hop count
+    replaces "routed", never the reverse.
+
+47. **Repeats of our own DMs are credited, not dropped.**
+    `MessagingSession` used to ignore `OwnDirectRepeatHeard`. It now goes
+    through the shared `MessageRepeats.creditDirect` over sends from the
+    last 180 s — the newest send to a matching recipient byte, and none
+    when two sends are too close to tell apart (Android's rule).
+
+48. **Path history is a pure shared class** (`PathHistoryBook`), one JSON
+    file per radio beside the message history. Rows are remembered as
+    the radio reports routes and when the person pins one; scored by
+    each DM attempt through a new `DirectSend` `onAttempt` hook (the
+    flood fallback scores nothing — it can't say which route the reply
+    proved); repaired when the radio reports its hop-hash width.
+
+49. **The routing screen is Android's sheet, as a pushed screen.** Hops
+    are `HopSelection` (full keys, hash derived at the mesh's current
+    width). Auto/Flood apply on tap and Manual on "Apply path", with no
+    confirmation dialogs — as on Android, every action says what
+    happened. "Check if they can hear you" lives on the node sheet.
+
+50. **Message info** (long-press → Info) shows Arrived via / Repeated by,
+    worded by the shared `MessageDetail`, so iOS says "routed" where it
+    used to say nothing and qualifies SNR as last-hop.
+
+51. **The map gained a self pin, type colours and symbols, a labels
+    switch, type filters, fit-all, tap-to-open, and GPX export.** GPX is
+    now shared (`Gpx`) and Android uses it too; it escapes names AND
+    strips characters XML 1.0 cannot carry, which Android's inline
+    version did not — a control character in an advert name made the
+    whole file unreadable. Its creator is now "MeshCore Hardened".
+    Neighbour links need a repeater sign-in and move to Phase 5. The
+    message-path and stored-route mini maps are not ported yet.
+
 ## Swift interop rules learned from CI (Kotlin 2.0.21)
 
 Written down because each one cost a ~20-minute CI round trip:

@@ -225,6 +225,8 @@ struct NodeDetailSheet: View {
     @Environment(\.dismiss) private var dismiss
     let node: UiNode
     @State private var confirmRemove = false
+    @State private var checking = false
+    @State private var reach: String?
 
     var body: some View {
         NavigationStack {
@@ -256,6 +258,21 @@ struct NodeDetailSheet: View {
                     } else {
                         Text(BlockList.shared.NOT_BLOCKABLE_NOTE).font(.caption).foregroundStyle(.secondary)
                     }
+                }
+                Section {
+                    NavigationLink("Routing / paths…") { RoutingView(keyHex: node.id, title: node.displayName) }
+                    Button(checking ? "Checking…" : "Check if they can hear you") {
+                        Task {
+                            checking = true
+                            reach = await store.checkReach(node.id)
+                            checking = false
+                        }
+                    }
+                    .disabled(checking || !store.isReady)
+                    if checking { HStack { ProgressView(); Text("Asking them for the route both ways…") } }
+                    if let reach { Text(reach).font(.callout) }
+                } header: {
+                    Text("Reachability")
                 }
                 Section {
                     if node.hasStoredPath {

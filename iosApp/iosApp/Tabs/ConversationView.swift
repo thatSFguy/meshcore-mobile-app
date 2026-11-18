@@ -14,6 +14,7 @@ struct ConversationView: View {
     @State private var draft = ""
     @State private var showChannelInfo = false
     @State private var hideName: String?
+    @State private var info: UiMessage?
 
     private var isChannel: Bool { threadKey.hasPrefix("ch|") }
 
@@ -46,6 +47,7 @@ struct ConversationView: View {
                                         }
                                     }
                                     Button("Copy") { UIPasteboard.general.string = message.text }
+                                    Button("Info") { info = message }
                                     if isChannel, !message.outgoing, let name = message.senderName, !name.isEmpty {
                                         Button("Hide messages from \(name)") { hideName = name }
                                     }
@@ -79,6 +81,7 @@ struct ConversationView: View {
         }
         .navigationTitle(store.title(for: threadKey))
         .navigationBarTitleDisplayMode(.inline)
+        .sheet(item: $info) { m in MessageInfoSheet(message: m) }
         .toolbar {
             if isChannel, let idx = Int32(threadKey.dropFirst(3)) {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -159,13 +162,9 @@ struct MessageBubble: View {
     /// Hops, signal and retries — the facts the row has, briefly.
     private var detail: String? {
         var parts: [String] = []
-        if !message.outgoing {
-            if let h = message.hops { parts.append(h == 0 ? "direct" : "\(h) hop\(h == 1 ? "" : "s")") }
-            if let s = message.snr { parts.append(String(format: "%.1f dB", s)) }
-            if message.copies > 1 { parts.append("×\(message.copies)") }
-        } else if message.attempts > 1 {
-            parts.append("try \(message.attempts)")
-        }
+        if message.outgoing && message.attempts > 1 { parts.append("try \(message.attempts)") }
+        if let footer = message.footer { parts.append(footer) }
+        if !message.outgoing && message.copies > 1 { parts.append("×\(message.copies)") }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 }
@@ -191,6 +190,60 @@ private struct StatusMark: View {
             Image(systemName: "exclamationmark.circle.fill")
                 .foregroundStyle(.red)
                 .accessibilityLabel("Not delivered")
+        }
+    }
+}
+
+/// How one message travelled: direction, time, delivery state and the
+/// route — "Arrived via" for what we received, "Repeated by" for what we
+/// sent. Wording is the shared MessageDetail, as on Android.
+private struct MessageInfoSheet: View {
+    @EnvironmentObject var store: MeshCoreStore
+    @Environment(\.dismiss) private var dismiss
+    let message: UiMessage
+
+    var body: some View {
+        let m = message.source
+        let route = store.route(for: m)
+        NavigationStack {
+            List {
+                Section {
+                    LabeledContent("Direction", value: m.outgoing ? "Sent" : "Received")
+                    LabeledContent("Time", value: Date(timeIntervalSince1970: TimeInterval(m.timestamp))
+                        .formatted(date: .abbreviated, time: .standard))
+                    if m.outgoing {
+                        LabeledContent("State", value: MessageDetail.shared.stateLabel(status: m.status))
+                        if m.attempts > 0 { LabeledContent("Attempts", value: "\(m.attempts)") }
+                    } else {
+                        if let snr = MessageSignal.shared.info(snr: m.snr, hops: m.hops) {
+                            LabeledContent("SNR", value: snr)
+                        }
+                        if let arrival = MessageDetail.shared.arrivalLabel(hops: m.hops) {
+                            LabeledContent("Arrival", value: arrival)
+                        }
+                    }
+                }
+                if let copies = MessageDetail.shared.copiesLabel(copies: m.copies) {
+                    Section {
+                        Text(copies)
+                    } footer: {
+                        Text(MessageDetail.shared.COPIES_EXPLAINED)
+                    }
+                }
+                Section(route.title) {
+                    Text(route.summary).font(.callout)
+                    ForEach(route.steps, id: \.self) { step in
+                        Text(step)
+                            .font(.system(.callout, design: .monospaced))
+                            .foregroundStyle(step.hasPrefix("↑") || step.hasPrefix("↓") ? .secondary : .primary)
+                    }
+                }
+            }
+            .navigationTitle("Message info")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+            }
         }
     }
 }

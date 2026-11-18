@@ -6,8 +6,10 @@ import io.github.thatsfguy.meshcore.presentation.Inbox
 import io.github.thatsfguy.meshcore.protocol.AckTimeout
 import io.github.thatsfguy.meshcore.protocol.BlockList
 import io.github.thatsfguy.meshcore.protocol.Codes
+import io.github.thatsfguy.meshcore.protocol.SendRetry
 import io.github.thatsfguy.meshcore.protocol.Reactions
 import io.github.thatsfguy.meshcore.util.hexToBytesOrNull
+import io.github.thatsfguy.meshcore.util.toHex
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
@@ -34,7 +36,14 @@ interface MessagingRadio {
 }
 
 /** A contact's routing, as the retry ladder needs it. */
-data class ContactRoute(val hasStoredPath: Boolean, val storedHops: Int?)
+data class ContactRoute(
+    val hasStoredPath: Boolean,
+    val storedHops: Int?,
+    /** The stored route as hex, for scoring it; "" when flooding. */
+    val storedPathHex: String = "",
+    /** The contact's own hop-hash width (the route's, not necessarily the mesh's). */
+    val hashWidth: Int = 1,
+)
 
 /**
  * Engine events in, [MessageBook] rows out, plus the two send paths.
@@ -90,6 +99,14 @@ class MessagingSession(
      */
     var floodFallback: Boolean = true
 
+    /**
+     * Path history for this radio, scored by each DM attempt; null = not
+     * kept. Android's rule: an attempt over the stored route counts for
+     * or against that route; the flood fallback scores nothing, because
+     * it cannot say which route the reply proved.
+     */
+    var paths: PathHistoryBook? = null
+
     private fun note(line: String) {
         log?.let { runCatching { it(line) } }
     }
@@ -130,6 +147,8 @@ class MessagingSession(
                     contentKey = event.contentKey,
                     snr = event.snr,
                     hops = event.hops,
+                    arrivalPathHex = event.arrivalPathHex,
+                    arrivalHashWidth = event.arrivalHashWidth,
                 )
                 note(
                     "DM from ${peer.take(12)}${if (event.senderKeyHex == null) " (unresolved)" else ""}: " +
@@ -152,9 +171,19 @@ class MessagingSession(
                     contentKey = event.contentKey,
                     snr = event.snr,
                     hops = event.hops,
+                    arrivalPathHex = event.arrivalPathHex,
+                    arrivalHashWidth = event.arrivalHashWidth,
                 )
                 note("Channel ${event.channelIndex} post: $outcome, hops=${event.hops ?: "?"} snr=${event.snr ?: "?"}")
                 after(outcome, key, event.senderName, event.text)
+            }
+            is MeshEvent.OwnDirectRepeatHeard -> {
+                // A node re-broadcasting one of our DMs: credit it to the
+                // send it most plausibly belongs to, or to none.
+                if (book.noteDirectRepeat(event.destHash, event.pathHex, event.hashWidth)) {
+                    note("Own DM repeat heard via ${event.pathHex.take(16)}: credited")
+                    onChanged?.invoke()
+                }
             }
             else -> Unit
         }
@@ -216,6 +245,13 @@ class MessagingSession(
                 hasStoredPath = route?.hasStoredPath == true,
                 knownHops = knownHops,
                 floodFallbackEnabled = floodFallback,
+                onAttempt = { attempt, used, delivered ->
+                    val pathHex = route?.storedPathHex.orEmpty()
+                    if (SendRetry.scoresStoredPath(used) && (!delivered || pathHex.isNotEmpty() || attempt == 0)) {
+                        paths?.score(keyHex, pathHex, delivered, route?.hashWidth ?: 1)
+                        onChanged?.invoke()
+                    }
+                },
             ) { update ->
                 book.updateStatus(id, update.status, update.ackHash, update.attempts)
                 onChanged?.invoke()
@@ -318,6 +354,8 @@ class EngineMessagingRadio(
         return ContactRoute(
             hasStoredPath = c.storedPath.isNotEmpty(),
             storedHops = info.takeIf { !it.isFlood }?.hops,
+            storedPathHex = c.storedPath.toHex(),
+            hashWidth = info.hashWidth,
         )
     }
 

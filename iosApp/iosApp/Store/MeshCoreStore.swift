@@ -64,8 +64,15 @@ struct UiMessage: Identifiable, Hashable {
     let hops: Int?
     let snr: Double?
     let reactions: [UiReaction]
+    /// Hops and last-hop signal (inbound) or the repeat badge (outgoing),
+    /// worded by the shared MessageDetail so "routed" is never "direct".
+    let footer: String?
+    /// The stored row, for the info sheet.
+    let source: BookMessage
 
     init(_ m: BookMessage) {
+        source = m
+        footer = MessageDetail.shared.bubbleFooter(m: m)
         id = m.id
         senderName = m.senderName
         text = m.text
@@ -126,7 +133,7 @@ final class MeshCoreStore: ObservableObject {
     @AppStorage("tcpHost") var tcpHost: String = "192.168.40.10"
     @AppStorage("tcpPort") var tcpPort: Int = 5000
 
-    private let engine: MeshCoreEngine
+    let engine: MeshCoreEngine
     private let crypto: IosCryptoProvider
     /// The radio's own settings, for the Settings → This node spokes.
     let node: NodeSettingsStore
@@ -141,11 +148,16 @@ final class MeshCoreStore: ObservableObject {
     /// kept per identity (Android keys every row by self key the same
     /// way), so swapping radios never mixes two people's threads.
     private var session: MessagingSession?
+    /// Routes used to each contact and how they did (per radio, persisted).
+    private(set) var paths: PathHistoryBook?
+    /// The open radio's message history (for routing's "reply the way
+    /// they reached me").
+    var sessionBook: MessageBook? { session?.book }
     private var bookWatch: FlowWatch?
     private var bookOwner: String?
     private var saveWork: Task<Void, Never>?
 
-    private let diag = DiagnosticsLog.shared
+    let diag = DiagnosticsLog.shared
 
     private static func nowSeconds() -> Int64 { Int64(Date().timeIntervalSince1970) }
     private static func nowMs() -> Int64 { Int64(Date().timeIntervalSince1970 * 1000) }
@@ -192,6 +204,13 @@ final class MeshCoreStore: ObservableObject {
                 self?.rebuildRadioFacts()
             })
         }
+        // The hop-hash width is a property of the mesh: when the radio
+        // reports it, drop remembered routes that aren't whole hops at it.
+        watches.append(FlowWatchKt.watch(flow: engine.deviceInfo, scope: scope) { [weak self] value in
+            guard let self, let info = value as? DeviceInfo, let paths = self.paths else { return }
+            let dropped = paths.repair(meshWidth: info.pathHashByteWidth)
+            if dropped > 0 { self.diag.log("Store", "path history: dropped \(dropped) route(s) not whole hops at width \(info.pathHashByteWidth)") }
+        })
         watches.append(FlowWatchKt.watch(flow: engine.plaintextLink, scope: scope) { [weak self] value in
             guard let self else { return }
             self.isPlaintextLink = (value as? KotlinBoolean)?.boolValue ?? false
@@ -218,6 +237,7 @@ final class MeshCoreStore: ObservableObject {
                     lastAdvert: c.timestamp
                 )
             }.sorted { $0.name.lowercased() < $1.name.lowercased() }
+            self.paths?.rememberContacts(contacts: Array(live.values))
             self.rebuildNodes()
         })
         watches.append(FlowWatchKt.watch(flow: engine.channels, scope: scope) { [weak self] value in
@@ -293,6 +313,13 @@ final class MeshCoreStore: ObservableObject {
         )
         s.onChanged = { [weak self] in self?.scheduleSave() }
         s.log = DiagnosticsLog.shared.sink("Msg")
+        // Path history, per radio, beside the message history.
+        let pathsURL = url?.deletingLastPathComponent().appendingPathComponent("paths-\(selfKey.prefix(16)).json")
+        let pathsJson = pathsURL.flatMap { try? String(contentsOf: $0, encoding: .utf8) }
+        let paths = PathHistoryBook.companion.fromJson(json: pathsJson, nowMs: { KotlinLong(value: MeshCoreStore.nowMs()) })
+        s.paths = paths
+        self.paths = paths
+        paths.rememberContacts(contacts: Array(((engine.contacts.value as? [String: Contact]) ?? [:]).values))
         s.floodFallback = floodFallback
         diag.log("Store", "history opened for radio \(selfKey.prefix(12)): \((book.messages.value as? [Any])?.count ?? 0) messages")
         s.onNewMessage = { [weak self] key, sender, text in
@@ -371,6 +398,19 @@ final class MeshCoreStore: ObservableObject {
         }
     }
 
+    /// "Arrived via" (inbound) or "Repeated by" (outgoing) for the info sheet.
+    func route(for m: BookMessage) -> MessageDetail.Route {
+        let contacts = Array(((engine.contacts.value as? [String: Contact]) ?? [:]).values)
+        if m.outgoing { return MessageDetail.shared.repeats(m: m, contacts: contacts) }
+        let me = node.selfInfo
+        let plausible = me.map { GeoKt.isPlausiblePosition(lat: KotlinDouble(double: $0.latitude), lon: KotlinDouble(double: $0.longitude)) } ?? false
+        return MessageDetail.shared.arrival(
+            m: m, contacts: contacts,
+            selfLatitude: plausible ? me.map { KotlinDouble(double: $0.latitude) } : nil,
+            selfLongitude: plausible ? me.map { KotlinDouble(double: $0.longitude) } : nil
+        )
+    }
+
     func messages(in threadKey: String) -> [UiMessage] {
         session?.book.thread(threadKey: threadKey).map(UiMessage.init) ?? []
     }
@@ -394,7 +434,7 @@ final class MeshCoreStore: ObservableObject {
         scheduleSave()
     }
 
-    private func scheduleSave() {
+    func scheduleSave() {
         saveWork?.cancel()
         saveWork = Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: 500_000_000)
@@ -416,6 +456,12 @@ final class MeshCoreStore: ObservableObject {
                 to: url,
                 options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication]
             )
+            if let paths {
+                try Data(paths.toJson().utf8).write(
+                    to: url.deletingLastPathComponent().appendingPathComponent("paths-\(owner.prefix(16)).json"),
+                    options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication]
+                )
+            }
         } catch {
             historyProblem = "Message history could not be saved: \(error.localizedDescription)"
         }

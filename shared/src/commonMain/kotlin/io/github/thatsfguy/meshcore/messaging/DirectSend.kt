@@ -64,6 +64,13 @@ object DirectSend {
         knownHops: Int?,
         maxAttempts: Int = SendRetry.DEFAULT_MAX_ATTEMPTS,
         floodFallbackEnabled: Boolean = true,
+        /**
+         * Told, per attempt, which route it used and whether its ACK came
+         * back in that attempt's wait — what a path's delivery record is
+         * scored from. Not told about the late-ACK grace window, which
+         * cannot say which attempt was delivered.
+         */
+        onAttempt: ((attempt: Int, route: SendRetry.Route, delivered: Boolean) -> Unit)? = null,
         onStatus: (Update) -> Unit,
     ): MessageStatus = coroutineScope {
         val watch = DeliveryWatch()
@@ -100,9 +107,11 @@ object DirectSend {
 
                 val timeout = AckTimeout.waitFor(sent.timeoutMs, sent.isFlood, knownHops)
                 if (watch.awaitAny(ourHashes, timeout)) {
+                    onAttempt?.invoke(attempt, route, true)
                     onStatus(Update(MessageStatus.Delivered, sent.ackHash, attempt + 1))
                     return@coroutineScope MessageStatus.Delivered
                 }
+                onAttempt?.invoke(attempt, route, false)
                 attempt++
                 if (attempt < maxAttempts) {
                     delay(1_000L * attempt)

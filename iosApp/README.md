@@ -42,10 +42,16 @@ compiled, not proven.
 - Ed25519 via CryptoKit (`shared/iosCryptoBridge`), verified on CI against
   RFC 8032; CryptoKit is hedged, see CLAUDE.md.
 
+- Routing (Phase 4): Auto / Flood / Manual with hops picked from
+  relays, the reply route, path history scored by delivery, trace, and
+  "Check if they can hear you". Message info shows Arrived via /
+  Repeated by. The map has a self pin, type colours, labels, filters,
+  fit-all, tap-to-open and GPX export.
+
 **Not ported yet** (Android has them): repeater settings/regions/identity
-(Phase 5), per-channel regions, path history and the routing sheet,
-heard-via, the map's extras — labels, paths, neighbour links (Phase 4),
-Simple mode. **Out of iOS scope by decision:** firmware updates.
+and neighbour links (Phase 5), per-channel regions, the message-path and
+stored-route mini maps, Simple mode. **Out of iOS scope by decision:**
+firmware updates.
 
 **Writing Swift against `Shared`:** read the interop rules at the end of
 `IOS_DECISIONS.md` first — nested Kotlin types are nested Swift types,

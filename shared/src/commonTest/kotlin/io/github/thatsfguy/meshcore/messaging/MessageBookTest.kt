@@ -243,4 +243,101 @@ class MessageBookTest {
         assertTrue(b.thread(dm).isEmpty())
         assertEquals(0, b.unreadTotal())
     }
+
+    // --- routes and repeats (iOS Phase 4) ------------------------------------
+
+    @Test
+    fun aRoutedArrivalKeepsItsMinusOneRatherThanLookingDirect() {
+        val b = book()
+        b.receive(dm, false, null, "hi", 1, "k", hops = -1)
+        assertEquals(-1, b.thread(dm).single().hops)
+    }
+
+    @Test
+    fun anArrivalRouteIsKeptAndNeverOverwrittenByALaterCopy() {
+        val b = book()
+        // b389c985: the real 2-byte-width route pinned by the heard-via suite.
+        b.receive(dm, false, null, "hi", 1, "k", hops = 2, arrivalPathHex = "b389c985", arrivalHashWidth = 2)
+        b.receive(dm, false, null, "hi", 1, "k", hops = 3, arrivalPathHex = "11112222", arrivalHashWidth = 2)
+        val row = b.thread(dm).single()
+        assertEquals("b389c985", row.arrivalPathHex)
+        assertEquals(2, row.arrivalHashWidth)
+        assertEquals(2, row.copies)
+        assertEquals(2, row.hops)
+    }
+
+    @Test
+    fun aLaterCopyFillsARouteTheFirstLacked() {
+        val b = book()
+        b.receive(ch, true, "Bob", "hey", 1, "c1", hops = 2)
+        b.receive(ch, true, "Bob", "hey", 1, "c1", hops = 2, arrivalPathHex = "b389c985", arrivalHashWidth = 2)
+        assertEquals("b389c985", b.thread(ch).single().arrivalPathHex)
+        assertEquals("hey", b.latestArrival(ch)?.text)
+    }
+
+    @Test
+    fun aRealCountReplacesRoutedButRoutedNeverReplacesACount() {
+        val b = book()
+        b.receive(dm, false, null, "a", 1, "k1", hops = -1)
+        b.receive(dm, false, null, "a", 1, "k1", hops = 3)
+        assertEquals(3, b.thread(dm).single().hops)
+        b.receive(dm, false, null, "b", 2, "k2", hops = 3)
+        b.receive(dm, false, null, "b", 2, "k2", hops = -1)
+        assertEquals(3, b.thread(dm).last().hops)
+    }
+
+    @Test
+    fun aMalformedRouteIsNotStored() {
+        val b = book()
+        b.receive(dm, false, null, "hi", 1, "k", hops = 1, arrivalPathHex = "b389", arrivalHashWidth = 9)
+        assertNull(b.thread(dm).single().arrivalPathHex)
+        assertNull(b.thread(dm).single().arrivalHashWidth)
+    }
+
+    @Test
+    fun ourOwnChannelPostHeardBackRecordsWhoRepeatedIt() {
+        val b = book()
+        b.addOutgoing(ch, "Me", "hello", 1, "own")
+        b.receive(ch, true, "Me", "hello", 1, "own", hops = 1, arrivalPathHex = "b389", arrivalHashWidth = 2)
+        b.receive(ch, true, "Me", "hello", 1, "own", hops = 2, arrivalPathHex = "b389c985", arrivalHashWidth = 2)
+        val row = b.thread(ch).single()
+        assertEquals("b389c985", row.repeatHopsHex, "distinct relays, first-seen order")
+        assertNull(row.arrivalPathHex, "our own post did not ARRIVE from anyone")
+        assertEquals(1, row.copies)
+    }
+
+    @Test
+    fun aHeardDmRepeatIsCreditedToTheRecentSendToThatRecipient() {
+        val b = book()
+        val id = b.addOutgoing(dm, null, "hi", 1)
+        // dm thread key "aabbccddeeff": recipient hash 0xaa.
+        assertTrue(b.noteDirectRepeat(0xaa, "c985", 2))
+        assertEquals("c985", b.message(id)?.repeatHopsHex)
+        // A different recipient byte credits nothing.
+        assertTrue(!b.noteDirectRepeat(0x11, "b389", 2))
+    }
+
+    @Test
+    fun twoSendsTooCloseToTellApartAreNeitherCredited() {
+        val b = book()
+        b.addOutgoing(dm, null, "one", 1)
+        b.addOutgoing(dm, null, "two", 2)
+        assertTrue(!b.noteDirectRepeat(0xaa, "c985", 2))
+    }
+
+    @Test
+    fun aRepeatLongAfterTheSendIsNotCredited() {
+        val b = book()
+        b.addOutgoing(dm, null, "hi", 1)
+        clock += MessageBook.DM_REPEAT_WINDOW_MS + 1
+        assertTrue(!b.noteDirectRepeat(0xaa, "c985", 2))
+    }
+
+    @Test
+    fun oldHistoryWithoutTheNewFieldsStillLoads() {
+        val json = """{"version":1,"nextId":2,"messages":[{"id":1,"threadKey":"dm|aa","outgoing":false,"text":"x","timestamp":1,"receivedAtMs":1,"status":"Delivered","hops":2}]}"""
+        val b = MessageBook.fromJson(json, { 1L })
+        assertEquals(2, b.thread("dm|aa").single().hops)
+        assertNull(b.thread("dm|aa").single().arrivalPathHex)
+    }
 }
