@@ -340,4 +340,14 @@ class MessageBookTest {
         assertEquals(2, b.thread("dm|aa").single().hops)
         assertNull(b.thread("dm|aa").single().arrivalPathHex)
     }
+
+    @Test
+    fun channelSendersAreNewestFirstAndOnceEach() {
+        val b = book()
+        b.receive(ch, true, "Bob", "a", 1, "c1")
+        b.receive(ch, true, "Amy", "b", 2, "c2")
+        b.receive(ch, true, "Bob", "c", 3, "c3")
+        b.addOutgoing(ch, "Me", "mine", 4, "c4")
+        assertEquals(listOf("Bob", "Amy"), b.senderNames(ch))
+    }
 }

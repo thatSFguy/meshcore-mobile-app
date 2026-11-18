@@ -216,4 +216,18 @@ object Mentions {
         if (!canMention(name)) return ""
         return wire(name) + ": "
     }
+
+    /**
+     * Mentions to colour in [text], flattened for Swift as
+     * `[start, endExclusive, isMe]` triples (UTF-16 offsets, which is
+     * what Kotlin string indices and NSString both count). `isMe` is 1
+     * when the mention names [selfName] — that one is drawn bold, as on
+     * Android, so a message tagging three people doesn't shout.
+     */
+    fun highlights(text: String, selfName: String?): List<Int> {
+        val me = selfName?.trim()?.lowercase()?.takeIf { it.isNotEmpty() }
+        return spans(text).flatMap { s ->
+            listOf(s.range.first, s.range.last + 1, if (me != null && s.name.trim().lowercase() == me) 1 else 0)
+        }
+    }
 }

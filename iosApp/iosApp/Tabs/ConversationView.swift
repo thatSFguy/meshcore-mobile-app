@@ -15,6 +15,8 @@ struct ConversationView: View {
     @State private var showChannelInfo = false
     @State private var hideName: String?
     @State private var info: UiMessage?
+    /// The message a reply quotes (swipe right, or long-press → Reply).
+    @State private var replyingTo: UiMessage?
 
     private var isChannel: Bool { threadKey.hasPrefix("ch|") }
 
@@ -37,8 +39,10 @@ struct ConversationView: View {
                     LazyVStack(alignment: .leading, spacing: 6) {
                         ForEach(messages) { message in
                             MessageBubble(message: message, isChannel: isChannel,
-                                          showsSignal: AppModes.shared.showsSignalDetail(mode: store.appMode))
+                                          showsSignal: AppModes.shared.showsSignalDetail(mode: store.appMode),
+                                          selfName: store.selfName)
                                 .id(message.id)
+                                .modifier(SwipeToReply { replyingTo = message })
                                 .contextMenu {
                                     if store.isReady {
                                         // One horizontal row, as Android's quick-reaction
@@ -49,6 +53,10 @@ struct ConversationView: View {
                                             }
                                         }
                                         .controlGroupStyle(.palette)
+                                    }
+                                    Button("Reply") { replyingTo = message }
+                                    if canMention(message) {
+                                        Button("Mention") { mention(message.senderName ?? "") }
                                     }
                                     Button("Copy") { UIPasteboard.general.string = message.text }
                                     if AppModes.shared.showsTechnicalActions(mode: store.appMode) {
@@ -72,6 +80,8 @@ struct ConversationView: View {
                     if let last = messages.last { proxy.scrollTo(last.id, anchor: .bottom) }
                 }
             }
+            if let target = replyingTo { replyBanner(target) }
+            mentionSuggestions
             HStack {
                 TextField(isChannel ? "Message channel…" : "Message…", text: $draft, axis: .vertical)
                     .lineLimit(1...4)
@@ -112,9 +122,79 @@ struct ConversationView: View {
         .onDisappear { store.setActiveThread(nil) }
     }
 
+    // MARK: Reply and mention (shared Quoting / Mentions, as Android)
+
+    private func replyBanner(_ target: UiMessage) -> some View {
+        let who = target.outgoing ? "yourself" : (target.senderName ?? store.title(for: threadKey))
+        let body: String = Quoting.shared.bodyPart(text: target.text)
+        let snippet: String = Quoting.shared.oneLine(text: body, maxChars: Quoting.shared.QUOTE_MAX_CHARS)
+        return HStack {
+            Rectangle().fill(.tint).frame(width: 3)
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Replying to \(who)").font(.caption.bold())
+                Text(snippet).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            }
+            Spacer()
+            Button { replyingTo = nil } label: { Image(systemName: "xmark.circle.fill") }
+                .foregroundStyle(.secondary)
+        }
+        .frame(height: 34)
+        .padding(.horizontal, 8)
+    }
+
+    /// Who can be mentioned here: a channel's recent senders, or the DM peer.
+    private var mentionNames: [String] {
+        if isChannel { return store.senderNames(threadKey) }
+        let peer = store.title(for: threadKey)
+        return Mentions.shared.canMention(name: peer) ? [peer] : []
+    }
+
+    @ViewBuilder private var mentionSuggestions: some View {
+        // The composer has no cursor API; the end of the draft is where
+        // a mention is being typed.
+        let cursor = Int32(draft.utf16.count)
+        if let query = Mentions.shared.activeQuery(text: draft, cursor: cursor) {
+            let names = Mentions.shared.candidates(query: query, names: mentionNames, limit: 6)
+            if !names.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack {
+                        ForEach(names, id: \.self) { name in
+                            Button("@\(name)") {
+                                draft = Mentions.shared.complete(text: draft, cursor: cursor, name: name).text
+                            }
+                            .buttonStyle(.bordered)
+                        }
+                    }
+                    .padding(.horizontal, 8)
+                }
+            }
+        }
+    }
+
+    /// `> Sender: snippet` for the message being replied to, or "".
+    private func quotePrefix() -> String {
+        guard let target = replyingTo else { return "" }
+        let who: String? = target.outgoing ? store.selfName : target.senderName
+        let body: String = Quoting.shared.bodyPart(text: target.text)
+        return Quoting.shared.prefixFor(senderName: who, text: body)
+    }
+
+    private func canMention(_ m: UiMessage) -> Bool {
+        isChannel && !m.outgoing && Mentions.shared.canMention(name: m.senderName ?? "")
+    }
+
+    /// Insert `@[Name] ` — the name only, not a quote: Reply quotes the
+    /// text (bytes out of a ~150-byte frame), Mention costs just the name.
+    private func mention(_ name: String) {
+        let insert = Mentions.shared.wire(name: name.trimmingCharacters(in: .whitespaces)) + " "
+        draft += (draft.isEmpty || draft.hasSuffix(" ") ? "" : " ") + insert
+    }
+
     private func send() {
-        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
+        let typed = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !typed.isEmpty else { return }
+        let text = quotePrefix() + typed
+        replyingTo = nil
         if isChannel, let idx = Int32(threadKey.dropFirst(3)) {
             store.sendChannelMessage(index: idx, text: text)
         } else {
@@ -129,6 +209,8 @@ struct MessageBubble: View {
     let isChannel: Bool
     /// Hops and signal under the bubble — hidden in Simple mode (AppModes).
     var showsSignal: Bool = true
+    /// This radio's name, so a mention of it is drawn bold.
+    var selfName: String = ""
 
     var body: some View {
         HStack {
@@ -137,7 +219,14 @@ struct MessageBubble: View {
                 if let sender = message.senderName, !message.outgoing {
                     Text(sender).font(.caption2).foregroundStyle(.tint)
                 }
-                Text(message.text).textSelection(.enabled)
+                if let quoted = Quoting.shared.quotedPart(text: message.text) {
+                    HStack(spacing: 6) {
+                        Rectangle().fill(.secondary).frame(width: 2)
+                        Text(quoted).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                    }
+                    .fixedSize(horizontal: false, vertical: true)
+                }
+                Text(styled(Quoting.shared.bodyPart(text: message.text))).textSelection(.enabled)
                 if !message.reactions.isEmpty {
                     HStack(spacing: 4) {
                         ForEach(message.reactions, id: \.emoji) { r in
@@ -165,6 +254,24 @@ struct MessageBubble: View {
             )
             if !message.outgoing { Spacer(minLength: 48) }
         }
+    }
+
+    /// `@[Name]` mentions coloured; the one naming this radio in bold.
+    private func styled(_ text: String) -> AttributedString {
+        var out = AttributedString(text)
+        let h = Mentions.shared.highlights(text: text, selfName: selfName).map { Int(truncating: $0) }
+        let utf16 = text.utf16
+        var i = 0
+        while i + 2 < h.count {
+            if let lo = utf16.index(utf16.startIndex, offsetBy: h[i], limitedBy: utf16.endIndex),
+               let hi = utf16.index(utf16.startIndex, offsetBy: h[i + 1], limitedBy: utf16.endIndex),
+               let a = AttributedString.Index(lo, within: out), let b = AttributedString.Index(hi, within: out) {
+                out[a..<b].foregroundColor = .accentColor
+                if h[i + 2] == 1 { out[a..<b].font = .body.bold() }
+            }
+            i += 3
+        }
+        return out
     }
 
     /// Hops, signal and retries — the facts the row has, briefly.
@@ -257,5 +364,36 @@ private struct MessageInfoSheet: View {
                 ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
             }
         }
+    }
+}
+
+/// Swipe a bubble right to reply, as Android: the bubble follows the
+/// finger a little and springs back; past the threshold it replies.
+private struct SwipeToReply: ViewModifier {
+    let onReply: () -> Void
+    @State private var offset: CGFloat = 0
+
+    func body(content: Content) -> some View {
+        content
+            .offset(x: offset)
+            .overlay(alignment: .leading) {
+                if offset > 20 {
+                    Image(systemName: "arrowshape.turn.up.left.fill")
+                        .foregroundStyle(.secondary)
+                        .opacity(Double(min(offset / 60, 1)))
+                }
+            }
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 20)
+                    .onChanged { v in
+                        // Horizontal, rightward only — vertical drags scroll.
+                        guard v.translation.width > 0, abs(v.translation.width) > abs(v.translation.height) else { return }
+                        offset = min(v.translation.width, 80)
+                    }
+                    .onEnded { _ in
+                        if offset > 60 { onReply() }
+                        withAnimation(.spring(duration: 0.25)) { offset = 0 }
+                    }
+            )
     }
 }

@@ -59,4 +59,21 @@ object Quoting {
         val flat = text.replace('\n', ' ').trim()
         return if (flat.length > maxChars) flat.take(maxChars).trimEnd() + "…" else flat
     }
+
+    /**
+     * What a reply to a message starts with: `> Sender: snippet` and a
+     * newline. The snippet is one line of at most [QUOTE_MAX_CHARS] —
+     * every quoted byte comes out of a ~150-byte frame. Shared since
+     * 2026-11-18 (it was Android's quotePrefixFor; iOS uses it too).
+     */
+    fun prefixFor(senderName: String?, text: String): String {
+        val who = senderName?.takeIf { it.isNotBlank() }?.let { "$it: " }.orEmpty()
+        return "> $who${oneLine(text, QUOTE_MAX_CHARS)}\n"
+    }
+
+    /** The quoted lines of [text], or null — [split]'s first half, for Swift. */
+    fun quotedPart(text: String): String? = split(text).first
+
+    /** The reply itself, without its quote — [split]'s second half, for Swift. */
+    fun bodyPart(text: String): String = split(text).second
 }

@@ -318,6 +318,17 @@ class MessageBook(
         return true
     }
 
+    /**
+     * Names that have posted in [threadKey], newest first, each once —
+     * who a channel mention can be offered for. Unauthenticated names:
+     * the mention is a convenience, not an address.
+     */
+    fun senderNames(threadKey: String): List<String> =
+        _messages.value.filter { it.threadKey == threadKey && !it.outgoing && !it.senderName.isNullOrBlank() }
+            .sortedByDescending { it.receivedAtMs }
+            .mapNotNull { it.senderName?.trim() }
+            .distinct()
+
     /** The newest inbound message in [threadKey] whose route is known. */
     fun latestArrival(threadKey: String): BookMessage? =
         _messages.value.filter { it.threadKey == threadKey && !it.outgoing && !it.arrivalPathHex.isNullOrEmpty() }

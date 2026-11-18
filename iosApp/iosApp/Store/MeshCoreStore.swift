@@ -421,6 +421,11 @@ final class MeshCoreStore: ObservableObject {
         )
     }
 
+    /// Names that have posted in a thread, newest first (mention candidates).
+    func senderNames(_ threadKey: String) -> [String] {
+        session?.book.senderNames(threadKey: threadKey) ?? []
+    }
+
     func messages(in threadKey: String) -> [UiMessage] {
         session?.book.thread(threadKey: threadKey).map(UiMessage.init) ?? []
     }

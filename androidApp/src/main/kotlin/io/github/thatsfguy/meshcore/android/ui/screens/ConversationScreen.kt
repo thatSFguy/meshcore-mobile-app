@@ -654,16 +654,8 @@ private fun ReplyBanner(target: MessageEntity, onCancel: () -> Unit) {
  * message budget, and MeshCore has no reply field to carry it out of
  * band — other clients will simply see the `>` line as text.
  */
-internal fun quotePrefixFor(target: MessageEntity): String {
-    val who = target.senderName?.takeIf { it.isNotBlank() }?.let { "$it: " }.orEmpty()
-    val body = target.text.replace('\n', ' ').trim()
-    val snippet = if (body.length > QUOTE_MAX_CHARS) {
-        body.take(QUOTE_MAX_CHARS).trimEnd() + "…"
-    } else {
-        body
-    }
-    return "> $who$snippet\n"
-}
+internal fun quotePrefixFor(target: MessageEntity): String =
+    io.github.thatsfguy.meshcore.protocol.Quoting.prefixFor(target.senderName, target.text)
 
 private const val QUOTE_MAX_CHARS = Quoting.QUOTE_MAX_CHARS
 
