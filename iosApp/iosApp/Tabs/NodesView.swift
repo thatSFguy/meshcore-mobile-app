@@ -94,6 +94,9 @@ struct NodesView: View {
                 } else if let note = store.nodeActionNote {
                     Text(note).font(.caption).foregroundStyle(.secondary)
                 }
+                if !store.heardNodes.isEmpty && query.isEmpty {
+                    HeardSection()
+                }
                 ForEach(rows) { node in
                     row(node)
                 }
@@ -178,6 +181,12 @@ struct NodesView: View {
             Menu {
                 Button { scanning = true } label: { Label("Scan a code", systemImage: "qrcode.viewfinder") }
                 Button { showMyContact = true } label: { Label("My contact", systemImage: "qrcode") }
+                Button {
+                    Task { store.nodeActionNote = "Asking nearby repeaters…"; store.nodeActionNote = await store.discoverNodes() }
+                } label: {
+                    Label("Discover nodes", systemImage: "dot.radiowaves.left.and.right")
+                }
+                .disabled(!store.isReady)
                 Button { showRepeats = true } label: {
                     Label("Who repeats me", systemImage: "antenna.radiowaves.left.and.right")
                 }
@@ -345,5 +354,55 @@ struct NodeDetailSheet: View {
                 Text("The radio forgets this contact. It comes back only if it advertises again and the radio adds it.")
             }
         }
+    }
+}
+
+/// Nodes heard advertising that the radio doesn't hold — auto-add is off,
+/// or it doesn't auto-add that type. Add writes the node's own signed
+/// advert to the radio; Dismiss forgets it here (shared DiscoveredBook).
+private struct HeardSection: View {
+    @EnvironmentObject var store: MeshCoreStore
+    @AppStorage("heardCollapsed") private var collapsed = false
+    @State private var busy: String?
+
+    var body: some View {
+        Section {
+            if !collapsed {
+                ForEach(store.heardNodes, id: \.keyHex) { n in row(n) }
+                Button("Clear all", role: .destructive) { store.clearHeard() }
+            }
+        } header: {
+            Button {
+                collapsed.toggle()
+            } label: {
+                HStack {
+                    Text("Heard, not in contacts (\(store.heardNodes.count))")
+                    Spacer()
+                    Image(systemName: collapsed ? "chevron.right" : "chevron.down")
+                }
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private func row(_ n: HeardNode) -> some View {
+        HStack {
+            Image(systemName: NodeMapView.symbol(n.type)).foregroundStyle(NodeMapView.colour(n.type))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(n.name.isEmpty ? String(n.keyHex.prefix(12)) : n.name)
+                Text(store.heardDetail(n)).font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+            if busy == n.keyHex {
+                ProgressView()
+            } else {
+                Button("Add") {
+                    Task { busy = n.keyHex; store.nodeActionNote = await store.addHeard(n); busy = nil }
+                }
+                .disabled(!store.isReady)
+                Button { store.dismissHeard(n) } label: { Image(systemName: "xmark") }
+            }
+        }
+        .buttonStyle(.borderless)
     }
 }

@@ -122,6 +122,12 @@ class MessagingSession(
      */
     var dmRequests: DmRequests? = null
 
+    /**
+     * The discovery inbox; when set, a verified advert from a node the
+     * radio does not hold is recorded for the person to Add or Dismiss.
+     */
+    var discovered: DiscoveredBook? = null
+
     private fun note(line: String) {
         log?.let { runCatching { it(line) } }
     }
@@ -198,6 +204,13 @@ class MessagingSession(
                     }
                 }
                 after(outcome, key, event.senderName, event.text)
+            }
+            is MeshEvent.VerifiedAdvertHeard -> {
+                val book = discovered ?: return
+                val a = event.advert
+                if (radio.route(a.publicKeyHex) != null) return // already a contact
+                book.heard(a.publicKeyHex, a.name, a.type, a.latitude, a.longitude, event.snr, event.rssi, event.payload, event.hops)
+                onChanged?.invoke()
             }
             is MeshEvent.OwnDirectRepeatHeard -> {
                 // A node re-broadcasting one of our DMs: credit it to the

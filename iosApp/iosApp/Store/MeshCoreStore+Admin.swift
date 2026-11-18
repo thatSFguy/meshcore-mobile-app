@@ -111,3 +111,38 @@ extension MeshCoreStore {
         return message
     }
 }
+
+// MARK: - Discovered nodes (iOS after 0.1.0)
+
+extension MeshCoreStore {
+    var heardNodes: [HeardNode] { (heard?.nodes.value as? [HeardNode]) ?? [] }
+
+    func heardDetail(_ n: HeardNode) -> String {
+        DiscoveredBook.companion.detail(node: n, nowMs: Int64(Date().timeIntervalSince1970 * 1000))
+    }
+
+    func addHeard(_ n: HeardNode) async -> String {
+        let msg = (try? await DiscoveredBook.companion.add(engine: engine, node: n)) ?? "Couldn't add it."
+        diag.log("Store", "add heard \(n.keyHex.prefix(12)): \(msg)")
+        objectWillChange.send()
+        return msg
+    }
+
+    func dismissHeard(_ n: HeardNode) {
+        heard?.dismiss(keyHex: n.keyHex)
+        objectWillChange.send()
+        scheduleSave()
+    }
+
+    func clearHeard() {
+        heard?.clear()
+        objectWillChange.send()
+        scheduleSave()
+    }
+
+    func discoverNodes() async -> String {
+        let msg = (try? await DiscoveredBook.companion.discover(engine: engine)) ?? "No repeater answered."
+        diag.log("Store", "discover: \(msg)")
+        return msg
+    }
+}

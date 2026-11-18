@@ -153,6 +153,8 @@ final class MeshCoreStore: ObservableObject {
     /// kept per identity (Android keys every row by self key the same
     /// way), so swapping radios never mixes two people's threads.
     private var session: MessagingSession?
+    /// Nodes heard advertising that the radio doesn't hold (per radio).
+    private(set) var heard: DiscoveredBook?
     /// "Message privately" handshakes for the open radio.
     private(set) var dmRequests: DmRequests?
     /// Routes used to each contact and how they did (per radio, persisted).
@@ -245,6 +247,7 @@ final class MeshCoreStore: ObservableObject {
                 )
             }.sorted { $0.name.lowercased() < $1.name.lowercased() }
             self.paths?.rememberContacts(contacts: Array(live.values))
+            self.heard?.forgetHeld(heldKeys: Array(live.keys))
             self.rebuildNodes()
         })
         watches.append(FlowWatchKt.watch(flow: engine.channels, scope: scope) { [weak self] value in
@@ -326,6 +329,12 @@ final class MeshCoreStore: ObservableObject {
         let paths = PathHistoryBook.companion.fromJson(json: pathsJson, nowMs: { KotlinLong(value: MeshCoreStore.nowMs()) })
         s.paths = paths
         self.paths = paths
+        // The discovery inbox, per radio, beside the history.
+        let heardURL = url?.deletingLastPathComponent().appendingPathComponent("heard-\(selfKey.prefix(16)).json")
+        let heardJson = heardURL.flatMap { try? String(contentsOf: $0, encoding: .utf8) }
+        let heard = DiscoveredBook.companion.fromJson(json: heardJson, nowMs: { KotlinLong(value: MeshCoreStore.nowMs()) })
+        s.discovered = heard
+        self.heard = heard
         paths.rememberContacts(contacts: Array(((engine.contacts.value as? [String: Contact]) ?? [:]).values))
         s.floodFallback = floodFallback
         s.channelRegions = node.channelRegions
@@ -525,6 +534,12 @@ final class MeshCoreStore: ObservableObject {
                 to: url,
                 options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication]
             )
+            if let heard {
+                try Data(heard.toJson().utf8).write(
+                    to: url.deletingLastPathComponent().appendingPathComponent("heard-\(owner.prefix(16)).json"),
+                    options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication]
+                )
+            }
             if let paths {
                 try Data(paths.toJson().utf8).write(
                     to: url.deletingLastPathComponent().appendingPathComponent("paths-\(owner.prefix(16)).json"),
