@@ -438,5 +438,13 @@ Written down because each one cost a ~20-minute CI round trip:
   get renamed on export. Expose them from Kotlin under a safe name
   (`ContactNode.reachLabel`, `RepeaterReadout.signedOut`) or compare by
   `.name`.
+- **Never spell a Kotlin enum entry in Swift.** `RoutingMode.auto` does
+  not exist (`auto` is a C keyword, so the entry is renamed) and
+  `RemoteSettingsForm.Kind.multiLine` failed too. Expose Kotlin vals or
+  predicates instead (`Routing.MANUAL`, `Field.isSecret`,
+  `RegionPanel.isRemove`), and compare with `==`.
+- **Big SwiftUI bodies fail to type-check** ("unable to type-check this
+  expression in reasonable time"). Split them into small functions and
+  give long string expressions their own `let`.
 - No default arguments cross over — hence `RepeaterAdmin`, and why the
   engine's `appName` had drifted.
