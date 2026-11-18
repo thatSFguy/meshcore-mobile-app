@@ -3,6 +3,7 @@
 // the sentence it returns.
 
 import SwiftUI
+import Shared
 
 /// "+" on the Chats screen: the four ways onto a channel.
 struct AddChannelSheet: View {
