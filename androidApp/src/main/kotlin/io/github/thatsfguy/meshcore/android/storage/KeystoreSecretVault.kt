@@ -133,7 +133,6 @@ class KeystoreSecretVault : SecretVault {
      */
     private fun getOrCreateKey(): SecretKey {
         getKeyOrNull()?.let { return it }
-        val kg = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, KEYSTORE_PROVIDER)
 
         val tiers = mutableListOf<KeyGenParameterSpec.Builder.() -> Unit>()
         // Tier 1: full strict spec. StrongBox + unlocked-device-required.
@@ -167,6 +166,7 @@ class KeystoreSecretVault : SecretVault {
 
         var lastError: Throwable? = null
         for ((tierIndex, tierConfig) in tiers.withIndex()) {
+            val kg = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, KEYSTORE_PROVIDER)
             val spec = KeyGenParameterSpec.Builder(
                 KEY_ALIAS,
                 KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT,
