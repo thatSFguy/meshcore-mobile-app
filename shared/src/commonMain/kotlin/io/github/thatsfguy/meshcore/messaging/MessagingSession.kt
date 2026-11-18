@@ -31,7 +31,8 @@ interface MessagingRadio {
 
     suspend fun sendDirect(keyHex: String, text: String, attempt: Int, timestampSeconds: Long): DirectSend.Receipt?
     suspend fun resetPath(keyHex: String): Boolean
-    suspend fun sendChannel(index: Int, text: String, timestampSeconds: Long): Boolean
+    /** [region] null = the radio's own flood scope; else this one send is scoped to it. */
+    suspend fun sendChannel(index: Int, text: String, timestampSeconds: Long, region: String?): Boolean
     fun channelContentKey(index: Int, timestampSeconds: Long, senderName: String, text: String): String
 }
 
@@ -106,6 +107,14 @@ class MessagingSession(
      * it cannot say which route the reply proved.
      */
     var paths: PathHistoryBook? = null
+
+    /**
+     * Per-channel regions (slot → region): a post on that channel is
+     * flooded only through repeaters carrying the region, for that send
+     * alone — the radio's own scope is restored after (the engine's
+     * rule). A channel with no entry uses the app-wide scope.
+     */
+    var channelRegions: Map<Int, String> = emptyMap()
 
     private fun note(line: String) {
         log?.let { runCatching { it(line) } }
@@ -291,7 +300,7 @@ class MessagingSession(
             val self = radio.selfName().orEmpty()
             book.addOwnReaction(id, emoji, radio.channelContentKey(index, timestamp, self, wire))
             onChanged?.invoke()
-            scope.launch { runCatching { radio.sendChannel(index, wire, timestamp) } }
+            scope.launch { runCatching { radio.sendChannel(index, wire, timestamp, channelRegions[index]) } }
         } else {
             if (hexToBytesOrNull(peer) == null) return false
             book.addOwnReaction(id, emoji, null)
@@ -330,8 +339,9 @@ class MessagingSession(
         val id = book.addOutgoing(threadKey, self, body, timestamp, contentKey)
         onChanged?.invoke()
         scope.launch {
-            val ok = runCatching { radio.sendChannel(index, body, timestamp) }.getOrDefault(false)
-            note("Channel $index post #$id: ${if (ok) "radio accepted" else "radio refused"}")
+            val region = channelRegions[index]
+            val ok = runCatching { radio.sendChannel(index, body, timestamp, region) }.getOrDefault(false)
+            note("Channel $index post #$id${region?.let { " (region #$it)" } ?: ""}: ${if (ok) "radio accepted" else "radio refused"}")
             book.updateStatus(id, if (ok) MessageStatus.Sent else MessageStatus.Failed)
             onChanged?.invoke()
         }
@@ -375,8 +385,8 @@ class EngineMessagingRadio(
         return engine.resetPath(key)
     }
 
-    override suspend fun sendChannel(index: Int, text: String, timestampSeconds: Long): Boolean =
-        engine.sendChannelMessage(index, text, timestampSeconds)
+    override suspend fun sendChannel(index: Int, text: String, timestampSeconds: Long, region: String?): Boolean =
+        engine.sendChannelMessage(index, text, timestampSeconds, region)
 
     override fun channelContentKey(index: Int, timestampSeconds: Long, senderName: String, text: String): String =
         engine.channelContentKey(index, timestampSeconds, senderName, text)

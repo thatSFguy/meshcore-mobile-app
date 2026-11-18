@@ -72,4 +72,15 @@ class RegionDiscoveryTest {
         assertNull(RegionList.add(listOf("mi"), "bay area"))
         assertEquals(listOf("mi"), RegionList.remove(listOf("bayarea", "mi"), "#bayarea"))
     }
+
+    @Test
+    fun channelRegionsRoundTripAndDropJunk() {
+        val raw = "2=bayarea\n3=#MI\nx=foo\n4=bad name\n300=mi"
+        val map = RegionList.parseChannelRegions(raw)
+        assertEquals(mapOf(2 to "bayarea", 3 to "mi"), map)
+        assertEquals("2=bayarea\n3=mi", RegionList.encodeChannelRegions(map))
+        assertEquals(mapOf(2 to "bayarea"), RegionList.withChannelRegion(map, 3, null))
+        assertEquals(mapOf(3 to "mi"), RegionList.withoutRegion(map, "#BayArea"))
+        assertEquals(emptyMap(), RegionList.parseChannelRegions(null))
+    }
 }

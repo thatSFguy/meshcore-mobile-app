@@ -28,14 +28,16 @@ class MessagingSessionTest {
         var resets = 0
         var channelOk = true
         val channelSends = mutableListOf<Pair<Int, String>>()
+        val channelRegionsSent = mutableListOf<String?>()
 
         override suspend fun sendDirect(keyHex: String, text: String, attempt: Int, timestampSeconds: Long): DirectSend.Receipt {
             sentDirect += attempt
             return DirectSend.Receipt(ackHash = 500L + attempt, timeoutMs = 3_000, isFlood = false)
         }
         override suspend fun resetPath(keyHex: String): Boolean { resets++; return true }
-        override suspend fun sendChannel(index: Int, text: String, timestampSeconds: Long): Boolean {
+        override suspend fun sendChannel(index: Int, text: String, timestampSeconds: Long, region: String?): Boolean {
             channelSends += index to text
+            channelRegionsSent += region
             return channelOk
         }
         override fun channelContentKey(index: Int, timestampSeconds: Long, senderName: String, text: String) =
@@ -440,6 +442,18 @@ class MessagingSessionTest {
         val rows = paths.forContact(peer)
         assertEquals(listOf("b389c985"), rows.map { it.pathHex }, "the reset-and-flood attempt is not scored")
         assertEquals(2, rows.single().failures)
+        s.stop()
+    }
+
+    @Test
+    fun aChannelWithARegionSendsScopedAndOthersDoNot() = runTest {
+        val radio = FakeRadio()
+        val s = session(radio)
+        s.channelRegions = mapOf(2 to "bayarea")
+        s.sendChannel(2, "scoped")
+        s.sendChannel(3, "app-wide")
+        runCurrent()
+        assertEquals(listOf<String?>("bayarea", null), radio.channelRegionsSent)
         s.stop()
     }
 }

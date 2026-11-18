@@ -53,10 +53,8 @@ compiled, not proven.
   maintenance commands, the guest card (owner, flooded regions), access
   list, neighbours with probe, and neighbour links on the map.
 
-**Not ported yet** (Android has them): repeater identity rekey,
-untagged-traffic controls, telemetry and the noise-floor watch,
-per-channel regions, the message-path and stored-route mini maps, Simple
-mode. **Out of iOS scope by decision:** firmware updates.
+**Not ported yet** (Android has them): the message-path and stored-route mini maps, Simple
+mode, scanning a settings code straight onto a remote node. **Back burner by decision:** firmware updates and repeater identity rekey.
 
 **Writing Swift against `Shared`:** read the interop rules at the end of
 `IOS_DECISIONS.md` first — nested Kotlin types are nested Swift types,

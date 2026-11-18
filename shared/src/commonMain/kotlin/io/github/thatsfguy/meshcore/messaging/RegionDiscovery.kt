@@ -88,4 +88,28 @@ object RegionList {
         val c = Regions.canonical(name) ?: name
         return list.mapNotNull { Regions.canonical(it) }.filter { it != c }.distinct().sorted()
     }
+
+    // --- Per-channel regions (slot -> region), stored as "slot=region" lines ---
+
+    fun parseChannelRegions(raw: String?): Map<Int, String> =
+        raw.orEmpty().lines().mapNotNull { line ->
+            val slot = line.substringBefore('=', "").trim().toIntOrNull()?.takeIf { it in 0..255 }
+            val region = Regions.canonical(line.substringAfter('=', ""))
+            if (slot != null && region != null) slot to region else null
+        }.toMap()
+
+    fun encodeChannelRegions(map: Map<Int, String>): String =
+        map.entries.sortedBy { it.key }.joinToString("\n") { "${it.key}=${it.value}" }
+
+    /** [map] with channel [slot] set to [region], or cleared when [region] is null or invalid. */
+    fun withChannelRegion(map: Map<Int, String>, slot: Int, region: String?): Map<Int, String> {
+        val c = Regions.canonical(region)
+        return if (c == null) map - slot else map + (slot to c)
+    }
+
+    /** Forgetting a region sends every channel that used it back to the app-wide scope (Android's rule). */
+    fun withoutRegion(map: Map<Int, String>, region: String): Map<Int, String> {
+        val c = Regions.canonical(region) ?: region
+        return map.filterValues { it != c }
+    }
 }

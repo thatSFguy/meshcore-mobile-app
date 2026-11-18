@@ -25,6 +25,10 @@ final class NodeSettingsStore: ObservableObject {
 
     /// The app's own region list (phone-side; nothing on the radio).
     @AppStorage("regions") private var regionsRaw: String = ""
+    /// Per-channel regions, "slot=region" lines (shared RegionList codec).
+    @AppStorage("channelRegions") private var channelRegionsRaw: String = ""
+    /// Told when a channel's region changes, so the session sends scoped.
+    var onChannelRegionsChanged: (() -> Void)?
     /// The app-wide flood scope, persisted so it can be restored on
     /// connect: "" = cleared, absent = never set (Android's rule).
     private static let floodScopeKey = "floodScope"
@@ -245,8 +249,23 @@ final class NodeSettingsStore: ObservableObject {
         regionsRaw = list.joined(separator: "\n")
     }
 
+    var channelRegions: [KotlinInt: String] { RegionList.shared.parseChannelRegions(raw: channelRegionsRaw) }
+
+    func channelRegion(_ slot: Int32) -> String? { channelRegions[KotlinInt(int: slot)] }
+
+    func setChannelRegion(_ slot: Int32, _ region: String?) {
+        objectWillChange.send()
+        channelRegionsRaw = RegionList.shared.encodeChannelRegions(
+            map: RegionList.shared.withChannelRegion(map: channelRegions, slot: slot, region: region))
+        onChannelRegionsChanged?()
+    }
+
     func removeRegion(_ name: String) {
         objectWillChange.send()
+        // Channels that used it go back to the app-wide scope (Android's rule).
+        channelRegionsRaw = RegionList.shared.encodeChannelRegions(
+            map: RegionList.shared.withoutRegion(map: channelRegions, region: name))
+        onChannelRegionsChanged?()
         regionsRaw = RegionList.shared.remove(list: regions, name: name).joined(separator: "\n")
         message = "Removed #\(name)"
     }

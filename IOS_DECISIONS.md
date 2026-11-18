@@ -314,7 +314,8 @@ Keep the pattern for further iOS work: branch, dispatch, merge on green.)
 42. **Flood scope persists as Android's does** (`floodScope` in
     UserDefaults: `""` = cleared, absent = never set), restored into the
     engine at launch. The region list is phone-side. Per-channel regions
-    remain Android-only.
+    came in Phase 5 (`MessagingSession.channelRegions`, picked on the
+    channel's info sheet; forgetting a region clears it from channels).
 
 43. **Auto-add's "useful repeaters" rules are not ported.** They need the
     discovered-node inbox and per-message routes, which iOS does not

@@ -321,6 +321,11 @@ final class MeshCoreStore: ObservableObject {
         self.paths = paths
         paths.rememberContacts(contacts: Array(((engine.contacts.value as? [String: Contact]) ?? [:]).values))
         s.floodFallback = floodFallback
+        s.channelRegions = node.channelRegions
+        node.onChannelRegionsChanged = { [weak self] in
+            guard let self else { return }
+            self.session?.channelRegions = self.node.channelRegions
+        }
         diag.log("Store", "history opened for radio \(selfKey.prefix(12)): \((book.messages.value as? [Any])?.count ?? 0) messages")
         s.onNewMessage = { [weak self] key, sender, text in
             self?.notify(threadKey: key, sender: sender, text: text)

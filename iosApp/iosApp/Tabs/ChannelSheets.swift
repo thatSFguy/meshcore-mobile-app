@@ -101,6 +101,7 @@ struct AddChannelSheet: View {
 /// The info sheet for one channel: what it is, sharing, leaving.
 struct ChannelInfoSheet: View {
     @EnvironmentObject var store: MeshCoreStore
+    @EnvironmentObject var node: NodeSettingsStore
     @Environment(\.dismiss) private var dismiss
     let index: Int32
     @State private var revealLink = false
@@ -129,6 +130,7 @@ struct ChannelInfoSheet: View {
                     // so before it puts the code on screen.
                     Text("Anyone with this link can read every message on the channel — including ones sent before they had it. There is no revoking it short of changing the key everywhere.")
                 }
+                regionSection
                 Section {
                     Button("Leave channel", role: .destructive) { confirmLeave = true }
                         .disabled(!store.isReady)
@@ -149,6 +151,29 @@ struct ChannelInfoSheet: View {
             } message: {
                 Text("The radio frees the slot. Messages already on this phone stay until you delete the thread.")
             }
+        }
+    }
+}
+
+extension ChannelInfoSheet {
+    /// This channel's own region, or the app-wide flood scope (iOS Phase 5,
+    /// as Android). Picks from the phone's region list (Settings → Mesh
+    /// policies), so only valid names are ever offered.
+    @ViewBuilder var regionSection: some View {
+        let choices: [String] = node.regions
+        let current: String = node.channelRegion(index) ?? ""
+        let selection = Binding<String>(get: { current }, set: { node.setChannelRegion(index, $0.isEmpty ? nil : $0) })
+        Section {
+            Picker("Region", selection: selection) {
+                Text("App-wide scope").tag("")
+                ForEach(choices, id: \.self) { r in Text("#\(r)").tag(r) }
+            }
+        } header: {
+            Text("Region")
+        } footer: {
+            Text(choices.isEmpty
+                 ? "Add region names under Settings → Mesh policies to scope this channel."
+                 : "Posts here flood only through repeaters that carry this region, for that send alone. Routing, not privacy: anyone who hears it can still read it.")
         }
     }
 }
