@@ -428,6 +428,7 @@ private struct DiagnosticsSection: View {
 
 private struct DiagnosticsView: View {
     @ObservedObject private var diag = DiagnosticsLog.shared
+    @State private var saved: String?
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -435,6 +436,10 @@ private struct DiagnosticsView: View {
                 if diag.lines.isEmpty {
                     Text("Nothing yet. Connect to a radio or send a message.")
                         .foregroundStyle(.secondary)
+                }
+                if let saved {
+                    Text("Saved as \(saved) in this app's folder, where a computer the phone is plugged into can copy it.")
+                        .font(.caption).foregroundStyle(.secondary)
                 }
                 ForEach(Array(diag.lines.enumerated()), id: \.offset) { i, line in
                     Text(line)
@@ -450,6 +455,8 @@ private struct DiagnosticsView: View {
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 Button("Copy") { UIPasteboard.general.string = diag.lines.joined(separator: "\n") }
+                    .disabled(diag.lines.isEmpty)
+                Button("Save") { saved = diag.saveForComputer() }
                     .disabled(diag.lines.isEmpty)
                 Button("Clear", role: .destructive) { diag.clear() }
                     .disabled(diag.lines.isEmpty)

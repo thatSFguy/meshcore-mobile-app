@@ -44,6 +44,10 @@ targets:
           - CFBundleURLName: io.github.thatsfguy.meshcore.links
             CFBundleURLSchemes:
               - meshcore
+        # Exposes Documents/ (only the saved diagnostics log is written
+        # there) to a tethered computer, so the log can be pulled over USB
+        # without a Mac. History lives in Application Support, not here.
+        UIFileSharingEnabled: true
         UIBackgroundModes:
           # Keep CBCentralManager attached while backgrounded so inbound
           # messages still notify. Pair with CoreBluetooth state

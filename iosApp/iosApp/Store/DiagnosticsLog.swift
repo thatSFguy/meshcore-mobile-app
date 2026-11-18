@@ -50,6 +50,22 @@ final class DiagnosticsLog: ObservableObject, @unchecked Sendable {
         { [weak self] message in self?.log(tag, message) }
     }
 
+    /// Write the log to Documents/diagnostics.txt, the one file this app
+    /// exposes to a tethered computer (UIFileSharingEnabled) — so a
+    /// developer can pull it over USB without a Mac. Message history lives
+    /// in Application Support and is never in that folder. Returns the
+    /// file's name, or nil when it couldn't be written.
+    @MainActor func saveForComputer() -> String? {
+        guard let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return nil }
+        let url = dir.appendingPathComponent("diagnostics.txt")
+        do {
+            try Data(lines.joined(separator: "\n").utf8).write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+            return url.lastPathComponent
+        } catch {
+            return nil
+        }
+    }
+
     func clear() {
         DispatchQueue.main.async { self.lines.removeAll() }
     }
