@@ -56,7 +56,7 @@ advert verify), `protocol/ChannelCrypto` (PSK derivation + AES-128-ECB + 2-byte 
 |---|---|---|
 | `androidApp/…/service/ReticulumService.kt` | **Copy** | foreground service for persistent BLE/USB connection |
 | `androidApp/…/MainActivity.kt`, `platform/PortraitCaptureActivity.kt` | **Copy** | app entry + QR capture |
-| `androidApp/…/storage/ReticulumDatabase.kt` + `shared/…/platform/IosDatabase.kt` + `shared/…/sqldelight/**` | **Adapt** | SQLDelight scaffolding; **new schema** (Contact/Channel/Message not LXMF) |
+| `androidApp/…/storage/ReticulumDatabase.kt` + `shared/…/platform/IosDatabase.kt` + `shared/…/sqldelight/**` | **Adapt** | SQLDelight scaffolding; **new schema** (Contact/Channel/Message not LXMF). ⚠ **iOS did not take this (2026-11-17):** it persists a shared `MessageBook` as JSON under Data Protection instead — no new dependency; see `IOS_DECISIONS.md` §8. |
 | `shared/…/platform/RadioConfig.kt` | **Adapt** | freq/BW/SF/CR — MeshCore has the same radio params (`CMD_SET_RADIO_PARAMS`) |
 | `shared/…/store/Models.kt` | **Adapt** | → MeshCore models |
 | `shared/…/store/ReactionsJson.kt` | **Copy** | if keeping reactions |

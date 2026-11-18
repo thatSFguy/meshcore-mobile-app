@@ -1,5 +1,10 @@
 # Feature parity vs the mainstream MeshCore Android app
 
+> **iOS:** this file measures the Android app against the mainstream client. What the iOS
+> port covers of it — and every decision taken while porting — is in
+> [`iosApp/README.md`](iosApp/README.md) and [`IOS_DECISIONS.md`](IOS_DECISIONS.md) (2026-11-17).
+
+
 **Policy (2026-08-01):** the mainstream app — `com.liamcottle.meshcore.android`,
 "MeshCore", **v1.49.0** (was v1.47.0 when this was written; their 1.48.0 and 1.49.0 are
 tracked as a delta in §14) — is the **floor** for this app's feature set. Anything it does that

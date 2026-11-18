@@ -286,7 +286,7 @@ surface, keystore-sealed secrets, encrypted local storage, verified adverts. It 
 the MeshCore protocol's own guarantees are changed; channels are still obfuscated rather than
 secure, and the app says so.
 
-**Is there an iOS version?** Not a usable one yet — see [iOS](#ios).
+**Is there an iOS version?** In development, not yet released or proven on a phone — see [iOS](#ios).
 
 ## Project scope — personal app, shared in the open
 
@@ -357,22 +357,31 @@ Requires JDK 17+ and the Android SDK (compileSdk 34).
 
 ## iOS
 
-**Android is the shipping platform. iOS is a pre-alpha skeleton — read this before sideloading it.**
+**Android is the shipping platform. iOS is in active development (Phase 2, branch `ios-phase2`)
+and has never yet been run on an iPhone against a radio — read this before sideloading it.**
 
-Every push builds it: `shared` compiles and its tests run on Kotlin/Native, and CI publishes an
-**unsigned IPA**. What the app cannot yet do matters more than that it installs:
+CI is the only thing that compiles it: every push builds `shared` for Kotlin/Native, runs its
+tests on the iOS simulator, and publishes an **unsigned IPA**. Almost all of the behaviour below is
+shared Kotlin, tested on the JVM; the Swift layer draws it.
 
 | | iOS today | Notes |
 |---|---|---|
-| Advert Ed25519 verification | ✅ | CryptoKit bridge (`shared/iosCryptoBridge`), verified on CI against RFC 8032 vectors — keys derive, signatures verify, tampered and malformed input is rejected. |
-| BLE (Nordic UART) to a radio | ◐ | `IosBleTransport` (CoreBluetooth) exists and compiles; **never run against a radio.** iOS supports BLE fully — it is *classic* Bluetooth that needs MFi, and MeshCore does not use it. Not yet wired to a scanner or the UI. |
+| Advert Ed25519 verification | ✅ | CryptoKit bridge (`shared/iosCryptoBridge`), verified on CI against RFC 8032 vectors. |
+| BLE (Nordic UART) to a radio | ◐ | Scan, connect, auto-reconnect and remember the last radio (shared `ReconnectSupervisor`). Compiles; **never run against a radio.** |
 | USB serial | ❌ | Not practical on iOS for these radios. |
-| TCP transport | ✅ | Only useful with a networked base-station radio, and still plaintext + off by default. |
-| Message persistence | ❌ | In-memory only — history is lost when the app exits. |
-| Channels, map, repeater admin | ❌ | Screens exist as a shell; the logic is shared but unwired. |
+| TCP transport | ◐ | Behind the same off-by-default plaintext warning as Android. |
+| Messaging | ◐ | DMs and channels in and out, the 3-attempt DM retry with flood fallback, honest delivery status, retry/echo dedup, reactions (send and show), unread badge, local notifications. |
+| Message history | ◐ | Kept per radio identity in one file under iOS Data Protection, excluded from backup; user-chosen retention. |
+| Nodes | ◐ | Same search/sort/filters and "can I talk to this node?" verdict as Android; reset path, remove, block, adverts. |
+| Channels | ◐ | Join hashtag, create/join private, share link (behind the read-everything warning), leave. |
+| Links and QR | ◐ | `meshcore://` links and scanned codes are previewed and applied only on confirmation; your own contact as a QR. |
+| Repeater / room admin | ◐ | Sign-in, Status and Console. Settings, regions, identity, firmware and the rest: Android only for now. |
+| Radio settings | ◐ | Read-only. |
+| Firmware updates, map extras, Simple mode, backup/restore, region scopes | ❌ | Android only for now. |
 
-So: installable, and useful for looking at the shell or building on it — **not** a working off-grid
-client. If you want to actually message someone over LoRa today, use the Android build.
+◐ means written and compiled, not yet proven on hardware. Every decision taken during the port —
+and why — is in [`IOS_DECISIONS.md`](IOS_DECISIONS.md). If you need to message someone over LoRa
+today, use the Android build.
 
 **Sideloading it** (unsigned IPA, re-signed locally with a free Apple ID), and building it on a
 Mac: [`iosApp/README.md`](iosApp/README.md).

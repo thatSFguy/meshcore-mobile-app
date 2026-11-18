@@ -15,23 +15,37 @@ compiled, not proven.
   and restored at launch.
 - Messaging through shared `MessagingSession`: inbound DMs and channel
   posts, the 3-attempt DM retry ladder with flood fallback, honest
-  delivery status, dedup of retries and echoes, reactions as chips,
+  delivery status, dedup of retries and echoes, reactions sent and shown,
   unread counts and a tab badge, local notifications.
 - History persisted per radio identity as one JSON file under iOS Data
-  Protection, excluded from backup.
+  Protection, excluded from backup, with user-chosen retention (judged by
+  arrival time, not the sender's clock).
 - Nodes list on the shared `NodeListModel` (tabs, search, sort, filters)
   with the shared reachability verdict; reset path, remove from radio,
-  adverts.
+  block, adverts.
 - Channels: join hashtag, create/join private, paste or open a
-  `meshcore://` link, share (behind the warning), leave.
-- Settings: connection, the radio's parameters (read-only), about.
+  `meshcore://` link, share (behind the warning), leave; hide a channel
+  sender by name.
+- Links and QR: opened links and scanned codes (VisionKit) are previewed
+  by the shared `LinkImport` and applied only on confirmation; "My
+  contact" as a QR (CoreImage). No QR dependency.
+- Repeater/room admin: sign-in gate, hub tiles from the shared
+  `repeaterHubTiles`, Status, Console (redacted display). No password is
+  stored.
+- Settings: connection, the radio's parameters (read-only), retention,
+  blocked list, about.
 - Ed25519 via CryptoKit (`shared/iosCryptoBridge`), verified on CI against
   RFC 8032; CryptoKit is hedged, see CLAUDE.md.
 
-**Not ported yet** (Android has them): repeater/room admin, editing radio
-settings, region scopes, block list, contact import from QR/links, QR
-scanning, path history and routing sheet, heard-via, retention settings,
-backup/restore, firmware updates, Simple mode.
+**Not ported yet** (Android has them): repeater settings/regions/identity/
+firmware, editing radio settings, region scopes, path history and the
+routing sheet, heard-via, backup/restore, firmware updates, Simple mode,
+the map's extras (labels, paths, neighbour links).
+
+**Writing Swift against `Shared`:** read the interop rules at the end of
+`IOS_DECISIONS.md` first — nested Kotlin types are nested Swift types,
+keyword-named members are renamed, and no default arguments cross over.
+Each wrong guess costs a full CI run.
 
 ## Build (macOS only)
 

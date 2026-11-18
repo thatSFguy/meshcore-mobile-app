@@ -27,7 +27,7 @@ channels remain obfuscated-not-secure and the app must keep saying so.
 
 ## Status
 
-**v1 shipped on Android (latest release `android-v0.2.4`); iOS Phase 2 is under way on branch `ios-phase2`** (2026-11-17 — messaging, nodes, channels, links/QR, reconnect, repeater sign-in/status/console; compiled by CI, never yet run on an iPhone; every decision in `IOS_DECISIONS.md`).
+**v1 shipped on Android (latest release `android-v0.2.4`); iOS Phase 2 is under way on branch `ios-phase2`** (2026-11-17 — messaging, reactions, history + retention, nodes, blocking, channels, links/QR, reconnect, repeater sign-in/status/console; compiled by CI, never yet run on an iPhone; every decision in `IOS_DECISIONS.md`, including the Swift interop rules CI taught).
 Feature work is now driven by **[`PARITY.md`](PARITY.md)** — the mainstream MeshCore
 Android app is the agreed floor for the feature set, with an explicit out-of-scope list
 and the places we deliberately keep our own (stricter) handling. **Read PARITY.md before
@@ -257,7 +257,12 @@ channels as obfuscated (AES-ECB + 2-byte MAC), not secure.
    MessageRepository events → NotificationCompat).
 5. iOS Phase 2 — under way on `ios-phase2`; what is ported and what is not is in
    `iosApp/README.md`, decisions in `IOS_DECISIONS.md`. The next step is not more
-   code: it is running the build on an iPhone against a radio.
+   code: it is running the build on an iPhone against a radio. Two Android follow-ups
+   the port surfaced (IOS_DECISIONS §1, §13a, §25): Android still runs its own copies
+   of the DM retry ladder and channel-join rules that now live in `shared/messaging`
+   (`DirectSend`, `ChannelJoin`) — delegate and delete; and Android's retention judges
+   age by the SENDER's unauthenticated timestamp, so a node with a reset clock has its
+   messages deleted on arrival — iOS uses arrival time.
 6. Release plumbing (signing env vars are already read by `androidApp/build.gradle.kts`;
    tag scheme `android-vX.Y.Z` matches the sibling).
 
