@@ -27,7 +27,7 @@ channels remain obfuscated-not-secure and the app must keep saying so.
 
 ## Status
 
-**v1 shipped on Android (latest release `android-v0.2.4`); iOS builds but is a skeleton.**
+**v1 shipped on Android (latest release `android-v0.2.4`); iOS Phase 2 is under way on branch `ios-phase2`** (2026-11-17 — messaging, nodes, channels, links/QR, reconnect, repeater sign-in/status/console; compiled by CI, never yet run on an iPhone; every decision in `IOS_DECISIONS.md`).
 Feature work is now driven by **[`PARITY.md`](PARITY.md)** — the mainstream MeshCore
 Android app is the agreed floor for the feature set, with an explicit out-of-scope list
 and the places we deliberately keep our own (stricter) handling. **Read PARITY.md before
@@ -125,7 +125,7 @@ Layout:
     §13 named. Which tiles appear is `repeaterHubTiles()`, a pure function in
     `RepeaterHubModel.kt`, so the gating is tested without a device.
     Driven against a live repeater 2026-08-05.
-- **`iosApp/`** — XcodeGen `project.yml` + SwiftUI skeleton; see `iosApp/README.md`.
+- **`iosApp/`** — XcodeGen `project.yml` + SwiftUI over `Shared`; see `iosApp/README.md` and `IOS_DECISIONS.md`. The rule that made Phase 2 possible: logic goes in `shared/` (e.g. `shared/.../messaging/` — `DirectSend`, `MessageBook`, `MessagingSession`, `ChannelJoin`, `LinkImport`) where the JVM tests it, and Swift stays thin, because CI is the only Swift compiler.
 - **Partly validated against a real radio.** Navigation, connection, Settings, the
   repeater hub, login and Status were driven on hardware 2026-08-05 (see above).
   Still never run against a radio: backup/restore, retention, blocking, regional
@@ -255,8 +255,9 @@ channels as obfuscated (AES-ECB + 2-byte MAC), not secure.
    supports ACLs), and the rows that need the mainstream app running to specify.
 4. Notifications for inbound messages (service already has the channel; wire
    MessageRepository events → NotificationCompat).
-5. iOS Phase 2 — `IosBleTransport` (CoreBluetooth port of the sibling's), CryptoKit
-   Ed25519 bridge (copy `iosCryptoBridge` pattern), SQLDelight persistence.
+5. iOS Phase 2 — under way on `ios-phase2`; what is ported and what is not is in
+   `iosApp/README.md`, decisions in `IOS_DECISIONS.md`. The next step is not more
+   code: it is running the build on an iPhone against a radio.
 6. Release plumbing (signing env vars are already read by `androidApp/build.gradle.kts`;
    tag scheme `android-vX.Y.Z` matches the sibling).
 
