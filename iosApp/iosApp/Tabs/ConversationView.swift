@@ -18,6 +18,8 @@ struct ConversationView: View {
     /// The message a reply quotes (swipe right, or long-press → Reply).
     @State private var replyingTo: UiMessage?
     /// "Message privately": who is about to be asked, and the last outcome.
+    /// The message the full reaction picker is open for.
+    @State private var reactingTo: UiMessage?
     @State private var askName: String?
     @State private var dmNote: String?
 
@@ -56,6 +58,8 @@ struct ConversationView: View {
                                             ForEach(store.quickReactions, id: \.self) { emoji in
                                                 Button(emoji) { store.react(to: message.id, with: emoji) }
                                             }
+                                            // The rest of the wire list, as Android's ＋.
+                                            Button { reactingTo = message } label: { Image(systemName: "plus") }
                                         }
                                         .controlGroupStyle(.palette)
                                     }
@@ -112,6 +116,10 @@ struct ConversationView: View {
         .navigationTitle(store.title(for: threadKey))
         .navigationBarTitleDisplayMode(.inline)
         .sheet(item: $info) { m in MessageInfoSheet(message: m) }
+        .sheet(item: $reactingTo) { m in
+            ReactionPicker { emoji in store.react(to: m.id, with: emoji); reactingTo = nil }
+                .presentationDetents([.medium, .large])
+        }
         .toolbar {
             if isChannel, let idx = Int32(threadKey.dropFirst(3)) {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -460,4 +468,27 @@ struct DmAsk {
     let keyPrefix: String
     let onAccept: () -> Void
     let onDecline: () -> Void
+}
+
+/// Every emoji a reaction can carry. The wire form is an index into the
+/// shared list, so anything outside it can't be sent — hence a picker,
+/// not the system emoji keyboard (Android's reasoning too).
+private struct ReactionPicker: View {
+    @EnvironmentObject var store: MeshCoreStore
+    let onPick: (String) -> Void
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 6), spacing: 12) {
+                    ForEach(store.allReactions, id: \.self) { emoji in
+                        Button(emoji) { onPick(emoji) }.font(.largeTitle)
+                    }
+                }
+                .padding()
+            }
+            .navigationTitle("React")
+            .navigationBarTitleDisplayMode(.inline)
+        }
+    }
 }

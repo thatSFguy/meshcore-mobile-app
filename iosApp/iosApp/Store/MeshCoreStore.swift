@@ -1079,6 +1079,8 @@ final class MeshCoreStore: ObservableObject {
 
     /// The quick-reaction row, in the shared wire order.
     var quickReactions: [String] { Reactions.shared.QUICK }
+    /// Every reaction the wire format can carry (Android's ＋ list).
+    var allReactions: [String] { Reactions.shared.ALL }
 
     func react(to id: Int64, with emoji: String) {
         _ = session?.react(id: id, emoji: emoji)
