@@ -40,6 +40,8 @@ data class BookMessage(
     val copies: Int = 1,
     /** Emoji → count, from reactions that matched this message. */
     val reactions: Map<String, Int> = emptyMap(),
+    /** When the recipient's ACK arrived (our clock); outgoing DMs only. */
+    val deliveredAtMs: Long? = null,
 )
 
 /** One row of the Chats list. */
@@ -231,6 +233,8 @@ class MessageBook(
                 status = status,
                 ackHash = ackHash ?: old.ackHash,
                 attempts = attempts ?: old.attempts,
+                deliveredAtMs = old.deliveredAtMs
+                    ?: if (status == MessageStatus.Delivered) nowMs() else null,
             )
         }
     }

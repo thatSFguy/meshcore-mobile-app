@@ -100,6 +100,11 @@ final class MeshCoreStore: ObservableObject {
     @Published var selfKeyHex: String = ""
     @Published var contacts: [UiContact] = []
     @Published var channels: [UiChannel] = []
+    /// Contacts joined with message history (shared ContactNodes), for
+    /// the Nodes list. Kotlin objects; the view arranges and maps them.
+    @Published private(set) var nodes: [ContactNode] = []
+    /// A sentence for the last node action that went wrong, or nil.
+    @Published var nodeActionProblem: String?
     /// Every thread with traffic, most recent first.
     @Published var threads: [UiThread] = []
     @Published var unreadTotal: Int = 0
@@ -181,6 +186,7 @@ final class MeshCoreStore: ObservableObject {
                     lastAdvert: c.timestamp
                 )
             }.sorted { $0.name.lowercased() < $1.name.lowercased() }
+            self.rebuildNodes()
         })
         watches.append(FlowWatchKt.watch(flow: engine.channels, scope: scope) { [weak self] value in
             guard let self, let live = value as? [Channel] else { return }
@@ -280,7 +286,19 @@ final class MeshCoreStore: ObservableObject {
         }
         unreadTotal = Int(book.unreadTotal())
         bookRevision &+= 1
+        rebuildNodes()
     }
+
+    private func rebuildNodes() {
+        let live = (engine.contacts.value as? [String: Contact]).map { Array($0.values) } ?? []
+        nodes = ContactNodes.shared.build(
+            contacts: live,
+            book: session?.book,
+            nowSeconds: MeshCoreStore.nowSeconds()
+        )
+    }
+
+    static var now: Int64 { nowSeconds() }
 
     func messages(in threadKey: String) -> [UiMessage] {
         session?.book.thread(threadKey: threadKey).map(UiMessage.init) ?? []
@@ -411,6 +429,37 @@ final class MeshCoreStore: ObservableObject {
         engine.detach()
         Task { try? await t.disconnect() }
         transport = nil
+    }
+
+    // MARK: - Node actions
+
+    /// Forget the radio's stored route so the next message floods and
+    /// the reply teaches it a fresh one.
+    func resetPath(_ keyHex: String) {
+        guard let key = HexKt.hexToBytesOrNull(hex: keyHex) else { return }
+        Task {
+            let ok = (try? await engine.resetPath(pubKey: key))?.boolValue ?? false
+            self.nodeActionProblem = ok ? nil : "The radio did not confirm the path reset."
+        }
+    }
+
+    /// Remove a contact from the RADIO (not just this phone). The view
+    /// confirms first; this is not undoable from the app.
+    func removeContact(_ keyHex: String) {
+        guard let key = HexKt.hexToBytesOrNull(hex: keyHex) else { return }
+        Task {
+            let ok = (try? await engine.removeContact(pubKey: key))?.boolValue ?? false
+            self.nodeActionProblem = ok ? nil : "The radio did not remove the contact."
+        }
+    }
+
+    /// Announce this radio. Zero-hop reaches only direct neighbours;
+    /// flood goes mesh-wide and costs everyone airtime.
+    func sendAdvert(flood: Bool) {
+        Task {
+            let ok = (try? await engine.sendSelfAdvert(flood: flood))?.boolValue ?? false
+            self.nodeActionProblem = ok ? nil : "The radio did not send the advert."
+        }
     }
 
     // MARK: - Messaging

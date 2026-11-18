@@ -1,78 +1,260 @@
-// Contacts/nodes list with detail sheet (pubkey, location, actions).
+// Nodes: the radio's contacts by type, arranged by the shared
+// NodeListModel (search, sort, filters) exactly as Android arranges
+// them, each row answering "can I talk to this node?" with the shared
+// Reachability verdict.
 
 import SwiftUI
+import Shared
+
+/// Swift-side snapshot of one shared ContactNode, for SwiftUI identity.
+struct UiNode: Identifiable, Hashable {
+    let id: String
+    let name: String
+    let type: Int32
+    let hopsLabel: String
+    let heardLabel: String?
+    let reachShort: String?
+    let reachLine: String
+    let isTwoWay: Bool
+    let isFavorite: Bool
+    let unread: Int
+    let latitude: Double?
+    let longitude: Double?
+    let hasStoredPath: Bool
+
+    init(_ n: ContactNode, now: Int64) {
+        id = n.keyHex
+        name = n.name
+        type = n.type
+        hopsLabel = n.hopsLabel
+        heardLabel = n.heardLabel(nowSeconds: now)
+        reachShort = n.reach.short
+        reachLine = n.reach.line
+        isTwoWay = n.reach.isTwoWay
+        isFavorite = n.isFavorite
+        unread = Int(n.unread)
+        latitude = n.latitude?.doubleValue
+        longitude = n.longitude?.doubleValue
+        hasStoredPath = n.contact.storedPath.size > 0
+    }
+
+    var displayName: String { name.isEmpty ? String(id.prefix(12)) : name }
+}
 
 struct NodesView: View {
     @EnvironmentObject var store: MeshCoreStore
-    @State private var detail: UiContact?
+    @State private var tab: NodeTab = .contacts
+    @State private var query = ""
+    @State private var sort: NodeListModelSort = .activity
+    @State private var filters: Set<NodeListModelFilter> = []
+    @State private var detail: UiNode?
+
+    private static let tabs: [NodeTab] = [.contacts, .repeaters, .rooms, .sensors]
+
+    /// Every sort except Nearest, which needs this phone's position — not
+    /// read on iOS yet.
+    private static var sorts: [NodeListModelSort] {
+        let all = NodeListModelSort.values()
+        return (0..<all.size).compactMap { all.get(index: $0) }.filter { $0 != .distance }
+    }
+
+    private static var allFilters: [NodeListModelFilter] {
+        let all = NodeListModelFilter.values()
+        return (0..<all.size).compactMap { all.get(index: $0) }
+    }
+
+    private var rows: [UiNode] {
+        let now = MeshCoreStore.now
+        return ContactNodes.shared.arrange(
+            nodes: store.nodes, tab: tab, query: query, sort: sort, filters: filters, nowSeconds: now
+        ).map { UiNode($0, now: now) }
+    }
+
+    private var counts: [NodeTab: Int] {
+        ContactNodes.shared.counts(nodes: store.nodes).mapValues { Int(truncating: $0) }
+    }
 
     var body: some View {
         NavigationStack {
             List {
-                section(title: "Contacts", type: 1)
-                section(title: "Repeaters", type: 2)
-                section(title: "Room servers", type: 3)
-                section(title: "Sensors", type: 4)
+                Picker("Type", selection: $tab) {
+                    ForEach(Self.tabs, id: \.self) { t in
+                        Text(counts[t].map { "\(t.title) \($0)" } ?? t.title).tag(t)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .listRowBackground(Color.clear)
+
+                if let problem = store.nodeActionProblem {
+                    Text(problem).font(.caption).foregroundStyle(.red)
+                }
+                ForEach(rows) { node in
+                    row(node)
+                }
             }
+            .searchable(text: $query, prompt: "Name or key")
             .overlay {
-                if store.contacts.isEmpty {
+                if store.nodes.isEmpty {
                     ContentUnavailableView(
                         "No contacts yet",
                         systemImage: "dot.radiowaves.left.and.right",
                         description: Text("Contacts appear when nearby nodes advertise.")
                     )
+                } else if rows.isEmpty {
+                    ContentUnavailableView.search(text: query)
                 }
             }
             .navigationTitle("Nodes")
-            .sheet(item: $detail) { contact in
-                ContactDetailSheet(contact: contact)
-                    .presentationDetents([.medium])
+            .toolbar { toolbar }
+            .navigationDestination(for: String.self) { key in
+                ConversationView(threadKey: key)
+            }
+            .sheet(item: $detail) { node in
+                NodeDetailSheet(node: node)
+                    .presentationDetents([.medium, .large])
             }
         }
     }
 
     @ViewBuilder
-    private func section(title: String, type: Int32) -> some View {
-        let group = store.contacts.filter { $0.type == type }
-        if !group.isEmpty {
-            Section(title) {
-                ForEach(group) { contact in
-                    Button {
-                        detail = contact
-                    } label: {
-                        VStack(alignment: .leading) {
-                            Text(contact.name.isEmpty ? String(contact.id.prefix(12)) : contact.name)
-                            Text(contact.id.prefix(16) + "…")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    .buttonStyle(.plain)
+    private func row(_ node: UiNode) -> some View {
+        let content = NodeRow(node: node)
+        if node.type == 1 {
+            // A person: tapping opens the conversation; the detail is one
+            // swipe or the info button away (Android: long-press).
+            NavigationLink(value: "dm|\(node.id)") { content }
+                .swipeActions(edge: .trailing) {
+                    Button("Info") { detail = node }.tint(.blue)
                 }
+                .contextMenu { Button("Details") { detail = node } }
+        } else {
+            // Infrastructure: no chat thread to open, and repeater admin
+            // is not on iOS yet — the detail sheet is what there is.
+            Button { detail = node } label: { content }
+                .buttonStyle(.plain)
+        }
+    }
+
+    @ToolbarContentBuilder
+    private var toolbar: some ToolbarContent {
+        ToolbarItem(placement: .topBarTrailing) {
+            Menu {
+                Picker("Sort", selection: $sort) {
+                    ForEach(Self.sorts, id: \.self) { s in Text(s.label).tag(s) }
+                }
+                Section("Show") {
+                    ForEach(Self.allFilters, id: \.self) { f in
+                        Toggle(f.label, isOn: Binding(
+                            get: { filters.contains(f) },
+                            set: { on in if on { filters.insert(f) } else { filters.remove(f) } }
+                        ))
+                    }
+                }
+            } label: {
+                Image(systemName: filters.isEmpty
+                      ? "line.3.horizontal.decrease.circle"
+                      : "line.3.horizontal.decrease.circle.fill")
+            }
+        }
+        ToolbarItem(placement: .topBarLeading) {
+            Menu {
+                Button("Advert to neighbours (zero hop)") { store.sendAdvert(flood: false) }
+                Button("Advert mesh-wide (flood)") { store.sendAdvert(flood: true) }
+            } label: {
+                Image(systemName: "dot.radiowaves.up.forward")
+            }
+            .disabled(!store.isReady)
+        }
+    }
+}
+
+private struct NodeRow: View {
+    let node: UiNode
+
+    var body: some View {
+        HStack(alignment: .top) {
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 4) {
+                    if node.isFavorite {
+                        Image(systemName: "star.fill").font(.caption).foregroundStyle(.yellow)
+                    }
+                    Text(node.displayName).font(.body).lineLimit(1)
+                }
+                Text([node.hopsLabel, node.heardLabel].compactMap { $0 }.joined(separator: " · "))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                if let reach = node.reachShort {
+                    Text(reach)
+                        .font(.caption2)
+                        .foregroundStyle(node.isTwoWay ? .green : .secondary)
+                }
+            }
+            Spacer()
+            if node.unread > 0 {
+                Text(node.unread > 99 ? "99+" : "\(node.unread)")
+                    .font(.caption2.bold())
+                    .padding(.horizontal, 6).padding(.vertical, 2)
+                    .background(.tint, in: Capsule())
+                    .foregroundStyle(.white)
             }
         }
     }
 }
 
-struct ContactDetailSheet: View {
+struct NodeDetailSheet: View {
     @EnvironmentObject var store: MeshCoreStore
-    let contact: UiContact
+    @Environment(\.dismiss) private var dismiss
+    let node: UiNode
+    @State private var confirmRemove = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(contact.name.isEmpty ? "Unnamed node" : contact.name)
-                .font(.title2)
-            Text("Public key").font(.caption).foregroundStyle(.secondary)
-            Text(contact.id)
-                .font(.system(.caption2, design: .monospaced))
-                .textSelection(.enabled)
-            if let lat = contact.latitude, let lon = contact.longitude {
-                Text("Location").font(.caption).foregroundStyle(.secondary)
-                Text(String(format: "%.5f, %.5f", lat, lon))
+        NavigationStack {
+            Form {
+                Section {
+                    LabeledContent("Route", value: node.hopsLabel)
+                    if let heard = node.heardLabel { LabeledContent("Last heard", value: heard) }
+                    if !node.reachLine.isEmpty {
+                        Text(node.reachLine).font(.callout)
+                    }
+                }
+                Section("Public key") {
+                    Text(node.id)
+                        .font(.system(.caption2, design: .monospaced))
+                        .textSelection(.enabled)
+                    Button("Copy key") { UIPasteboard.general.string = node.id }
+                }
+                if let lat = node.latitude, let lon = node.longitude, abs(lat) > 1e-6 || abs(lon) > 1e-6 {
+                    Section("Location") {
+                        Text(String(format: "%.5f, %.5f", lat, lon))
+                    }
+                }
+                Section {
+                    if node.hasStoredPath {
+                        Button("Reset path") { store.resetPath(node.id) }
+                            .disabled(!store.isReady)
+                    }
+                    Button("Remove from radio", role: .destructive) { confirmRemove = true }
+                        .disabled(!store.isReady)
+                } footer: {
+                    if node.hasStoredPath {
+                        Text("Resetting the path makes the next message flood, and the reply teaches the radio a fresh route.")
+                    }
+                }
             }
-            Spacer()
+            .navigationTitle(node.displayName)
+            .navigationBarTitleDisplayMode(.inline)
+            .confirmationDialog(
+                "Remove \(node.displayName) from the radio?",
+                isPresented: $confirmRemove,
+                titleVisibility: .visible
+            ) {
+                Button("Remove", role: .destructive) {
+                    store.removeContact(node.id)
+                    dismiss()
+                }
+            } message: {
+                Text("The radio forgets this contact. It comes back only if it advertises again and the radio adds it.")
+            }
         }
-        .padding(24)
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
