@@ -39,6 +39,15 @@ class ContactNode(
     val tab: NodeTab get() = NodeTab.of(contact.type)
     val isFavorite: Boolean get() = NodeListModel.isFavorite(this)
 
+    /**
+     * [Reachability.Verdict.short] under a name Swift can reach: `short`
+     * is a C keyword, so the Objective-C header Kotlin/Native writes
+     * cannot carry it as-is and the property is renamed on the way out.
+     */
+    val reachLabel: String? get() = reach.short
+    val reachLine: String get() = reach.line
+    val isTwoWay: Boolean get() = reach.isTwoWay
+
     /** "direct", "3 hops", or "flood" — read at the contact's own width. */
     val hopsLabel: String
         get() {

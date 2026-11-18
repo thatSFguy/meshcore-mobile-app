@@ -28,9 +28,9 @@ struct UiNode: Identifiable, Hashable {
         type = n.type
         hopsLabel = n.hopsLabel
         heardLabel = n.heardLabel(nowSeconds: now)
-        reachShort = n.reach.short
-        reachLine = n.reach.line
-        isTwoWay = n.reach.isTwoWay
+        reachShort = n.reachLabel
+        reachLine = n.reachLine
+        isTwoWay = n.isTwoWay
         isFavorite = n.isFavorite
         unread = Int(n.unread)
         latitude = n.latitude?.doubleValue
