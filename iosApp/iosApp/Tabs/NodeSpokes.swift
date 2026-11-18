@@ -32,6 +32,21 @@ struct PinSpoke: View {
     @State private var confirm = false
     @State private var offerReboot = false
 
+    /// Built in steps: one long `+` chain is more than the Swift type
+    /// checker will solve in time (CI, 2026-11-18).
+    private var confirmText: String {
+        let opening: String = DevicePin.shared.isUseDefault(text: pin)
+            ? "The radio will drop its stored PIN and go back to its built-in default."
+            : "The radio will use \(pin) from now on."
+        let points: [String] = [
+            "• It keeps pairing with the OLD pin until the node is restarted.",
+            "• This iPhone stays paired on the old PIN until you remove the pairing: Settings › Bluetooth › (i) next to the radio › Forget This Device. Removing it here in the app is not the same.",
+            "• Every other phone paired with this radio has to do the same.",
+            "• Nothing can read the PIN back off the radio. If you forget it, Bluetooth access is gone until you reach the node another way.",
+        ]
+        return opening + "\n\n" + points.joined(separator: "\n") + "\n\nWrite it down before you continue."
+    }
+
     private var hint: String? {
         if let r = DevicePin.shared.rejection(text: pin) { return r }
         if DevicePin.shared.isUseDefault(text: pin) { return "Clears the PIN — the node reverts to its built-in default" }
@@ -75,14 +90,7 @@ struct PinSpoke: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text((DevicePin.shared.isUseDefault(text: pin)
-                  ? "The radio will drop its stored PIN and go back to its built-in default.\n\n"
-                  : "The radio will use \(pin) from now on.\n\n") +
-                 "• It keeps pairing with the OLD pin until the node is restarted.\n" +
-                 "• This iPhone stays paired on the old PIN until you remove the pairing: Settings › Bluetooth › (i) next to the radio › Forget This Device. Removing it here in the app is not the same.\n" +
-                 "• Every other phone paired with this radio has to do the same.\n" +
-                 "• Nothing can read the PIN back off the radio. If you forget it, Bluetooth access is gone until you reach the node another way.\n\n" +
-                 "Write it down before you continue.")
+            Text(confirmText)
         }
         .alert("Reboot to apply it?", isPresented: $offerReboot) {
             Button("Reboot now") { node.reboot() }
@@ -116,8 +124,7 @@ struct IdentitySpoke: View {
                     TextField("Advertised name", text: $name)
                         .autocorrectionDisabled()
                     Button("Set name") { node.setName(name) }
-                        .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty
-                                  || name.trimmingCharacters(in: .whitespaces) == info.name || node.busy)
+                        .disabled(!nameChanged(from: info.name) || node.busy)
                 } header: { Text("Name") }
 
                 Section {
@@ -153,6 +160,11 @@ struct IdentitySpoke: View {
         .onAppear { node.refreshSelf(); load() }
         .onChange(of: node.selfInfo) { _, _ in load() }
         .sheet(isPresented: $showQr) { MyContactSheet() }
+    }
+
+    private func nameChanged(from current: String) -> Bool {
+        let trimmed = name.trimmingCharacters(in: .whitespaces)
+        return !trimmed.isEmpty && trimmed != current
     }
 
     private func load() {
