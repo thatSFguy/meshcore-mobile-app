@@ -125,6 +125,24 @@ Both reviews independently confirmed, by reading the code rather than assuming:
 
 ---
 
+## Addendum — iOS Phase 2 posture (2026-11-17, NOT reviewed)
+
+The review above covers the protocol layer and the Android app. iOS Phase 2 added surfaces it
+never examined; they are listed here so nobody reads this document as covering them. Reasons for
+each are in [`IOS_DECISIONS.md`](IOS_DECISIONS.md).
+
+- **Message history at rest** is one JSON file per radio identity, protected by iOS Data
+  Protection (`completeUntilFirstUserAuthentication`) and excluded from backup — the OS's
+  encryption, **not** an app-held key as on Android (SQLCipher + Keystore). Readable by anything
+  that can read the app container after first unlock.
+- **Repeater passwords are not stored at all** on iOS; sessions are in memory.
+- **Block list and settings** live in `UserDefaults` (not secret, but not encrypted by the app).
+- **Opened links and scanned codes** are previewed and applied only on a tap; unsigned contact
+  names are labelled as such, and an advert whose signature fails is refused, not downgraded.
+- **The repeater console** redacts `set prv.key`, passwords and long hex from what it displays;
+  it is never persisted.
+- **Never run on a device.** None of the above has been exercised on an iPhone.
+
 ## Re-running this review
 
 ```bash
