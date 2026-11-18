@@ -125,7 +125,7 @@ class RemoteSettingsForm {
         when (section.id) {
             BASIC -> {
                 if (edited(CliIds.NAME) && text(CliIds.NAME).isNotEmpty()) out += "set name ${text(CliIds.NAME)}"
-                if (edited(CliIds.OWNER_INFO)) out += "set owner.info ${CliValues.encodeOwnerInfo(text(CliIds.OWNER_INFO))}"
+                if (edited(CliIds.OWNER_INFO)) out += ownerCommand(text(CliIds.OWNER_INFO))
             }
             RADIO -> {
                 if (CliFormFields.RADIO_FIELDS.any { edited(it) }) {
@@ -151,7 +151,7 @@ class RemoteSettingsForm {
                 if (edited(CliIds.FLOOD_ADVERT_INTERVAL)) CliValues.parseInt(text(CliIds.FLOOD_ADVERT_INTERVAL), 0..Int.MAX_VALUE)?.let { out += "set flood.advert.interval $it" }
             }
             FORWARDING -> for (id in listOf(CliIds.FLOOD_MAX, CliIds.RXDELAY, CliIds.TXDELAY, CliIds.DIRECT_TXDELAY)) {
-                if (edited(id)) CliValues.parseInt(text(id), 0..Int.MAX_VALUE)?.let { out += "set $id $it" }
+                if (edited(id)) forwardingCommand(id, text(id))?.let { out += it }
             }
             SECURITY -> {
                 // `password` is the admin password's own command, not `set password`.
@@ -246,6 +246,17 @@ class RemoteSettingsForm {
          * request on the Status screen.
          */
         val MAINTENANCE_DESTRUCTIVE: List<String> = listOf("reboot", "clear stats", "log erase", "erase")
+
+        /**
+         * `set owner.info` with the user's line breaks as the firmware's
+         * `|`. Android's form shows the wire text (single-line field), so
+         * a `|` it read comes back unchanged; iOS shows real newlines.
+         */
+        fun ownerCommand(text: String): String = "set owner.info ${CliValues.encodeOwnerInfo(text.trim())}"
+
+        /** A forwarding value (`flood.max`, delays) as a command, or null unless it is a whole number ≥ 0. */
+        fun forwardingCommand(id: String, text: String): String? =
+            CliValues.parseInt(text, 0..Int.MAX_VALUE)?.let { "set $id $it" }
 
         fun confirmText(command: String): String = "This action is destructive or hard to undo. Send \"$command\"?"
 

@@ -2,6 +2,7 @@ package io.github.thatsfguy.meshcore.android.storage
 
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Before
@@ -66,6 +67,17 @@ class RetentionQueriesTest {
         // Strictly older goes; exactly-at-the-cutoff stays.
         assertTrue("old" !in left)
         assertTrue("edge" in left && "fresh" in left)
+    }
+
+    @Test
+    fun aSenderWithAResetClockIsNotDeletedOnArrival() = runTest {
+        // A node whose clock reset to 1970 stamps its messages 0-ish. Age is
+        // judged by when the row ARRIVED here, so it survives a 30-day sweep.
+        insert(text = "from a reset clock", timestamp = 5, receivedAt = 1_763_000_000_000)
+        insert(text = "really old", timestamp = 1_700_000_000, receivedAt = 1_000_000)
+        val removed = db.messages().deleteThreadOlderThan(self, MessageRepository.KIND_DM, "peer", cutoffSeconds = 1_760_000_000)
+        assertEquals(1, removed)
+        assertEquals(listOf("from a reset clock"), db.messages().thread(self, MessageRepository.KIND_DM, "peer").first().map { it.text })
     }
 
     @Test

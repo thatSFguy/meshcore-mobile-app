@@ -119,4 +119,15 @@ class RemoteSettingsTest {
         assertEquals(1, f.pathHashMode())
         assertNull(f.pathHashCommand(7))
     }
+
+    @Test
+    fun theSharedCommandBuildersAndroidUsesToo() {
+        // Android shows the wire form: a `|` it read is sent back unchanged.
+        assertEquals("set owner.info Rob|Grand Rapids", RemoteSettingsForm.ownerCommand("Rob|Grand Rapids"))
+        assertEquals("set owner.info a|b", RemoteSettingsForm.ownerCommand(" a\nb "))
+        assertEquals("set rxdelay 5", RemoteSettingsForm.forwardingCommand("rxdelay", " 5 "))
+        assertNull(RemoteSettingsForm.forwardingCommand("rxdelay", "5; reboot"))
+        assertNull(RemoteSettingsForm.forwardingCommand("rxdelay", "-1"))
+        assertNull(RemoteSettingsForm.forwardingCommand("rxdelay", ""))
+    }
 }

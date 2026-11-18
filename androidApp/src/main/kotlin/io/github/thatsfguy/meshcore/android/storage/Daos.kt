@@ -293,14 +293,21 @@ interface MessageDao {
     @Query("DELETE FROM messages WHERE selfKey = :selfKey")
     suspend fun clearAll(selfKey: String)
 
-    /** Retention: drop anything older than [cutoffSeconds]. */
-    @Query("DELETE FROM messages WHERE selfKey = :selfKey AND timestamp < :cutoffSeconds")
+    /**
+     * Retention: drop anything that ARRIVED before [cutoffSeconds].
+     *
+     * By `receivedAt` (our clock), not `timestamp` (the sender's claim):
+     * until 2026-11-18 this used `timestamp`, so a node whose clock had
+     * reset to 1970 had every message deleted the moment the sweep ran —
+     * found while porting retention to iOS (IOS_DECISIONS §13a/§25).
+     */
+    @Query("DELETE FROM messages WHERE selfKey = :selfKey AND receivedAt < :cutoffSeconds * 1000")
     suspend fun deleteOlderThan(selfKey: String, cutoffSeconds: Long): Int
 
-    /** Retention: same, for one thread. */
+    /** Retention: same, for one thread — by arrival, as above. */
     @Query(
         "DELETE FROM messages WHERE selfKey = :selfKey AND kind = :kind " +
-            "AND peerKey = :peerKey AND timestamp < :cutoffSeconds",
+            "AND peerKey = :peerKey AND receivedAt < :cutoffSeconds * 1000",
     )
     suspend fun deleteThreadOlderThan(
         selfKey: String,

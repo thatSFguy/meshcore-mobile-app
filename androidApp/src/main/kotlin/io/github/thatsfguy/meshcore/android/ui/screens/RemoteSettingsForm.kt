@@ -165,8 +165,11 @@ fun RemoteSettingsForm(
             } else {
                 // Firmware encodes newlines in owner.info as '|'.
                 values[id] =
-                    if (id == CliIds.OWNER_INFO) CliValues.decodeOwnerInfo(value).replace('\n', ' ')
-                    else value
+                    // Owner text is shown as the wire form, `|` and all: this
+                    // field is single-line, and flattening `|` to spaces (as
+                    // it did until 2026-11-18) destroyed the line breaks on
+                    // the next save.
+                    value
                 dirty[id] = false
                 ok++
             }
@@ -213,7 +216,7 @@ fun RemoteSettingsForm(
                     values[CliIds.NAME]?.trim()?.takeIf { it.isNotEmpty() && dirty[CliIds.NAME] == true }
                         ?.let { add("set name $it") }
                     if (dirty[CliIds.OWNER_INFO] == true) {
-                        add("set owner.info ${values[CliIds.OWNER_INFO].orEmpty().trim()}")
+                        add(io.github.thatsfguy.meshcore.presentation.RemoteSettingsForm.ownerCommand(values[CliIds.OWNER_INFO].orEmpty()))
                     }
                 }
             },
@@ -434,8 +437,11 @@ fun RemoteSettingsForm(
                             CliIds.TXDELAY,
                             CliIds.DIRECT_TXDELAY,
                         )) {
-                            values[id]?.trim()?.takeIf { it.isNotEmpty() && dirty[id] == true }
-                                ?.let { add("set $id $it") }
+                            // Whole numbers only (shared rule); anything else is
+                            // not sent, rather than sent raw as it was.
+                            values[id]?.takeIf { dirty[id] == true }
+                                ?.let { io.github.thatsfguy.meshcore.presentation.RemoteSettingsForm.forwardingCommand(id, it) }
+                                ?.let { add(it) }
                         }
                     }
                 },
