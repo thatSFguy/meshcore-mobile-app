@@ -91,3 +91,23 @@ extension MeshCoreStore {
         return (s ?? nil).map { Int($0.noiseFloor) }
     }
 }
+
+extension MeshCoreStore {
+    /// The nodes a sweep at [days] would remove (shared StaleNodes rules).
+    func staleSweep(days: Int) -> StaleNodes.Sweep {
+        StaleSweep.companion.sweep(nodes: nodes, olderThanDays: Int32(days),
+                                   nowMillis: Int64(Date().timeIntervalSince1970 * 1000))
+    }
+
+    /// Remove them from the RADIO, one at a time, oldest first; the
+    /// sentence to show. Their neighbour readings go too, as on Android.
+    func removeStaleNodes(days: Int) async -> String {
+        guard isReady else { return "Not connected to a radio." }
+        let result = try? await StaleSweep.companion.over(engine: engine).run(sweep: staleSweep(days: days))
+        for key in result?.removedKeys ?? [] { neighbourBook.clear(repeaterKeyHex: key) }
+        objectWillChange.send()
+        let message = result?.message ?? "Nothing was removed."
+        diag.log("Store", "stale sweep (\(days) d): \(message)")
+        return message
+    }
+}

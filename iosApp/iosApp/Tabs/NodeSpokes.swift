@@ -888,3 +888,65 @@ private struct RestoreSheet: View {
         }
     }
 }
+
+// MARK: - Stale-node cleanup
+
+/// The only bulk-destructive action in the app: removes nodes from the
+/// RADIO's contact list. Which nodes is the shared StaleNodes rule —
+/// favourites, never-heard nodes and anything heard or messaged inside
+/// the window are never touched — and the list is shown before it runs.
+struct StaleNodesSheet: View {
+    @EnvironmentObject var store: MeshCoreStore
+    @Environment(\.dismiss) private var dismiss
+    @State private var days = Double(StaleNodes.shared.DEFAULT_DAYS)
+    @State private var busy = false
+
+    var body: some View {
+        let sweep = store.staleSweep(days: Int(days))
+        let now = Int64(Date().timeIntervalSince1970 * 1000)
+        NavigationStack {
+            Form {
+                Section {
+                    Text(StaleSweep.companion.EXPLAINER)
+                    Text(StaleSweep.companion.PROTECTED).font(.callout).foregroundStyle(.secondary)
+                }
+                Section {
+                    Text("Older than \(Int(days)) days")
+                    Slider(value: $days,
+                           in: Double(StaleNodes.shared.MIN_DAYS)...Double(StaleNodes.shared.MAX_DAYS),
+                           step: 1)
+                        .disabled(busy)
+                    Text("\(sweep.count) of \(sweep.total) nodes").font(.headline)
+                    if let kept = StaleNodes.shared.keptNote(sweep: sweep) {
+                        Text(kept).font(.callout).foregroundStyle(.secondary)
+                    }
+                }
+                if sweep.count > 0 {
+                    Section("Will be removed") {
+                        ForEach(StaleSweep.companion.previewLines(sweep: sweep, nowMillis: now), id: \.self) { Text($0) }
+                        if let more = StaleSweep.companion.moreLine(sweep: sweep) {
+                            Text(more).foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                Section { Text(StaleSweep.companion.KEPT_CONVERSATIONS).font(.caption) }
+            }
+            .navigationTitle("Remove stale nodes")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.disabled(busy) }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(busy ? "Removing…" : StaleNodes.shared.actionLabel(sweep: sweep), role: .destructive) {
+                        Task {
+                            busy = true
+                            store.nodeActionNote = await store.removeStaleNodes(days: Int(days))
+                            busy = false
+                            dismiss()
+                        }
+                    }
+                    .disabled(sweep.count == 0 || busy || !store.isReady)
+                }
+            }
+        }
+    }
+}

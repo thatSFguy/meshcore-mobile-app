@@ -32,14 +32,18 @@ class StaleNodesWiringTest {
         // The radio owns the contact list. Deleting our rows alone would
         // look like it worked and be undone by the next contact sync —
         // the kind of failure that teaches a user not to trust a button.
+        // Since 2026-11-18 the radio loop is the shared StaleSweep (its
+        // own tests: StaleSweepTest), and only the keys it reports as
+        // removed by the radio lose their local rows.
         assertTrue(
             "the sweep never asks the radio to remove anything",
-            sweepFun.contains("svc.engine.removeContact(key)"),
+            sweepFun.contains("StaleSweep.over(svc.engine).run(sweep)"),
         )
         assertTrue(
             "the local row is dropped without the radio having agreed",
-            sweepFun.indexOf("svc.engine.removeContact(key)") <
-                sweepFun.indexOf("db.contacts().delete(self, node.keyHex)"),
+            sweepFun.contains("for (keyHex in result.removedKeys)") &&
+                sweepFun.indexOf("StaleSweep.over(svc.engine).run(sweep)") <
+                sweepFun.indexOf("db.contacts().delete(self, keyHex)"),
         )
     }
 
@@ -65,7 +69,9 @@ class StaleNodesWiringTest {
     fun `a refusal is counted rather than swallowed`() {
         assertTrue(
             "a failed removal is reported as a success",
-            sweepFun.contains("failed++") && sweepFun.contains("StaleNodes.outcome(removed, failed)"),
+            // Counting lives in StaleSweep (StaleSweepTest.aRefusalIsCountedAndTheRestContinue);
+            // the ViewModel must report its sentence, not invent one.
+            sweepFun.contains("return result.message"),
         )
     }
 
@@ -73,7 +79,7 @@ class StaleNodesWiringTest {
     fun `a removed node takes its neighbour readings with it`() {
         assertTrue(
             "stale removal leaves lines drawn from a node with no pin",
-            sweepFun.contains("db.neighbours().clear(self, node.keyHex)"),
+            sweepFun.contains("db.neighbours().clear(self, keyHex)"),
         )
     }
 

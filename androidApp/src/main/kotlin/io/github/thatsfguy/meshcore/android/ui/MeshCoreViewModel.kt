@@ -1153,24 +1153,17 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
             olderThanDays,
             System.currentTimeMillis(),
         )
-        var removed = 0
-        var failed = 0
-        for (node in sweep.remove) {
-            val key = hexToBytesOrNull(node.keyHex)
-            val gone = key != null &&
-                runCatching { svc.engine.removeContact(key) }.getOrDefault(false)
-            if (gone) {
-                db.contacts().delete(self, node.keyHex)
-                // Its neighbour readings go too — the same rule as a
-                // single removal, and lines drawn from a node with no
-                // pin are worse than no lines.
-                db.neighbours().clear(self, node.keyHex)
-                removed++
-            } else {
-                failed++
-            }
+        // The removal loop is shared (StaleSweep) since 2026-11-18; iOS runs
+        // the same one. Local rows follow what the radio actually removed.
+        val result = io.github.thatsfguy.meshcore.messaging.StaleSweep.over(svc.engine).run(sweep)
+        for (keyHex in result.removedKeys) {
+            db.contacts().delete(self, keyHex)
+            // Its neighbour readings go too — the same rule as a single
+            // removal, and lines drawn from a node with no pin are worse
+            // than no lines.
+            db.neighbours().clear(self, keyHex)
         }
-        return StaleNodes.outcome(removed, failed)
+        return result.message
     }
 
     fun setFavourite(keyHex: String, favourite: Boolean) {

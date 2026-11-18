@@ -50,6 +50,7 @@ struct NodesView: View {
     @State private var detail: UiNode?
     @State private var showMyContact = false
     @State private var scanning = false
+    @State private var removingStale = false
 
     private static let tabs: [NodeTab] = [.contacts, .repeaters, .rooms, .sensors]
 
@@ -113,6 +114,7 @@ struct NodesView: View {
             .navigationDestination(for: String.self) { key in
                 ConversationView(threadKey: key)
             }
+            .sheet(isPresented: $removingStale) { StaleNodesSheet() }
             .sheet(isPresented: $showMyContact) { MyContactSheet() }
             .sheet(isPresented: $scanning) {
                 QrScannerSheet { text in store.openScanned(text) }
@@ -174,6 +176,10 @@ struct NodesView: View {
             Menu {
                 Button { scanning = true } label: { Label("Scan a code", systemImage: "qrcode.viewfinder") }
                 Button { showMyContact = true } label: { Label("My contact", systemImage: "qrcode") }
+                Button(role: .destructive) { removingStale = true } label: {
+                    Label("Remove stale nodes…", systemImage: "trash")
+                }
+                .disabled(!store.isReady)
                 Section("Advertise this radio") {
                     Button("To neighbours (zero hop)") { store.sendAdvert(flood: false) }
                         .disabled(!store.isReady)
