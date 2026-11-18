@@ -38,6 +38,12 @@ targets:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
+        # meshcore:// links (channel shares) open in the app, as on
+        # Android since 0.11.0. Shown for confirmation, never auto-joined.
+        CFBundleURLTypes:
+          - CFBundleURLName: io.github.thatsfguy.meshcore.links
+            CFBundleURLSchemes:
+              - meshcore
         UIBackgroundModes:
           # Keep CBCentralManager attached while backgrounded so inbound
           # messages still notify. Pair with CoreBluetooth state

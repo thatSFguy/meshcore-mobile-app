@@ -124,6 +124,8 @@ final class MeshCoreStore: ObservableObject {
     @AppStorage("tcpPort") var tcpPort: Int = 5000
 
     private let engine: MeshCoreEngine
+    private let crypto = IosCryptoProvider()
+    private lazy var channelJoin = ChannelJoin.companion.over(engine: engine, crypto: crypto)
     /// Whichever transport is attached — TCP or BLE.
     private var transport: Transport?
     private let scope: Kotlinx_coroutines_coreCoroutineScope
@@ -144,7 +146,7 @@ final class MeshCoreStore: ObservableObject {
         scope = IosScopeKt.meshCoreMainScope()
         engine = MeshCoreEngine(
             scope: scope,
-            crypto: IosCryptoProvider(),
+            crypto: crypto,
             nowSeconds: { KotlinLong(value: MeshCoreStore.nowSeconds()) },
             // Kotlin/Native exports no default parameters, so this must
             // match the engine's own default — the name the radio is told
@@ -166,6 +168,7 @@ final class MeshCoreStore: ObservableObject {
             self.engineStateLabel = self.label(for: state)
             if self.isReady && !wasReady {
                 Task { try? await self.engine.refreshBattery() }
+                if let held = self.linkInbox.onReady() { self.pendingLink = held }
             }
         })
         for flow in [engine.selfInfo, engine.deviceInfo, engine.battery] as [Kotlinx_coroutines_coreFlow] {
@@ -573,6 +576,68 @@ final class MeshCoreStore: ObservableObject {
             let ok = (try? await engine.sendSelfAdvert(flood: flood))?.boolValue ?? false
             self.nodeActionProblem = ok ? nil : "The radio did not send the advert."
         }
+    }
+
+    // MARK: - Channels
+    //
+    // The rules (validation, the key is the channel, full vs unread) are
+    // the shared ChannelJoin; this only runs it and reports its sentence.
+
+    /// A meshcore:// link another app opened, waiting for the person to
+    /// confirm it. Held until the radio is ready (shared LinkInbox), since
+    /// nothing can be joined before the radio's slots are read.
+    @Published var pendingLink: String?
+    private let linkInbox = LinkInbox()
+
+    func openIncoming(_ url: URL) {
+        let offer = linkInbox.offer(raw: url.absoluteString, ready: isReady)
+        if let open = offer as? LinkInboxOfferOpen { pendingLink = open.link }
+    }
+
+    /// The last channel action's outcome, as a sentence to show.
+    @Published var channelMessage: String?
+
+    func joinHashtag(_ input: String) { runChannel { try await $0.joinHashtag(input: input) } }
+    func createPrivateChannel(_ name: String) { runChannel { try await $0.createPrivate(nameInput: name) } }
+    func joinPrivateChannel(name: String, key: String) {
+        runChannel { try await $0.joinPrivate(nameInput: name, keyInput: key) }
+    }
+    func joinSharedLink(_ link: String) { runChannel { try await $0.joinShared(link: link) } }
+    func leaveChannel(_ index: Int32) { runChannel { try await $0.leave(index: index) } }
+
+    private func runChannel(_ op: @escaping (ChannelJoin) async throws -> ChannelJoinOutcome) {
+        let join = channelJoin
+        Task {
+            do {
+                channelMessage = try await op(join).message
+            } catch {
+                channelMessage = error.localizedDescription
+            }
+        }
+    }
+
+    private func channel(_ index: Int32) -> Channel? {
+        (engine.channels.value as? [Channel])?.first { $0.index == index }
+    }
+
+    /// The link that hands someone this channel's key.
+    func shareLink(_ index: Int32) -> String? {
+        channel(index).map { channelJoin.shareLink(channel: $0) }
+    }
+
+    /// "Hashtag · anyone can read it" / "Private · not secure" — the
+    /// same subtitle Android shows, so neither platform oversells it.
+    func channelSubtitle(_ index: Int32) -> String {
+        guard let ch = channel(index) else { return "Obfuscated, not secure" }
+        let kind = ChannelKinds.shared.of(name: ch.name, psk: ch.psk, crypto: crypto)
+        return ChannelSetupKt.channelSubtitle(kind: kind, region: nil)
+    }
+
+    func isPrivateChannel(_ index: Int32) -> Bool {
+        guard let ch = channel(index) else { return false }
+        // By name: `Private` is a Swift keyword, and how Kotlin/Native
+        // escapes an enum entry spelled like one is not worth depending on.
+        return ChannelKinds.shared.of(name: ch.name, psk: ch.psk, crypto: crypto).name == "Private"
     }
 
     // MARK: - Messaging

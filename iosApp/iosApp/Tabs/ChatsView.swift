@@ -6,6 +6,7 @@ import SwiftUI
 
 struct ChatsView: View {
     @EnvironmentObject var store: MeshCoreStore
+    @State private var addingChannel = false
 
     /// Channels and chat contacts not already listed as a thread.
     private var quietChannels: [UiChannel] {
@@ -64,6 +65,13 @@ struct ChatsView: View {
                 }
             }
             .navigationTitle("Chats")
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { addingChannel = true } label: { Image(systemName: "plus") }
+                        .accessibilityLabel("Add channel")
+                }
+            }
+            .sheet(isPresented: $addingChannel) { AddChannelSheet() }
             .navigationDestination(for: String.self) { key in
                 ConversationView(threadKey: key)
             }

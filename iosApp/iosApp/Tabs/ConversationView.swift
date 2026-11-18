@@ -11,6 +11,7 @@ struct ConversationView: View {
     @EnvironmentObject var store: MeshCoreStore
     let threadKey: String
     @State private var draft = ""
+    @State private var showChannelInfo = false
 
     private var isChannel: Bool { threadKey.hasPrefix("ch|") }
 
@@ -21,8 +22,8 @@ struct ConversationView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if isChannel {
-                Text("Channel crypto is obfuscation, not security")
+            if isChannel, let idx = Int32(threadKey.dropFirst(3)) {
+                Text(store.channelSubtitle(idx))
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity)
@@ -66,6 +67,14 @@ struct ConversationView: View {
         }
         .navigationTitle(store.title(for: threadKey))
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            if isChannel, let idx = Int32(threadKey.dropFirst(3)) {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { showChannelInfo = true } label: { Image(systemName: "info.circle") }
+                        .sheet(isPresented: $showChannelInfo) { ChannelInfoSheet(index: idx) }
+                }
+            }
+        }
         .onAppear { store.setActiveThread(threadKey) }
         .onDisappear { store.setActiveThread(nil) }
     }

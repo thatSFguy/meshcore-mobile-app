@@ -20,5 +20,12 @@ struct ContentView: View {
             SettingsView()
                 .tabItem { Label("Settings", systemImage: "gear") }
         }
+        .onOpenURL { store.openIncoming($0) }
+        .sheet(isPresented: Binding(
+            get: { store.pendingLink != nil },
+            set: { if !$0 { store.pendingLink = nil } }
+        )) {
+            AddChannelSheet(initialLink: store.pendingLink)
+        }
     }
 }
