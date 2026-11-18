@@ -167,7 +167,7 @@ class ChannelJoinTest {
         )
         val out = ChannelJoin(radio, crypto).joinShared(link)
         assertIs<ChannelJoin.Outcome.Added>(out)
-        assertTrue("floods unscoped" in out.message, out.message)
+        assertTrue("floods unscoped" in out.message, out.message) // no scope store: said out loud
         assertTrue("grand-rapids" in out.message, out.message)
     }
 
@@ -180,5 +180,37 @@ class ChannelJoinTest {
         assertEquals("That is not a MeshCore link.", join.joinShared("https://example.com").message)
         assertIs<ChannelJoin.Outcome.Refused>(join.joinShared("meshcore://channel?name=x&secret=zz"))
         assertTrue(radio.writes.isEmpty())
+    }
+
+    private class Scopes(val current: Map<Int, String> = emptyMap(), val known: List<String> = emptyList()) : ChannelScopeStore {
+        val applied = mutableListOf<Triple<Int, String, Boolean>>()
+        override fun channelRegion(index: Int) = current[index]
+        override fun knownRegions() = known
+        override fun applyRegion(index: Int, region: String, newRegion: Boolean) { applied += Triple(index, region, newRegion) }
+    }
+
+    private val scopedLink = io.github.thatsfguy.meshcore.protocol.ShareUri.encodeChannel(
+        "Team", "00112233445566778899aabbccddeeff", regionScope = "grand-rapids",
+    )
+
+    @Test
+    fun withAScopeStoreTheLinksRegionIsAppliedToTheSlot() = runTest {
+        val radio = FakeRadio()
+        val scopes = Scopes()
+        val join = ChannelJoin(radio, crypto).also { it.scopes = scopes }
+        val out = assertIs<ChannelJoin.Outcome.Added>(join.joinShared(scopedLink))
+        assertEquals(listOf(Triple(out.index, "grand-rapids", true)), scopes.applied)
+        assertTrue(out.message.endsWith(", scoped to #grand-rapids — new region added"), out.message)
+    }
+
+    @Test
+    fun aRegionThePersonChoseIsNotOverwrittenByALink() = runTest {
+        val radio = FakeRadio()
+        val first = ChannelJoin(radio, crypto).joinShared(scopedLink) as ChannelJoin.Outcome.Added
+        val scopes = Scopes(current = mapOf(first.index to "mi"), known = listOf("mi", "grand-rapids"))
+        val again = ChannelJoin(radio, crypto).also { it.scopes = scopes }.joinShared(scopedLink)
+        assertIs<ChannelJoin.Outcome.AlreadyHeld>(again)
+        assertTrue(scopes.applied.isEmpty(), "a QR is not authority to undo a routing choice")
+        assertTrue("#mi" in again.message, again.message)
     }
 }

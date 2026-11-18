@@ -427,6 +427,14 @@ Keep the pattern for further iOS work: branch, dispatch, merge on green.)
     node if they go wrong, and the rest of the admin surface gets tried on
     hardware first. The Firmware hub tile stays marked "On Android only".
 
+59. **A shared channel link's region is applied on iOS** (2026-11-18), by
+    the same shared `ChannelScopeJoin` rule Android uses, through a
+    `ChannelScopeStore` the app supplies: recorded for the slot, the
+    region added to the phone's list if new, and never over a region the
+    person already chose. Android still runs its own copy of the join
+    (identical rules, its own wording); delegating it to `ChannelJoin`
+    is deferred as a no-behaviour-change cleanup, as is the DM ladder.
+
 ## Swift interop rules learned from CI (Kotlin 2.0.21)
 
 Written down because each one cost a ~20-minute CI round trip:

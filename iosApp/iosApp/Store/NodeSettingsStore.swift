@@ -297,3 +297,28 @@ final class NodeSettingsStore: ObservableObject {
         run("\(name) updated") { self.bool(try await self.engine.setCustomVar(keyValue: kv)) }
     }
 }
+
+/// Lets the shared ChannelJoin apply a shared link's region to the slot
+/// it joined (Android's behaviour), through this phone's region store.
+final class ChannelScopeBridge: NSObject, ChannelScopeStore {
+    private weak var node: NodeSettingsStore?
+
+    init(node: NodeSettingsStore) { self.node = node }
+
+    /// Kotlin may call from any thread; the region store lives on main.
+    private func onMain<T>(_ body: @MainActor () -> T) -> T {
+        if Thread.isMainThread { return MainActor.assumeIsolated(body) }
+        return DispatchQueue.main.sync { MainActor.assumeIsolated(body) }
+    }
+
+    func channelRegion(index: Int32) -> String? { onMain { node?.channelRegion(index) } }
+
+    func knownRegions() -> [String] { onMain { node?.regions ?? [] } }
+
+    func applyRegion(index: Int32, region: String, newRegion: Bool) {
+        onMain {
+            if newRegion { node?.mergeRegions([region]) }
+            node?.setChannelRegion(index, region)
+        }
+    }
+}

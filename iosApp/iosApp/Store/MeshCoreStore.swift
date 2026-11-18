@@ -137,7 +137,12 @@ final class MeshCoreStore: ObservableObject {
     private let crypto: IosCryptoProvider
     /// The radio's own settings, for the Settings → This node spokes.
     let node: NodeSettingsStore
-    private lazy var channelJoin = ChannelJoin.companion.over(engine: engine, crypto: crypto)
+    private lazy var channelJoin: ChannelJoin = {
+        let join = ChannelJoin.companion.over(engine: engine, crypto: crypto)
+        // A shared link's region is applied to the slot (shared rule).
+        join.scopes = ChannelScopeBridge(node: node)
+        return join
+    }()
     private lazy var linkImport = LinkImport.companion.over(engine: engine, channels: channelJoin)
     /// Whichever transport is attached — TCP or BLE.
     private var transport: Transport?

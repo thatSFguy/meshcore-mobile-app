@@ -21,7 +21,27 @@ import io.github.thatsfguy.meshcore.util.toHex
  *
  * Region scopes are not handled: iOS has no region UI yet.
  */
+/**
+ * Where per-channel regions live (phone-side). Top-level so Swift can
+ * implement it without naming a nested type.
+ */
+interface ChannelScopeStore {
+    fun channelRegion(index: Int): String?
+    fun knownRegions(): List<String>
+    /** Record [region] for slot [index]; add it to the known list when [newRegion]. */
+    fun applyRegion(index: Int, region: String, newRegion: Boolean)
+}
+
 class ChannelJoin(private val radio: Radio, private val crypto: CryptoProvider) {
+
+    /**
+     * When set, a shared link's region is applied by the shared
+     * [io.github.thatsfguy.meshcore.presentation.ChannelScopeJoin] rule
+     * (Android's behaviour): recorded for the slot unless the person
+     * already chose a different one. Unset, the join says out loud that
+     * it floods unscoped.
+     */
+    var scopes: ChannelScopeStore? = null
 
     interface Radio {
         val channels: List<Channel>
@@ -106,7 +126,27 @@ class ChannelJoin(private val radio: Radio, private val crypto: CryptoProvider) 
         val out = add(name, key)
         val scope = share.rawRegionScope.ifBlank { share.regionScope }
         if (scope.isBlank()) return out
-        val note = " — this link asks for region #$scope, which iOS cannot apply yet, so it floods unscoped"
+        val store = scopes
+        if (store != null) {
+            val index = when (out) {
+                is Outcome.Added -> out.index
+                is Outcome.AlreadyHeld -> out.index
+                is Outcome.Refused -> return out
+            }
+            val decision = io.github.thatsfguy.meshcore.presentation.ChannelScopeJoin.decide(
+                scope, store.channelRegion(index), store.knownRegions(),
+            )
+            if (decision is io.github.thatsfguy.meshcore.presentation.ChannelScopeJoin.Outcome.Applied) {
+                store.applyRegion(index, decision.region, decision.newRegion)
+            }
+            val clause = io.github.thatsfguy.meshcore.presentation.ChannelScopeJoin.describe(decision)
+            return when (out) {
+                is Outcome.Added -> out.copy(message = out.message + clause)
+                is Outcome.AlreadyHeld -> out.copy(message = out.message + clause)
+                is Outcome.Refused -> out
+            }
+        }
+        val note = " — this link asks for region #$scope, which this app can't apply here, so it floods unscoped"
         return when (out) {
             is Outcome.Added -> out.copy(message = out.message + note)
             is Outcome.AlreadyHeld -> out.copy(message = out.message + note)
