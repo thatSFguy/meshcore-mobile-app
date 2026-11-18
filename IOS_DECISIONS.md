@@ -219,3 +219,21 @@ lands on `main`. Merging is left to the author.
 28. **The share link is behind a "Show" tap and the warning**, as
     `ShareUri.encodeChannel` requires: anyone with it reads every message,
     past ones included, with no revocation.
+
+## Contacts, reactions, blocking
+
+29. **QR codes use Apple's own frameworks** — CoreImage to draw,
+    VisionKit's `DataScannerViewController` to read — so iOS adds no QR
+    dependency. A scanned code goes to the same `LinkImport`
+    confirmation as an opened link, including codes that are not
+    MeshCore at all (explained rather than silently ignored).
+
+30. **Reactions are sent from the message menu**, quick row only (the
+    shared `Reactions.QUICK`). The wire hash is computed by the same rule
+    incoming reactions are matched by. A DM reaction rides the retry
+    ladder but shows no status — it has no bubble to show it on.
+
+31. **Blocking is per phone, not per radio identity.** Stored in
+    `UserDefaults`; Android keeps its block list in preferences too. A
+    blocked DM is dropped before it becomes a row, so blocking does not
+    retroactively delete history — deleting the thread does that.
