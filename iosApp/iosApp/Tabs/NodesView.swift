@@ -45,8 +45,8 @@ struct NodesView: View {
     @EnvironmentObject var store: MeshCoreStore
     @State private var tab: NodeTab = .contacts
     @State private var query = ""
-    @State private var sort: NodeListModelSort = .activity
-    @State private var filters: Set<NodeListModelFilter> = []
+    @State private var sort: NodeListModel.Sort = .activity
+    @State private var filters: Set<NodeListModel.Filter> = []
     @State private var detail: UiNode?
     @State private var showMyContact = false
     @State private var scanning = false
@@ -55,13 +55,13 @@ struct NodesView: View {
 
     /// Every sort except Nearest, which needs this phone's position — not
     /// read on iOS yet.
-    private static var sorts: [NodeListModelSort] {
-        let all = NodeListModelSort.values()
+    private static var sorts: [NodeListModel.Sort] {
+        let all = NodeListModel.Sort.values()
         return (0..<all.size).compactMap { all.get(index: $0) }.filter { $0 != .distance }
     }
 
-    private static var allFilters: [NodeListModelFilter] {
-        let all = NodeListModelFilter.values()
+    private static var allFilters: [NodeListModel.Filter] {
+        let all = NodeListModel.Filter.values()
         return (0..<all.size).compactMap { all.get(index: $0) }
     }
 

@@ -118,7 +118,7 @@ private struct RepeaterHub: View {
 private struct RepeaterStatusView: View {
     @EnvironmentObject var store: MeshCoreStore
     let node: UiNode
-    @State private var groups: [RepeaterReadoutGroup] = []
+    @State private var groups: [RepeaterReadout.Group] = []
     @State private var busy = false
     @State private var silent = false
 

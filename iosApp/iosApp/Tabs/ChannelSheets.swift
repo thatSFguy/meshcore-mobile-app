@@ -160,7 +160,7 @@ struct LinkConfirmSheet: View {
     @EnvironmentObject var store: MeshCoreStore
     @Environment(\.dismiss) private var dismiss
     let link: String
-    @State private var preview: LinkImportPreview?
+    @State private var preview: LinkImport.Preview?
     @State private var applied = false
 
     var body: some View {

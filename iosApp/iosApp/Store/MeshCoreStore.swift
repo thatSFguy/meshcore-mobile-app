@@ -345,7 +345,7 @@ final class MeshCoreStore: ObservableObject {
         didSet { applyRetention() }
     }
 
-    var retentionPolicy: RetentionPolicy { Retention.shared.decode(raw: retentionEncoded) }
+    var retentionPolicy: Retention.Policy { Retention.shared.decode(raw: retentionEncoded) }
 
     /// Trim history to the policy. Run when a book opens, when the policy
     /// changes, and when the app comes back to the foreground.
@@ -634,18 +634,17 @@ final class MeshCoreStore: ObservableObject {
     }
 
     func openIncoming(_ url: URL) {
-        let offer = linkInbox.offer(raw: url.absoluteString, ready: isReady)
-        if let open = offer as? LinkInboxOfferOpen { pendingLink = open.link }
+        if let link = linkInbox.openNow(raw: url.absoluteString, ready: isReady) { pendingLink = link }
     }
 
     /// What a link is, before anything is written (shared LinkImport).
-    func previewLink(_ link: String) -> LinkImportPreview {
+    func previewLink(_ link: String) -> LinkImport.Preview {
         linkImport.preview(link: link)
     }
 
     /// Apply a preview the person confirmed; the outcome lands in
     /// `channelMessage` (the one sentence slot the sheets show).
-    func applyLink(_ preview: LinkImportPreview) {
+    func applyLink(_ preview: LinkImport.Preview) {
         let li = linkImport
         Task {
             do {
@@ -667,7 +666,7 @@ final class MeshCoreStore: ObservableObject {
     func joinSharedLink(_ link: String) { runChannel { try await $0.joinShared(link: link) } }
     func leaveChannel(_ index: Int32) { runChannel { try await $0.leave(index: index) } }
 
-    private func runChannel(_ op: @escaping (ChannelJoin) async throws -> ChannelJoinOutcome) {
+    private func runChannel(_ op: @escaping (ChannelJoin) async throws -> ChannelJoin.Outcome) {
         let join = channelJoin
         Task {
             do {
@@ -738,7 +737,7 @@ final class MeshCoreStore: ObservableObject {
         adminSessions[keyHex] = nil
     }
 
-    func repeaterStatus(_ keyHex: String) async -> [RepeaterReadoutGroup]? {
+    func repeaterStatus(_ keyHex: String) async -> [RepeaterReadout.Group]? {
         guard let s = try? await repeaterAdmin.status(keyHex: keyHex) else { return nil }
         return RepeaterReadout.shared.status(s: s)
     }

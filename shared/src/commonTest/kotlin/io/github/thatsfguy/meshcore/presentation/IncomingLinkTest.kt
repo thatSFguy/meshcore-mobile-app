@@ -76,3 +76,14 @@ class IncomingLinkTest {
         assertEquals(card, inbox.onReady())
     }
 }
+
+class LinkInboxOpenNowTest {
+    @Test
+    fun openNowGivesTheLinkWhenReadyAndHoldsItOtherwise() {
+        val inbox = LinkInbox()
+        kotlin.test.assertNull(inbox.openNow("meshcore://contact/add?x", ready = false))
+        kotlin.test.assertEquals("meshcore://contact/add?x", inbox.onReady())
+        kotlin.test.assertEquals("meshcore://c", inbox.openNow("meshcore://c", ready = true))
+        kotlin.test.assertNull(inbox.openNow("https://x", ready = true))
+    }
+}

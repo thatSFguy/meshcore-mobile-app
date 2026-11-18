@@ -72,3 +72,11 @@ class LinkInbox {
     /** The radio is ready: the held link, at most once. */
     fun onReady(): String? = held.also { held = null }
 }
+
+/**
+ * [LinkInbox.offer] collapsed to the link to open now, or null (held
+ * for later, or not a link). For Swift, which would otherwise have to
+ * name a three-deep nested sealed subclass (`LinkInbox.Offer.Open`).
+ */
+fun LinkInbox.openNow(raw: String?, ready: Boolean): String? =
+    (offer(raw, ready) as? LinkInbox.Offer.Open)?.link
