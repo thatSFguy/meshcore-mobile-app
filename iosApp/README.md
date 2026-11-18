@@ -1,34 +1,37 @@
-# MeshCore iOS app — Phase 1 (skeleton)
+# MeshCore Hardened — iOS app (Phase 2, in progress)
 
-SwiftUI mirror of the Android app, following the same staged bring-up the
-sibling `reticulum-mobile-app` used for its iOS port.
+SwiftUI over the Kotlin `Shared` framework. Phase 2 began 2026-11-17; every
+decision taken during it is in [`../IOS_DECISIONS.md`](../IOS_DECISIONS.md).
 
 ## Status
 
-**Phase 1 — compiles-against-the-framework skeleton.** The tab shell,
-store bridge, and screens exist; the Kotlin `Shared` framework provides
-the protocol/engine/transport layer. Not yet wired on real hardware:
+Compiled only by CI (`.github/workflows/ios-ci.yml`) and **never yet run on an
+iPhone against a radio** — treat everything below as written and
+compiled, not proven.
 
-- **TCP transport**: functional in `shared` (`TcpSocket.ios.kt`, POSIX
-  sockets) — the first transport to bring up on device, gated behind the
-  same off-by-default stern-warning toggle as Android.
-- **BLE (NUS)**: needs an `IosBleTransport` (CoreBluetooth) in
-  `shared/src/iosMain` — port of the sibling's `IosBleTransport.kt` with
-  MeshCore's frame-per-write semantics (no KISS).
-- **Ed25519**: bridged to CryptoKit as of 2026-08-06.
-  `shared/iosCryptoBridge/MeshCoreCrypto.swift` exposes sign/verify/
-  pubkey over a C ABI, cinterop'd as `mch_*`; `IosCryptoProvider` calls
-  it and still fails CLOSED on any error, because a throw out of
-  `ed25519Verify` would escape the RX collector and one malformed advert
-  would deafen the app. **Verified on CI 2026-08-06** against RFC 8032
-  vectors (`Ed25519Conformance`, run on both platforms): public keys
-  derive correctly, our signatures verify under the published keys, RFC
-  signatures verify, and tampered/short/all-zero inputs are rejected.
-  Note CryptoKit is *hedged*, so it does not reproduce the RFC's example
-  signature bytes — see CLAUDE.md. Advert verification, and therefore
-  contact import, is unblocked.
-- **Persistence**: in-memory only; port the sibling's SQLDelight
-  scaffolding for durable messages.
+**Works in code:**
+- BLE (CoreBluetooth NUS) and TCP (behind the stern plaintext warning),
+  under the shared `ReconnectSupervisor`, with the last radio remembered
+  and restored at launch.
+- Messaging through shared `MessagingSession`: inbound DMs and channel
+  posts, the 3-attempt DM retry ladder with flood fallback, honest
+  delivery status, dedup of retries and echoes, reactions as chips,
+  unread counts and a tab badge, local notifications.
+- History persisted per radio identity as one JSON file under iOS Data
+  Protection, excluded from backup.
+- Nodes list on the shared `NodeListModel` (tabs, search, sort, filters)
+  with the shared reachability verdict; reset path, remove from radio,
+  adverts.
+- Channels: join hashtag, create/join private, paste or open a
+  `meshcore://` link, share (behind the warning), leave.
+- Settings: connection, the radio's parameters (read-only), about.
+- Ed25519 via CryptoKit (`shared/iosCryptoBridge`), verified on CI against
+  RFC 8032; CryptoKit is hedged, see CLAUDE.md.
+
+**Not ported yet** (Android has them): repeater/room admin, editing radio
+settings, region scopes, block list, contact import from QR/links, QR
+scanning, path history and routing sheet, heard-via, retention settings,
+backup/restore, firmware updates, Simple mode.
 
 ## Build (macOS only)
 

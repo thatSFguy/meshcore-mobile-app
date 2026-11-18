@@ -133,3 +133,74 @@ lands on `main`. Merging is left to the author.
     requested on the first BLE connect, not at launch, so the prompt has
     a reason attached. The message text is included; iOS's own "Show
     Previews" setting governs whether it appears on the lock screen.
+
+## Nodes
+
+17. **The Nodes list is the shared `NodeListModel`, fed by a new
+    `ContactNodes`.** Android's rows are Room entities; iOS has none, so
+    `ContactNodes` joins the radio's contacts with the message book and
+    implements `NodeListItem`. Search, sort and filters are therefore the
+    same code on both platforms. The "Nearest" sort is hidden: it needs
+    this phone's position, which iOS does not read yet.
+
+18. **Reachability on iOS uses less evidence than Android**, and says
+    less rather than more: a delivered DM is the proof (timed by a new
+    `deliveredAtMs`), a stored route means they heard us, a non-zero
+    advert timestamp means we heard them. "Repeats your messages" is
+    never claimed — it needs the route history iOS does not keep.
+
+19. **Tapping a repeater or room opens its detail sheet**, not an admin
+    hub — repeater admin is not ported. A chat contact opens its thread;
+    the detail is a swipe or a long-press away, as on Android.
+
+20. **Remove-from-radio asks first.** It is the only destructive radio
+    action on iOS so far, and it is not undoable from the app.
+
+## Connection
+
+21. **Every link runs under the shared `ReconnectSupervisor`**, and the
+    last radio is remembered with the shared `ConnectionMemory` and
+    restored at launch once Bluetooth reports poweredOn ("Reconnect
+    automatically", default on, matching Android). A fresh
+    `IosBleTransport` is built per attempt; iOS never times out a pending
+    connect, so an out-of-range radio simply waits.
+
+22. **Scanning disconnects the current radio.** One `CBCentralManager`
+    has one delegate. A connected transport holds it, and the scanner
+    must take it back to see anything — which silences the transport.
+    The alternative, a second central for scanning, is allowed by iOS but
+    doubles the state to reason about for the rare case of switching
+    radios. The Settings footer says so. (This also fixed a real bug: a
+    scan after any connection found nothing, because the transport kept
+    the delegate.)
+
+23. **The store owns the scanner** (it was a view's `@StateObject`, so
+    leaving Settings could tear down the central a live transport used).
+
+## Radio settings
+
+24. **Read-only for now.** Settings shows the radio through a new shared
+    `RadioFacts` (frequency, bandwidth, SF, CR, TX power, battery,
+    firmware, hop-hash width). Editing radio parameters is the action
+    that can make a node deaf to its mesh, so it waits for a port that
+    can be driven on hardware rather than written blind.
+
+## Channels
+
+25. **The join rules moved into shared `ChannelJoin`** — out of
+    Android's ViewModel, where they were untestable. Android still uses
+    its own copy; same follow-up as `DirectSend`.
+
+26. **Links ask for a region iOS cannot apply → join unscoped, and say
+    so.** Refusing would block the person; joining silently would flood
+    wider than the sharer intended. The sentence names the region.
+
+27. **`meshcore://` links open the Add-channel sheet pre-filled**, held
+    until the radio is ready (shared `LinkInbox`). Never joined without a
+    tap: a link from another app is not authority to write to the radio.
+    Contact links are recognised and refused with a sentence — importing
+    contacts is not ported yet.
+
+28. **The share link is behind a "Show" tap and the warning**, as
+    `ShareUri.encodeChannel` requires: anyone with it reads every message,
+    past ones included, with no revocation.
