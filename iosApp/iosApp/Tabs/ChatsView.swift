@@ -11,8 +11,11 @@ struct ChatsView: View {
     /// Channels and chat contacts not already listed as a thread.
     private var quietChannels: [UiChannel] {
         let active = Set(store.threads.map(\.id))
-        return store.channels.filter { !active.contains("ch|\($0.id)") }
+        return store.channels.filter { !active.contains("ch|\($0.id)") && store.showsThread("ch|\($0.id)") }
     }
+
+    /// Threads for the current mode (Simple hides Public and non-people).
+    private var shownThreads: [UiThread] { store.threads.filter { store.showsThread($0.id) } }
 
     private var quietContacts: [UiContact] {
         let active = Set(store.threads.map(\.id))
@@ -29,9 +32,9 @@ struct ChatsView: View {
                 if let problem = store.historyProblem {
                     Text(problem).font(.caption).foregroundStyle(.red)
                 }
-                if !store.threads.isEmpty {
+                if !shownThreads.isEmpty {
                     Section("Recent") {
-                        ForEach(store.threads) { thread in
+                        ForEach(shownThreads) { thread in
                             NavigationLink(value: thread.id) {
                                 ThreadRow(thread: thread, title: store.title(for: thread.id))
                             }

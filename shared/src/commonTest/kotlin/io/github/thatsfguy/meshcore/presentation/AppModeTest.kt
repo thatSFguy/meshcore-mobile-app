@@ -71,4 +71,11 @@ class AppModeTest {
         assertEquals(AppMode.Full, AppMode.of("simple"))
         assertEquals(AppMode.Simple, AppMode.of("Simple"))
     }
+
+    @Test
+    fun theStoredNameRoundTripsForSwift() {
+        kotlin.test.assertTrue(AppModes.isSimple(AppMode.of(AppModes.stored(true))))
+        kotlin.test.assertFalse(AppModes.isSimple(AppMode.of(AppModes.stored(false))))
+        kotlin.test.assertFalse(AppModes.isSimple(AppMode.of("garbage")), "unknown means Full")
+    }
 }

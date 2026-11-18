@@ -36,7 +36,8 @@ struct ConversationView: View {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 6) {
                         ForEach(messages) { message in
-                            MessageBubble(message: message, isChannel: isChannel)
+                            MessageBubble(message: message, isChannel: isChannel,
+                                          showsSignal: AppModes.shared.showsSignalDetail(mode: store.appMode))
                                 .id(message.id)
                                 .contextMenu {
                                     if store.isReady {
@@ -47,7 +48,9 @@ struct ConversationView: View {
                                         }
                                     }
                                     Button("Copy") { UIPasteboard.general.string = message.text }
-                                    Button("Info") { info = message }
+                                    if AppModes.shared.showsTechnicalActions(mode: store.appMode) {
+                                        Button("Info") { info = message }
+                                    }
                                     if isChannel, !message.outgoing, let name = message.senderName, !name.isEmpty {
                                         Button("Hide messages from \(name)") { hideName = name }
                                     }
@@ -121,6 +124,8 @@ struct ConversationView: View {
 struct MessageBubble: View {
     let message: UiMessage
     let isChannel: Bool
+    /// Hops and signal under the bubble — hidden in Simple mode (AppModes).
+    var showsSignal: Bool = true
 
     var body: some View {
         HStack {
@@ -163,7 +168,7 @@ struct MessageBubble: View {
     private var detail: String? {
         var parts: [String] = []
         if message.outgoing && message.attempts > 1 { parts.append("try \(message.attempts)") }
-        if let footer = message.footer { parts.append(footer) }
+        if showsSignal, let footer = message.footer { parts.append(footer) }
         if !message.outgoing && message.copies > 1 { parts.append("×\(message.copies)") }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }

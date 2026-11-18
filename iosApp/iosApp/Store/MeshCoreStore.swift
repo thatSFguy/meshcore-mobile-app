@@ -472,6 +472,31 @@ final class MeshCoreStore: ObservableObject {
         }
     }
 
+    // MARK: - Simple mode (shared AppModes, as Android)
+
+    @AppStorage("appMode") var appModeRaw: String = "Full" {
+        willSet { objectWillChange.send() }
+    }
+
+    var appMode: AppMode { AppMode.companion.of(stored: appModeRaw) }
+    var isSimple: Bool { AppModes.shared.isSimple(mode: appMode) }
+
+    func setSimple(_ on: Bool) { appModeRaw = AppModes.shared.stored(simple: on) }
+
+    /// Whether a thread belongs on screen in the current mode: Simple hides
+    /// the Public channel and anything that isn't a person.
+    func showsThread(_ threadKey: String) -> Bool {
+        let parts = threadKey.split(separator: "|", maxSplits: 1).map(String.init)
+        guard parts.count == 2 else { return true }
+        if parts[0] == "ch" {
+            let kind = Int32(parts[1]).flatMap { channel($0) }.map { ChannelKinds.shared.of(name: $0.name, psk: $0.psk, crypto: crypto) }
+            return AppModes.shared.showsThread(mode: appMode, isChannel: true, channelKind: kind, contactType: nil)
+        }
+        let type = contacts.first(where: { $0.id == parts[1] })?.type
+        return AppModes.shared.showsThread(mode: appMode, isChannel: false, channelKind: nil,
+                                           contactType: type.map { KotlinInt(int: $0) })
+    }
+
     // MARK: - Notifications
 
     @AppStorage("notificationsEnabled") var notificationsEnabled: Bool = true {

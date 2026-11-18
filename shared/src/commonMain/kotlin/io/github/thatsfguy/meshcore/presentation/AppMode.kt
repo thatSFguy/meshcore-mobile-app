@@ -81,4 +81,13 @@ object AppModes {
      * react, copy and delete stay in both modes.
      */
     fun showsTechnicalActions(mode: AppMode): Boolean = mode == AppMode.Full
+
+    // For Swift, which must not spell Kotlin enum entries (IOS_DECISIONS).
+    fun isSimple(mode: AppMode): Boolean = mode == AppMode.Simple
+    fun stored(simple: Boolean): String = if (simple) AppMode.Simple.name else AppMode.Full.name
+
+    const val SIMPLE_TITLE_ON = "Simple mode is on"
+    const val SIMPLE_TITLE_OFF = "Simple mode"
+    const val SIMPLE_HINT_ON = "Tap to show the full app. Nothing is lost either way."
+    const val SIMPLE_HINT_OFF = "Just chats and channels, for people who only want to talk"
 }

@@ -16,9 +16,19 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             List {
+                Section {
+                    Button { store.setSimple(!store.isSimple) } label: {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(store.isSimple ? AppModes.shared.SIMPLE_TITLE_ON : AppModes.shared.SIMPLE_TITLE_OFF)
+                                .foregroundStyle(.primary)
+                            Text(store.isSimple ? AppModes.shared.SIMPLE_HINT_ON : AppModes.shared.SIMPLE_HINT_OFF)
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                }
                 ForEach(groups, id: \.title) { group in
                     Section(group.title) {
-                        ForEach(group.tiles, id: \.route) { tile in
+                        ForEach(group.tiles.filter { AppModes.shared.showsSettingsTile(mode: store.appMode, route: $0.route) }, id: \.route) { tile in
                             if Self.androidOnly.contains(tile.route) {
                                 tileLabel(tile, subtitle: "On Android only, for now")
                                     .foregroundStyle(.secondary)

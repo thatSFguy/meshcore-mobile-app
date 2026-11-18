@@ -13,10 +13,13 @@ struct ContentView: View {
                 // The one number visible from every tab (PARITY: unread
                 // counts on the tabs). Zero shows no badge.
                 .badge(store.unreadTotal)
-            NodesView()
-                .tabItem { Label("Nodes", systemImage: "person.2") }
-            NodeMapView()
-                .tabItem { Label("Map", systemImage: "map") }
+            // Simple mode keeps Chats and Settings (shared AppModes.tabs).
+            if !store.isSimple {
+                NodesView()
+                    .tabItem { Label("Nodes", systemImage: "person.2") }
+                NodeMapView()
+                    .tabItem { Label("Map", systemImage: "map") }
+            }
             SettingsView()
                 .tabItem { Label("Settings", systemImage: "gear") }
         }
