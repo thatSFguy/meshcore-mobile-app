@@ -539,7 +539,10 @@ final class MeshCoreStore: ObservableObject {
         guard parts.count == 2 else { return threadKey }
         if parts[0] == "ch" {
             let idx = Int32(parts[1]) ?? -1
-            return channels.first { $0.id == idx }.map { "# \($0.name)" } ?? "Channel \(parts[1])"
+            // The name as the radio holds it, as Android shows it: a hashtag
+            // channel's name already carries its '#', and prefixing another
+            // read "# #test".
+            return channels.first { $0.id == idx && !$0.name.isEmpty }.map { $0.name } ?? "Channel \(parts[1])"
         }
         let hex = parts[1]
         if let c = contacts.first(where: { $0.id == hex }), !c.name.isEmpty { return c.name }

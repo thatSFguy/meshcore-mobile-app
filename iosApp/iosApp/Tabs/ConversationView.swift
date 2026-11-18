@@ -41,11 +41,14 @@ struct ConversationView: View {
                                 .id(message.id)
                                 .contextMenu {
                                     if store.isReady {
-                                        Menu("React") {
+                                        // One horizontal row, as Android's quick-reaction
+                                        // bar — a submenu listed them vertically.
+                                        ControlGroup {
                                             ForEach(store.quickReactions, id: \.self) { emoji in
                                                 Button(emoji) { store.react(to: message.id, with: emoji) }
                                             }
                                         }
+                                        .controlGroupStyle(.palette)
                                     }
                                     Button("Copy") { UIPasteboard.general.string = message.text }
                                     if AppModes.shared.showsTechnicalActions(mode: store.appMode) {
