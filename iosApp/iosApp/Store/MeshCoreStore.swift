@@ -15,6 +15,7 @@
 import Foundation
 import SwiftUI
 import UserNotifications
+import CoreBluetooth
 import Shared
 
 struct UiContact: Identifiable, Hashable {
@@ -103,6 +104,8 @@ final class MeshCoreStore: ObservableObject {
     /// Contacts joined with message history (shared ContactNodes), for
     /// the Nodes list. Kotlin objects; the view arranges and maps them.
     @Published private(set) var nodes: [ContactNode] = []
+    /// The connected radio as labelled rows (shared RadioFacts).
+    @Published private(set) var radioFacts: [(label: String, value: String)] = []
     /// A sentence for the last node action that went wrong, or nil.
     @Published var nodeActionProblem: String?
     /// Every thread with traffic, most recent first.
@@ -150,6 +153,7 @@ final class MeshCoreStore: ObservableObject {
             log: { _ in }
         )
         startWatching()
+        startConnectionMemory()
     }
 
     // MARK: - Subscriptions
@@ -157,9 +161,18 @@ final class MeshCoreStore: ObservableObject {
     private func startWatching() {
         watches.append(FlowWatchKt.watch(flow: engine.state, scope: scope) { [weak self] value in
             guard let self, let state = value as? EngineState else { return }
+            let wasReady = self.isReady
             self.isReady = state == EngineState.ready
             self.engineStateLabel = self.label(for: state)
+            if self.isReady && !wasReady {
+                Task { try? await self.engine.refreshBattery() }
+            }
         })
+        for flow in [engine.selfInfo, engine.deviceInfo, engine.battery] as [Kotlinx_coroutines_coreFlow] {
+            watches.append(FlowWatchKt.watch(flow: flow, scope: scope) { [weak self] _ in
+                self?.rebuildRadioFacts()
+            })
+        }
         watches.append(FlowWatchKt.watch(flow: engine.plaintextLink, scope: scope) { [weak self] value in
             guard let self else { return }
             self.isPlaintextLink = (value as? KotlinBoolean)?.boolValue ?? false
@@ -289,6 +302,18 @@ final class MeshCoreStore: ObservableObject {
         rebuildNodes()
     }
 
+    private func rebuildRadioFacts() {
+        radioFacts = RadioFacts.shared.of(
+            selfInfo: engine.selfInfo.value as? SelfInfo,
+            device: engine.deviceInfo.value as? DeviceInfo,
+            battery: engine.battery.value as? BatteryAndStorage
+        ).map { (label: $0.label, value: $0.value) }
+    }
+
+    func refreshBattery() {
+        Task { try? await engine.refreshBattery() }
+    }
+
     private func rebuildNodes() {
         let live = (engine.contacts.value as? [String: Contact]).map { Array($0.values) } ?? []
         nodes = ContactNodes.shared.build(
@@ -381,54 +406,142 @@ final class MeshCoreStore: ObservableObject {
     }
 
     // MARK: - Connection
+    //
+    // Every connection runs under the shared ReconnectSupervisor — the
+    // build → connect → run → backoff loop Android's service uses, tested
+    // in shared against fake transports. A dropped link comes back on its
+    // own; Disconnect is the only thing that stops it. The last radio is
+    // remembered (shared ConnectionMemory) and restored at launch.
+
+    /// The app's one CBCentralManager owner. Lives as long as the store,
+    /// so the central a transport took over is never torn down under it.
+    let scanner = BleScanner()
+    private var supervisor: ReconnectSupervisor?
+
+    @AppStorage("autoReconnect") var autoReconnect: Bool = true
+    @AppStorage("lastLinkKind") private var lastLinkKind: String = ""
+    @AppStorage("lastBleId") private var lastBleId: String = ""
+    @AppStorage("lastBleName") private var lastBleName: String = ""
+    /// What the current (or last attempted) link is to, for Settings.
+    @Published private(set) var linkTarget: String?
+
+    var isLinked: Bool { supervisor != nil }
+
+    private func startConnectionMemory() {
+        scanner.onPoweredOn = { [weak self] in self?.restoreConnection() }
+        if scanner.isPoweredOn { restoreConnection() }
+    }
+
+    /// Reconnect to the remembered radio, if there is one and the user
+    /// has not turned that off. Never second-guesses a live link.
+    private func restoreConnection() {
+        guard supervisor == nil else { return }
+        let memory = ConnectionMemoryCompanion.shared.resolve(
+            autoReconnect: autoReconnect,
+            kind: lastLinkKind,
+            bleAddress: lastBleId,
+            bleName: lastBleName,
+            tcpHost: tcpHost,
+            tcpPort: KotlinInt(int: Int32(clamping: tcpPort)),
+            tcpEnabled: tcpEnabled
+        )
+        if let ble = memory as? ConnectionMemoryBle,
+           let id = UUID(uuidString: ble.address),
+           let peripheral = scanner.knownPeripheral(id) {
+            superviseBle(peripheral, name: ble.name ?? "radio")
+        } else if memory is ConnectionMemoryTcp {
+            superviseTcp()
+        }
+    }
 
     /// Attach over BLE to a radio the scanner found.
-    ///
-    /// `IosBleTransport` does not scan — it takes an already-discovered
-    /// peripheral, same as Android's transport takes a MAC. The scanner
-    /// hands over its `CBCentralManager` and stops scanning first,
-    /// because the transport makes itself that central's delegate.
-    func connectBle(_ radio: DiscoveredRadio, using scanner: BleScanner) {
-        let t = IosBleTransport(
-            central: scanner.takeCentralForConnect(),
-            peripheral: radio.peripheral
-        )
-        attach(t)
+    func connectBle(_ radio: DiscoveredRadio) {
+        lastLinkKind = ConnectionMemoryCompanion.shared.KIND_BLE
+        lastBleId = radio.id.uuidString
+        lastBleName = radio.name
+        superviseBle(radio.peripheral, name: radio.name)
         requestNotificationPermission()
     }
 
     func connectTcp() {
         guard tcpEnabled else { return }
-        let t = TcpInterface(
-            host: tcpHost,
-            port: Int32(tcpPort),
-            scope: scope,
-            socketFactory: { host, port in TcpSocket(host: host, port: port.int32Value) },
-            logger: { _ in }
-        )
-        attach(t)
+        lastLinkKind = ConnectionMemoryCompanion.shared.KIND_TCP
+        superviseTcp()
     }
 
-    private func attach(_ t: Transport) {
-        if transport != nil { disconnect() }
-        transport = t
-        engine.attach(t: t)
-        Task {
-            do {
-                try await t.connect()
-            } catch {
-                // Every failure the transports raise is already a sentence
-                // meant for a person, so surface it rather than replace it.
-                self.engineStateLabel = error.localizedDescription
-            }
+    private func superviseBle(_ peripheral: CBPeripheral, name: String) {
+        // `IosBleTransport` does not scan — it takes a discovered
+        // peripheral, as Android's transport takes a MAC — and makes
+        // itself the central's delegate, so scanning stops first. A fresh
+        // transport per attempt: each one re-takes the delegate. On iOS a
+        // pending connect never times out, so an out-of-range radio just
+        // waits in connect() until it is back.
+        let central = scanner.takeCentralForConnect()
+        linkTarget = name
+        supervise { _ in IosBleTransport(central: central, peripheral: peripheral) }
+    }
+
+    private func superviseTcp() {
+        let host = tcpHost
+        let port = Int32(clamping: tcpPort)
+        let scope = self.scope
+        linkTarget = "\(host):\(port) (TCP)"
+        supervise { _ in
+            TcpInterface(
+                host: host,
+                port: port,
+                scope: scope,
+                socketFactory: { h, p in TcpSocket(host: h, port: p.int32Value) },
+                logger: { _ in }
+            )
         }
     }
 
-    func disconnect() {
-        guard let t = transport else { return }
+    private func supervise(_ build: @escaping (ReconnectAttempt) -> Transport) {
+        stopSupervisor()
+        let sup = ReconnectSupervisor(
+            scope: scope,
+            build: build,
+            onTransport: { [weak self] raw, forEngine in
+                // The engine gets the write-watched wrapper, so a write
+                // that fails on a link claiming to be up ends the link.
+                self?.transport = raw
+                self?.engine.attach(t: forEngine)
+            },
+            onError: { [weak self] message in
+                // Every failure the transports raise is already a sentence
+                // meant for a person, so surface it rather than replace it.
+                if let message { self?.engineStateLabel = message }
+            },
+            log: { _ in },
+            now: { KotlinLong(value: MeshCoreStore.nowMs()) }
+        )
+        supervisor = sup
+        sup.start()
+        objectWillChange.send()
+    }
+
+    private func stopSupervisor() {
+        supervisor?.stop()
+        supervisor = nil
         engine.detach()
-        Task { try? await t.disconnect() }
+        if let t = transport { Task { try? await t.disconnect() } }
         transport = nil
+    }
+
+    /// Drop the link and stay down. Auto-reconnect resumes only on the
+    /// next launch, and only if it is on.
+    func disconnect() {
+        stopSupervisor()
+        linkTarget = nil
+        objectWillChange.send()
+    }
+
+    /// Scanning ends any live link: the scanner has to take the BLE
+    /// central's delegate back, which silences the transport using it.
+    func scanForRadios() {
+        if supervisor != nil { disconnect() }
+        scanner.startScan()
     }
 
     // MARK: - Node actions

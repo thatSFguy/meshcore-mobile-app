@@ -41,11 +41,33 @@ final class BleScanner: NSObject, ObservableObject, CBCentralManagerDelegate {
         central = CBCentralManager(delegate: self, queue: nil)
     }
 
+    /// Called once each time Bluetooth reaches poweredOn while this
+    /// object is the central's delegate — the moment a remembered radio
+    /// can be looked up and reconnected.
+    var onPoweredOn: (() -> Void)?
+
+    /// Whether Bluetooth is on right now.
+    var isPoweredOn: Bool { central.state == .poweredOn }
+
     func startScan() {
+        // Take the delegate back. A transport that connected earlier made
+        // itself the delegate, and without this every discovery after the
+        // first connection went to it and was dropped — a scan that could
+        // never find anything. The caller must not scan while a link is
+        // up (the store disconnects first), since this ends that link's
+        // callbacks.
+        central.delegate = self
         radios = []
         wantScan = true
         problem = nil
         beginIfPossible()
+    }
+
+    /// A radio this phone has connected to before, by CoreBluetooth's
+    /// identifier for it. Nil when Bluetooth is off or iOS forgot it.
+    func knownPeripheral(_ id: UUID) -> CBPeripheral? {
+        guard central.state == .poweredOn else { return nil }
+        return central.retrievePeripherals(withIdentifiers: [id]).first
     }
 
     func stopScan() {
@@ -88,6 +110,7 @@ final class BleScanner: NSObject, ObservableObject, CBCentralManagerDelegate {
 
     func centralManagerDidUpdateState(_ central: CBCentralManager) {
         beginIfPossible()
+        if central.state == .poweredOn { onPoweredOn?() }
     }
 
     func centralManager(
