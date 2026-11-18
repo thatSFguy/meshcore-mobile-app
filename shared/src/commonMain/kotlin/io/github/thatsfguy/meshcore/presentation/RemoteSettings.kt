@@ -23,7 +23,13 @@ class RemoteSettingsForm {
 
     enum class Kind { Text, MultiLine, Integer, Decimal, Secret }
 
-    data class Field(val id: String, val label: String, val kind: Kind)
+    data class Field(val id: String, val label: String, val kind: Kind) {
+        // For Swift, which must not spell Kotlin enum entries (renames).
+        val isSecret: Boolean get() = kind == Kind.Secret
+        val isMultiLine: Boolean get() = kind == Kind.MultiLine
+        val isInteger: Boolean get() = kind == Kind.Integer
+        val isNumeric: Boolean get() = kind == Kind.Integer || kind == Kind.Decimal
+    }
 
     data class Section(
         val id: String,

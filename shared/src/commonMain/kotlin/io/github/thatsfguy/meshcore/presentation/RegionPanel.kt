@@ -103,4 +103,57 @@ object RegionPanel {
     const val NOT_ACTIONABLE = "Not lowercase letters, digits and dashes — edit it from the console."
     const val HINT = "Decides what this repeater floods onward — routing, not access control. A region the repeater " +
         "refuses to flood can still be heard by anyone in radio range."
+
+    // --- Untagged traffic (flood with no region) ---
+
+    /** For Swift, which must not spell Kotlin enum entries. */
+    fun isNearby(mode: RegionAdmin.Untagged?): Boolean = mode == RegionAdmin.Untagged.Nearby
+    fun isRemove(action: RegionAdmin.Action): Boolean = action == RegionAdmin.Action.Remove
+    fun isAddChild(action: RegionAdmin.Action): Boolean = action == RegionAdmin.Action.AddChild
+
+    fun untaggedLabel(mode: RegionAdmin.Untagged): String = when (mode) {
+        RegionAdmin.Untagged.RelayAll -> "Relay all"
+        RegionAdmin.Untagged.Nearby -> "Relay only nearby"
+        RegionAdmin.Untagged.Refuse -> "Refuse"
+    }
+
+    /** The choices to offer: Nearby only where the firmware has the hop limit. */
+    fun untaggedChoices(limitSupported: Boolean?): List<RegionAdmin.Untagged> =
+        if (limitSupported == true) RegionAdmin.Untagged.entries.toList()
+        else listOf(RegionAdmin.Untagged.RelayAll, RegionAdmin.Untagged.Refuse)
+
+    /**
+     * The commands to move to [target], as one step; null when nothing
+     * needs sending or the input is out of range (the builder's throw is
+     * caught here, never in Swift). Refusing is confirmed.
+     */
+    fun untaggedStep(
+        target: RegionAdmin.Untagged,
+        hops: Int,
+        wildcardFloodAllowed: Boolean,
+        hopLimit: Int?,
+        limitSupported: Boolean,
+    ): List<Step>? {
+        val commands = runCatching {
+            RegionAdmin.commandsFor(target, hops, wildcardFloodAllowed, hopLimit, limitSupported)
+        }.getOrNull() ?: return null
+        if (commands.isEmpty()) return null
+        val refuse = target == RegionAdmin.Untagged.Refuse
+        return commands.mapIndexed { i, c ->
+            Step(
+                c,
+                if (refuse && i == 0) "Refuse untagged traffic?" else null,
+                if (refuse && i == 0) {
+                    "This repeater will stop relaying flood traffic that carries no region — including anyone nearby " +
+                        "whose radio isn't set to one of the regions below. Traffic tagged with an allowed region is still relayed."
+                } else null,
+                if (refuse) "Untagged traffic refused" else "Untagged traffic updated",
+            )
+        }
+    }
+
+    const val UNTAGGED_HINT = "Traffic carrying no region — what a mesh that doesn't use regions sends."
+    const val UNTAGGED_UNKNOWN =
+        "The node didn't answer when asked for its untagged hop limit, so whether it relays all of this or only nearby traffic isn't known. Fetch again."
+    const val UNTAGGED_NEEDS_116 = "Relaying only nearby traffic needs repeater firmware 1.16 or newer."
 }

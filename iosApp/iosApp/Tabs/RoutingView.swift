@@ -13,7 +13,7 @@ struct RoutingView: View {
     let keyHex: String
     let title: String
 
-    @State private var mode: RoutingMode = .auto
+    @State private var mode: RoutingMode = Routing.companion.AUTO
     @State private var hops: [HopSelection.Hop] = []
     @State private var showTokens = false
     @State private var tokens = ""
@@ -28,9 +28,9 @@ struct RoutingView: View {
         Form {
             Section {
                 Picker("Routing", selection: Binding(get: { mode }, set: { choose($0) })) {
-                    Text("Auto").tag(RoutingMode.auto)
-                    Text("Flood").tag(RoutingMode.flood)
-                    Text("Manual").tag(RoutingMode.manual)
+                    ForEach(Routing.companion.MODES, id: \.self) { m in
+                        Text(Routing.companion.modeLabel(mode: m)).tag(m)
+                    }
                 }
                 .pickerStyle(.segmented)
                 .disabled(busy || !store.isReady)
@@ -38,7 +38,7 @@ struct RoutingView: View {
                 Text(Routing.companion.modeHint(mode: mode))
             }
 
-            if mode == .manual { manualSections }
+            if mode == Routing.companion.MANUAL { manualSections }
             replySection
             historySection
             traceSection
@@ -151,7 +151,7 @@ struct RoutingView: View {
                     .font(.system(.callout, design: .monospaced))
                 Button("Use this route") {
                     hops = replyHops
-                    mode = .manual
+                    mode = Routing.companion.MANUAL
                 }
             } header: {
                 Text("Reply the way they reached me")
@@ -216,7 +216,7 @@ struct RoutingView: View {
 
     private func choose(_ m: RoutingMode) {
         mode = m
-        guard m != .manual else { return } // Manual waits for a path.
+        guard m != Routing.companion.MANUAL else { return } // Manual waits for a path.
         run { await store.applyRouting(keyHex, mode: m, pathHex: nil) }
     }
 
@@ -225,14 +225,14 @@ struct RoutingView: View {
             message = Routing.companion.UNUSABLE_HOPS
             return
         }
-        run { await store.applyRouting(keyHex, mode: .manual, pathHex: hex) }
+        run { await store.applyRouting(keyHex, mode: Routing.companion.MANUAL, pathHex: hex) }
     }
 
     private func use(_ row: PathRow) {
         guard let bytes = HexKt.hexToBytesOrNull(hex: row.pathHex) else { return }
         hops = HopSelection.shared.fromPath(path: bytes, hashWidth: width, contactsByKeyHex: store.contactNames)
-        mode = .manual
-        run { await store.applyRouting(keyHex, mode: .manual, pathHex: row.pathHex) }
+        mode = Routing.companion.MANUAL
+        run { await store.applyRouting(keyHex, mode: Routing.companion.MANUAL, pathHex: row.pathHex) }
     }
 
     private func useTokens() {
@@ -250,7 +250,7 @@ struct RoutingView: View {
             message = await action()
             // Manual keeps what the person built; the radio re-reads the
             // contact asynchronously, so its stored route lags this answer.
-            if mode != .manual { hops = store.storedHops(keyHex) }
+            if mode != Routing.companion.MANUAL { hops = store.storedHops(keyHex) }
             busy = false
         }
     }

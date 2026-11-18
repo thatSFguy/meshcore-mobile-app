@@ -47,4 +47,20 @@ class RegionPanelTest {
         assertEquals("default · home · flood denied", RegionPanel.rowTags(e, "mi"))
         assertEquals("Top level", RegionPanel.parentLabel(Regions.GLOBAL_SELECTOR))
     }
+
+    @Test
+    fun untaggedStepsAreBuiltSafelyAndRefusalIsConfirmed() {
+        // Nearby on firmware without the hop limit: the builder throws; the panel says null.
+        assertNull(RegionPanel.untaggedStep(RegionAdmin.Untagged.Nearby, 3, true, null, limitSupported = false))
+        assertNull(RegionPanel.untaggedStep(RegionAdmin.Untagged.Nearby, 99, true, 64, limitSupported = true))
+        // Already relaying all, no hop limit to fix: nothing to send.
+        assertNull(RegionPanel.untaggedStep(RegionAdmin.Untagged.RelayAll, 3, true, 64, limitSupported = true))
+        val refuse = assertNotNull(RegionPanel.untaggedStep(RegionAdmin.Untagged.Refuse, 3, true, 64, true))
+        assertEquals("Refuse untagged traffic?", refuse.single().confirmTitle)
+        val nearby = assertNotNull(RegionPanel.untaggedStep(RegionAdmin.Untagged.Nearby, 3, false, 64, true))
+        assertEquals(listOf(Regions.allowFlood(Regions.GLOBAL_SELECTOR), "set flood.max.unscoped 3"), nearby.map { it.command })
+        assertNull(nearby[0].confirmTitle)
+        assertEquals(2, RegionPanel.untaggedChoices(false).size)
+        assertEquals(3, RegionPanel.untaggedChoices(true).size)
+    }
 }

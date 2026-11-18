@@ -75,3 +75,19 @@ extension MeshCoreStore {
         await sendOnly(keyHex, RepeaterAdmin.companion.clockSyncCommand(nowSeconds: Int64(Date().timeIntervalSince1970)))
     }
 }
+
+extension MeshCoreStore {
+    func telemetry(_ keyHex: String, type: Int32) async -> RepeaterAdmin.TelemetryView? {
+        try? await repeaterAdmin.telemetry(
+            keyHex: keyHex, contactType: type,
+            signedIn: adminSession(keyHex).signedIn, pinned: isPinned(keyHex),
+            deviceCountry: Locale.current.region?.identifier
+        )
+    }
+
+    /// One status poll's noise floor, for the noise-floor watch.
+    func noiseFloor(_ keyHex: String) async -> Int? {
+        let s = try? await repeaterAdmin.statusRecovered(keyHex: keyHex, signedIn: adminSession(keyHex).signedIn, pinned: isPinned(keyHex))
+        return (s ?? nil).map { Int($0.noiseFloor) }
+    }
+}

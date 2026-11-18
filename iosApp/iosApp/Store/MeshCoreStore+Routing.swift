@@ -46,7 +46,7 @@ extension MeshCoreStore {
         let message = out?.message ?? "Radio rejected the route"
         diag.log("Routing", "\(keyHex.prefix(12)) \(mode.name): \(message)")
         if out?.ok == true {
-            setPinned(keyHex, mode == RoutingMode.manual)
+            setPinned(keyHex, mode == Routing.companion.MANUAL)
             scheduleSave()
         }
         return message

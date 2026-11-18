@@ -71,6 +71,16 @@ class Routing(private val radio: Radio) {
     }
 
     companion object {
+        // Swift names for the modes: Kotlin/Native renames `Auto` (`auto`
+        // is a C keyword), so Swift never spells an entry (IOS_DECISIONS
+        // interop rules).
+        val AUTO: RoutingMode = RoutingMode.Auto
+        val FLOOD: RoutingMode = RoutingMode.Flood
+        val MANUAL: RoutingMode = RoutingMode.Manual
+        val MODES: List<RoutingMode> = RoutingMode.entries.toList()
+
+        fun modeLabel(mode: RoutingMode): String = mode.name
+
         fun modeHint(mode: RoutingMode): String = when (mode) {
             RoutingMode.Auto -> "The radio learns and updates the route itself (resets the stored path)."
             RoutingMode.Flood -> "Every packet floods the mesh — slower and noisier, but works when a route is broken."

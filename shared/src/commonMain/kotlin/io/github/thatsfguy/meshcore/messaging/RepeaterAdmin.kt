@@ -4,7 +4,13 @@ import io.github.thatsfguy.meshcore.engine.LoginOutcome
 import io.github.thatsfguy.meshcore.engine.MeshCoreEngine
 import io.github.thatsfguy.meshcore.presentation.floodRegionsRoute
 import io.github.thatsfguy.meshcore.presentation.floodRegionsSummary
+import io.github.thatsfguy.meshcore.presentation.BatteryLevel
+import io.github.thatsfguy.meshcore.presentation.TelemetryFetch
+import io.github.thatsfguy.meshcore.presentation.UnitSystem
+import io.github.thatsfguy.meshcore.presentation.Units
 import io.github.thatsfguy.meshcore.protocol.AccessList
+import io.github.thatsfguy.meshcore.protocol.TelemetryReading
+import io.github.thatsfguy.meshcore.util.fixed
 import io.github.thatsfguy.meshcore.protocol.BinaryRequestBudget
 import io.github.thatsfguy.meshcore.protocol.Neighbours
 import io.github.thatsfguy.meshcore.protocol.PathRecovery
@@ -132,6 +138,24 @@ class RepeaterAdmin(private val engine: MeshCoreEngine) {
     suspend fun collectNeighbours(keyHex: String, signedIn: Boolean, pinned: Boolean, book: NeighbourBook, nowMs: Long): String =
         book.collect(keyHex, nowMs) { offset -> neighbours(keyHex, offset, signedIn, pinned) }.message
 
+    /** What a telemetry request produced: rows to show, or the sentence saying why there are none. */
+    data class TelemetryView(val rows: List<io.github.thatsfguy.meshcore.presentation.RadioFacts.Fact>, val message: String?)
+
+    /**
+     * The node's telemetry. Room servers and sensors check a client
+     * table rather than a sign-in, so they are asked with recovery even
+     * when not signed in (Android's gate). An empty answer is no answer:
+     * a node that replies always sends at least its own voltage.
+     */
+    suspend fun telemetry(keyHex: String, contactType: Int, signedIn: Boolean, pinned: Boolean, deviceCountry: String?): TelemetryView {
+        val key = hexToBytesOrNull(keyHex) ?: return TelemetryView(emptyList(), TelemetryFetch.NoAnswer(false).message)
+        val gated = TelemetryFetch.usesClientTable(contactType)
+        val readings = recovered(key, signedIn || gated, pinned) {
+            engine.requestTelemetry(key, BinaryRequestBudget.MAX_BUDGET_MS, null).ifEmpty { null }
+        } ?: return TelemetryView(emptyList(), lastNote ?: TelemetryFetch.NoAnswer(gated).message)
+        return TelemetryView(telemetryRows(readings, UnitSystem.resolve(null, deviceCountry)), null)
+    }
+
     companion object {
         /**
          * A console line as it is SHOWN. The console is in memory only,
@@ -146,6 +170,18 @@ class RepeaterAdmin(private val engine: MeshCoreEngine) {
             "Not asked — no direct route to this node is stored, and it only answers a direct request."
         const val REGIONS_SILENT =
             "No answer — out of range, or asked too often (it answers 4 anonymous requests per 3 minutes)."
+
+        /** Telemetry as label/value rows — Android's StatusPanel formatting, shared. */
+        fun telemetryRows(readings: List<TelemetryReading>, system: UnitSystem): List<io.github.thatsfguy.meshcore.presentation.RadioFacts.Fact> =
+            readings.map { t ->
+                val (value, unit) = Units.reading(t.value, t.unit, system)
+                val shown = when {
+                    BatteryLevel.isSelfBattery(t) -> BatteryLevel.label(BatteryLevel.millivolts(t))
+                    unit.isEmpty() -> fixed(value, 2)
+                    else -> "${fixed(value, 2)} $unit"
+                }
+                io.github.thatsfguy.meshcore.presentation.RadioFacts.Fact("${t.label} (ch ${t.channel})", shown)
+            }
 
         /** Sets the node's clock to the phone's. */
         fun clockSyncCommand(nowSeconds: Long): String = "time $nowSeconds"

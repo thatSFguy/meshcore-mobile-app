@@ -154,6 +154,8 @@ private struct RepeaterStatusView: View {
                     }
                 }
             }
+            TelemetrySection(node: node)
+            NoiseWatchSection(node: node)
             if store.adminSession(node.id).isAdmin {
                 AccessListSection(node: node)
             }
