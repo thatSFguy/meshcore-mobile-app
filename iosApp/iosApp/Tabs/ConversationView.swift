@@ -17,6 +17,9 @@ struct ConversationView: View {
     @State private var info: UiMessage?
     /// The message a reply quotes (swipe right, or long-press → Reply).
     @State private var replyingTo: UiMessage?
+    /// "Message privately": who is about to be asked, and the last outcome.
+    @State private var askName: String?
+    @State private var dmNote: String?
 
     private var isChannel: Bool { threadKey.hasPrefix("ch|") }
 
@@ -40,7 +43,9 @@ struct ConversationView: View {
                         ForEach(messages) { message in
                             MessageBubble(message: message, isChannel: isChannel,
                                           showsSignal: AppModes.shared.showsSignalDetail(mode: store.appMode),
-                                          selfName: store.selfName)
+                                          selfName: store.selfName,
+                                          dmLine: isChannel ? store.dmLine(message) : nil,
+                                          dmAsk: isChannel ? dmAsk(for: message) : nil)
                                 .id(message.id)
                                 .modifier(SwipeToReply { replyingTo = message })
                                 .contextMenu {
@@ -58,6 +63,9 @@ struct ConversationView: View {
                                         Button("Resend") { store.resend(message.id) }
                                     }
                                     Button("Reply") { replyingTo = message }
+                                    if isChannel, store.isReady, store.canAskPrivately(message), let name = message.senderName {
+                                        Button("Message privately…") { askName = name }
+                                    }
                                     if canMention(message) {
                                         Button("Mention") { mention(message.senderName ?? "") }
                                     }
@@ -82,6 +90,9 @@ struct ConversationView: View {
                 .onAppear {
                     if let last = messages.last { proxy.scrollTo(last.id, anchor: .bottom) }
                 }
+            }
+            if let dmNote {
+                Text(dmNote).font(.caption).foregroundStyle(.secondary).padding(.horizontal, 8)
             }
             if let target = replyingTo { replyBanner(target) }
             mentionSuggestions
@@ -120,6 +131,12 @@ struct ConversationView: View {
             }
         } message: {
             Text(BlockList.shared.CHANNEL_FILTER_CAVEAT)
+        }
+        .alert("Message \(askName ?? "") privately?", isPresented: Binding(get: { askName != nil }, set: { if !$0 { askName = nil } })) {
+            Button("Send request") { sendAsk() }
+            Button("Cancel", role: .cancel) { askName = nil }
+        } message: {
+            Text(DmRequests.companion.CONFIRM_TEXT)
         }
         .onAppear { store.setActiveThread(threadKey) }
         .onDisappear { store.setActiveThread(nil) }
@@ -174,6 +191,27 @@ struct ConversationView: View {
         }
     }
 
+    // MARK: Message privately
+
+    private var channelIndex: Int32? { isChannel ? Int32(threadKey.dropFirst(3)) : nil }
+
+    /// Accept / Decline for a request addressed to us, still unanswered.
+    private func dmAsk(for m: UiMessage) -> DmAsk? {
+        guard let key = store.dmAsker(m), let idx = channelIndex else { return nil }
+        let name = m.senderName ?? ""
+        return DmAsk(
+            keyPrefix: String(key.prefix(8)),
+            onAccept: { Task { dmNote = await store.acceptPrivately(channel: idx, name: name, keyHex: key) } },
+            onDecline: { store.declinePrivately(key) }
+        )
+    }
+
+    private func sendAsk() {
+        guard let name = askName, let idx = channelIndex else { return }
+        askName = nil
+        Task { dmNote = await store.askPrivately(channel: idx, name: name) }
+    }
+
     /// `> Sender: snippet` for the message being replied to, or "".
     private func quotePrefix() -> String {
         guard let target = replyingTo else { return "" }
@@ -214,6 +252,10 @@ struct MessageBubble: View {
     var showsSignal: Bool = true
     /// This radio's name, so a mention of it is drawn bold.
     var selfName: String = ""
+    /// A "message privately" post, shown as its line instead of wire text.
+    var dmLine: String? = nil
+    /// Accept / Decline when that post asks us.
+    var dmAsk: DmAsk? = nil
 
     var body: some View {
         HStack {
@@ -222,14 +264,26 @@ struct MessageBubble: View {
                 if let sender = message.senderName, !message.outgoing {
                     Text(sender).font(.caption2).foregroundStyle(.tint)
                 }
-                if let quoted = Quoting.shared.quotedPart(text: message.text) {
+                if let dmLine {
+                    Text(dmLine).italic()
+                    if let ask = dmAsk {
+                        Text("Their key starts \(ask.keyPrefix)").font(.caption2).foregroundStyle(.secondary)
+                        HStack {
+                            Button("Decline", action: ask.onDecline)
+                            Button("Accept", action: ask.onAccept).bold()
+                        }
+                        .buttonStyle(.borderless)
+                    }
+                } else if let quoted = Quoting.shared.quotedPart(text: message.text) {
                     HStack(spacing: 6) {
                         Rectangle().fill(.secondary).frame(width: 2)
                         Text(quoted).font(.caption).foregroundStyle(.secondary).lineLimit(2)
                     }
                     .fixedSize(horizontal: false, vertical: true)
                 }
-                Text(styled(Quoting.shared.bodyPart(text: message.text))).textSelection(.enabled)
+                if dmLine == nil {
+                    Text(styled(Quoting.shared.bodyPart(text: message.text))).textSelection(.enabled)
+                }
                 if !message.reactions.isEmpty {
                     HStack(spacing: 4) {
                         ForEach(message.reactions, id: \.emoji) { r in
@@ -399,4 +453,11 @@ private struct SwipeToReply: ViewModifier {
                     }
             )
     }
+}
+
+/// Accept / Decline on a "message privately" request addressed to us.
+struct DmAsk {
+    let keyPrefix: String
+    let onAccept: () -> Void
+    let onDecline: () -> Void
 }

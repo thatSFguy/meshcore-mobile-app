@@ -153,6 +153,8 @@ final class MeshCoreStore: ObservableObject {
     /// kept per identity (Android keys every row by self key the same
     /// way), so swapping radios never mixes two people's threads.
     private var session: MessagingSession?
+    /// "Message privately" handshakes for the open radio.
+    private(set) var dmRequests: DmRequests?
     /// Routes used to each contact and how they did (per radio, persisted).
     private(set) var paths: PathHistoryBook?
     /// The open radio's message history (for routing's "reply the way
@@ -327,6 +329,18 @@ final class MeshCoreStore: ObservableObject {
         paths.rememberContacts(contacts: Array(((engine.contacts.value as? [String: Contact]) ?? [:]).values))
         s.floodFallback = floodFallback
         s.channelRegions = node.channelRegions
+        // "Message privately": its state is two small strings, per radio.
+        let dm = DmRequests.companion.over(engine: engine, session: s)
+        let dmKey = "dmRequests-\(selfKey.prefix(16))"
+        dm.outstandingRaw = UserDefaults.standard.string(forKey: dmKey + "-out") ?? ""
+        dm.handledRaw = UserDefaults.standard.string(forKey: dmKey + "-handled") ?? ""
+        dm.onStateChanged = { [weak dm] in
+            guard let dm else { return }
+            UserDefaults.standard.set(dm.outstandingRaw, forKey: dmKey + "-out")
+            UserDefaults.standard.set(dm.handledRaw, forKey: dmKey + "-handled")
+        }
+        s.dmRequests = dm
+        dmRequests = dm
         node.onChannelRegionsChanged = { [weak self] in
             guard let self else { return }
             self.session?.channelRegions = self.node.channelRegions
@@ -419,6 +433,41 @@ final class MeshCoreStore: ObservableObject {
             selfLatitude: plausible ? me.map { KotlinDouble(double: $0.latitude) } : nil,
             selfLongitude: plausible ? me.map { KotlinDouble(double: $0.longitude) } : nil
         )
+    }
+
+    // MARK: - Message privately (shared DmRequests)
+
+    /// The line a request/accept post shows instead of its wire text.
+    func dmLine(_ m: UiMessage) -> String? {
+        dmRequests?.line(text: m.text, senderName: m.senderName, outgoing: m.outgoing)
+    }
+
+    /// The requester's key when this post asks us and is unanswered.
+    func dmAsker(_ m: UiMessage) -> String? {
+        dmRequests?.pendingAsker(text: m.text, senderName: m.senderName, outgoing: m.outgoing)
+    }
+
+    func canAskPrivately(_ m: UiMessage) -> Bool {
+        guard !m.outgoing, let dm = dmRequests else { return false }
+        let people = contacts.filter { $0.type == 1 }.map(\.name)
+        return dm.canAsk(senderName: m.senderName, contactNames: people)
+    }
+
+    func askPrivately(channel index: Int32, name: String) async -> String {
+        guard let dm = dmRequests else { return "Not connected to a radio." }
+        return (try? await dm.ask(index: index, targetName: name, nowSec: MeshCoreStore.nowSeconds())) ?? "The radio didn't send the request."
+    }
+
+    func acceptPrivately(channel index: Int32, name: String, keyHex: String) async -> String {
+        guard let dm = dmRequests else { return "Not connected to a radio." }
+        let msg = (try? await dm.accept(index: index, requesterName: name, requesterKeyHex: keyHex)) ?? "Couldn't answer the request."
+        objectWillChange.send()
+        return msg
+    }
+
+    func declinePrivately(_ keyHex: String) {
+        dmRequests?.decline(requesterKeyHex: keyHex)
+        objectWillChange.send()
     }
 
     /// Send a failed message of ours again (shared MessagingSession.resend).

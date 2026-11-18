@@ -116,6 +116,12 @@ class MessagingSession(
      */
     var channelRegions: Map<Int, String> = emptyMap()
 
+    /**
+     * "Message privately" handshakes; when set, a channel post that
+     * accepts a request we made adds the accepter (DmRequests' rules).
+     */
+    var dmRequests: DmRequests? = null
+
     private fun note(line: String) {
         log?.let { runCatching { it(line) } }
     }
@@ -184,6 +190,13 @@ class MessagingSession(
                     arrivalHashWidth = event.arrivalHashWidth,
                 )
                 note("Channel ${event.channelIndex} post: $outcome, hops=${event.hops ?: "?"} snr=${event.snr ?: "?"}")
+                dmRequests?.let { dm ->
+                    val text = event.text
+                    val sender = event.senderName
+                    scope.launch {
+                        dm.onChannelPost(sender, text, radio.nowSeconds())?.let { note("DM request: $it") }
+                    }
+                }
                 after(outcome, key, event.senderName, event.text)
             }
             is MeshEvent.OwnDirectRepeatHeard -> {
