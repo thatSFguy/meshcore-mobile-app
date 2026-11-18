@@ -1,0 +1,142 @@
+name: iOS release
+
+# Push a tag like `ios-v0.1.0` to build an UNSIGNED .ipa and attach it to
+# a GitHub release. Mirrors android-release.yml; see ios-ci.yml for why
+# iOS builds are unsigned (no Apple developer account: the person
+# installing re-signs it with their own Apple ID — Sideloadly, AltStore).
+#
+# The version comes from the tag and is written into the app before the
+# build, so what is installed matches what the release page advertises.
+# Notes come from iosApp/CHANGELOG.md; a tag without a section fails.
+#
+# The release is NOT marked "latest": the repo's latest release stays the
+# Android one, which is what most visitors are after.
+
+on:
+  push:
+    tags:
+      - 'ios-v*'
+  # Manual fallback: `gh workflow run ios-release.yml --ref ios-vX.Y.Z`
+  workflow_dispatch:
+
+permissions:
+  contents: write   # release upload
+
+jobs:
+  release:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Derive version from tag
+        run: |
+          TAG="${GITHUB_REF_NAME#ios-v}"
+          if ! echo "$TAG" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::tag $GITHUB_REF_NAME does not match ios-vMAJOR.MINOR.PATCH"
+            exit 1
+          fi
+          echo "VERSION_NAME=$TAG" >> "$GITHUB_ENV"
+
+      - name: Extract release notes from iosApp/CHANGELOG.md
+        run: |
+          set -e
+          NOTES=$(awk -v v="## $VERSION_NAME" '
+            $0 == v { found=1; next }
+            found && /^## / { exit }
+            found { print }
+          ' iosApp/CHANGELOG.md)
+          if [ -z "$(echo "$NOTES" | tr -d '[:space:]')" ]; then
+            echo "::error::iosApp/CHANGELOG.md has no '## $VERSION_NAME' section. Add one before tagging."
+            exit 1
+          fi
+          {
+            echo 'NOTES<<CHANGELOG_EOF'
+            echo "$NOTES"
+            echo ''
+            echo '---'
+            echo ''
+            echo 'Built by CI from the tag, UNSIGNED. Re-sign it with your own Apple ID to install'
+            echo '(Sideloadly or AltStore on Windows/macOS). A free Apple ID works; its signature'
+            echo 'lasts 7 days, after which re-sign and reinstall — your messages are kept.'
+            echo 'CHANGELOG_EOF'
+          } >> "$GITHUB_ENV"
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle 8.7
+        uses: gradle/actions/setup-gradle@3f131e8634966bd73d06cc69884922b02e6faf92 # v6.2.0
+        with:
+          gradle-version: '8.7'
+
+      - name: Bootstrap Gradle wrapper if missing
+        run: |
+          if [ ! -f ./gradlew ]; then
+            gradle wrapper --gradle-version 8.7 --distribution-type bin
+            chmod +x ./gradlew
+          fi
+
+      # A release is a build of the tested code: the same suites as CI.
+      - name: Run shared tests (JVM and iOS simulator)
+        run: ./gradlew :shared:testDebugUnitTest :shared:iosSimulatorArm64Test
+
+      - name: Build the shared XCFramework
+        run: ./gradlew :shared:assembleSharedXCFramework
+
+      - name: Select the newest Xcode
+        run: |
+          sudo xcode-select -s /Applications/Xcode.app
+          xcodebuild -version
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Stamp the version into the app
+        working-directory: iosApp
+        run: |
+          sed -i '' -E "s/CFBundleShortVersionString: \".*\"/CFBundleShortVersionString: \"$VERSION_NAME\"/" project.yml
+          sed -i '' -E "s/CFBundleVersion: \".*\"/CFBundleVersion: \"$GITHUB_RUN_NUMBER\"/" project.yml
+          grep -E "CFBundle(ShortVersionString|Version):" project.yml
+
+      - name: Generate the Xcode project
+        working-directory: iosApp
+        run: xcodegen generate
+
+      - name: Build (unsigned, device SDK)
+        working-directory: iosApp
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project iosApp.xcodeproj \
+            -scheme iosApp \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGN_ENTITLEMENTS="" \
+            build
+
+      - name: Package the unsigned IPA
+        working-directory: iosApp
+        run: |
+          APP="build/Build/Products/Release-iphoneos/iosApp.app"
+          test -d "$APP" || { echo "no .app produced at $APP"; exit 1; }
+          IPA="MeshCoreHardened-iOS-${VERSION_NAME}-unsigned.ipa"
+          rm -rf Payload && mkdir Payload
+          cp -R "$APP" Payload/
+          zip -qry "$IPA" Payload
+          echo "IPA_NAME=$IPA" >> "$GITHUB_ENV"
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
+        with:
+          name: MeshCore Hardened for iOS ${{ env.VERSION_NAME }}
+          body: ${{ env.NOTES }}
+          make_latest: false
+          files: |
+            iosApp/${{ env.IPA_NAME }}

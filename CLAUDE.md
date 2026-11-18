@@ -27,7 +27,7 @@ channels remain obfuscated-not-secure and the app must keep saying so.
 
 ## Status
 
-**v1 shipped on Android (latest release `android-v0.2.4`); iOS Phase 2 is under way** (merged to `main` 2026-11-18 from `ios-phase2` — messaging, reactions, history + retention, nodes, blocking, channels, links/QR, reconnect, repeater sign-in/status/console; compiled by CI, never yet run on an iPhone; every decision in `IOS_DECISIONS.md`, including the Swift interop rules CI taught).
+**Android ships (latest `android-v0.11.0`); iOS 0.1.0 is the first iOS release** (tag `ios-v0.1.0`, unsigned IPA, 2026-11-18) — phases 2–5 of the port: messaging, history, nodes, routing and path history, map, Settings as Android's hub, backup/restore, repeater admin, Simple mode. Run on an iPhone against real radios (messaging, a repeater's admin screens); every decision, including the Swift interop rules CI taught, is in `IOS_DECISIONS.md`; release notes in `iosApp/CHANGELOG.md`. Firmware updates and repeater rekey are deliberately not on iOS.
 Feature work is now driven by **[`PARITY.md`](PARITY.md)** — the mainstream MeshCore
 Android app is the agreed floor for the feature set, with an explicit out-of-scope list
 and the places we deliberately keep our own (stricter) handling. **Read PARITY.md before
@@ -255,9 +255,10 @@ channels as obfuscated (AES-ECB + 2-byte MAC), not secure.
    supports ACLs), and the rows that need the mainstream app running to specify.
 4. Notifications for inbound messages (service already has the channel; wire
    MessageRepository events → NotificationCompat).
-5. iOS Phase 2 — under way on `main`; what is ported and what is not is in
-   `iosApp/README.md`, decisions in `IOS_DECISIONS.md`. The next step is not more
-   code: it is running the build on an iPhone against a radio. Two Android follow-ups
+5. iOS after 0.1.0 — favourites, nicknames, ping, the discovered-nodes inbox, saved
+   radios, community codes (`iosApp/README.md` lists what is and isn't ported).
+   Sideloading from WSL works without a Mac: plumesign signs, a small-chunk
+   pymobiledevice3 script installs (see the auto-memory note on it). Two Android follow-ups
    the port surfaced (IOS_DECISIONS §1, §13a, §25): Android still runs its own copies
    of the DM retry ladder and channel-join rules that now live in `shared/messaging`
    (`DirectSend`, `ChannelJoin`) — delegate and delete; and Android's retention judges

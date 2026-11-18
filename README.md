@@ -4,7 +4,8 @@
 over LoRa radio with no cell service, no internet, no accounts and no servers — on a phone that
 does not need Google Play Services.*
 
-[![Latest release](https://img.shields.io/github/v/release/thatSFguy/meshcore-mobile-app?label=latest&sort=semver&color=blue)](https://github.com/thatSFguy/meshcore-mobile-app/releases/latest)
+[![Android release](https://img.shields.io/github/v/release/thatSFguy/meshcore-mobile-app?label=android&sort=semver&filter=android-v*&color=blue)](https://github.com/thatSFguy/meshcore-mobile-app/releases/latest)
+[![iOS release](https://img.shields.io/github/v/release/thatSFguy/meshcore-mobile-app?label=ios&sort=semver&filter=ios-v*&color=blue)](https://github.com/thatSFguy/meshcore-mobile-app/releases?q=ios-v)
 [![Android CI](https://github.com/thatSFguy/meshcore-mobile-app/actions/workflows/android-ci.yml/badge.svg)](https://github.com/thatSFguy/meshcore-mobile-app/actions/workflows/android-ci.yml)
 [![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0--only-blue.svg)](LICENSE)
 
@@ -286,7 +287,7 @@ surface, keystore-sealed secrets, encrypted local storage, verified adverts. It 
 the MeshCore protocol's own guarantees are changed; channels are still obfuscated rather than
 secure, and the app says so.
 
-**Is there an iOS version?** In development, not yet released or proven on a phone — see [iOS](#ios).
+**Is there an iOS version?** Yes — a first release, 0.1.0, sideloaded rather than from the App Store. See [iOS](#ios).
 
 ## Project scope — personal app, shared in the open
 
@@ -357,34 +358,34 @@ Requires JDK 17+ and the Android SDK (compileSdk 34).
 
 ## iOS
 
-**Android is the shipping platform. iOS is in active development (Phase 2, on `main` since 2026-11-18)
-and has never yet been run on an iPhone against a radio — read this before sideloading it.**
+**iOS 0.1.0 is the first release** — get the unsigned `.ipa` from the
+[releases page](https://github.com/thatSFguy/meshcore-mobile-app/releases?q=ios-v) and re-sign it with
+your own Apple ID (Sideloadly or AltStore; a free Apple ID works, but its signature lasts 7 days —
+re-sign and reinstall, your messages are kept). There is no App Store build: distributing one needs
+an Apple developer account. Step-by-step sideloading, and building on a Mac:
+[`iosApp/README.md`](iosApp/README.md). What changed in each version:
+[`iosApp/CHANGELOG.md`](iosApp/CHANGELOG.md).
 
-CI is the only thing that compiles it: every push builds `shared` for Kotlin/Native, runs its
-tests on the iOS simulator, and publishes an **unsigned IPA**. Almost all of the behaviour below is
-shared Kotlin, tested on the JVM; the Swift layer draws it.
+It runs the same rules as Android — most of the behaviour is literally the same Kotlin, shared and
+tested on the JVM, with SwiftUI drawing it — and lays its screens out the same way. CI is the only
+thing that compiles it, on every push, including the shared tests on the iOS simulator.
 
-| | iOS today | Notes |
+| | iOS 0.1.0 | Notes |
 |---|---|---|
-| Advert Ed25519 verification | ✅ | CryptoKit bridge (`shared/iosCryptoBridge`), verified on CI against RFC 8032 vectors. |
-| BLE (Nordic UART) to a radio | ◐ | Scan, connect, auto-reconnect and remember the last radio (shared `ReconnectSupervisor`). Compiles; **never run against a radio.** |
-| USB serial | ❌ | Not practical on iOS for these radios. |
+| Bluetooth to a radio | ✅ | Scan, connect, automatic reconnect to the last radio. Run on an iPhone against real radios. |
 | TCP transport | ◐ | Behind the same off-by-default plaintext warning as Android. |
-| Messaging | ◐ | DMs and channels in and out, the 3-attempt DM retry with flood fallback, honest delivery status, retry/echo dedup, reactions (send and show), unread badge, local notifications. |
-| Message history | ◐ | Kept per radio identity in one file under iOS Data Protection, excluded from backup; user-chosen retention. |
-| Nodes | ◐ | Same search/sort/filters and "can I talk to this node?" verdict as Android; reset path, remove, block, adverts. |
-| Channels | ◐ | Join hashtag, create/join private, share link (behind the read-everything warning), leave. |
-| Links and QR | ◐ | `meshcore://` links and scanned codes are previewed and applied only on confirmation; your own contact as a QR. |
-| Repeater / room admin | ◐ | Sign-in, Status and Console. Settings, regions, identity, firmware and the rest: Android only for now. |
-| Radio settings | ◐ | Read-only. |
-| Firmware updates, map extras, Simple mode, backup/restore, region scopes | ❌ | Android only for now. |
+| USB serial | ❌ | Not practical on iOS for these radios. |
+| Messaging | ✅ | DMs with the 3-attempt retry and flood fallback, channels, reactions, swipe-to-reply, `@` mentions, resend, "Message privately", message info with the route a message took. |
+| History | ✅ | Per radio, under iOS Data Protection, excluded from backups; retention by arrival time. |
+| Nodes, routing, map | ✅ | Search/sort/filters and reachability; manual routes, path history, trace, two-way check; map with neighbour links and GPX; "Who repeats me"; stale-node sweep. |
+| Settings | ✅ | Android's tile layout: radio parameters and presets, settings QR in and out, PIN, clock, policies, flood scope and regions, auto-add, backup/restore (interchangeable with Android), Simple mode. |
+| Repeater / room admin | ✅ | Sign-in, status, telemetry, neighbours, access list, console and help, remote settings, regions, maintenance. |
+| Firmware updates, repeater rekey | ❌ | Deliberately not on iOS for now. |
+| Favourites, nicknames, ping, discovered nodes, saved radios, community codes | ❌ | Next. |
 
-◐ means written and compiled, not yet proven on hardware. Every decision taken during the port —
-and why — is in [`IOS_DECISIONS.md`](IOS_DECISIONS.md). If you need to message someone over LoRa
-today, use the Android build.
-
-**Sideloading it** (unsigned IPA, re-signed locally with a free Apple ID), and building it on a
-Mac: [`iosApp/README.md`](iosApp/README.md).
+✅ = run on an iPhone against a radio, or the same shared code Android ships, with tests.
+◐ = written and tested, not yet tried on hardware from iOS. Every decision taken during the port, and
+why, is in [`IOS_DECISIONS.md`](IOS_DECISIONS.md).
 
 ## Licence
 

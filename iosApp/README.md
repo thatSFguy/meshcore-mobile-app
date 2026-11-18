@@ -1,13 +1,15 @@
-# MeshCore Hardened — iOS app (Phase 2, in progress)
+# MeshCore Hardened — iOS app (0.1.0)
 
 SwiftUI over the Kotlin `Shared` framework. Phase 2 began 2026-11-17; every
 decision taken during it is in [`../IOS_DECISIONS.md`](../IOS_DECISIONS.md).
 
 ## Status
 
-Compiled only by CI (`.github/workflows/ios-ci.yml`) and **never yet run on an
-iPhone against a radio** — treat everything below as written and
-compiled, not proven.
+Compiled only by CI (`.github/workflows/ios-ci.yml`); releases are
+cut by tagging `ios-vX.Y.Z` (`.github/workflows/ios-release.yml`, notes
+from [`CHANGELOG.md`](CHANGELOG.md)). 0.1.0 has been run on an iPhone
+against real radios — messaging and a repeater's admin screens; see the
+changelog for what has and hasn't been tried on hardware.
 
 **Works in code:**
 - BLE (CoreBluetooth NUS) and TCP (behind the stern plaintext warning),
