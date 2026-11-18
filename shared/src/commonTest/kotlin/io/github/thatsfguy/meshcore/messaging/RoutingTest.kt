@@ -109,4 +109,28 @@ class RoutingTest {
         assertEquals("Route is full (${io.github.thatsfguy.meshcore.protocol.PathCodec.maxHopsFor(2)} hops max on this mesh).",
             Routing.relayHint(io.github.thatsfguy.meshcore.protocol.PathCodec.maxHopsFor(2), 2))
     }
+
+    @Test
+    fun aPingThatComesBackSaysBothSignalsAndTheTime() = runTest {
+        // One hop at the mesh's 2-byte width: the node's first two key bytes, aa aa.
+        val r = FakeRadio(trace = TraceResult(1, 0, 1, 2, listOf("aaaa"), listOf(6.5, -1.0)))
+        var t = 1_000L
+        val line = Routing(r).ping(al, 2, listOf(al)) { t.also { t += 120 } }
+        assertTrue(line.startsWith("Reached directly in 120 ms."), line)
+        assertEquals(2, r.tracedWidth)
+        assertTrue("⚠" !in line)
+    }
+
+    @Test
+    fun aPingWarnsWhenAnotherNodeSharesTheHash() = runTest {
+        val r = FakeRadio(trace = TraceResult(1, 0, 1, 2, listOf("aaaa"), listOf(6.5, -1.0)))
+        val line = Routing(r).ping(al, 2, listOf(al, "aaaa" + "bb".repeat(30))) { 0 }
+        assertTrue("1 other known node shares this hop hash" in line, line)
+    }
+
+    @Test
+    fun silenceOrAnUnexpressibleWidthIsSaid() = runTest {
+        assertTrue(Routing(FakeRadio(trace = null)).ping(al, 2, emptyList()) { 0 }.startsWith("No reply."))
+        assertTrue("3-byte hop hashes" in Routing(FakeRadio()).ping(al, 3, emptyList()) { 0 })
+    }
 }

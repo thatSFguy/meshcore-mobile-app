@@ -29,7 +29,7 @@ struct NodeMapView: View {
 
     private var located: [UiNode] {
         let now = Int64(Date().timeIntervalSince1970)
-        return store.nodes.map { UiNode($0, now: now) }.filter { n in
+        return store.nodes.map { UiNode($0, now: now, nickname: store.nickname($0.keyHex)) }.filter { n in
             GeoKt.isPlausiblePosition(lat: n.latitude.map { KotlinDouble(double: $0) },
                                       lon: n.longitude.map { KotlinDouble(double: $0) })
                 && (filter.isEmpty || filter.contains(n.type))

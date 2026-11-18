@@ -151,3 +151,40 @@ extension MeshCoreStore {
         objectWillChange.send()
     }
 }
+
+// MARK: - Favourite, nickname, ping (iOS after 0.1.0)
+
+extension MeshCoreStore {
+    /// Ping a node in direct range (shared Routing.ping); the sentence to show.
+    func ping(_ keyHex: String) async -> String {
+        let keys = Array(((engine.contacts.value as? [String: Contact]) ?? [:]).keys)
+        let line = (try? await Routing.companion.over(engine: engine).ping(
+            keyHex: keyHex, meshWidth: meshWidth, knownKeys: keys,
+            nowMs: { KotlinLong(value: Int64(ProcessInfo.processInfo.systemUptime * 1000)) }
+        )) ?? "No reply."
+        diag.log("Routing", "ping \(keyHex.prefix(12)): \(line.prefix(40))")
+        return line
+    }
+
+    /// Favourite is a flag on the RADIO's contact record (as Android): it
+    /// sorts first, and the stale-node sweep never removes it.
+    func setFavourite(_ keyHex: String, _ on: Bool) async -> Bool {
+        guard let key = HexKt.hexToBytesOrNull(hex: keyHex) else { return false }
+        let ok = (try? await engine.setFavourite(pubKey: key, favourite: on))?.boolValue ?? false
+        diag.log("Store", "favourite \(keyHex.prefix(12)) \(on): \(ok ? "ok" : "refused")")
+        return ok
+    }
+
+    /// A name of your own for a contact, kept on this phone only (Android's
+    /// "nick_<key>" rule) — the radio's record keeps the advertised name.
+    func nickname(_ keyHex: String) -> String? {
+        UserDefaults.standard.string(forKey: "nick_\(keyHex.lowercased())").flatMap { $0.isEmpty ? nil : $0 }
+    }
+
+    func setNickname(_ keyHex: String, _ name: String?) {
+        let key = "nick_\(keyHex.lowercased())"
+        let trimmed = name?.trimmingCharacters(in: .whitespaces) ?? ""
+        if trimmed.isEmpty { UserDefaults.standard.removeObject(forKey: key) } else { UserDefaults.standard.set(trimmed, forKey: key) }
+        objectWillChange.send()
+    }
+}

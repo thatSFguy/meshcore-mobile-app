@@ -609,6 +609,7 @@ final class MeshCoreStore: ObservableObject {
             return channels.first { $0.id == idx && !$0.name.isEmpty }.map { $0.name } ?? "Channel \(parts[1])"
         }
         let hex = parts[1]
+        if let nick = nickname(hex) { return nick }
         if let c = contacts.first(where: { $0.id == hex }), !c.name.isEmpty { return c.name }
         if let c = contacts.first(where: { $0.id.hasPrefix(hex) }), !c.name.isEmpty { return c.name }
         return String(hex.prefix(12))

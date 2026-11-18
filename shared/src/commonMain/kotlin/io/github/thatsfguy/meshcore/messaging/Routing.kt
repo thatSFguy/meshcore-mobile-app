@@ -70,6 +70,27 @@ class Routing(private val radio: Radio) {
         return Reachability.describeCheck(out, back, asks)
     }
 
+    /**
+     * Ping a node in direct range: a one-hop trace to its hash and back.
+     * The sentence to show — Android's ping, shared (2026-11-18). [knownKeys]
+     * are every contact's key, to warn when another node shares the hash
+     * (then the reply may be theirs); [nowMs] is a monotonic clock.
+     */
+    suspend fun ping(keyHex: String, meshWidth: Int, knownKeys: List<String>, nowMs: () -> Long): String {
+        val path = io.github.thatsfguy.meshcore.presentation.Ping.path(keyHex, meshWidth)
+            ?: return if (meshWidth in io.github.thatsfguy.meshcore.presentation.Ping.TRACE_WIDTHS) {
+                "This node's key is not usable."
+            } else {
+                "This mesh uses $meshWidth-byte hop hashes, which a trace cannot express (only 1, 2 or 4) — so it cannot be pinged."
+            }
+        val started = nowMs()
+        val result = runCatching { radio.trace(path, meshWidth) }.getOrNull()
+        val hash = io.github.thatsfguy.meshcore.presentation.Ping.hashHex(path)
+        val outcome = io.github.thatsfguy.meshcore.presentation.Ping.outcome(result, hash, nowMs() - started)
+        val shared = io.github.thatsfguy.meshcore.presentation.Ping.sharedPrefixCount(hash, keyHex, knownKeys)
+        return io.github.thatsfguy.meshcore.presentation.Ping.describe(outcome, shared)
+    }
+
     companion object {
         // Swift names for the modes: Kotlin/Native renames `Auto` (`auto`
         // is a C keyword), so Swift never spells an entry (IOS_DECISIONS

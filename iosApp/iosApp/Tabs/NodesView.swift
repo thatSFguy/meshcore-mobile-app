@@ -22,9 +22,9 @@ struct UiNode: Identifiable, Hashable {
     let longitude: Double?
     let hasStoredPath: Bool
 
-    init(_ n: ContactNode, now: Int64) {
+    init(_ n: ContactNode, now: Int64, nickname: String? = nil) {
         id = n.keyHex
-        name = n.name
+        name = nickname ?? n.name
         type = n.type
         hopsLabel = n.hopsLabel
         heardLabel = n.heardLabel(nowSeconds: now)
@@ -71,7 +71,7 @@ struct NodesView: View {
         let now = MeshCoreStore.now
         return ContactNodes.shared.arrange(
             nodes: store.nodes, tab: tab, query: query, sort: sort, filters: filters, nowSeconds: now
-        ).map { UiNode($0, now: now) }
+        ).map { UiNode($0, now: now, nickname: store.nickname($0.keyHex)) }
     }
 
     private var counts: [NodeTab: Int] {
@@ -238,6 +238,10 @@ struct NodeDetailSheet: View {
     @State private var confirmRemove = false
     @State private var checking = false
     @State private var reach: String?
+    @State private var pinging = false
+    @State private var pingLine: String?
+    @State private var nick = ""
+    @State private var favourite = false
 
     var body: some View {
         NavigationStack {
@@ -271,6 +275,30 @@ struct NodeDetailSheet: View {
                     }
                 }
                 Section {
+                    Toggle("Favourite", isOn: Binding(get: { favourite }, set: { on in
+                        favourite = on
+                        Task { if !(await store.setFavourite(node.id, on)) { favourite = !on } }
+                    }))
+                    .disabled(!store.isReady)
+                    HStack {
+                        TextField("Nickname (this phone only)", text: $nick)
+                            .autocorrectionDisabled()
+                        Button("Save") { store.setNickname(node.id, nick) }
+                            .buttonStyle(.borderless)
+                    }
+                } footer: {
+                    Text("A favourite is never removed by the stale-node sweep. A nickname replaces the advertised name in this app only.")
+                }
+                Section {
+                    Button(pinging ? "Pinging…" : "Ping") {
+                        Task { pinging = true; pingLine = await store.ping(node.id); pinging = false }
+                    }
+                    .disabled(pinging || !store.isReady)
+                    if let pingLine { Text(pingLine).font(.callout) }
+                } footer: {
+                    Text("A ping reaches only nodes in direct range of your radio.")
+                }
+                Section {
                     NavigationLink("Routing / paths…") { RoutingView(keyHex: node.id, title: node.displayName) }
                     Button(checking ? "Checking…" : "Check if they can hear you") {
                         Task {
@@ -300,6 +328,10 @@ struct NodeDetailSheet: View {
             }
             .navigationTitle(node.displayName)
             .navigationBarTitleDisplayMode(.inline)
+            .onAppear {
+                nick = store.nickname(node.id) ?? ""
+                favourite = node.isFavorite
+            }
             .confirmationDialog(
                 "Remove \(node.displayName) from the radio?",
                 isPresented: $confirmRemove,
