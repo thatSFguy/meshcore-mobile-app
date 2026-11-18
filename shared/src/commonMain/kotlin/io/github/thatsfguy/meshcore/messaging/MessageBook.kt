@@ -3,6 +3,7 @@ package io.github.thatsfguy.meshcore.messaging
 import io.github.thatsfguy.meshcore.presentation.Inbox
 import io.github.thatsfguy.meshcore.protocol.ReactionRouting
 import io.github.thatsfguy.meshcore.protocol.Reactions
+import io.github.thatsfguy.meshcore.protocol.Retention
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -246,6 +247,40 @@ class MessageBook(
     fun deleteThread(threadKey: String) {
         _messages.value = _messages.value.filterNot { it.threadKey == threadKey }
         markRead(threadKey)
+    }
+
+    /**
+     * Apply a user retention [policy] to every thread; returns how many
+     * rows went. Does nothing for an unbounded policy.
+     *
+     * Age is judged by [BookMessage.receivedAtMs] — OUR clock — not the
+     * sender's [BookMessage.timestamp]. The sender's clock is
+     * unauthenticated and often wrong: a node whose RTC reset to 2020
+     * would have every message it sends deleted the moment it arrived
+     * under "keep 30 days". (Android judges by the sender's timestamp;
+     * see IOS_DECISIONS.md.) Our own outgoing rows are judged the same
+     * way, so a thread is trimmed evenly.
+     */
+    fun applyRetention(policy: Retention.Policy, nowMs: Long): Int {
+        if (!policy.isBounded) return 0
+        val before = _messages.value
+        var rows = before
+        policy.cutoffSeconds(nowMs / 1000)?.let { cutoff ->
+            rows = rows.filter { it.receivedAtMs / 1000 >= cutoff }
+        }
+        policy.keepPerThread()?.let { keep ->
+            val drop = rows.groupBy { it.threadKey }.values.flatMap { thread ->
+                thread.sortedWith(compareByDescending<BookMessage> { it.receivedAtMs }.thenByDescending { it.id })
+                    .drop(keep)
+            }.map { it.id }.toSet()
+            rows = rows.filterNot { it.id in drop }
+        }
+        if (rows.size == before.size) return 0
+        _messages.value = rows
+        // A thread that emptied has nothing left to be unread.
+        val live = rows.map { it.threadKey }.toSet()
+        _unread.value = _unread.value.filterKeys { it in live }
+        return before.size - rows.size
     }
 
     fun snapshot(): BookSnapshot = BookSnapshot(

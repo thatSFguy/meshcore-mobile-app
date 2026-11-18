@@ -196,4 +196,51 @@ class MessageBookTest {
         val restored = MessageBook.fromJson(json, nowMs = { 0 })
         assertEquals(6L, restored.addOutgoing(dm, null, "y", 2))
     }
+
+    @Test
+    fun retentionByDaysJudgesAgeByOurClockNotTheSenders() {
+        val day = 86_400_000L
+        clock = 100 * day
+        val b = book()
+        // Arrived just now, but the sender's RTC says 2020.
+        b.receive(dm, false, null, "fresh, wrong clock", 1_577_836_800L, "a")
+        clock = 100 * day - 40 * day
+        b.receive(dm, false, null, "really old", 1_900_000_000L, "b")
+        clock = 100 * day
+        val removed = b.applyRetention(io.github.thatsfguy.meshcore.protocol.Retention.Policy(
+            io.github.thatsfguy.meshcore.protocol.Retention.Mode.Days, 30), nowMs = 100 * day)
+        assertEquals(1, removed)
+        assertEquals(listOf("fresh, wrong clock"), b.thread(dm).map { it.text })
+    }
+
+    @Test
+    fun retentionByCountKeepsTheNewestOfEachThread() {
+        val b = book()
+        for (i in 0 until 5) b.receive(dm, false, null, "d$i", i.toLong(), "d$i")
+        for (i in 0 until 2) b.receive(ch, true, "x", "c$i", i.toLong(), "c$i")
+        val policy = io.github.thatsfguy.meshcore.protocol.Retention.Policy(
+            io.github.thatsfguy.meshcore.protocol.Retention.Mode.Count, 3)
+        assertEquals(2, b.applyRetention(policy, nowMs = clock))
+        assertEquals(listOf("d2", "d3", "d4"), b.thread(dm).map { it.text })
+        assertEquals(listOf("c0", "c1"), b.thread(ch).map { it.text })
+    }
+
+    @Test
+    fun keepEverythingRemovesNothing() {
+        val b = book()
+        b.receive(dm, false, null, "x", 1, "k")
+        assertEquals(0, b.applyRetention(io.github.thatsfguy.meshcore.protocol.Retention.Policy(), nowMs = Long.MAX_VALUE))
+        assertEquals(1, b.thread(dm).size)
+    }
+
+    @Test
+    fun aThreadEmptiedByRetentionLeavesNoUnread() {
+        val b = book()
+        b.receive(dm, false, null, "x", 1, "k")
+        val policy = io.github.thatsfguy.meshcore.protocol.Retention.Policy(
+            io.github.thatsfguy.meshcore.protocol.Retention.Mode.Days, 1)
+        b.applyRetention(policy, nowMs = clock + 2 * 86_400_000L)
+        assertTrue(b.thread(dm).isEmpty())
+        assertEquals(0, b.unreadTotal())
+    }
 }

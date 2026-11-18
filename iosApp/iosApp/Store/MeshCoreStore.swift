@@ -287,6 +287,7 @@ final class MeshCoreStore: ObservableObject {
         }
         s.start()
         refreshThreads()
+        applyRetention()
     }
 
     private func refreshThreads() {
@@ -328,6 +329,28 @@ final class MeshCoreStore: ObservableObject {
     }
 
     static var now: Int64 { nowSeconds() }
+
+    /// History retention (shared Retention policy, stored encoded). An
+    /// unreadable stored value decodes to "keep everything" — failing
+    /// safe means keeping history, never deleting it.
+    @AppStorage("retentionPolicy") var retentionEncoded: String = "forever" {
+        // @AppStorage does not publish from inside an ObservableObject.
+        willSet { objectWillChange.send() }
+        didSet { applyRetention() }
+    }
+
+    var retentionPolicy: RetentionPolicy { Retention.shared.decode(raw: retentionEncoded) }
+
+    /// Trim history to the policy. Run when a book opens, when the policy
+    /// changes, and when the app comes back to the foreground.
+    func applyRetention() {
+        guard let book = session?.book else { return }
+        let removed = book.applyRetention(policy: retentionPolicy, nowMs: MeshCoreStore.nowMs())
+        if removed > 0 {
+            refreshThreads()
+            scheduleSave()
+        }
+    }
 
     func messages(in threadKey: String) -> [UiMessage] {
         session?.book.thread(threadKey: threadKey).map(UiMessage.init) ?? []

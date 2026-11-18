@@ -38,7 +38,7 @@ struct MeshCoreApp: App {
         .onChange(of: scenePhase) { _, phase in
             // Don't lose the last half-second of history to a debounce
             // when iOS suspends us.
-            if phase != .active { store.saveNow() }
+            if phase != .active { store.saveNow() } else { store.applyRetention() }
         }
     }
 }

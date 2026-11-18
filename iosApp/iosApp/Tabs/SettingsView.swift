@@ -80,6 +80,18 @@ struct SettingsView: View {
                     }
                 }
 
+                Section {
+                    Picker("Keep messages", selection: $store.retentionEncoded) {
+                        ForEach(Retention.shared.PRESETS, id: \.self) { p in
+                            Text(p.label()).tag(p.encode())
+                        }
+                    }
+                } header: {
+                    Text("Message history")
+                } footer: {
+                    Text("Older messages are deleted from this phone. Age is when they arrived here, not the sender's clock, which may be wrong.")
+                }
+
                 Section("About") {
                     LabeledContent("App", value: "MeshCore Hardened")
                     LabeledContent("Version", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?")

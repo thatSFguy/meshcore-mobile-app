@@ -105,9 +105,20 @@ lands on `main`. Merging is left to the author.
     Sent stays Sent: the radio accepted it and delivery is genuinely
     unknown. Delivered is never moved backwards by any later report.
 
-13. **2,000 messages kept per thread**, oldest dropped first, and only
-    within the same thread so a busy channel never evicts a quiet DM.
-    Android's configurable retention policy is not ported yet.
+13. **2,000 messages kept per thread as a hard cap**, oldest dropped
+    first and only within the same thread, so a busy channel never evicts
+    a quiet DM. On top of that, the user's retention choice (shared
+    `Retention` presets: forever / days / newest N) is applied when
+    history opens, when the choice changes, and on returning to the
+    foreground.
+
+13a. **Retention by age uses OUR receive time, not the sender's clock.**
+    This differs from Android, whose `deleteThreadOlderThan` compares the
+    sender's `timestamp`. The sender's clock is unauthenticated and often
+    wrong; a node whose RTC reset to 2020 would have every message deleted
+    on arrival under "keep 30 days". **Android should probably change to
+    `receivedAt`** — flagged here rather than changed, since it is not
+    iOS work.
 
 ## State plumbing
 
