@@ -674,6 +674,9 @@ final class MeshCoreStore: ObservableObject {
         if let ble = memory as? ConnectionMemoryBle,
            let id = UUID(uuidString: ble.address),
            let peripheral = scanner.knownPeripheral(id) {
+            // The radio reconnected to from memory belongs in the saved list
+            // too (it was connected before the list existed).
+            remember(SavedNode(kind: ConnectionMemoryCompanion.shared.KIND_BLE, address: ble.address, port: nil, name: ble.name))
             superviseBle(peripheral, name: ble.name ?? "radio")
         } else if memory is ConnectionMemoryTcp {
             superviseTcp()
@@ -685,6 +688,7 @@ final class MeshCoreStore: ObservableObject {
         lastLinkKind = ConnectionMemoryCompanion.shared.KIND_BLE
         lastBleId = radio.id.uuidString
         lastBleName = radio.name
+        remember(SavedNode(kind: ConnectionMemoryCompanion.shared.KIND_BLE, address: radio.id.uuidString, port: nil, name: radio.name))
         superviseBle(radio.peripheral, name: radio.name)
         requestNotificationPermission()
     }
@@ -692,6 +696,8 @@ final class MeshCoreStore: ObservableObject {
     func connectTcp() {
         guard tcpEnabled else { return }
         lastLinkKind = ConnectionMemoryCompanion.shared.KIND_TCP
+        remember(SavedNode(kind: ConnectionMemoryCompanion.shared.KIND_TCP, address: tcpHost,
+                           port: KotlinInt(int: Int32(clamping: tcpPort)), name: nil))
         superviseTcp()
     }
 
@@ -757,6 +763,56 @@ final class MeshCoreStore: ObservableObject {
         engine.detach()
         if let t = transport { Task { try? await t.disconnect() } }
         transport = nil
+    }
+
+    // MARK: - Saved radios (shared SavedNodes, as Android)
+
+    @AppStorage("savedNodes") private var savedNodesRaw: String = ""
+
+    var savedRadios: [SavedNode] { SavedNodes.shared.decode(raw: savedNodesRaw) }
+
+    private func remember(_ node: SavedNode) {
+        objectWillChange.send()
+        savedNodesRaw = SavedNodes.shared.encode(nodes: SavedNodes.shared.with(nodes: savedRadios, node: node))
+    }
+
+    /// Whether [node] is the radio the app reconnects to.
+    func isCurrent(_ node: SavedNode) -> Bool {
+        SavedNodes.shared.isBle(node: node) ? (lastLinkKind == ConnectionMemoryCompanion.shared.KIND_BLE && lastBleId == node.address)
+            : (lastLinkKind == ConnectionMemoryCompanion.shared.KIND_TCP && tcpHost == node.address)
+    }
+
+    /// Connect to a saved radio; nil on success, else the sentence to show.
+    func connectSaved(_ node: SavedNode) -> String? {
+        if SavedNodes.shared.isBle(node: node) {
+            guard let id = UUID(uuidString: node.address), let p = scanner.knownPeripheral(id) else {
+                return "iOS doesn't know this radio right now. Scan once, and it will reconnect from then on."
+            }
+            if supervisor != nil { disconnect() }
+            lastLinkKind = ConnectionMemoryCompanion.shared.KIND_BLE
+            lastBleId = node.address
+            lastBleName = node.name ?? ""
+            superviseBle(p, name: SavedNodes.shared.label(node: node))
+        } else {
+            guard tcpEnabled else { return "Turn on TCP under Transports first." }
+            tcpHost = node.address
+            if let port = node.port { tcpPort = Int(port.int32Value) }
+            if supervisor != nil { disconnect() }
+            connectTcp()
+        }
+        return nil
+    }
+
+    /// Forget a saved radio — and stop reconnecting to it, or it would come
+    /// straight back (the bug Android's rule fixed).
+    func forgetSaved(_ node: SavedNode) {
+        let wasCurrent = isCurrent(node)
+        objectWillChange.send()
+        savedNodesRaw = SavedNodes.shared.encode(nodes: SavedNodes.shared.without(nodes: savedRadios, key: node.key))
+        if wasCurrent {
+            lastLinkKind = ""
+            if supervisor != nil { disconnect() }
+        }
     }
 
     /// Drop the link and stay down. Auto-reconnect resumes only on the

@@ -124,6 +124,33 @@ struct SettingsView: View {
 
 private struct ConnectionSpoke: View {
     @EnvironmentObject var store: MeshCoreStore
+    @State private var savedNote: String?
+
+    private var savedSection: some View {
+        Section {
+            ForEach(store.savedRadios, id: \.key) { node in
+                Button {
+                    savedNote = store.connectSaved(node)
+                } label: {
+                    HStack {
+                        Text(SavedNodes.shared.label(node: node)).foregroundStyle(.primary)
+                        Spacer()
+                        if store.isCurrent(node) {
+                            Text(store.isReady ? "Connected" : "Current").font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                .swipeActions {
+                    Button("Forget", role: .destructive) { store.forgetSaved(node) }
+                }
+            }
+            if let savedNote { Text(savedNote).font(.caption).foregroundStyle(.secondary) }
+        } header: {
+            Text("Saved radios")
+        } footer: {
+            Text("Tap to switch. Swipe to forget — the app then stops reconnecting to it.")
+        }
+    }
 
     var body: some View {
         Form {
@@ -151,6 +178,7 @@ private struct ConnectionSpoke: View {
                         .disabled(!store.isReady)
                 }
             }
+            if !store.savedRadios.isEmpty { savedSection }
             BluetoothSection(scanner: store.scanner)
             if store.tcpEnabled {
                 Section {
