@@ -261,3 +261,23 @@ lands on `main`. Merging is left to the author.
 35. **`RepeaterAdmin` exists only because Kotlin/Native drops default
     arguments.** It forwards to the engine with the engine's own retry
     counts and budgets so Swift never restates a default.
+
+## Swift interop rules learned from CI (Kotlin 2.0.21)
+
+Written down because each one cost a ~20-minute CI round trip:
+
+- A class nested in a class or object is a **nested Swift type**:
+  `NodeListModel.Sort`, `ChannelJoin.Outcome`, `Retention.Policy`,
+  `Reachability.Verdict`. A class nested in an **interface** stays flat
+  (`ConnectionMemoryBle`), and an interface's companion is
+  `ConnectionMemoryCompanion.shared`. A class's companion is
+  `X.companion`; an object is `X.shared`.
+- Don't make Swift name a three-deep sealed subclass; add a small Kotlin
+  helper instead (`LinkInbox.openNow`).
+- Property or enum names that are C keywords (`short`) or collide in
+  Swift (`AdminSession.None` vs `Optional.none`, `ChannelKind.Private`)
+  get renamed on export. Expose them from Kotlin under a safe name
+  (`ContactNode.reachLabel`, `RepeaterReadout.signedOut`) or compare by
+  `.name`.
+- No default arguments cross over — hence `RepeaterAdmin`, and why the
+  engine's `appName` had drifted.
