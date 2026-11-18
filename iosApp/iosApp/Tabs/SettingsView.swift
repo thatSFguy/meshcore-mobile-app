@@ -92,6 +92,29 @@ struct SettingsView: View {
                     Text("Older messages are deleted from this phone. Age is when they arrived here, not the sender's clock, which may be wrong.")
                 }
 
+                if !store.blockedKeys.isEmpty || !store.filteredNames.isEmpty {
+                    Section {
+                        ForEach(store.blockedKeys, id: \.self) { key in
+                            HStack {
+                                Text(store.title(for: "dm|\(key)"))
+                                Spacer()
+                                Button("Unblock") { store.setBlocked(key, false) }
+                            }
+                        }
+                        ForEach(store.filteredNames, id: \.self) { name in
+                            HStack {
+                                Text("“\(name)” on channels")
+                                Spacer()
+                                Button("Show") { store.setFiltered(name, false) }
+                            }
+                        }
+                    } header: {
+                        Text("Blocked")
+                    } footer: {
+                        Text("Channel names are not authenticated — hiding a name stops a spammer who keeps it, not a person.")
+                    }
+                }
+
                 Section("About") {
                     LabeledContent("App", value: "MeshCore Hardened")
                     LabeledContent("Version", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?")

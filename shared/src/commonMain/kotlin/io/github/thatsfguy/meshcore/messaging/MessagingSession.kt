@@ -4,6 +4,7 @@ import io.github.thatsfguy.meshcore.engine.MeshCoreEngine
 import io.github.thatsfguy.meshcore.engine.MeshEvent
 import io.github.thatsfguy.meshcore.presentation.Inbox
 import io.github.thatsfguy.meshcore.protocol.AckTimeout
+import io.github.thatsfguy.meshcore.protocol.BlockList
 import io.github.thatsfguy.meshcore.protocol.Codes
 import io.github.thatsfguy.meshcore.protocol.Reactions
 import io.github.thatsfguy.meshcore.util.hexToBytesOrNull
@@ -58,6 +59,21 @@ class MessagingSession(
     /** Called after any change worth persisting. */
     var onChanged: (() -> Unit)? = null
 
+    /**
+     * Public keys whose direct messages are dropped — a real block,
+     * because a DM's sender is the key that signed it. Canonical lower
+     * hex ([BlockList.canonicalKey]); the platform persists the set.
+     */
+    var blockedKeys: Set<String> = emptySet()
+
+    /**
+     * Channel sender names hidden — a NOISE FILTER, not a block: a
+     * channel post carries an unauthenticated name, so this stops a
+     * spammer who keeps their name and nothing more
+     * ([BlockList.CHANNEL_FILTER_CAVEAT]).
+     */
+    var filteredNames: Set<String> = emptySet()
+
     private var collector: Job? = null
 
     fun start() {
@@ -74,6 +90,14 @@ class MessagingSession(
         when (event) {
             is MeshEvent.DirectMessageReceived -> {
                 if (event.txtType == Codes.TXT_TYPE_CLI_DATA) return
+                // Only a RESOLVED sender can be blocked: a 6-byte prefix is
+                // 48 bits, and blocking on one would silently drop whoever
+                // collides with it (same rule as Android).
+                if (BlockList.isBlockableMessage(event.txtType) &&
+                    BlockList.isBlockedSender(event.senderKeyHex, blockedKeys)
+                ) {
+                    return
+                }
                 val peer = event.senderKeyHex ?: event.senderPrefixHex
                 val key = Inbox.threadKey(Inbox.KIND_DM, peer)
                 val outcome = book.receive(
@@ -89,6 +113,7 @@ class MessagingSession(
                 after(outcome, key, event.roomAuthorLabel, event.text)
             }
             is MeshEvent.ChannelMessageReceived -> {
+                if (BlockList.isFilteredChannelName(event.senderName, filteredNames)) return
                 val key = Inbox.threadKey(Inbox.KIND_CHANNEL, event.channelIndex.toString())
                 val outcome = book.receive(
                     threadKey = key,

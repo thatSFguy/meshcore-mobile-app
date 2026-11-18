@@ -282,6 +282,7 @@ final class MeshCoreStore: ObservableObject {
         }
         session = s
         bookOwner = selfKey
+        pushBlocks()
         bookWatch = FlowWatchKt.watch(flow: book.messages, scope: scope) { [weak self] _ in
             self?.refreshThreads()
         }
@@ -700,6 +701,48 @@ final class MeshCoreStore: ObservableObject {
 
     func sendDirectMessage(peerHex: String, text: String) {
         _ = session?.sendDirect(keyHex: peerHex, text: text)
+    }
+
+    // MARK: - Blocking
+    //
+    // A DM block is on the public key (real); a channel "block" is a
+    // filter on an unauthenticated name (noise only). Rules: shared
+    // BlockList, enforced in MessagingSession before a row exists.
+
+    @AppStorage("blockedKeys") private var blockedKeysRaw: String = ""
+    @AppStorage("filteredNames") private var filteredNamesRaw: String = ""
+
+    var blockedKeys: [String] { blockedKeysRaw.split(separator: "\n").map(String.init) }
+    var filteredNames: [String] { filteredNamesRaw.split(separator: "\n").map(String.init) }
+
+    func isBlocked(_ keyHex: String) -> Bool {
+        guard let k = BlockList.shared.canonicalKey(raw: keyHex) else { return false }
+        return blockedKeys.contains(k)
+    }
+
+    func setBlocked(_ keyHex: String, _ blocked: Bool) {
+        guard let k = BlockList.shared.canonicalKey(raw: keyHex) else { return }
+        var set = Set(blockedKeys)
+        if blocked { set.insert(k) } else { set.remove(k) }
+        guard set.count <= Int(BlockList.shared.MAX_ENTRIES) else { return }
+        objectWillChange.send()
+        blockedKeysRaw = set.sorted().joined(separator: "\n")
+        pushBlocks()
+    }
+
+    func setFiltered(_ name: String, _ filtered: Bool) {
+        guard let n = BlockList.shared.canonicalName(raw: name) else { return }
+        var set = Set(filteredNames)
+        if filtered { set.insert(n) } else { set.remove(n) }
+        guard set.count <= Int(BlockList.shared.MAX_ENTRIES) else { return }
+        objectWillChange.send()
+        filteredNamesRaw = set.sorted().joined(separator: "\n")
+        pushBlocks()
+    }
+
+    private func pushBlocks() {
+        session?.blockedKeys = Set(blockedKeys)
+        session?.filteredNames = Set(filteredNames)
     }
 
     /// The quick-reaction row, in the shared wire order.

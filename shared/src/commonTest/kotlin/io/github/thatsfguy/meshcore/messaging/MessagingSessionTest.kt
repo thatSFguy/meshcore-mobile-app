@@ -271,4 +271,46 @@ class MessagingSessionTest {
         assertTrue(radio.sentDirect.isEmpty())
         s.stop()
     }
+
+    @Test
+    fun aBlockedSendersMessageNeverBecomesARow() = runTest {
+        val radio = FakeRadio()
+        val s = session(radio)
+        var notified = 0
+        s.onNewMessage = { _, _, _ -> notified++ }
+        s.blockedKeys = setOf(peer)
+        radio.bus.emit(dm("spam"))
+        runCurrent()
+        assertTrue(s.book.messages.value.isEmpty())
+        assertEquals(0, notified)
+        // Positive control: unblocked, the same message lands.
+        s.blockedKeys = emptySet()
+        radio.bus.emit(dm("spam"))
+        runCurrent()
+        assertEquals(1, s.book.messages.value.size)
+        s.stop()
+    }
+
+    @Test
+    fun aSenderKnownOnlyByPrefixIsNeverBlocked() = runTest {
+        val radio = FakeRadio()
+        val s = session(radio)
+        s.blockedKeys = setOf(peer)
+        radio.bus.emit(dm("who?").copy(senderKeyHex = null))
+        runCurrent()
+        assertEquals(1, s.book.messages.value.size)
+        s.stop()
+    }
+
+    @Test
+    fun aFilteredChannelNameIsHiddenAndOthersAreNot() = runTest {
+        val radio = FakeRadio()
+        val s = session(radio)
+        s.filteredNames = setOf("spammer")
+        radio.bus.emit(MeshEvent.ChannelMessageReceived(0, "Spammer", "buy", 1, "a"))
+        radio.bus.emit(MeshEvent.ChannelMessageReceived(0, "Bob", "hi", 2, "b"))
+        runCurrent()
+        assertEquals(listOf("hi"), s.book.thread("ch|0").map { it.text })
+        s.stop()
+    }
 }

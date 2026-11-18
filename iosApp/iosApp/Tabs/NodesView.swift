@@ -240,6 +240,16 @@ struct NodeDetailSheet: View {
                     }
                 }
                 Section {
+                    if BlockList.shared.isBlockableNodeType(advType: node.type) {
+                        Toggle("Block direct messages", isOn: Binding(
+                            get: { store.isBlocked(node.id) },
+                            set: { store.setBlocked(node.id, $0) }
+                        ))
+                    } else {
+                        Text(BlockList.shared.NOT_BLOCKABLE_NOTE).font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                Section {
                     if node.hasStoredPath {
                         Button("Reset path") { store.resetPath(node.id) }
                             .disabled(!store.isReady)

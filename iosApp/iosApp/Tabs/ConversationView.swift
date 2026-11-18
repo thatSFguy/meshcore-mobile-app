@@ -6,12 +6,14 @@
 // has no ACK at all, so "Sent" (the radio took it) is its best state.
 
 import SwiftUI
+import Shared
 
 struct ConversationView: View {
     @EnvironmentObject var store: MeshCoreStore
     let threadKey: String
     @State private var draft = ""
     @State private var showChannelInfo = false
+    @State private var hideName: String?
 
     private var isChannel: Bool { threadKey.hasPrefix("ch|") }
 
@@ -44,6 +46,9 @@ struct ConversationView: View {
                                         }
                                     }
                                     Button("Copy") { UIPasteboard.general.string = message.text }
+                                    if isChannel, !message.outgoing, let name = message.senderName, !name.isEmpty {
+                                        Button("Hide messages from \(name)") { hideName = name }
+                                    }
                                     Button("Delete", role: .destructive) { store.deleteMessage(message.id) }
                                 }
                         }
@@ -81,6 +86,18 @@ struct ConversationView: View {
                         .sheet(isPresented: $showChannelInfo) { ChannelInfoSheet(index: idx) }
                 }
             }
+        }
+        .confirmationDialog(
+            "Hide messages from \(hideName ?? "")?",
+            isPresented: Binding(get: { hideName != nil }, set: { if !$0 { hideName = nil } }),
+            titleVisibility: .visible
+        ) {
+            Button("Hide on every channel") {
+                if let n = hideName { store.setFiltered(n, true) }
+                hideName = nil
+            }
+        } message: {
+            Text(BlockList.shared.CHANNEL_FILTER_CAVEAT)
         }
         .onAppear { store.setActiveThread(threadKey) }
         .onDisappear { store.setActiveThread(nil) }
