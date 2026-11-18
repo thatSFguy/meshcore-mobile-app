@@ -124,7 +124,7 @@ final class MeshCoreStore: ObservableObject {
     @AppStorage("tcpPort") var tcpPort: Int = 5000
 
     private let engine: MeshCoreEngine
-    private let crypto = IosCryptoProvider()
+    private let crypto: IosCryptoProvider
     private lazy var channelJoin = ChannelJoin.companion.over(engine: engine, crypto: crypto)
     private lazy var linkImport = LinkImport.companion.over(engine: engine, channels: channelJoin)
     /// Whichever transport is attached — TCP or BLE.
@@ -144,7 +144,12 @@ final class MeshCoreStore: ObservableObject {
     private static func nowMs() -> Int64 { Int64(Date().timeIntervalSince1970 * 1000) }
 
     init() {
-        scope = IosScopeKt.meshCoreMainScope()
+        // Locals first: a class may not read its own properties until every
+        // stored property is set.
+        let scope = IosScopeKt.meshCoreMainScope()
+        let crypto = IosCryptoProvider()
+        self.scope = scope
+        self.crypto = crypto
         engine = MeshCoreEngine(
             scope: scope,
             crypto: crypto,
