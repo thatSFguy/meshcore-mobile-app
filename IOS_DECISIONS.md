@@ -19,7 +19,9 @@ have produced a second, untested reading of rules that already have tests.
 **CI compiles it from a branch, not `main`.** The iOS workflow runs on
 pushes to `main` and on `workflow_dispatch`. Work is pushed to the branch
 `ios-phase2` and CI is dispatched against it, so a red Swift build never
-lands on `main`. Merging is left to the author.
+lands on `main`. Merging is left to the author. (Merged 2026-11-18, a
+fast-forward, after CI run 44239195936 went green on the whole branch.
+Keep the pattern for further iOS work: branch, dispatch, merge on green.)
 
 ## Messaging (`shared/.../messaging/`)
 

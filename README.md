@@ -357,7 +357,7 @@ Requires JDK 17+ and the Android SDK (compileSdk 34).
 
 ## iOS
 
-**Android is the shipping platform. iOS is in active development (Phase 2, branch `ios-phase2`)
+**Android is the shipping platform. iOS is in active development (Phase 2, on `main` since 2026-11-18)
 and has never yet been run on an iPhone against a radio — read this before sideloading it.**
 
 CI is the only thing that compiles it: every push builds `shared` for Kotlin/Native, runs its
