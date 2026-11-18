@@ -32,15 +32,20 @@ compiled, not proven.
 - Repeater/room admin: sign-in gate, hub tiles from the shared
   `repeaterHubTiles`, Status, Console (redacted display). No password is
   stored.
-- Settings: connection, the radio's parameters (read-only), retention,
-  blocked list, about.
+- Settings (Phase 3): hub-and-spoke from the shared `settingsGroups()`,
+  as on Android — connection, transports, Bluetooth PIN, identity (name,
+  position, adverts), radio (parameters, TX power, regional presets,
+  settings QR in and out, live signal), clock, mesh policies (telemetry,
+  hop-hash width, flood scope, regions with discovery), auto-add, custom
+  variables, channels, blocking, notifications, diagnostics, backup and
+  restore (encrypted, interchangeable with Android), retention, about.
 - Ed25519 via CryptoKit (`shared/iosCryptoBridge`), verified on CI against
   RFC 8032; CryptoKit is hedged, see CLAUDE.md.
 
-**Not ported yet** (Android has them): repeater settings/regions/identity/
-firmware, editing radio settings, region scopes, path history and the
-routing sheet, heard-via, backup/restore, firmware updates, Simple mode,
-the map's extras (labels, paths, neighbour links).
+**Not ported yet** (Android has them): repeater settings/regions/identity
+(Phase 5), per-channel regions, path history and the routing sheet,
+heard-via, the map's extras — labels, paths, neighbour links (Phase 4),
+Simple mode. **Out of iOS scope by decision:** firmware updates.
 
 **Writing Swift against `Shared`:** read the interop rules at the end of
 `IOS_DECISIONS.md` first — nested Kotlin types are nested Swift types,

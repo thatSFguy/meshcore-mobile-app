@@ -286,6 +286,56 @@ Keep the pattern for further iOS work: branch, dispatch, merge on green.)
     vector coordinates, cropped to the central 72 of the 108 viewport —
     what an Android launcher actually shows after masking.
 
+## Phase 3: Settings and this node (2026-11-18)
+
+38. **Settings is built from the shared `settingsGroups()`**, the same
+    hub-and-spoke Android uses, with the same live-subtitle functions.
+    The first iPhone run's verdict was "the UI is just different"; one
+    layout across both apps is the cheapest part of that to fix. The
+    Firmware tile is shown but marked "On Android only, for now" — node
+    updates are out of iOS scope by the user's decision.
+
+39. **Node settings have their own store** (`NodeSettingsStore`), injected
+    beside `MeshCoreStore`. Every write reports the radio's answer as a
+    sentence, Android's `deviceAction` pattern.
+
+40. **Ranges, bit layouts and multi-step writes moved to shared before
+    any Swift was written**: `NodeSettings`, `OtherParams`,
+    `RadioRetune`, `RegionDiscovery`, `RegionList`, `BackupSettings`,
+    `BackupRestore`. Android now calls `RadioRetune` too, which fixed a
+    real defect: its scanned-code path ignored the radio's answer and
+    said "Applied" after a refusal.
+
+41. **Settings codes are applied on iOS** (they were refused in Phase 2),
+    through the same confirmation as Android: unsigned and regulatory
+    warnings, and the region set only if the person leaves it ticked.
+    TX power is never taken from a code.
+
+42. **Flood scope persists as Android's does** (`floodScope` in
+    UserDefaults: `""` = cleared, absent = never set), restored into the
+    engine at launch. The region list is phone-side. Per-channel regions
+    remain Android-only.
+
+43. **Auto-add's "useful repeaters" rules are not ported.** They need the
+    discovered-node inbox and per-message routes, which iOS does not
+    store yet. The five firmware bits are.
+
+44. **Backups work on iOS, including encrypted ones.** AES-256-GCM comes
+    from CryptoKit through the existing bridge (pinned on CI to NIST GCM
+    test case 16). The only secrets iOS has are the channel keys the
+    radio reports; an Android backup's passwords, community secrets and
+    identity seed are counted as skipped on restore, not silently
+    dropped. Settings travel under Android's names (`BackupSettings`, now
+    also Android's own list), so either app restores the other's file,
+    and a backup can never switch TCP on behind its warning. PBKDF2's
+    600,000 rounds run off the main thread.
+
+45. **Not ported from Android's settings, on purpose:** theme and units
+    (iOS follows the system), the map-tiles switch (MapKit, Apple's
+    tiles), the developer channel-datagram tool, the map position picker
+    (typed coordinates only), and Purge local data — deleting history is
+    per-thread on iOS for now.
+
 ## Swift interop rules learned from CI (Kotlin 2.0.21)
 
 Written down because each one cost a ~20-minute CI round trip:
