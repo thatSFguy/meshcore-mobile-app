@@ -435,6 +435,17 @@ Keep the pattern for further iOS work: branch, dispatch, merge on green.)
     (identical rules, its own wording); delegating it to `ChannelJoin`
     is deferred as a no-behaviour-change cleanup, as is the DM ladder.
 
+60. **Conversation parity after the first iPhone runs** (2026-11-18):
+    swipe-to-reply and `@` mentions (shared `Quoting.prefixFor`,
+    `Mentions`; Android's quote builder now delegates), Resend for a
+    failed message (`MessagingSession.resend`), "Who repeats me", the
+    stale-node sweep (`StaleSweep`, Android delegates), and "Message
+    privately" (`DmRequests`). The DM handshake keeps Android's two
+    safety rules: accepting adds the requester before answering, and an
+    accept only adds someone for a request this radio actually made.
+    iOS text fields expose no cursor, so `@` suggestions appear while
+    typing at the end of the draft only.
+
 ## Swift interop rules learned from CI (Kotlin 2.0.21)
 
 Written down because each one cost a ~20-minute CI round trip:

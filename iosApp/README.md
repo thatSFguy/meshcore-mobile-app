@@ -53,6 +53,10 @@ compiled, not proven.
   maintenance commands, the guest card (owner, flooded regions), access
   list, neighbours with probe, and neighbour links on the map.
 
+- Conversations: swipe-to-reply with quotes, `@` mentions, Resend,
+  "Message privately" (request / accept over a channel), "Who repeats
+  me", and the stale-node sweep.
+
 **Not ported yet:** nothing user-facing beyond the back burner. Simple
 mode, per-channel regions, route maps and remote settings codes came in
 Phase 5. **Back burner by decision:** firmware updates and repeater identity rekey.
