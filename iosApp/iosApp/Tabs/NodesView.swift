@@ -133,9 +133,15 @@ struct NodesView: View {
                     Button("Info") { detail = node }.tint(.blue)
                 }
                 .contextMenu { Button("Details") { detail = node } }
+        } else if node.type == 2 || node.type == 3 {
+            // A repeater or room opens its admin (sign-in is the gate),
+            // as on Android; the detail is a swipe or long-press away.
+            NavigationLink { RepeaterView(node: node) } label: { content }
+                .swipeActions(edge: .trailing) {
+                    Button("Info") { detail = node }.tint(.blue)
+                }
+                .contextMenu { Button("Details") { detail = node } }
         } else {
-            // Infrastructure: no chat thread to open, and repeater admin
-            // is not on iOS yet — the detail sheet is what there is.
             Button { detail = node } label: { content }
                 .buttonStyle(.plain)
         }

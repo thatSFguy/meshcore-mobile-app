@@ -703,6 +703,45 @@ final class MeshCoreStore: ObservableObject {
         _ = session?.sendDirect(keyHex: peerHex, text: text)
     }
 
+    // MARK: - Repeater admin
+    //
+    // Sessions are in memory only, keyed by node; no password is stored.
+
+    private lazy var repeaterAdmin = RepeaterAdmin(engine: engine)
+    @Published private var adminSessions: [String: AdminSession] = [:]
+
+    func adminSession(_ keyHex: String) -> AdminSession {
+        adminSessions[keyHex] ?? RepeaterReadout.shared.signedOut
+    }
+
+    /// Sign in; nil on success, otherwise the sentence to show.
+    func signIn(_ keyHex: String, password: String) async -> String? {
+        guard let type = contacts.first(where: { $0.id == keyHex })?.type else {
+            return "That node is no longer on the radio."
+        }
+        do {
+            let outcome = try await repeaterAdmin.signIn(keyHex: keyHex, password: password)
+            let granted = RepeaterReadout.shared.session(advType: type, outcome: outcome)
+            if granted.signedIn { adminSessions[keyHex] = granted }
+            return RepeaterReadout.shared.failure(outcome: outcome)
+        } catch {
+            return error.localizedDescription
+        }
+    }
+
+    func signOut(_ keyHex: String) {
+        adminSessions[keyHex] = nil
+    }
+
+    func repeaterStatus(_ keyHex: String) async -> [RepeaterReadoutGroup]? {
+        guard let s = try? await repeaterAdmin.status(keyHex: keyHex) else { return nil }
+        return RepeaterReadout.shared.status(s: s)
+    }
+
+    func repeaterCli(_ keyHex: String, command: String) async -> String? {
+        (try? await repeaterAdmin.cli(keyHex: keyHex, command: command)) ?? nil
+    }
+
     // MARK: - Blocking
     //
     // A DM block is on the public key (real); a channel "block" is a

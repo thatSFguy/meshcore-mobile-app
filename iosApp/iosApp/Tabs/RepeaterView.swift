@@ -1,0 +1,207 @@
+// Repeater / room admin: sign-in is the gate, then a hub of tiles from
+// the shared repeaterHubTiles (so which tiles a guest sees is the tested
+// rule Android uses). Status and Console are ported; the rest of the hub
+// says plainly that it is Android-only for now.
+//
+// Not stored: the password. iOS keeps sessions in memory for the app's
+// lifetime only (IOS_DECISIONS.md) — a repeater's ACL entry never
+// expires, so signing in again costs one radio round trip.
+
+import SwiftUI
+import Shared
+
+struct RepeaterView: View {
+    @EnvironmentObject var store: MeshCoreStore
+    let node: UiNode
+
+    private var session: AdminSession { store.adminSession(node.id) }
+
+    var body: some View {
+        Group {
+            if session.signedIn {
+                RepeaterHub(node: node, session: session)
+            } else {
+                RepeaterSignIn(node: node)
+            }
+        }
+        .navigationTitle(node.displayName)
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+private struct RepeaterSignIn: View {
+    @EnvironmentObject var store: MeshCoreStore
+    let node: UiNode
+    @State private var password = ""
+    @State private var busy = false
+    @State private var problem: String?
+
+    var body: some View {
+        Form {
+            Section {
+                SecureField("Password", text: $password)
+                    .textContentType(.password)
+                Button(busy ? "Signing in…" : "Sign in") {
+                    busy = true
+                    problem = nil
+                    Task {
+                        problem = await store.signIn(node.id, password: password)
+                        busy = false
+                        password = ""
+                    }
+                }
+                .disabled(busy || !store.isReady)
+            } footer: {
+                Text("A blank password works on a node that already knows this radio. The password crosses the mesh in the clear if the link is TCP.")
+            }
+            if let problem {
+                Section { Text(problem).foregroundStyle(.red) }
+            }
+        }
+    }
+}
+
+private struct RepeaterHub: View {
+    @EnvironmentObject var store: MeshCoreStore
+    let node: UiNode
+    let session: AdminSession
+
+    private var tiles: [HubTile] {
+        RepeaterHubModelKt.repeaterHubTiles(
+            role: RepeaterReadout.shared.roleOf(advType: node.type),
+            session: session
+        )
+    }
+
+    var body: some View {
+        List {
+            Section {
+                HStack {
+                    Text(node.hopsLabel).foregroundStyle(.secondary)
+                    Spacer()
+                    Text(session.chipLabel)
+                        .font(.caption.bold())
+                        .padding(.horizontal, 8).padding(.vertical, 3)
+                        .background(session.isAdmin ? Color.accentColor.opacity(0.2) : Color.secondary.opacity(0.2),
+                                    in: Capsule())
+                }
+            }
+            Section {
+                ForEach(tiles, id: \.route) { tile in
+                    switch tile.route {
+                    case "status":
+                        NavigationLink { RepeaterStatusView(node: node) } label: { tileLabel(tile) }
+                    case "console":
+                        NavigationLink { RepeaterConsoleView(node: node) } label: { tileLabel(tile) }
+                    default:
+                        tileLabel(tile, note: "On Android only, for now")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            Section {
+                Button("Sign out", role: .destructive) { store.signOut(node.id) }
+            } footer: {
+                Text("Signing out is local: the node keeps this radio in its access list.")
+            }
+        }
+    }
+
+    private func tileLabel(_ tile: HubTile, note: String? = nil) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(tile.title)
+            Text(note ?? tile.subtitle).font(.caption).foregroundStyle(.secondary)
+        }
+    }
+}
+
+private struct RepeaterStatusView: View {
+    @EnvironmentObject var store: MeshCoreStore
+    let node: UiNode
+    @State private var groups: [RepeaterReadoutGroup] = []
+    @State private var busy = false
+    @State private var silent = false
+
+    var body: some View {
+        List {
+            if busy && groups.isEmpty {
+                HStack { ProgressView(); Text("Asking the node…") }
+            }
+            if silent {
+                Text("No answer. The node may be out of range; try again in a moment.")
+                    .foregroundStyle(.secondary)
+            }
+            ForEach(groups, id: \.title) { group in
+                Section(group.title) {
+                    ForEach(group.rows, id: \.label) { row in
+                        LabeledContent(row.label, value: row.value)
+                    }
+                }
+            }
+        }
+        .navigationTitle("Status")
+        .refreshable { await fetch() }
+        .task { if groups.isEmpty { await fetch() } }
+    }
+
+    private func fetch() async {
+        busy = true
+        silent = false
+        let result = await store.repeaterStatus(node.id)
+        if let result { groups = result } else { silent = true }
+        busy = false
+    }
+}
+
+private struct RepeaterConsoleView: View {
+    @EnvironmentObject var store: MeshCoreStore
+    let node: UiNode
+    @State private var command = ""
+    @State private var lines: [String] = []
+    @State private var busy = false
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 4) {
+                        ForEach(Array(lines.enumerated()), id: \.offset) { i, line in
+                            Text(line)
+                                .font(.system(.caption, design: .monospaced))
+                                .textSelection(.enabled)
+                                .id(i)
+                        }
+                    }
+                    .padding(8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .onChange(of: lines.count) { proxy.scrollTo(lines.count - 1, anchor: .bottom) }
+            }
+            HStack {
+                TextField("get radio", text: $command)
+                    .font(.system(.body, design: .monospaced))
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .textFieldStyle(.roundedBorder)
+                    .onSubmit(run)
+                Button(action: run) { Image(systemName: "return") }
+                    .disabled(busy || command.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+            .padding(8)
+        }
+        .navigationTitle("Console")
+    }
+
+    private func run() {
+        let cmd = command.trimmingCharacters(in: .whitespaces)
+        guard !cmd.isEmpty else { return }
+        command = ""
+        busy = true
+        lines.append(RepeaterAdmin.companion.displayed(line: "$ \(cmd)"))
+        Task {
+            let reply = await store.repeaterCli(node.id, command: cmd)
+            lines.append(RepeaterAdmin.companion.displayed(line: reply ?? "(no reply)"))
+            busy = false
+        }
+    }
+}

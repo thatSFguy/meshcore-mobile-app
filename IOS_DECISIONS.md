@@ -237,3 +237,27 @@ lands on `main`. Merging is left to the author.
     `UserDefaults`; Android keeps its block list in preferences too. A
     blocked DM is dropped before it becomes a row, so blocking does not
     retroactively delete history — deleting the thread does that.
+
+## Repeater admin
+
+32. **Sign-in, Status and Console are ported; the other hub tiles are
+    listed but marked "On Android only, for now".** Which tiles appear is
+    still the shared `repeaterHubTiles`, so a guest sees the same hub on
+    both platforms. Settings/Regions/Identity/Firmware write to someone's
+    infrastructure and wait for a hardware session.
+
+33. **No repeater password is stored on iOS.** Android keeps them in the
+    Keystore. iOS sessions live in memory for the app's lifetime; since a
+    repeater's ACL entry never expires, a blank-password sign-in usually
+    works again anyway (CLAUDE.md). A Keychain-backed "remember" can come
+    later — not storing a secret is the safe default while untested.
+
+34. **The console redacts what it displays** (`RepeaterAdmin.displayed`:
+    `set prv.key`, `… password`, long hex) even though it is never
+    persisted — a screen gets screenshotted. Same patterns as Android's
+    diagnostics redaction. The console is admin-only by the shared tile
+    rule, matching the firmware (a guest's CLI is dropped silently).
+
+35. **`RepeaterAdmin` exists only because Kotlin/Native drops default
+    arguments.** It forwards to the engine with the engine's own retry
+    counts and budgets so Swift never restates a default.
