@@ -14,6 +14,12 @@ import Shared
 enum CommunityKeychain {
     private static let service = "io.github.thatsfguy.meshcore.community"
 
+    /// Purge with "also forget stored keys": every community secret.
+    static func forgetAll() {
+        SecItemDelete([kSecClass as String: kSecClassGenericPassword,
+                       kSecAttrService as String: service] as CFDictionary)
+    }
+
     /// Store [secret] under the community's id; true when it is stored.
     static func keep(idHex: String, secret: Data) -> Bool {
         let base: [String: Any] = [

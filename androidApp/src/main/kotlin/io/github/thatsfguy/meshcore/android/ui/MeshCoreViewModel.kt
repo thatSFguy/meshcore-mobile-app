@@ -3223,12 +3223,7 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
         if (alsoSecrets) prefs.clearAllSealed()
         regionRevision.value++
 
-        return buildString {
-            append("Purged ${counts.messages} message(s), ${counts.contacts} contact(s), ")
-            append("${counts.channels} channel(s)")
-            if (alsoSecrets) append(", and all stored keys and passwords")
-            append(". The radio was not touched.")
-        }
+        return io.github.thatsfguy.meshcore.presentation.Purge.result(counts.messages, counts.contacts, counts.channels, alsoSecrets)
     }
 
     // --- Config backup / restore (PARITY §1) ---

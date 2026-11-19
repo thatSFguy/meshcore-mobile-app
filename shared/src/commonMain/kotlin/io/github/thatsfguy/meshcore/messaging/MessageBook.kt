@@ -363,6 +363,14 @@ class MessageBook(
         _messages.value = _messages.value.filterNot { it.id == id }
     }
 
+    /** Purge: every message and unread count; how many messages went. */
+    fun clearAll(): Int {
+        val n = _messages.value.size
+        _messages.value = emptyList()
+        _unread.value = emptyMap()
+        return n
+    }
+
     fun deleteThread(threadKey: String) {
         _messages.value = _messages.value.filterNot { it.threadKey == threadKey }
         markRead(threadKey)

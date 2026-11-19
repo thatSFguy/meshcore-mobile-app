@@ -355,6 +355,8 @@ private struct AppSpoke: View {
 
 private struct DataSpoke: View {
     @EnvironmentObject var store: MeshCoreStore
+    @State private var purging = false
+    @State private var purgeNote: String?
 
     var body: some View {
         Form {
@@ -369,17 +371,76 @@ private struct DataSpoke: View {
             } footer: {
                 Text("Older messages are deleted from this phone. Age is when they arrived here, not the sender's clock, which may be wrong.")
             }
+            Section {
+                Button(Purge.shared.TITLE + "…", role: .destructive) { purging = true }
+                if let purgeNote { Text(purgeNote).font(.caption) }
+            } footer: {
+                Text(Purge.shared.HINT)
+            }
         }
         .navigationTitle("Data and storage")
+        .sheet(isPresented: $purging) {
+            PurgeSheet { alsoSecrets in purgeNote = store.purgeLocal(alsoSecrets: alsoSecrets) }
+        }
+    }
+}
+
+/// The purge confirmation: the list spelled out, and a typed word —
+/// history is the one thing the radio can't give back (shared Purge).
+private struct PurgeSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let onConfirm: (Bool) -> Void
+    @State private var typed = ""
+    @State private var alsoSecrets = false
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("This deletes, from this phone only:") {
+                    ForEach(Purge.shared.DELETES, id: \.self) { Text("• \($0)").font(.callout) }
+                }
+                Section("It does NOT delete:") {
+                    ForEach(Purge.shared.KEEPS, id: \.self) { Text("• \($0)").font(.callout) }
+                }
+                Section {
+                    Text(Purge.shared.NO_RECOVERY).font(.callout).foregroundStyle(.red)
+                    Toggle(Purge.shared.SECRETS_TOGGLE, isOn: $alsoSecrets)
+                    if alsoSecrets {
+                        Text(Purge.shared.secretsWarning(what: "Community secrets in this iPhone's Keychain"))
+                            .font(.caption).foregroundStyle(.red)
+                    }
+                }
+                Section {
+                    TextField("Type \(Purge.shared.CONFIRM_WORD) to confirm", text: $typed)
+                        .textInputAutocapitalization(.characters)
+                        .autocorrectionDisabled()
+                }
+            }
+            .navigationTitle(Purge.shared.TITLE)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Purge", role: .destructive) {
+                        onConfirm(alsoSecrets)
+                        dismiss()
+                    }
+                    .disabled(!Purge.shared.armed(typed: typed))
+                }
+            }
+        }
     }
 }
 
 private struct AboutSpoke: View {
+    @State private var whatsNew = false
+
     var body: some View {
         Form {
             Section {
                 LabeledContent("App", value: "MeshCore Hardened")
                 LabeledContent("Version", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?")
+                Button("What's new") { whatsNew = true }
             }
             Section {
                 Text("No servers, no accounts, no analytics. Message history stays on this phone, encrypted by iOS and excluded from backups. " +
@@ -388,6 +449,64 @@ private struct AboutSpoke: View {
             }
         }
         .navigationTitle("About")
+        .sheet(isPresented: $whatsNew) { WhatsNewSheet() }
+    }
+}
+
+/// The bundled iosApp/CHANGELOG.md, from its first release heading on,
+/// with hard-wrapped lines joined back into headings, bullets and paragraphs.
+private struct WhatsNewSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    private enum Kind { case heading, bullet, text }
+    private struct Block { let kind: Kind; var text: String }
+
+    private var blocks: [Block] {
+        guard let url = Bundle.main.url(forResource: "CHANGELOG", withExtension: "md"),
+              let text = try? String(contentsOf: url, encoding: .utf8) else { return [] }
+        let all = text.components(separatedBy: "\n")
+        let start = all.firstIndex { $0.hasPrefix("## ") } ?? 0
+        var out: [Block] = []
+        var open = false // whether the last block takes continuation lines
+        for raw in all[start...] {
+            let line = raw.trimmingCharacters(in: .whitespaces)
+            if line.isEmpty { open = false; continue }
+            if raw.hasPrefix("## ") {
+                out.append(Block(kind: .heading, text: String(raw.dropFirst(3)))); open = false
+            } else if raw.hasPrefix("- ") {
+                out.append(Block(kind: .bullet, text: String(raw.dropFirst(2)))); open = true
+            } else if open, !out.isEmpty {
+                out[out.count - 1].text += " " + line
+            } else {
+                out.append(Block(kind: .text, text: line)); open = true
+            }
+        }
+        return out
+    }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 6) {
+                    let all = blocks
+                    if all.isEmpty { Text("The release notes aren't in this build.").foregroundStyle(.secondary) }
+                    ForEach(Array(all.enumerated()), id: \.offset) { _, block in row(block) }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding()
+            }
+            .navigationTitle("What's new")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+        }
+    }
+
+    @ViewBuilder private func row(_ block: Block) -> some View {
+        switch block.kind {
+        case .heading: Text(block.text).font(.title3.bold()).padding(.top, 8)
+        case .bullet: Text(LocalizedStringKey("• " + block.text)).font(.callout)
+        case .text: Text(LocalizedStringKey(block.text)).font(.callout)
+        }
     }
 }
 

@@ -51,6 +51,7 @@ struct MyContactSheet: View {
             .navigationTitle("My contact")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+            .onAppear { if store.myContactLink != nil { store.myCodeShown() } }
         }
     }
 }

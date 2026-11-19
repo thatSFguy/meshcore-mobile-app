@@ -919,6 +919,12 @@ final class MeshCoreStore: ObservableObject {
         return ShareUri.shared.encodeContact(name: selfName, pubKeyHex: selfKeyHex, type: 1)
     }
 
+    /// Showing our code is an invitation: an answer on a shared channel from
+    /// whoever scanned it should add them (shared DmRequests.myCode, as Android).
+    func myCodeShown() {
+        _ = dmRequests?.myCode(nowSec: Int64(Date().timeIntervalSince1970))
+    }
+
     /// A scanned code goes to the same confirmation as an opened link.
     /// Unlike a link it is not filtered to meshcore:// first — a stray
     /// code should be explained ("not a MeshCore link"), not ignored.

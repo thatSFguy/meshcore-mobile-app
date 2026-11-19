@@ -5,6 +5,7 @@ import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -101,5 +102,20 @@ class DmRequestsTest {
         assertTrue(dm.canAsk("Bob", listOf("Amy")))
         assertFalse(dm.canAsk("Bob", listOf("bob")), "already a contact by that name: just open the chat")
         assertFalse(dm.canAsk("", emptyList()))
+    }
+
+    @Test
+    fun showingMyCodeIsAnInvitationAnyoneMayAnswer() = runTest {
+        assertNull(DmRequests(FakeRadio(null, "Rob")).myCode(now), "no radio, no code")
+        val r = FakeRadio(me, "Rob")
+        val dm = DmRequests(r)
+        val code = assertNotNull(dm.myCode(now))
+        assertTrue(code.startsWith("meshcore://"))
+        assertTrue(me in code.lowercase())
+        // Before: an unsolicited accept added no one (see above). After the
+        // code was shown, an answer from whoever scanned it adds them.
+        val accept = DmRequest.accept("Rob", me, bob)!!
+        assertEquals("Bob accepted. You can message each other directly.", dm.onChannelPost("Bob", accept, now))
+        assertEquals(listOf(bob to "Bob"), r.added)
     }
 }

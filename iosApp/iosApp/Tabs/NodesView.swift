@@ -150,9 +150,10 @@ struct NodesView: View {
                     Button("Info") { detail = node }.tint(.blue)
                 }
                 .contextMenu { Button("Details") { detail = node } }
-        } else if node.type == 2 {
-            // A repeater opens its admin (sign-in is the gate), as on
-            // Android; the detail is a swipe or long-press away.
+        } else if node.type == Codes.shared.ADV_TYPE_REPEATER || node.type == Codes.shared.ADV_TYPE_SENSOR {
+            // A repeater or sensor opens its admin (sign-in is the gate) —
+            // sensors run the same CLI (PARITY §7), as on Android; the
+            // detail is a swipe or long-press away.
             NavigationLink { RepeaterView(node: node) } label: { content }
                 .swipeActions(edge: .trailing) {
                     Button("Info") { detail = node }.tint(.blue)

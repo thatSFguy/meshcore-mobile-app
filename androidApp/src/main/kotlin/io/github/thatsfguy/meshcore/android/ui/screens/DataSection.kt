@@ -64,10 +64,7 @@ fun DataSection(vm: MeshCoreViewModel) {
 
     Spacer(Modifier.height(16.dp))
     Text("Purge local data", style = MaterialTheme.typography.labelLarge)
-    HintText(
-        "Deletes this phone's copy of everything. It does NOT touch the radio: its " +
-            "contact list, channel slots and identity are on the device and stay there.",
-    )
+    HintText(io.github.thatsfguy.meshcore.presentation.Purge.HINT)
     ButtonFlowRow {
         TextButton(onClick = { purgeConfirm = true }) {
             Text("Purge local data…", color = MaterialTheme.colorScheme.error)
@@ -95,7 +92,7 @@ fun DataSection(vm: MeshCoreViewModel) {
 private fun PurgeDialog(onDismiss: () -> Unit, onConfirm: (Boolean) -> Unit) {
     var typed by remember { mutableStateOf("") }
     var alsoSecrets by remember { mutableStateOf(false) }
-    val armed = typed.trim().equals(CONFIRM_WORD, ignoreCase = true)
+    val armed = io.github.thatsfguy.meshcore.presentation.Purge.armed(typed)
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -104,38 +101,27 @@ private fun PurgeDialog(onDismiss: () -> Unit, onConfirm: (Boolean) -> Unit) {
             Column {
                 Text("This deletes, from this phone only:", style = MaterialTheme.typography.bodyMedium)
                 Spacer(Modifier.height(6.dp))
-                for (line in listOf(
-                    "• Every message, in every conversation",
-                    "• The cached contact list and channel names",
-                    "• Path history and the discovery inbox",
-                    "• Nicknames, pins, mutes, and region labels",
-                )) {
-                    Text(line, style = MaterialTheme.typography.bodySmall)
+                for (line in io.github.thatsfguy.meshcore.presentation.Purge.DELETES) {
+                    Text("• $line", style = MaterialTheme.typography.bodySmall)
                 }
                 Spacer(Modifier.height(8.dp))
                 Text("It does NOT delete:", style = MaterialTheme.typography.bodyMedium)
-                for (line in listOf(
-                    "• Anything on the radio — contacts, channels and its identity stay",
-                    "• Messages other people received from you",
-                )) {
-                    Text(line, style = MaterialTheme.typography.bodySmall)
+                for (line in io.github.thatsfguy.meshcore.presentation.Purge.KEEPS) {
+                    Text("• $line", style = MaterialTheme.typography.bodySmall)
                 }
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    "Your message history cannot be recovered — the radio does not keep a " +
-                        "copy to re-sync from.",
+                    io.github.thatsfguy.meshcore.presentation.Purge.NO_RECOVERY,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error,
                 )
                 Spacer(Modifier.height(8.dp))
-                SettingRow("Also forget stored keys and passwords", alsoSecrets) {
+                SettingRow(io.github.thatsfguy.meshcore.presentation.Purge.SECRETS_TOGGLE, alsoSecrets) {
                     alsoSecrets = it
                 }
                 if (alsoSecrets) {
                     Text(
-                        "Channel PSKs, repeater passwords and the saved identity seed go " +
-                            "too. Channels you have no other copy of the key for become " +
-                            "unreadable.",
+                        io.github.thatsfguy.meshcore.presentation.Purge.secretsWarning("Channel PSKs, repeater passwords and the saved identity seed"),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.error,
                     )
@@ -159,7 +145,7 @@ private fun PurgeDialog(onDismiss: () -> Unit, onConfirm: (Boolean) -> Unit) {
     )
 }
 
-private const val CONFIRM_WORD = "PURGE"
+private const val CONFIRM_WORD = io.github.thatsfguy.meshcore.presentation.Purge.CONFIRM_WORD
 
 /** Compact chip label — the full sentence lives in the hint. */
 private fun Retention.Policy.shortLabel(): String = when {

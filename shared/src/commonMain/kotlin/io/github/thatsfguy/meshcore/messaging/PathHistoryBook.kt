@@ -107,6 +107,9 @@ class PathHistoryBook(private val nowMs: () -> Long, initial: List<PathRow> = em
         _rows.value = _rows.value.filterNot { it.contactKey == key && it.pathHex == pathHex.lowercase() }
     }
 
+    /** Purge: every contact's path history. */
+    fun clearAll() { _rows.value = emptyList() }
+
     fun clear(contactKey: String) {
         val key = contactKey.lowercase()
         _rows.value = _rows.value.filterNot { it.contactKey == key }

@@ -185,6 +185,14 @@ private struct RepeaterStatusView: View {
             }
         }
         .navigationTitle("Status")
+        // Pull to refresh, or the button — Android's "Request status".
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button { Task { await fetch() } } label: { Image(systemName: "arrow.clockwise") }
+                    .accessibilityLabel("Request status")
+                    .disabled(busy || !store.isReady)
+            }
+        }
         .refreshable { await fetch() }
         .task { if groups.isEmpty { await fetch() } }
     }
@@ -235,6 +243,11 @@ private struct RepeaterConsoleView: View {
             .padding(8)
         }
         .navigationTitle("Console")
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("Clear") { lines = [] }.disabled(lines.isEmpty)
+            }
+        }
     }
 
     private func run() {
