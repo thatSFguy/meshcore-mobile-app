@@ -21,8 +21,11 @@ struct UiNode: Identifiable, Hashable {
     let latitude: Double?
     let longitude: Double?
     let hasStoredPath: Bool
+    /// From the radio's position, in the chosen units; nil if either can't be placed.
+    let distance: String?
 
-    init(_ n: ContactNode, now: Int64, nickname: String? = nil) {
+    init(_ n: ContactNode, now: Int64, nickname: String? = nil, distance: String? = nil) {
+        self.distance = distance
         id = n.keyHex
         name = nickname ?? n.name
         type = n.type
@@ -55,11 +58,11 @@ struct NodesView: View {
 
     private static let tabs: [NodeTab] = [.contacts, .repeaters, .rooms, .sensors]
 
-    /// Every sort except Nearest, which needs this phone's position — not
-    /// read on iOS yet.
+    /// Every sort, Nearest included: distance is from the radio's own
+    /// advertised position, as on Android.
     private static var sorts: [NodeListModel.Sort] {
         let all = NodeListModel.Sort.values()
-        return (0..<all.size).compactMap { all.get(index: $0) }.filter { $0 != .distance }
+        return (0..<all.size).compactMap { all.get(index: $0) }
     }
 
     private static var allFilters: [NodeListModel.Filter] {
@@ -70,8 +73,9 @@ struct NodesView: View {
     private var rows: [UiNode] {
         let now = MeshCoreStore.now
         return ContactNodes.shared.arrange(
-            nodes: store.nodes, tab: tab, query: query, sort: sort, filters: filters, nowSeconds: now
-        ).map { UiNode($0, now: now, nickname: store.nickname($0.keyHex)) }
+            nodes: store.nodes, tab: tab, query: query, sort: sort, filters: filters, nowSeconds: now,
+            origin: store.selfPosition
+        ).map { UiNode($0, now: now, nickname: store.nickname($0.keyHex), distance: store.distance(to: $0)) }
     }
 
     private var counts: [NodeTab: Int] {
@@ -228,7 +232,7 @@ private struct NodeRow: View {
                     }
                     Text(node.displayName).font(.body).lineLimit(1)
                 }
-                Text([node.hopsLabel, node.heardLabel].compactMap { $0 }.joined(separator: " · "))
+                Text([node.hopsLabel, node.distance, node.heardLabel].compactMap { $0 }.joined(separator: " · "))
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 if let reach = node.reachShort {
@@ -267,6 +271,7 @@ struct NodeDetailSheet: View {
             Form {
                 Section {
                     LabeledContent("Route", value: node.hopsLabel)
+                    if let d = node.distance { LabeledContent("Distance", value: d) }
                     if let heard = node.heardLabel { LabeledContent("Last heard", value: heard) }
                     if !node.reachLine.isEmpty {
                         Text(node.reachLine).font(.callout)
@@ -391,6 +396,21 @@ private struct HeardSection: View {
     @EnvironmentObject var store: MeshCoreStore
     @AppStorage("heardCollapsed") private var collapsed = false
     @State private var busy: String?
+    /// A far node's Add, held for the warning (shared DiscoveredBook.addWarning).
+    @State private var warning: (node: HeardNode, text: String)?
+    @State private var detail: HeardNode?
+
+    private func tryAdd(_ n: HeardNode) {
+        if let w = DiscoveredBook.companion.addWarning(node: n, origin: store.selfPosition, system: store.unitSystem) {
+            warning = (n, w)
+        } else {
+            add(n)
+        }
+    }
+
+    private func add(_ n: HeardNode) {
+        Task { busy = n.keyHex; store.nodeActionNote = await store.addHeard(n); busy = nil }
+    }
 
     var body: some View {
         Section {
@@ -410,22 +430,39 @@ private struct HeardSection: View {
             }
             .buttonStyle(.plain)
         }
+        .alert("Add \(warning?.node.name ?? "this node")?",
+               isPresented: Binding(get: { warning != nil }, set: { if !$0 { warning = nil } })) {
+            Button("Add anyway") { if let n = warning?.node { add(n) }; warning = nil }
+            Button("Cancel", role: .cancel) { warning = nil }
+        } message: {
+            Text(warning?.text ?? "")
+        }
+        .sheet(item: Binding(get: { detail.map(HeardRef.init) }, set: { detail = $0?.node })) { ref in
+            HeardDetailSheet(node: ref.node,
+                             onAdd: { detail = nil; tryAdd(ref.node) },
+                             onForget: { detail = nil; store.dismissHeard(ref.node) })
+        }
+    }
+
+    private struct HeardRef: Identifiable {
+        let node: HeardNode
+        var id: String { node.keyHex }
     }
 
     private func row(_ n: HeardNode) -> some View {
         HStack {
             Image(systemName: NodeMapView.symbol(n.type)).foregroundStyle(NodeMapView.colour(n.type))
-            VStack(alignment: .leading, spacing: 2) {
-                Text(n.name.isEmpty ? String(n.keyHex.prefix(12)) : n.name)
-                Text(store.heardDetail(n)).font(.caption).foregroundStyle(.secondary)
+            Button { detail = n } label: {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(n.name.isEmpty ? String(n.keyHex.prefix(12)) : n.name).foregroundStyle(.primary)
+                    Text(store.heardDetail(n)).font(.caption).foregroundStyle(.secondary)
+                }
             }
             Spacer()
             if busy == n.keyHex {
                 ProgressView()
             } else {
-                Button("Add") {
-                    Task { busy = n.keyHex; store.nodeActionNote = await store.addHeard(n); busy = nil }
-                }
+                Button("Add") { tryAdd(n) }
                 .disabled(!store.isReady)
                 Button { store.dismissHeard(n) } label: { Image(systemName: "xmark") }
             }
@@ -467,6 +504,56 @@ private struct ContactQrSheet: View {
             }
             .padding()
             .navigationTitle(title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+        }
+    }
+}
+
+/// A heard-but-not-added node (Android's HeardDetailSheet): what is known,
+/// and Add / Forget. Times are when this phone heard it, never the
+/// advert's own clock.
+private struct HeardDetailSheet: View {
+    @EnvironmentObject var store: MeshCoreStore
+    @Environment(\.dismiss) private var dismiss
+    let node: HeardNode
+    let onAdd: () -> Void
+    let onForget: () -> Void
+
+    private func stamp(_ ms: Int64) -> String {
+        Date(timeIntervalSince1970: Double(ms) / 1000).formatted(date: .abbreviated, time: .shortened)
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    Text(DiscoveredBook.companion.kindLine(type: node.type)).foregroundStyle(.secondary)
+                }
+                Section("Public key") {
+                    Text(node.keyHex).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
+                    Button("Copy") { UIPasteboard.general.string = node.keyHex }
+                }
+                Section {
+                    if let d = store.selfPosition.metresTo(lat: node.latitude, lon: node.longitude) {
+                        LabeledContent("Distance", value: Units.shared.distance(metres: d.doubleValue, system: store.unitSystem))
+                    }
+                    LabeledContent("Last heard", value: stamp(node.lastHeardAt))
+                    if node.firstHeardAt > 0 && node.firstHeardAt < node.lastHeardAt {
+                        LabeledContent("First heard", value: stamp(node.firstHeardAt))
+                    }
+                    if let reach = HeardReach.shared.of(minHops: node.minHops, directSnr: node.directSnr) {
+                        LabeledContent("Hops away", value: reach)
+                    }
+                }
+                Section {
+                    Button("Add to contacts", action: onAdd).disabled(!store.isReady)
+                    Button("Forget this node", role: .destructive, action: onForget)
+                } footer: {
+                    Text(DiscoveredBook.companion.addHint(type: node.type))
+                }
+            }
+            .navigationTitle(node.name.isEmpty ? "Unnamed node" : node.name)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
         }

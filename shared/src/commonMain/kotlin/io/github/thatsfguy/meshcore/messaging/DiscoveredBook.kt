@@ -90,6 +90,27 @@ class DiscoveredBook(private val nowMs: () -> Long, initial: List<HeardNode> = e
         fun fromJson(json: String?, nowMs: () -> Long): DiscoveredBook =
             DiscoveredBook(nowMs, json?.let { runCatching { JSON.decodeFromString(HeardSnapshot.serializer(), it).nodes }.getOrNull() }.orEmpty())
 
+        /**
+         * "Repeater · heard, not added". Android used to derive the noun by
+         * dropping the last letter of its plural tab label, which made an
+         * unknown type "Othe".
+         */
+        fun kindLine(type: Int): String {
+            val noun = when (type) {
+                io.github.thatsfguy.meshcore.protocol.Codes.ADV_TYPE_CHAT -> "Contact"
+                io.github.thatsfguy.meshcore.protocol.Codes.ADV_TYPE_REPEATER -> "Repeater"
+                io.github.thatsfguy.meshcore.protocol.Codes.ADV_TYPE_ROOM -> "Room server"
+                io.github.thatsfguy.meshcore.protocol.Codes.ADV_TYPE_SENSOR -> "Sensor"
+                else -> "Node"
+            }
+            return "$noun · heard, not added"
+        }
+
+        /** Why a heard node is worth adding — what needs it in the radio's contacts. */
+        fun addHint(type: Int): String =
+            "Messaging, " + (if (type == io.github.thatsfguy.meshcore.protocol.Codes.ADV_TYPE_CHAT) "" else "administering, ") +
+                "routes, favourites and renaming need it in your radio's contacts. Add it, and its full sheet opens."
+
         /** One line under the name: how it was heard, and when. */
         fun detail(node: HeardNode, nowMs: Long): String {
             val reach = HeardReach.of(node.minHops, node.directSnr)
@@ -116,6 +137,26 @@ class DiscoveredBook(private val nowMs: () -> Long, initial: List<HeardNode> = e
                 else -> "${answered.size} answered: ${answered.sorted().joinToString(", ")}" +
                     if (prefixes.size > answered.size) " — and ${prefixes.size - answered.size} not in your contacts." else "."
             }
+        }
+
+        /**
+         * What to warn about before adding [node], or null to add straight
+         * away. A heard node is heard-only by definition (nothing shows it
+         * hears us), so the test is only how far: [HeardReach]'s hops or the
+         * distance from the radio (Android's isFarHeardOnly + addWarning).
+         */
+        fun addWarning(
+            node: HeardNode,
+            origin: io.github.thatsfguy.meshcore.presentation.SelfPosition,
+            system: io.github.thatsfguy.meshcore.presentation.UnitSystem,
+        ): String? {
+            val metres = origin.metresTo(node.latitude, node.longitude)
+            val far = (node.minHops != null && node.minHops >= io.github.thatsfguy.meshcore.presentation.Reachability.FAR_HOPS) ||
+                (metres != null && metres >= io.github.thatsfguy.meshcore.presentation.Reachability.FAR_METRES)
+            if (!far) return null
+            return io.github.thatsfguy.meshcore.presentation.Reachability.addWarning(
+                node.minHops, metres?.let { io.github.thatsfguy.meshcore.presentation.Units.distance(it, system) },
+            )
         }
 
         /** Add from the stored, signed advert; the sentence to show. */

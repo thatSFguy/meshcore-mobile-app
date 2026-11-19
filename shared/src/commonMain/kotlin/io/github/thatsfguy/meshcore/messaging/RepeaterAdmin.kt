@@ -147,13 +147,15 @@ class RepeaterAdmin(private val engine: MeshCoreEngine) {
      * when not signed in (Android's gate). An empty answer is no answer:
      * a node that replies always sends at least its own voltage.
      */
-    suspend fun telemetry(keyHex: String, contactType: Int, signedIn: Boolean, pinned: Boolean, deviceCountry: String?): TelemetryView {
+    suspend fun telemetry(keyHex: String, contactType: Int, signedIn: Boolean, pinned: Boolean, deviceCountry: String?,
+                          /** The units setting ([UnitSystem.FOLLOW_SYSTEM] etc.); null follows the phone. */
+                          unitsPreference: String? = null): TelemetryView {
         val key = hexToBytesOrNull(keyHex) ?: return TelemetryView(emptyList(), TelemetryFetch.NoAnswer(false).message)
         val gated = TelemetryFetch.usesClientTable(contactType)
         val readings = recovered(key, signedIn || gated, pinned) {
             engine.requestTelemetry(key, BinaryRequestBudget.MAX_BUDGET_MS, null).ifEmpty { null }
         } ?: return TelemetryView(emptyList(), lastNote ?: TelemetryFetch.NoAnswer(gated).message)
-        return TelemetryView(telemetryRows(readings, UnitSystem.resolve(null, deviceCountry)), null)
+        return TelemetryView(telemetryRows(readings, UnitSystem.resolve(unitsPreference, deviceCountry)), null)
     }
 
     companion object {

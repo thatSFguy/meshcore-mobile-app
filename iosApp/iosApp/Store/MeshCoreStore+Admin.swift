@@ -81,7 +81,8 @@ extension MeshCoreStore {
         try? await repeaterAdmin.telemetry(
             keyHex: keyHex, contactType: type,
             signedIn: adminSession(keyHex).signedIn, pinned: isPinned(keyHex),
-            deviceCountry: Locale.current.region?.identifier
+            deviceCountry: Locale.current.region?.identifier,
+            unitsPreference: unitsPreference
         )
     }
 

@@ -16,6 +16,12 @@ import io.github.thatsfguy.meshcore.protocol.Codes
  */
 object NewMessage {
 
+    const val EMPTY = "No contacts yet. Add someone by scanning their code or opening a link they sent, " +
+        "or long-press their message in a channel and choose Message privately."
+    const val NO_MATCH = "Nobody matches."
+
+    fun emptyText(query: String): String = if (query.isBlank()) EMPTY else NO_MATCH
+
     fun <T : NodeListItem> candidates(contacts: List<T>, typeOf: (T) -> Int, query: String): List<T> {
         val q = query.trim()
         return contacts

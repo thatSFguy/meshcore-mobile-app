@@ -1088,7 +1088,7 @@ private fun HeardDetailSheet(
         ) {
             Text(node.name.ifBlank { "Unnamed node" }, style = MaterialTheme.typography.headlineSmall)
             Text(
-                typeLabel(node.type).dropLast(1) + " · heard, not added",
+                io.github.thatsfguy.meshcore.messaging.DiscoveredBook.kindLine(node.type),
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.primary,
             )
@@ -1135,10 +1135,7 @@ private fun HeardDetailSheet(
 
             Spacer(Modifier.height(12.dp))
             Text(
-                "Messaging, " +
-                    (if (node.type == Codes.ADV_TYPE_CHAT) "" else "administering, ") +
-                    "routes, favourites and renaming need it in your radio's contacts. " +
-                    "Add it, and its full sheet opens.",
+                io.github.thatsfguy.meshcore.messaging.DiscoveredBook.addHint(node.type),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

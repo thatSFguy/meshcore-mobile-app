@@ -24,6 +24,8 @@ struct ContentView: View {
                 .tabItem { Label("Settings", systemImage: "gear") }
         }
         .onOpenURL { store.openIncoming($0) }
+        // Settings → App → Theme ("System" follows iOS).
+        .preferredColorScheme(store.colorScheme)
         // First-run setup until it's finished or skipped (Android's setupComplete).
         .fullScreenCover(isPresented: Binding(get: { !store.setupComplete }, set: { if !$0 { store.setupComplete = true } })) {
             SetupView()

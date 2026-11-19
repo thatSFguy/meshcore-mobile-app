@@ -575,6 +575,33 @@ final class MeshCoreStore: ObservableObject {
         }
     }
 
+    // MARK: - Units and theme (Android's Appearance section)
+
+    /// "system" / "metric" / "imperial" (shared UnitSystem constants).
+    @AppStorage("units") var unitsPreference: String = UnitSystem.companion.FOLLOW_SYSTEM {
+        willSet { objectWillChange.send() }
+    }
+    var unitSystem: UnitSystem {
+        UnitSystem.companion.resolve(preference: unitsPreference, deviceCountry: Locale.current.region?.identifier)
+    }
+    /// "system" / "light" / "dark".
+    @AppStorage("theme") var theme: String = "system" {
+        willSet { objectWillChange.send() }
+    }
+    var colorScheme: ColorScheme? { theme == "light" ? .light : theme == "dark" ? .dark : nil }
+
+    /// Where distances are measured from: the radio's own advertised
+    /// position (as Android), so no phone location is needed.
+    var selfPosition: SelfPosition {
+        let info = node.selfInfo
+        return SelfPosition(latitude: info.map { KotlinDouble(double: $0.latitude) },
+                            longitude: info.map { KotlinDouble(double: $0.longitude) })
+    }
+
+    func distance(to n: ContactNode) -> String? {
+        ContactNodes.shared.distanceLabel(node: n, origin: selfPosition, system: unitSystem)
+    }
+
     // MARK: - Simple mode (shared AppModes, as Android)
 
     @AppStorage("appMode") var appModeRaw: String = "Full" {
@@ -1095,6 +1122,20 @@ final class MeshCoreStore: ObservableObject {
             } catch {
                 channelMessage = error.localizedDescription
             }
+        }
+    }
+
+    /// The key of a channel slot, for the editor (read from the radio's copy).
+    func channelPskHex(_ index: Int32) -> String? {
+        channel(index).map { $0.pskHex }
+    }
+
+    /// Rename a channel or change its key (shared ChannelJoin.edit).
+    func editChannel(_ index: Int32, name: String, pskHex: String) {
+        let join = channelJoin
+        Task {
+            channelMessage = (try? await join.edit(index: index, name: name, pskHex: pskHex)) ?? "Channel write failed"
+            diag.log("Store", "channel \(index) edit: \(channelMessage ?? "")")
         }
     }
 

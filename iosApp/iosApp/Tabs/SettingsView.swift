@@ -341,6 +341,23 @@ private struct AppSpoke: View {
                 Text("iOS may also need notifications allowed for this app in the system Settings.")
             }
             Section {
+                Picker("Theme", selection: $store.theme) {
+                    Text("System").tag("system")
+                    Text("Light").tag("light")
+                    Text("Dark").tag("dark")
+                }
+                Picker("Units", selection: $store.unitsPreference) {
+                    Text("System").tag(UnitSystem.companion.FOLLOW_SYSTEM)
+                    Text("Metric").tag(UnitSystem.companion.METRIC)
+                    Text("Imperial").tag(UnitSystem.companion.IMPERIAL)
+                }
+            } header: {
+                Text("Appearance")
+            } footer: {
+                // What is in force, not just what was chosen (Android's hint).
+                Text("Showing \(Units.shared.label(system: store.unitSystem)). Distances, temperatures and altitudes only — radio figures stay in MHz and dB.")
+            }
+            Section {
                 Text("Message history is stored on this phone only, encrypted by iOS (Data Protection) and excluded from backups.")
                 Text("The map loads Apple Maps tiles; that is the app's only outbound connection. Nothing else in this app contacts a server, and it works in airplane mode.")
             } header: {

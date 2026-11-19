@@ -174,6 +174,21 @@ class ChannelJoin(private val radio: Radio, private val crypto: CryptoProvider) 
         }
     }
 
+    /**
+     * Rename a channel or change its key (Android's channel editor). The
+     * key is 16 bytes as 32 hex characters (spaces allowed); the name is
+     * what fits the radio's slot. Returns the sentence to show.
+     */
+    suspend fun edit(index: Int, name: String, pskHex: String): String {
+        val psk = io.github.thatsfguy.meshcore.util.hexToBytesOrNull(pskHex.replace(" ", "").trim())
+        if (psk == null || psk.size != 16) return "The key must be 32 hex characters."
+        val n = name.trim()
+        if (n.isEmpty() || n.encodeToByteArray().size >= io.github.thatsfguy.meshcore.protocol.Codes.MAX_NAME_SIZE) {
+            return "The name must be 1 to ${io.github.thatsfguy.meshcore.protocol.Codes.MAX_NAME_SIZE - 1} bytes."
+        }
+        return if (runCatching { radio.setChannel(index, n, psk) }.getOrDefault(false)) "Channel updated" else "Channel write failed"
+    }
+
     /** The link that shares [channel], for a person you trust with every message on it. */
     fun shareLink(channel: Channel): String = ShareUri.encodeChannel(channel.name, channel.pskHex)
 

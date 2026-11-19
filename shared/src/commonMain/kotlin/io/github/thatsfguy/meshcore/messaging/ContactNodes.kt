@@ -112,10 +112,24 @@ object ContactNodes {
         sort: NodeListModel.Sort,
         filters: Set<NodeListModel.Filter>,
         nowSeconds: Long,
+        /** Where distance is measured from — the radio's own advertised position, as Android. */
+        origin: io.github.thatsfguy.meshcore.presentation.SelfPosition?,
     ): List<ContactNode> = NodeListModel.arrange(
         nodes.filter { tab == null || it.tab == tab },
-        query, sort, filters, nowSeconds,
+        query, sort, filters, nowSeconds, self = origin,
     )
+
+    /** The New message picker over the radio's nodes (shared NewMessage rule). */
+    fun newMessageCandidates(nodes: List<ContactNode>, query: String): List<ContactNode> =
+        io.github.thatsfguy.meshcore.presentation.NewMessage.candidates(nodes, { it.contact.type }, query)
+
+    /** "1.2 km" / "0.8 mi" from the radio to [node], or null when either can't be placed. */
+    fun distanceLabel(
+        node: ContactNode,
+        origin: io.github.thatsfguy.meshcore.presentation.SelfPosition,
+        system: io.github.thatsfguy.meshcore.presentation.UnitSystem,
+    ): String? = origin.metresTo(node.latitude, node.longitude)
+        ?.let { io.github.thatsfguy.meshcore.presentation.Units.distance(it, system) }
 
     /** How many nodes each tab holds, for the tab labels. */
     fun counts(nodes: List<ContactNode>): Map<NodeTab, Int> = nodes.groupingBy { it.tab }.eachCount()

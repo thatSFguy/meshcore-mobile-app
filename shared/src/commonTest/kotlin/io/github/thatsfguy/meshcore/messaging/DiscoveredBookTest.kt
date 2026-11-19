@@ -55,4 +55,32 @@ class DiscoveredBookTest {
         assertEquals(b.nodes.value, DiscoveredBook.fromJson(b.toJson()) { 0 }.nodes.value)
         assertTrue(DiscoveredBook.fromJson("nope") { 0 }.nodes.value.isEmpty())
     }
+
+    @Test
+    fun onlyAFarNodeIsWarnedAbout() {
+        val me = io.github.thatsfguy.meshcore.presentation.SelfPosition(42.96, -85.67)
+        val metric = io.github.thatsfguy.meshcore.presentation.UnitSystem.Metric
+        val b = book()
+        b.heard(bob, "Bob", 1, 42.97, -85.67, 1.0, -90, ByteArray(1), hops = 1)
+        assertNull(DiscoveredBook.addWarning(b.get(bob)!!, me, metric), "near and one hop: just add it")
+        b.heard("cc".repeat(32), "Cy", 1, null, null, 1.0, -90, ByteArray(1), hops = 5)
+        val hops = DiscoveredBook.addWarning(b.get("cc".repeat(32))!!, me, metric)!!
+        assertTrue(hops.startsWith("This node is 5 hops, and nothing shows it can hear you"), hops)
+        // ~160 km north: far by distance alone, on the hop count of a near one.
+        b.heard("dd".repeat(32), "Di", 1, 44.40, -85.67, 1.0, -90, ByteArray(1), hops = 1)
+        val distant = DiscoveredBook.addWarning(b.get("dd".repeat(32))!!, me, metric)!!
+        assertTrue(distant.contains("km away"), distant)
+    }
+
+    @Test
+    fun theAddHintMentionsAdministeringOnlyForInfrastructure() {
+        assertTrue("administering" !in DiscoveredBook.addHint(Codes.ADV_TYPE_CHAT))
+        assertTrue("administering" in DiscoveredBook.addHint(Codes.ADV_TYPE_REPEATER))
+    }
+
+    @Test
+    fun theKindLineNamesEachTypeAndAnUnknownOneWhole() {
+        assertEquals("Room server · heard, not added", DiscoveredBook.kindLine(Codes.ADV_TYPE_ROOM))
+        assertEquals("Node · heard, not added", DiscoveredBook.kindLine(9), "not \"Othe\"")
+    }
 }
