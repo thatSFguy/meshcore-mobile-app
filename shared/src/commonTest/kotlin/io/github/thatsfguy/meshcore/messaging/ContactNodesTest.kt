@@ -153,4 +153,24 @@ class ContactNodesTest {
         assertEquals(io.github.thatsfguy.meshcore.presentation.NewMessage.NO_MATCH,
             io.github.thatsfguy.meshcore.presentation.NewMessage.emptyText("zz"))
     }
+
+    @Test
+    fun theOutPathIsSplitAtTheContactsOwnWidthAndAmbiguityIsListed() {
+        // path_len 0x42: 2-byte hashes, two hops — the live route b389 c985.
+        val path = ByteArray(64).also { byteArrayOf(0xB3.toByte(), 0x89.toByte(), 0xC9.toByte(), 0x85.toByte()).copyInto(it) }
+        val c = Contact(
+            publicKey = ByteArray(32) { 9 }, type = Codes.ADV_TYPE_CHAT, flags = 0, pathLen = 0x42, path = path,
+            name = "Bob", timestamp = now, latitude = null, longitude = null, lastModified = now,
+        )
+        val names = mapOf("b389" + "00".repeat(30) to "Ridge", "c985" + "11".repeat(30) to "Mill", "c985" + "22".repeat(30) to "Mill too")
+        val lines = ContactNodes.outPathLines(c, names)
+        assertEquals(2, lines.size, "two hops at two bytes, not four at one")
+        assertEquals("1. b389 Ridge", lines[0])
+        assertTrue(lines[1].startsWith("2. c985 ") && "Mill or Mill too" in lines[1], lines[1])
+        assertEquals("2-bytes per hop", ContactNodes.hashWidthLine(c, 1), "the contact's own width beats the device's")
+        val flood = Contact(publicKey = ByteArray(32) { 9 }, type = 1, flags = 0, pathLen = 0xFF, path = ByteArray(64),
+            name = "F", timestamp = now, latitude = null, longitude = null, lastModified = now)
+        assertTrue(ContactNodes.outPathLines(flood, names).isEmpty())
+        assertEquals("1-byte per hop", ContactNodes.hashWidthLine(flood, 1))
+    }
 }

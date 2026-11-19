@@ -52,6 +52,7 @@ struct NodesView: View {
     @State private var filters: Set<NodeListModel.Filter> = []
     @State private var detail: UiNode?
     @State private var showMyContact = false
+    @State private var discovery: DiscoveryRef?
     @State private var scanning = false
     @State private var removingStale = false
     @State private var showRepeats = false
@@ -125,6 +126,7 @@ struct NodesView: View {
             .sheet(isPresented: $removingStale) { StaleNodesSheet() }
             .navigationDestination(isPresented: $showRepeats) { HeardRepeatsView() }
             .sheet(isPresented: $showMyContact) { MyContactSheet() }
+            .sheet(item: $discovery) { d in DiscoverySheet(result: d) }
             .sheet(isPresented: $scanning) {
                 QrScannerSheet { text in store.openScanned(text) }
             }
@@ -196,7 +198,13 @@ struct NodesView: View {
                 Button { store.nodeActionNote = store.pasteCode() } label: { Label("Paste a code", systemImage: "doc.on.clipboard") }
                 Button { showMyContact = true } label: { Label("My contact", systemImage: "qrcode") }
                 Button {
-                    Task { store.nodeActionNote = "Asking nearby repeaters…"; store.nodeActionNote = await store.discoverNodes() }
+                    Task {
+                        store.nodeActionNote = "Asking nearby repeaters…"
+                        let d = await store.discoverNodes()
+                        store.nodeActionNote = nil
+                        discovery = DiscoveryRef(message: d?.message ?? "No repeater answered.",
+                                                 keys: d?.answered.map { $0.publicKeyHex } ?? [])
+                    }
                 } label: {
                     Label("Discover nodes", systemImage: "dot.radiowaves.left.and.right")
                 }
@@ -316,6 +324,7 @@ struct NodeDetailSheet: View {
                 } footer: {
                     Text("A favourite is never removed by the stale-node sweep. A nickname replaces the advertised name in this app only.")
                 }
+                pathDetail
                 renameAndTelemetry
                 if node.type == 1 {
                     Section {
@@ -499,6 +508,28 @@ extension NodeDetailSheet {
         }
     }
 
+    /// What the radio holds for reaching this node (Android's contact sheet):
+    /// the out-path hop by hop at the contact's own width, the hash size,
+    /// and its clock — shown only when that disagrees with what we heard.
+    @ViewBuilder var pathDetail: some View {
+        if let c = store.liveContact(node.id) {
+            let lines = ContactNodes.shared.outPathLines(contact: c, names: store.contactNames)
+            let width = ContactNodes.shared.hashWidthLine(contact: c, meshWidth: KotlinInt(int: store.meshWidth))
+            let item = store.nodes.first { $0.keyHex == node.id }
+            if !lines.isEmpty || width != nil || (item.map { LastHeard.shared.claimDisagrees(node: $0) } ?? false) {
+                Section("Path") {
+                    ForEach(lines, id: \.self) { Text($0).font(.system(.caption, design: .monospaced)) }
+                    if let width { LabeledContent("Path hash size", value: width) }
+                    if let item, LastHeard.shared.claimDisagrees(node: item) {
+                        LabeledContent("Its own clock says",
+                                       value: Date(timeIntervalSince1970: Double(item.lastSeen)).formatted(date: .abbreviated, time: .shortened)
+                                           + " — this node's clock is wrong")
+                    }
+                }
+            }
+        }
+    }
+
     /// One of the radio's per-contact telemetry flags, as a switch.
     func teleToggle(_ title: String, _ flag: Int32) -> some View {
         Toggle(title, isOn: Binding(
@@ -581,6 +612,51 @@ private struct HeardDetailSheet: View {
                 }
             }
             .navigationTitle(node.name.isEmpty ? "Unnamed node" : node.name)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+        }
+    }
+}
+
+/// What "Discover nodes" heard back (Android's results dialog): the
+/// sentence, and each held repeater that answered, opening its admin.
+struct DiscoveryRef: Identifiable {
+    let id = UUID()
+    let message: String
+    let keys: [String]
+}
+
+private struct DiscoverySheet: View {
+    @EnvironmentObject var store: MeshCoreStore
+    @Environment(\.dismiss) private var dismiss
+    let result: DiscoveryRef
+
+    private var nodes: [UiNode] {
+        let now = Int64(Date().timeIntervalSince1970)
+        return result.keys.compactMap { key in
+            store.nodes.first { $0.keyHex == key }.map { UiNode($0, now: now, nickname: store.nickname(key), distance: store.distance(to: $0)) }
+        }
+    }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section { Text(result.message) }
+                if !nodes.isEmpty {
+                    Section("Answered") {
+                        ForEach(nodes) { n in
+                            NavigationLink { RepeaterView(node: n) } label: {
+                                VStack(alignment: .leading) {
+                                    Text(n.displayName)
+                                    Text([n.hopsLabel, n.distance].compactMap { $0 }.joined(separator: " · "))
+                                        .font(.caption).foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Discover nodes")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
         }

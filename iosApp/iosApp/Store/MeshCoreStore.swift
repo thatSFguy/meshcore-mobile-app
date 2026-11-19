@@ -128,6 +128,15 @@ final class MeshCoreStore: ObservableObject {
 
     /// TCP transport gate — same off-by-default + stern warning as
     /// Android (SCOPE.md).
+    /// Bluetooth as a transport (Android's per-transport switch): off, the
+    /// app neither reconnects to nor scans for a BLE radio — for someone
+    /// who only uses a networked radio over TCP.
+    @AppStorage("bleEnabled") var bleEnabled: Bool = true {
+        willSet { objectWillChange.send() }
+        didSet {
+            if !bleEnabled && lastLinkKind == ConnectionMemoryCompanion.shared.KIND_BLE && supervisor != nil { disconnect() }
+        }
+    }
     @AppStorage("tcpEnabled") var tcpEnabled: Bool = false
     @AppStorage("tcpWarningAccepted") var tcpWarningAccepted: Bool = false
     @AppStorage("tcpHost") var tcpHost: String = "192.168.40.10"
@@ -776,7 +785,7 @@ final class MeshCoreStore: ObservableObject {
             tcpEnabled: tcpEnabled
         )
         diag.log("Store", "restore connection: \(memory.map { String(describing: type(of: $0)) } ?? "nothing remembered")")
-        if let ble = memory as? ConnectionMemoryBle,
+        if bleEnabled, let ble = memory as? ConnectionMemoryBle,
            let id = UUID(uuidString: ble.address),
            let peripheral = scanner.knownPeripheral(id) {
             // The radio reconnected to from memory belongs in the saved list
@@ -790,6 +799,7 @@ final class MeshCoreStore: ObservableObject {
 
     /// Attach over BLE to a radio the scanner found.
     func connectBle(_ radio: DiscoveredRadio) {
+        guard bleEnabled else { return }
         lastLinkKind = ConnectionMemoryCompanion.shared.KIND_BLE
         lastBleId = radio.id.uuidString
         lastBleName = radio.name
@@ -890,6 +900,7 @@ final class MeshCoreStore: ObservableObject {
     /// Connect to a saved radio; nil on success, else the sentence to show.
     func connectSaved(_ node: SavedNode) -> String? {
         if SavedNodes.shared.isBle(node: node) {
+            guard bleEnabled else { return "Turn on Bluetooth under Transports first." }
             guard let id = UUID(uuidString: node.address), let p = scanner.knownPeripheral(id) else {
                 return "iOS doesn't know this radio right now. Scan once, and it will reconnect from then on."
             }

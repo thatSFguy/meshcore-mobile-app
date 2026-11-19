@@ -17,6 +17,18 @@ import io.github.thatsfguy.meshcore.util.isPlausiblePosition
  */
 object MessageDetail {
 
+    /** The ACK hash a delivery is matched on, as 8 hex digits (Android's %08x). */
+    fun ackHex(ackHash: Long?): String? = ackHash?.let { (it and 0xFFFFFFFFL).toString(16).padStart(8, '0') }
+
+    /** A channel post's sender name, said plainly to be unauthenticated. */
+    fun senderLine(name: String?): String = (name?.takeIf { it.isNotBlank() } ?: "(none)") + " — unauthenticated"
+
+    /** What a reaction to this message names it by (shared Reactions). */
+    fun reactionId(m: io.github.thatsfguy.meshcore.messaging.BookMessage, isChannel: Boolean): String =
+        io.github.thatsfguy.meshcore.protocol.Reactions.targetHash(m.timestamp, if (isChannel) m.senderName.orEmpty() else null, m.text)
+
+    fun lengthLine(text: String): String = "${text.encodeToByteArray().size} bytes"
+
     /** Short hop label for a bubble footer. -1 is "routed", never "direct". */
     fun hopsLabel(hops: Int?): String? = when {
         hops == null -> null

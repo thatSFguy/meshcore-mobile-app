@@ -98,6 +98,15 @@ private struct RepeaterHub: View {
     var body: some View {
         List {
             Section {
+                // Identity card (Android's): key prefix, and where it says it is.
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(String(node.id.prefix(12))).font(.system(.caption, design: .monospaced)).foregroundStyle(.secondary)
+                    if let lat = node.latitude, let lon = node.longitude,
+                       GeoKt.isPlausiblePosition(lat: KotlinDouble(double: lat), lon: KotlinDouble(double: lon)) {
+                        Label(String(format: "%.4f, %.4f", lat, lon), systemImage: "mappin")
+                            .font(.system(.caption, design: .monospaced)).foregroundStyle(.secondary)
+                    }
+                }
                 HStack {
                     Text(node.hopsLabel).foregroundStyle(.secondary)
                     Spacer()

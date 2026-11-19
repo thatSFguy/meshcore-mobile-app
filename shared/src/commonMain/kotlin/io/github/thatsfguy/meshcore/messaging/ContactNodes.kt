@@ -127,6 +127,27 @@ object ContactNodes {
     fun messageCandidates(nodes: List<ContactNode>, query: String): List<ContactNode> =
         io.github.thatsfguy.meshcore.presentation.NewMessage.candidates(nodes, { it.contact.type }, query)
 
+    /**
+     * The contact sheet's path rows (Android's): each hop of the stored
+     * out-path, named where one contact owns its hash and listing the
+     * candidates where several do — never asserting one of them — and the
+     * hash width. The width is the CONTACT's own record's (its path_len),
+     * not the device setting, which only applies to new paths; a flood
+     * contact has no path, so the mesh's width is what applies.
+     */
+    fun outPathLines(contact: io.github.thatsfguy.meshcore.model.Contact, names: Map<String, String>): List<String> {
+        val info = io.github.thatsfguy.meshcore.protocol.PathCodec.decodePathLen(contact.pathLen)
+        if (info.isFlood || contact.storedPath.isEmpty()) return emptyList()
+        return io.github.thatsfguy.meshcore.protocol.PathCodec.resolveHops(contact.storedPath, info.hashWidth, names)
+            .mapIndexed { i, hop -> "${i + 1}. ${hop.label}" }
+    }
+
+    fun hashWidthLine(contact: io.github.thatsfguy.meshcore.model.Contact, meshWidth: Int?): String? {
+        val info = io.github.thatsfguy.meshcore.protocol.PathCodec.decodePathLen(contact.pathLen)
+        val width = if (info.isFlood) meshWidth else info.hashWidth
+        return width?.let { "$it-byte${if (it == 1) "" else "s"} per hop" }
+    }
+
     /** "1.2 km" / "0.8 mi" from the radio to [node], or null when either can't be placed. */
     fun distanceLabel(
         node: ContactNode,

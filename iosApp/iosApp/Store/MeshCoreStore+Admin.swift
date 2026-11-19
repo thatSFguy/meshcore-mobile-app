@@ -141,10 +141,10 @@ extension MeshCoreStore {
         scheduleSave()
     }
 
-    func discoverNodes() async -> String {
-        let msg = (try? await DiscoveredBook.companion.discover(engine: engine)) ?? "No repeater answered."
-        diag.log("Store", "discover: \(msg)")
-        return msg
+    func discoverNodes() async -> NodeDiscoveryResult? {
+        let d = try? await DiscoveredBook.companion.discoverDetailed(engine: engine)
+        diag.log("Store", "discover: \(d?.message ?? "no answer")")
+        return d
     }
 }
 

@@ -77,7 +77,8 @@ struct SettingsView: View {
         case "connection":
             return store.linkTarget.map { "\(store.engineStateLabel) · \($0)" } ?? store.engineStateLabel
         case "transports":
-            return store.tcpEnabled ? "⚠ Bluetooth and TCP (unencrypted)" : "Bluetooth"
+            // The shared wording (Android's), now that Bluetooth can be off too.
+            return SettingsHubModelKt.transportsSubtitle(ble: store.bleEnabled, usb: false, tcp: store.tcpEnabled)
         case "identity":
             return store.isReady ? SettingsHubModelKt.identitySubtitle(name: info?.name) : "Connect to a radio"
         case "radio":
@@ -179,7 +180,7 @@ private struct ConnectionSpoke: View {
                 }
             }
             if !store.savedRadios.isEmpty { savedSection }
-            BluetoothSection(scanner: store.scanner)
+            if store.bleEnabled { BluetoothSection(scanner: store.scanner) }
             if store.tcpEnabled {
                 Section {
                     LabeledContent("Host", value: "\(store.tcpHost):\(store.tcpPort)")
@@ -202,9 +203,9 @@ private struct TransportsSpoke: View {
     var body: some View {
         Form {
             Section {
-                LabeledContent("Bluetooth", value: "Always on")
+                Toggle("Bluetooth LE", isOn: $store.bleEnabled)
             } footer: {
-                Text("iPhones have no USB serial for radios, so Bluetooth is the everyday link.")
+                Text("iPhones have no USB serial for radios, so Bluetooth is the everyday link. Off, the app won't scan for or reconnect to a Bluetooth radio — for a networked radio over TCP only.")
             }
             Section {
                 Toggle("TCP transport (unencrypted)", isOn: Binding(

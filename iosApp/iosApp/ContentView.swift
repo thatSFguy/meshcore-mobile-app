@@ -26,6 +26,23 @@ struct ContentView: View {
         .onOpenURL { store.openIncoming($0) }
         // Settings → App → Theme ("System" follows iOS).
         .preferredColorScheme(store.colorScheme)
+        // Android shows the link in every screen's top bar. iOS shows it
+        // from every tab only when it matters: not connected, or on a
+        // plaintext TCP link — the one unsafe state, which must not hide
+        // in Settings.
+        .safeAreaInset(edge: .top, spacing: 0) {
+            if !store.isReady || store.isPlaintextLink {
+                HStack(spacing: 6) {
+                    Image(systemName: store.isPlaintextLink ? "exclamationmark.triangle.fill" : "antenna.radiowaves.left.and.right.slash")
+                    Text(store.isPlaintextLink ? "TCP link — unencrypted" : store.engineStateLabel)
+                        .lineLimit(1)
+                }
+                .font(.caption.bold())
+                .padding(.horizontal, 10).padding(.vertical, 4)
+                .frame(maxWidth: .infinity)
+                .background(store.isPlaintextLink ? Color.orange.opacity(0.25) : Color.secondary.opacity(0.15))
+            }
+        }
         // First-run setup until it's finished or skipped (Android's setupComplete).
         .fullScreenCover(isPresented: Binding(get: { !store.setupComplete }, set: { if !$0 { store.setupComplete = true } })) {
             SetupView()

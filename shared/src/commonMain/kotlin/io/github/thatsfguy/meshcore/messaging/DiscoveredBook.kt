@@ -12,6 +12,13 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
+/**
+ * What "Discover nodes" found: the sentence, and the held repeaters that
+ * answered (to open). Top-level, not nested in a companion, so its Swift
+ * name is not a guess.
+ */
+class NodeDiscoveryResult(val message: String, val answered: List<io.github.thatsfguy.meshcore.model.Contact>)
+
 /** A node heard advertising that the radio does not hold as a contact. */
 @Serializable
 data class HeardNode(
@@ -123,20 +130,28 @@ class DiscoveredBook(private val nowMs: () -> Long, initial: List<HeardNode> = e
          * that the radio holds answered (Android's discoverNodes). Nodes
          * it doesn't hold arrive as adverts into the inbox instead.
          */
-        suspend fun discover(engine: MeshCoreEngine): String {
+        suspend fun discover(engine: MeshCoreEngine): String = discoverDetailed(engine).message
+
+        suspend fun discoverDetailed(engine: MeshCoreEngine): NodeDiscoveryResult {
             val prefixes = runCatching { engine.discoverNodePrefixes(io.github.thatsfguy.meshcore.protocol.Codes.ADV_TYPE_REPEATER, 10_000) }
                 .getOrDefault(emptySet())
-            val held = engine.contacts.value.values
+            return discoveryOf(prefixes, engine.contacts.value.values)
+        }
+
+        /** The decision, apart from the radio, so it is tested. */
+        fun discoveryOf(prefixes: Set<String>, held: Collection<io.github.thatsfguy.meshcore.model.Contact>): NodeDiscoveryResult {
             val answered = prefixes
                 .flatMap { p -> io.github.thatsfguy.meshcore.protocol.NodeDiscovery.matching(p, held) { it.publicKeyHex } }
                 .distinctBy { it.publicKeyHex }
-                .map { it.name.ifBlank { it.publicKeyHex.take(12) } }
-            return when {
+                .sortedBy { it.name.lowercase() }
+            val names = answered.map { it.name.ifBlank { it.publicKeyHex.take(12) } }
+            val message = when {
                 prefixes.isEmpty() -> "No repeater answered. Nothing may be in range."
                 answered.isEmpty() -> "${prefixes.size} repeater(s) answered, none of them in your contacts."
-                else -> "${answered.size} answered: ${answered.sorted().joinToString(", ")}" +
+                else -> "${answered.size} answered: ${names.joinToString(", ")}" +
                     if (prefixes.size > answered.size) " — and ${prefixes.size - answered.size} not in your contacts." else "."
             }
+            return NodeDiscoveryResult(message, answered)
         }
 
         /**

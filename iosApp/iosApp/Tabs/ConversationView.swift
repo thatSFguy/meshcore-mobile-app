@@ -580,6 +580,7 @@ private struct MessageInfoSheet: View {
                    let sketch = store.arrivalSketch(m, senderLabel: m.senderName ?? store.title(for: m.threadKey)) {
                     PathSketchMap(title: "Route on map", sketch: sketch)
                 }
+                technicalSection(m)
                 Section(route.title) {
                     Text(route.summary).font(.callout)
                     ForEach(route.steps, id: \.self) { step in
@@ -594,6 +595,24 @@ private struct MessageInfoSheet: View {
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
             }
+        }
+    }
+}
+
+extension MessageInfoSheet {
+    /// The rows Android's sheet has for debugging delivery and reactions.
+    func technicalSection(_ m: BookMessage) -> some View {
+        let isChannel = m.threadKey.hasPrefix("ch|")
+        return Section("Technical") {
+            if let ack = MessageDetail.shared.ackHex(ackHash: m.ackHash) {
+                LabeledContent("Ack hash", value: ack).font(.system(.body, design: .monospaced))
+            }
+            if isChannel && !m.outgoing {
+                LabeledContent("Sender name", value: MessageDetail.shared.senderLine(name: m.senderName))
+            }
+            LabeledContent("Reaction id", value: MessageDetail.shared.reactionId(m: m, isChannel: isChannel))
+                .font(.system(.body, design: .monospaced))
+            LabeledContent("Length", value: MessageDetail.shared.lengthLine(text: m.text))
         }
     }
 }

@@ -83,4 +83,19 @@ class DiscoveredBookTest {
         assertEquals("Room server · heard, not added", DiscoveredBook.kindLine(Codes.ADV_TYPE_ROOM))
         assertEquals("Node · heard, not added", DiscoveredBook.kindLine(9), "not \"Othe\"")
     }
+
+    private fun held(seed: Int, name: String) = io.github.thatsfguy.meshcore.model.Contact(
+        publicKey = ByteArray(32) { (seed + it).toByte() }, type = Codes.ADV_TYPE_REPEATER, flags = 0,
+        pathLen = 0, path = ByteArray(64), name = name, timestamp = 1, latitude = null, longitude = null, lastModified = 1,
+    )
+
+    @Test
+    fun discoveryListsTheHeldRepeatersThatAnsweredByName() {
+        val ridge = held(0x10, "Ridge")
+        val mill = held(0x40, "Mill")
+        val d = DiscoveredBook.discoveryOf(setOf(ridge.publicKeyHex.take(8), mill.publicKeyHex.take(8), "deadbeef"), listOf(ridge, mill))
+        assertEquals(listOf("Mill", "Ridge"), d.answered.map { it.name })
+        assertEquals("2 answered: Mill, Ridge — and 1 not in your contacts.", d.message)
+        assertTrue(DiscoveredBook.discoveryOf(emptySet(), listOf(ridge)).answered.isEmpty())
+    }
 }
