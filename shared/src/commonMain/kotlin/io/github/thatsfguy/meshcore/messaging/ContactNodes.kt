@@ -119,8 +119,12 @@ object ContactNodes {
         query, sort, filters, nowSeconds, self = origin,
     )
 
-    /** The New message picker over the radio's nodes (shared NewMessage rule). */
-    fun newMessageCandidates(nodes: List<ContactNode>, query: String): List<ContactNode> =
+    /**
+     * The New message picker over the radio's nodes (shared NewMessage rule).
+     * Not named `new…`: Kotlin/Native renames those for Objective-C's
+     * ownership convention, and Swift then sees `doNew…`.
+     */
+    fun messageCandidates(nodes: List<ContactNode>, query: String): List<ContactNode> =
         io.github.thatsfguy.meshcore.presentation.NewMessage.candidates(nodes, { it.contact.type }, query)
 
     /** "1.2 km" / "0.8 mi" from the radio to [node], or null when either can't be placed. */

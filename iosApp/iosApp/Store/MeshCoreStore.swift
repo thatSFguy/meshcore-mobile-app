@@ -517,6 +517,14 @@ final class MeshCoreStore: ObservableObject {
         scheduleSave()
     }
 
+    /// Purge: every message in the open radio's history; nil when none is open.
+    func clearAllHistory() -> Int32? {
+        guard let book = session?.book else { return nil }
+        let n = book.clearAll()
+        refreshThreads()
+        return n
+    }
+
     /// Mark a thread unread by hand ("come back to this").
     func markUnread(_ key: String) {
         session?.book.markUnread(threadKey: key)
@@ -592,14 +600,14 @@ final class MeshCoreStore: ObservableObject {
 
     /// Where distances are measured from: the radio's own advertised
     /// position (as Android), so no phone location is needed.
-    var selfPosition: SelfPosition {
+    var radioPosition: SelfPosition {
         let info = node.selfInfo
         return SelfPosition(latitude: info.map { KotlinDouble(double: $0.latitude) },
                             longitude: info.map { KotlinDouble(double: $0.longitude) })
     }
 
     func distance(to n: ContactNode) -> String? {
-        ContactNodes.shared.distanceLabel(node: n, origin: selfPosition, system: unitSystem)
+        ContactNodes.shared.distanceLabel(node: n, origin: radioPosition, system: unitSystem)
     }
 
     // MARK: - Simple mode (shared AppModes, as Android)
@@ -652,6 +660,16 @@ final class MeshCoreStore: ObservableObject {
 
     /// Threads muted one by one (shared MutedThreads); unread still counts.
     @AppStorage("mutedThreads") private var mutedThreadsRaw: String = ""
+
+    /// Threads pinned to the top of Chats (shared ThreadKeys).
+    @AppStorage("pinnedThreads") private var pinnedThreadsRaw: String = ""
+
+    func isPinnedThread(_ threadKey: String) -> Bool { ThreadKeys.shared.contains(raw: pinnedThreadsRaw, threadKey: threadKey) }
+
+    func togglePinThread(_ threadKey: String) {
+        objectWillChange.send()
+        pinnedThreadsRaw = ThreadKeys.shared.toggled(raw: pinnedThreadsRaw, threadKey: threadKey)
+    }
 
     func isMuted(_ threadKey: String) -> Bool { MutedThreads.shared.isMuted(raw: mutedThreadsRaw, threadKey: threadKey) }
 
@@ -1113,6 +1131,18 @@ final class MeshCoreStore: ObservableObject {
     }
     func joinSharedLink(_ link: String) { runChannel { try await $0.joinShared(link: link) } }
     func leaveChannel(_ index: Int32) { runChannel { try await $0.leave(index: index) } }
+    func joinPublic() { runChannel { try await $0.joinPublic() } }
+    var hasPublic: Bool { _ = channels; return channelJoin.hasPublic() }
+
+    /// "Paste a code": a contact, channel, community or settings code from
+    /// the clipboard goes to the same confirmation as a scan; nil on
+    /// success, else why not (shared ScannedCode.pasteProblem).
+    func pasteCode() -> String? {
+        let raw = UIPasteboard.general.string
+        if let problem = ScannedCode.companion.pasteProblem(raw: raw) { return problem }
+        if let code = ScannedCode.companion.extract(text: raw ?? "") { openScanned(code) }
+        return nil
+    }
 
     private func runChannel(_ op: @escaping (ChannelJoin) async throws -> ChannelJoin.Outcome) {
         let join = channelJoin
@@ -1189,6 +1219,8 @@ final class MeshCoreStore: ObservableObject {
     /// Repeaters' neighbour tables as read, for the map (memory only).
     let neighbourBook = NeighbourBook()
     @Published private var adminSessions: [String: AdminSession] = [:]
+    /// Repeater console lines per node, already redacted (memory only).
+    @Published var consoleLines: [String: [String]] = [:]
 
     func adminSession(_ keyHex: String) -> AdminSession {
         adminSessions[keyHex] ?? RepeaterReadout.shared.signedOut

@@ -148,8 +148,8 @@ class ContactNodesTest {
             listOf(contact(1, "Amy"), contact(2, "Rptr", type = Codes.ADV_TYPE_REPEATER), contact(3, "Room", type = Codes.ADV_TYPE_ROOM)),
             null, now,
         )
-        assertEquals(listOf("Amy"), ContactNodes.newMessageCandidates(nodes, "").map { it.name })
-        assertTrue(ContactNodes.newMessageCandidates(nodes, "zz").isEmpty())
+        assertEquals(listOf("Amy"), ContactNodes.messageCandidates(nodes, "").map { it.name })
+        assertTrue(ContactNodes.messageCandidates(nodes, "zz").isEmpty())
         assertEquals(io.github.thatsfguy.meshcore.presentation.NewMessage.NO_MATCH,
             io.github.thatsfguy.meshcore.presentation.NewMessage.emptyText("zz"))
     }

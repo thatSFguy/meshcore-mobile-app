@@ -292,9 +292,21 @@ private struct ChannelsSpoke: View {
 
 private struct BlockingSpoke: View {
     @EnvironmentObject var store: MeshCoreStore
+    @State private var name = ""
 
     var body: some View {
         List {
+            // Typed in, as Android's "Sender name to hide".
+            Section {
+                TextField("Sender name to hide", text: $name).autocorrectionDisabled()
+                Button("Hide on every channel") {
+                    store.setFiltered(name, true)
+                    name = ""
+                }
+                .disabled(BlockList.shared.canonicalName(raw: name) == nil)
+            } footer: {
+                Text(BlockList.shared.CHANNEL_FILTER_CAVEAT)
+            }
             Section {
                 if store.blockedKeys.isEmpty && store.filteredNames.isEmpty {
                     Text("Nobody is blocked. Block someone from their contact page, or hide a channel name from a message.")

@@ -186,17 +186,13 @@ fun ConversationScreen(
             listOfNotNull(title.takeIf { Mentions.canMention(it) })
         }
     }
-    val maxBytes = if (isChannel) {
-        Frames.maxChannelMessageBytes(selfName)
-    } else {
-        Frames.maxContactMessageBytes()
-    }
+
     // MeshCore has no reply field, so a quote is literally prefixed to
     // the text — and it comes out of the same ~150-byte budget. Reserve
     // it up front so the composer can't accept a message the quote will
     // push over the limit.
     val quotePrefix = replyingTo?.let { quotePrefixFor(it) }.orEmpty()
-    val bodyBudget = (maxBytes - quotePrefix.encodeToByteArray().size).coerceAtLeast(0)
+    val bodyBudget = io.github.thatsfguy.meshcore.presentation.ComposerBudget.budget(isChannel, selfName, quotePrefix)
 
     var muted by remember(peerKey) {
         mutableStateOf(peerKey.toIntOrNull()?.let { vm.prefs.isChannelMuted(it) } ?: false)
@@ -555,13 +551,8 @@ private fun LeaveTheMeshDialog(url: String, onDismiss: () -> Unit) {
     val context = LocalContext.current
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Open link?") },
-        text = {
-            Text(
-                "This opens in your browser and leaves the mesh. The site — chosen by " +
-                    "the sender, not you — will see your real IP address and network.\n\n$url",
-            )
-        },
+        title = { Text(io.github.thatsfguy.meshcore.presentation.MessageLinkSpans.LEAVE_TITLE) },
+        text = { Text(io.github.thatsfguy.meshcore.presentation.MessageLinkSpans.leaveText(url)) },
         confirmButton = {
             TextButton(onClick = {
                 runCatching {
@@ -573,7 +564,7 @@ private fun LeaveTheMeshDialog(url: String, onDismiss: () -> Unit) {
                     )
                 }
                 onDismiss()
-            }) { Text("Open in browser") }
+            }) { Text(io.github.thatsfguy.meshcore.presentation.MessageLinkSpans.LEAVE_ACTION) }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )

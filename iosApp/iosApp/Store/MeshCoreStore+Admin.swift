@@ -155,17 +155,18 @@ extension MeshCoreStore {
     /// Returns the facts, as Android reports them.
     func purgeLocal(alsoSecrets: Bool) -> String {
         // History is per radio and opened when one connects (as Android).
-        guard let book = session?.book else { return "Not connected — nothing to purge against." }
-        let messages = book.clearAll()
+        guard let messages = clearAllHistory() else { return "Not connected — nothing to purge against." }
         paths?.clearAll()
         heard?.clear()
         drafts = [:]
+        consoleLines = [:]
         let defaults = UserDefaults.standard
         for key in defaults.dictionaryRepresentation().keys where key.hasPrefix("nick_") {
             defaults.removeObject(forKey: key)
         }
         defaults.removeObject(forKey: "pinnedRoutes")
         defaults.removeObject(forKey: "mutedThreads")
+        defaults.removeObject(forKey: "pinnedThreads")
         node.forgetRegionLabels()
         if alsoSecrets { CommunityKeychain.forgetAll() }
         objectWillChange.send()
@@ -173,6 +174,6 @@ extension MeshCoreStore {
         diag.log("Store", "purged local data (\(messages) messages, secrets: \(alsoSecrets))")
         // iOS keeps no copy of the radio's contacts or channels (they are
         // read live), so there are none to count.
-        return Purge.shared.result(messages: Int32(messages), contacts: nil, channels: nil, alsoSecrets: alsoSecrets)
+        return Purge.shared.result(messages: messages, contacts: nil, channels: nil, alsoSecrets: alsoSecrets)
     }
 }

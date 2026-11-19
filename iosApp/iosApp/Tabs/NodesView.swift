@@ -74,7 +74,7 @@ struct NodesView: View {
         let now = MeshCoreStore.now
         return ContactNodes.shared.arrange(
             nodes: store.nodes, tab: tab, query: query, sort: sort, filters: filters, nowSeconds: now,
-            origin: store.selfPosition
+            origin: store.radioPosition
         ).map { UiNode($0, now: now, nickname: store.nickname($0.keyHex), distance: store.distance(to: $0)) }
     }
 
@@ -193,6 +193,7 @@ struct NodesView: View {
         ToolbarItem(placement: .topBarLeading) {
             Menu {
                 Button { scanning = true } label: { Label("Scan a code", systemImage: "qrcode.viewfinder") }
+                Button { store.nodeActionNote = store.pasteCode() } label: { Label("Paste a code", systemImage: "doc.on.clipboard") }
                 Button { showMyContact = true } label: { Label("My contact", systemImage: "qrcode") }
                 Button {
                     Task { store.nodeActionNote = "Asking nearby repeaters…"; store.nodeActionNote = await store.discoverNodes() }
@@ -401,7 +402,7 @@ private struct HeardSection: View {
     @State private var detail: HeardNode?
 
     private func tryAdd(_ n: HeardNode) {
-        if let w = DiscoveredBook.companion.addWarning(node: n, origin: store.selfPosition, system: store.unitSystem) {
+        if let w = DiscoveredBook.companion.addWarning(node: n, origin: store.radioPosition, system: store.unitSystem) {
             warning = (n, w)
         } else {
             add(n)
@@ -535,7 +536,7 @@ private struct HeardDetailSheet: View {
                     Button("Copy") { UIPasteboard.general.string = node.keyHex }
                 }
                 Section {
-                    if let d = store.selfPosition.metresTo(lat: node.latitude, lon: node.longitude) {
+                    if let d = store.radioPosition.metresTo(lat: node.latitude, lon: node.longitude) {
                         LabeledContent("Distance", value: Units.shared.distance(metres: d.doubleValue, system: store.unitSystem))
                     }
                     LabeledContent("Last heard", value: stamp(node.lastHeardAt))

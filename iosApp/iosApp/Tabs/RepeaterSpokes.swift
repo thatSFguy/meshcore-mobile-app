@@ -607,6 +607,22 @@ struct CommandHelpView: View {
             ForEach(categories, id: \.title) { cat in
                 Section(cat.title) {
                     ForEach(cat.commands, id: \.id) { cmd in
+                        // The console is admin-only, so only an admin's tap
+                        // goes there with the command filled in (Android's).
+                        if session.isAdmin {
+                            NavigationLink { RepeaterConsoleView(node: node, prefill: CliHelp.shared.usage(command: cmd)) } label: { commandRow(cmd) }
+                        } else {
+                            commandRow(cmd)
+                        }
+                    }
+                }
+            }
+        }
+        .searchable(text: $query, prompt: "Search commands")
+        .navigationTitle("Command help")
+    }
+
+    private func commandRow(_ cmd: CliCommand) -> some View {
                         VStack(alignment: .leading, spacing: 3) {
                             Text(CliHelp.shared.usage(command: cmd))
                                 .font(.system(.callout, design: .monospaced))
@@ -617,12 +633,6 @@ struct CommandHelpView: View {
                             }
                             Text(cmd.description_).font(.caption).foregroundStyle(.secondary)
                         }
-                    }
-                }
-            }
-        }
-        .searchable(text: $query, prompt: "Search commands")
-        .navigationTitle("Command help")
     }
 }
 

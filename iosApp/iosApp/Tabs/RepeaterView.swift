@@ -206,12 +206,18 @@ private struct RepeaterStatusView: View {
     }
 }
 
-private struct RepeaterConsoleView: View {
+/// The console keeps its lines in the store, per node, for the app's
+/// lifetime — so leaving and coming back doesn't lose them (Android keeps
+/// them in its database; iOS keeps admin state in memory only).
+struct RepeaterConsoleView: View {
     @EnvironmentObject var store: MeshCoreStore
     let node: UiNode
+    /// A command from Command help, put in the field to edit and send.
+    var prefill: String? = nil
     @State private var command = ""
-    @State private var lines: [String] = []
     @State private var busy = false
+
+    private var lines: [String] { store.consoleLines[node.id] ?? [] }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -243,9 +249,10 @@ private struct RepeaterConsoleView: View {
             .padding(8)
         }
         .navigationTitle("Console")
+        .onAppear { if let prefill, command.isEmpty { command = prefill } }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Button("Clear") { lines = [] }.disabled(lines.isEmpty)
+                Button("Clear") { store.consoleLines[node.id] = nil }.disabled(lines.isEmpty)
             }
         }
     }
@@ -255,10 +262,11 @@ private struct RepeaterConsoleView: View {
         guard !cmd.isEmpty else { return }
         command = ""
         busy = true
-        lines.append(RepeaterAdmin.companion.displayed(line: "$ \(cmd)"))
+        let key = node.id
+        store.consoleLines[key, default: []].append(RepeaterAdmin.companion.displayed(line: "$ \(cmd)"))
         Task {
-            let reply = await store.repeaterCli(node.id, command: cmd)
-            lines.append(RepeaterAdmin.companion.displayed(line: reply ?? "(no reply)"))
+            let reply = await store.repeaterCli(key, command: cmd)
+            store.consoleLines[key, default: []].append(RepeaterAdmin.companion.displayed(line: reply ?? "(no reply)"))
             busy = false
         }
     }

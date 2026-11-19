@@ -24,3 +24,14 @@ class MutedThreadsTest {
         assertTrue(MutedThreads.decode(null).isEmpty())
     }
 }
+
+class ChatSearchTest {
+    @Test
+    fun aThreadMatchesOnTitleOrLastMessage() {
+        assertTrue(ChatSearch.matches("Public", "hello there", ""))
+        assertTrue(ChatSearch.matches("Public", "hello there", "PUB"))
+        assertTrue(ChatSearch.matches("Public", "hello there", " there "))
+        assertFalse(ChatSearch.matches("Public", null, "there"))
+        assertFalse(ChatSearch.matches("Public", "hello", "bob"))
+    }
+}

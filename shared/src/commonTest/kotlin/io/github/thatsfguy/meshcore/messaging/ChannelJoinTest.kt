@@ -5,6 +5,7 @@ import io.github.thatsfguy.meshcore.model.Channel
 import io.github.thatsfguy.meshcore.protocol.ChannelCrypto
 import kotlinx.coroutines.test.runTest
 import io.github.thatsfguy.meshcore.util.toHex
+import kotlin.test.assertFalse
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
@@ -232,5 +233,21 @@ class ChannelJoinTest {
         assertEquals(1, radio.writes.size, "nothing refused reached the radio")
         radio.accept = false
         assertEquals("Channel write failed", join.edit(1, "Ops", "00".repeat(16)))
+    }
+
+    @Test
+    fun publicIsJoinedOnceUnderItsWellKnownKey() = runTest {
+        val empty = FakeRadio(channels = emptyList())
+        val join = ChannelJoin(empty, crypto)
+        assertFalse(join.hasPublic())
+        assertIs<ChannelJoin.Outcome.Added>(join.joinPublic())
+        val (_, name, psk) = empty.writes.single()
+        assertEquals("Public", name)
+        assertEquals(ChannelCrypto.PUBLIC_CHANNEL_PSK.toHex(), psk.toHex())
+        // The default fake already holds Public: a second join is refused, no write.
+        val held = FakeRadio()
+        assertTrue(ChannelJoin(held, crypto).hasPublic())
+        assertIs<ChannelJoin.Outcome.AlreadyHeld>(ChannelJoin(held, crypto).joinPublic())
+        assertTrue(held.writes.isEmpty())
     }
 }

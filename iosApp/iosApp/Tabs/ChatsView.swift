@@ -10,6 +10,7 @@ struct ChatsView: View {
     @State private var addingChannel = false
     @State private var showMyContact = false
     @State private var newMessage = false
+    @State private var pasteNote: String?
     @State private var path: [String] = []
 
     /// Channels and chat contacts not already listed as a thread.
@@ -18,8 +19,18 @@ struct ChatsView: View {
         return store.channels.filter { !active.contains("ch|\($0.id)") && store.showsThread("ch|\($0.id)") }
     }
 
-    /// Threads for the current mode (Simple hides Public and non-people).
-    private var shownThreads: [UiThread] { store.threads.filter { store.showsThread($0.id) } }
+    @State private var query = ""
+
+    /// Threads for the current mode (Simple hides Public and non-people),
+    /// narrowed by the search (shared ChatSearch).
+    private var shownThreads: [UiThread] {
+        store.threads.filter {
+            store.showsThread($0.id) &&
+                ChatSearch.shared.matches(title: store.title(for: $0.id), preview: $0.lastText, query: query)
+        }
+    }
+    private var pinnedThreads: [UiThread] { shownThreads.filter { store.isPinnedThread($0.id) } }
+    private var recentThreads: [UiThread] { shownThreads.filter { !store.isPinnedThread($0.id) } }
 
     private var quietContacts: [UiContact] {
         let active = Set(store.threads.map(\.id))
@@ -33,25 +44,20 @@ struct ChatsView: View {
                     Text("Not connected to a radio.\nConnect in Settings.")
                         .foregroundStyle(.secondary)
                 }
+                if let pasteNote {
+                    Text(pasteNote).font(.caption).foregroundStyle(.secondary)
+                }
                 if let problem = store.historyProblem {
                     Text(problem).font(.caption).foregroundStyle(.red)
                 }
-                if !shownThreads.isEmpty {
-                    Section("Recent") {
-                        ForEach(shownThreads) { thread in
-                            NavigationLink(value: thread.id) {
-                                ThreadRow(thread: thread, title: store.title(for: thread.id))
-                            }
-                            .swipeActions {
-                                Button("Delete", role: .destructive) {
-                                    store.deleteThread(thread.id)
-                                }
-                            }
-                            .swipeActions(edge: .leading) {
-                                Button("Unread") { store.markUnread(thread.id) }.tint(.blue)
-                            }
-                        }
-                    }
+                if !pinnedThreads.isEmpty {
+                    Section("Pinned") { ForEach(pinnedThreads) { threadRow($0) } }
+                }
+                if !recentThreads.isEmpty {
+                    Section("Recent") { ForEach(recentThreads) { threadRow($0) } }
+                }
+                if !query.isEmpty && shownThreads.isEmpty {
+                    Text("Nothing matches.").foregroundStyle(.secondary)
                 }
                 if !quietChannels.isEmpty {
                     Section("Channels") {
@@ -75,12 +81,14 @@ struct ChatsView: View {
                 }
             }
             .navigationTitle("Chats")
+            .searchable(text: $query, prompt: "Search conversations")
             .toolbar {
                 // What + starts: a message or a channel (Android's chooser).
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
                         Button { newMessage = true } label: { Label("Message a contact", systemImage: "person") }
                         Button { addingChannel = true } label: { Label("Add or join a channel", systemImage: "number") }
+                        Button { pasteNote = store.pasteCode() } label: { Label("Paste a code", systemImage: "doc.on.clipboard") }
                     } label: {
                         Image(systemName: "plus")
                     }
@@ -102,6 +110,24 @@ struct ChatsView: View {
             .navigationDestination(for: String.self) { key in
                 ConversationView(threadKey: key)
             }
+        }
+    }
+}
+
+extension ChatsView {
+    func threadRow(_ thread: UiThread) -> some View {
+        NavigationLink(value: thread.id) {
+            ThreadRow(thread: thread, title: store.title(for: thread.id))
+        }
+        .swipeActions {
+            Button("Delete", role: .destructive) { store.deleteThread(thread.id) }
+        }
+        .swipeActions(edge: .leading) {
+            Button("Unread") { store.markUnread(thread.id) }.tint(.blue)
+        }
+        .contextMenu {
+            Button(store.isPinnedThread(thread.id) ? "Unpin" : "Pin to top") { store.togglePinThread(thread.id) }
+            Button("Mark unread") { store.markUnread(thread.id) }
         }
     }
 }
@@ -161,7 +187,7 @@ private struct NewMessageSheet: View {
     var body: some View {
         NavigationStack {
             List {
-                let shown = ContactNodes.shared.newMessageCandidates(nodes: store.nodes, query: query)
+                let shown = ContactNodes.shared.messageCandidates(nodes: store.nodes, query: query)
                 if shown.isEmpty {
                     Text(NewMessage.shared.emptyText(query: query)).foregroundStyle(.secondary)
                 }

@@ -189,6 +189,13 @@ class ChannelJoin(private val radio: Radio, private val crypto: CryptoProvider) 
         return if (runCatching { radio.setChannel(index, n, psk) }.getOrDefault(false)) "Channel updated" else "Channel write failed"
     }
 
+    /** "Join the Public channel": the well-known key under its usual name (Android's joinPublicChannel). */
+    suspend fun joinPublic(): Outcome =
+        add(io.github.thatsfguy.meshcore.presentation.ChannelSetup.PUBLIC_NAME, io.github.thatsfguy.meshcore.protocol.ChannelCrypto.PUBLIC_CHANNEL_PSK)
+
+    /** Whether the radio already holds the Public channel's key, under any name. */
+    fun hasPublic(): Boolean = ChannelList.findByPsk(radio.channels, io.github.thatsfguy.meshcore.protocol.ChannelCrypto.PUBLIC_CHANNEL_PSK.toHex()) != null
+
     /** The link that shares [channel], for a person you trust with every message on it. */
     fun shareLink(channel: Channel): String = ShareUri.encodeChannel(channel.name, channel.pskHex)
 

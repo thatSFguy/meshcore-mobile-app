@@ -39,6 +39,14 @@ struct AddChannelSheet: View {
                 }
                 .pickerStyle(.segmented)
 
+                if !store.hasPublic {
+                    Section {
+                        Button("Join the Public channel") { store.joinPublic() }.disabled(!store.isReady)
+                    } footer: {
+                        Text("The channel every MeshCore radio shares by default. Its key is public: anyone can read it.")
+                    }
+                }
+
                 switch mode {
                 case .hashtag:
                     Section {

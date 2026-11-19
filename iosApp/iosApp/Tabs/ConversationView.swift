@@ -26,6 +26,10 @@ struct ConversationView: View {
     @State private var roomSignIn = false
     @State private var manageRoom = false
     @State private var clearConfirm = false
+    @State private var showContact = false
+    /// An http link from a message, held for the leave-the-mesh warning.
+    @State private var pendingUrl: URL?
+    @State private var showRouting = false
     @Environment(\.dismiss) private var dismiss
 
     private var isChannel: Bool { threadKey.hasPrefix("ch|") }
@@ -91,6 +95,16 @@ struct ConversationView: View {
                     }
                     .padding(.horizontal, 12)
                 }
+                // Links in messages: http only after the warning; meshcore://
+                // through the same confirmation as a scanned code.
+                .environment(\.openURL, OpenURLAction { url in
+                    if url.scheme?.lowercased() == "meshcore" {
+                        store.openScanned(url.absoluteString)
+                    } else {
+                        pendingUrl = url
+                    }
+                    return .handled
+                })
                 .onChange(of: messages.last?.id) {
                     if let last = messages.last {
                         withAnimation { proxy.scrollTo(last.id, anchor: .bottom) }
@@ -106,6 +120,10 @@ struct ConversationView: View {
             roomBanner
             if let target = replyingTo { replyBanner(target) }
             mentionSuggestions
+            if let counter = ComposerBudget.shared.counter(text: draft, budget: budget) {
+                Text(counter).font(.caption2).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .trailing).padding(.horizontal, 12)
+            }
             HStack {
                 TextField(isChannel ? "Message channel…" : "Message…", text: $draft, axis: .vertical)
                     .lineLimit(1...4)
@@ -146,8 +164,22 @@ struct ConversationView: View {
                 .onChange(of: store.adminSession(node.id).signedIn) { _, now in if now { roomSignIn = false } }
             }
         }
+        .sheet(isPresented: $showContact) { if let n = peerNode { NodeDetailSheet(node: n) } }
+        .navigationDestination(isPresented: $showRouting) {
+            if let n = peerNode { RoutingView(keyHex: n.id, title: n.displayName) }
+        }
         .navigationDestination(isPresented: $manageRoom) {
             if let node = roomNode { RepeaterView(node: node) }
+        }
+        .alert(MessageLinkSpans.shared.LEAVE_TITLE,
+               isPresented: Binding(get: { pendingUrl != nil }, set: { if !$0 { pendingUrl = nil } })) {
+            Button(MessageLinkSpans.shared.LEAVE_ACTION) {
+                if let u = pendingUrl { UIApplication.shared.open(u) }
+                pendingUrl = nil
+            }
+            Button("Cancel", role: .cancel) { pendingUrl = nil }
+        } message: {
+            Text(MessageLinkSpans.shared.leaveText(url: pendingUrl?.absoluteString ?? ""))
         }
         .confirmationDialog("Clear this thread?", isPresented: $clearConfirm, titleVisibility: .visible) {
             Button("Clear thread", role: .destructive) {
@@ -175,6 +207,15 @@ struct ConversationView: View {
         } message: {
             Text(DmRequests.companion.CONFIRM_TEXT)
         }
+        // The radio can't carry more than the budget, and the frame builder
+        // doesn't trim — so the composer stops at it (shared ComposerBudget).
+        .onChange(of: draft) { _, now in
+            let clamped = ComposerBudget.shared.clamp(text: now, budget: budget)
+            if clamped != now { draft = clamped }
+        }
+        .onChange(of: replyingTo?.id) { _, _ in
+            draft = ComposerBudget.shared.clamp(text: draft, budget: budget)
+        }
         .onAppear {
             store.setActiveThread(threadKey)
             if draft.isEmpty { draft = store.drafts[threadKey] ?? "" }
@@ -185,9 +226,25 @@ struct ConversationView: View {
         }
     }
 
+    /// Bytes the draft may use: the radio's limit less the quote's prefix.
+    private var budget: Int32 {
+        ComposerBudget.shared.budget(isChannel: isChannel, selfName: store.selfName, quotePrefix: quotePrefix())
+    }
+
     // MARK: Thread menu and rooms (as Android's conversation menu)
 
     private var isRoom: Bool { store.isRoom(threadKey) }
+
+    /// The peer of a direct thread, as a node (nil for a channel, or a key
+    /// the radio no longer holds).
+    private var peerNode: UiNode? {
+        guard threadKey.hasPrefix("dm|") else { return nil }
+        let key = String(threadKey.dropFirst(3))
+        let now = Int64(Date().timeIntervalSince1970)
+        return store.nodes.first { $0.keyHex == key }.map {
+            UiNode($0, now: now, nickname: store.nickname(key), distance: store.distance(to: $0))
+        }
+    }
 
     private var roomNode: UiNode? {
         guard isRoom else { return nil }
@@ -211,6 +268,12 @@ struct ConversationView: View {
             }
             if isRoom, let node = roomNode, store.adminSession(node.id).isAdmin {
                 Button("Manage room…") { manageRoom = true }
+            }
+            // A person's thread reaches their sheet and routes from here, in
+            // full mode (Android's "Contact details…" / "Routing / paths…").
+            if !isChannel, AppModes.shared.showsTechnicalActions(mode: store.appMode), peerNode != nil {
+                Button("Contact details…") { showContact = true }
+                Button("Routing / paths…") { showRouting = true }
             }
             Button("Clear thread…", role: .destructive) { clearConfirm = true }
         } label: {
@@ -411,15 +474,31 @@ struct MessageBubble: View {
     /// `@[Name]` mentions coloured; the one naming this radio in bold.
     private func styled(_ text: String) -> AttributedString {
         var out = AttributedString(text)
-        let h = Mentions.shared.highlights(text: text, selfName: selfName).map { Int(truncating: $0) }
         let utf16 = text.utf16
+        func range(_ lo: Int, _ hi: Int) -> Range<AttributedString.Index>? {
+            guard let l = utf16.index(utf16.startIndex, offsetBy: lo, limitedBy: utf16.endIndex),
+                  let h = utf16.index(utf16.startIndex, offsetBy: hi, limitedBy: utf16.endIndex),
+                  let a = AttributedString.Index(l, within: out), let b = AttributedString.Index(h, within: out) else { return nil }
+            return a..<b
+        }
+        // Links (shared MessageLinkSpans). Tapping one goes through the
+        // conversation's openURL handler, which confirms before anything
+        // leaves the mesh — never straight to the browser.
+        let links = MessageLinkSpans.shared.find(text: text)
+        for link in links {
+            if let r = range(Int(link.start), Int(link.end)), let url = URL(string: link.url) {
+                out[r].link = url
+                out[r].underlineStyle = .single
+            }
+        }
+        let h = Mentions.shared.highlights(text: text, selfName: selfName).map { Int(truncating: $0) }
         var i = 0
         while i + 2 < h.count {
-            if let lo = utf16.index(utf16.startIndex, offsetBy: h[i], limitedBy: utf16.endIndex),
-               let hi = utf16.index(utf16.startIndex, offsetBy: h[i + 1], limitedBy: utf16.endIndex),
-               let a = AttributedString.Index(lo, within: out), let b = AttributedString.Index(hi, within: out) {
-                out[a..<b].foregroundColor = .accentColor
-                if h[i + 2] == 1 { out[a..<b].font = .body.bold() }
+            // A mention inside a link stays part of the link (Android's rule).
+            let inLink = links.contains { Int($0.start) <= h[i] && h[i] < Int($0.end) }
+            if !inLink, let r = range(h[i], h[i + 1]) {
+                out[r].foregroundColor = .accentColor
+                if h[i + 2] == 1 { out[r].font = .body.bold() }
             }
             i += 3
         }
