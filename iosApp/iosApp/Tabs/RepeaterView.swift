@@ -21,7 +21,7 @@ struct RepeaterView: View {
             if session.signedIn {
                 RepeaterHub(node: node, session: session)
             } else {
-                RepeaterSignIn(node: node)
+                RepeaterSignIn(node: node, isRoom: node.type == Codes.shared.ADV_TYPE_ROOM)
             }
         }
         .navigationTitle(node.displayName)
@@ -29,9 +29,29 @@ struct RepeaterView: View {
     }
 }
 
-private struct RepeaterSignIn: View {
+/// A room: sign in, then read and post (Android's openRoom). The sign-in
+/// is not optional — a room only accepts posts from, and sends new posts
+/// to, people who have signed in (shared RoomModel). Management is inside
+/// the room, for an admin.
+struct RoomView: View {
     @EnvironmentObject var store: MeshCoreStore
     let node: UiNode
+
+    var body: some View {
+        if store.adminSession(node.id).signedIn {
+            ConversationView(threadKey: "dm|\(node.id)")
+        } else {
+            RepeaterSignIn(node: node, isRoom: true)
+                .navigationTitle(node.displayName)
+                .navigationBarTitleDisplayMode(.inline)
+        }
+    }
+}
+
+struct RepeaterSignIn: View {
+    @EnvironmentObject var store: MeshCoreStore
+    let node: UiNode
+    var isRoom: Bool = false
     @State private var password = ""
     @State private var busy = false
     @State private var problem: String?
@@ -52,7 +72,8 @@ private struct RepeaterSignIn: View {
                 }
                 .disabled(busy || !store.isReady)
             } footer: {
-                Text("A blank password works on a node that already knows this radio. The password crosses the mesh in the clear if the link is TCP.")
+                Text((isRoom ? RoomModelKt.roomPasswordHint() + " " : "") +
+                     "A blank password works on a node that already knows this radio. The password crosses the mesh in the clear if the link is TCP.")
             }
             if let problem {
                 Section { Text(problem).foregroundStyle(.red) }
@@ -101,7 +122,7 @@ private struct RepeaterHub: View {
                     case "help":
                         NavigationLink { CommandHelpView(node: node, session: session) } label: { tileLabel(tile) }
                     default:
-                        tileLabel(tile, note: "On Android only, for now")
+                        tileLabel(tile, note: "Not on iOS")
                             .foregroundStyle(.secondary)
                     }
                 }

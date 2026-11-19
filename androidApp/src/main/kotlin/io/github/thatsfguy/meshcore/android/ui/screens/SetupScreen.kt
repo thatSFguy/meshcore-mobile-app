@@ -70,7 +70,7 @@ fun SetupScreen(vm: MeshCoreViewModel, onDone: () -> Unit) {
             .verticalScroll(rememberScrollState())
             .padding(24.dp),
     ) {
-        Text("Set up MeshCore Hardened", style = MaterialTheme.typography.headlineSmall)
+        Text(io.github.thatsfguy.meshcore.presentation.SetupChecklist.TITLE, style = MaterialTheme.typography.headlineSmall)
         Spacer(Modifier.height(8.dp))
         HintText(
             "This app talks to a MeshCore LoRa radio over Bluetooth or USB. Without one " +
@@ -108,94 +108,59 @@ fun SetupScreen(vm: MeshCoreViewModel, onDone: () -> Unit) {
         HintText("You can switch at any time in Settings. Nothing is lost either way.")
 
         Spacer(Modifier.height(20.dp))
-        SetupStep(
-            number = 1,
-            title = "Connect a radio",
-            done = connected,
-            detail = if (connected) {
-                "Connected to ${vm.connectionLabel.collectAsState().value ?: "a radio"}."
-            } else {
-                "Pair over Bluetooth, or plug one in over USB."
-            },
-        ) {
-            HintText("Open Settings → Connection to pair or plug in a radio.")
-        }
-
-        SetupStep(
-            number = 2,
-            title = "Name this node",
-            done = connected && !self?.name.isNullOrBlank(),
-            detail = "Your name is broadcast in every advert — the whole mesh sees it. " +
-                "Pick something you're happy being known by out there.",
-        ) {
-            if (!connected) {
-                HintText("Connect a radio first.")
-            } else {
-                OutlinedTextField(
-                    value = name,
-                    onValueChange = { name = it },
-                    label = { Text("Node name") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                ButtonFlowRow {
-                    TextButton(
-                        onClick = { vm.setAdvertName(name.trim()) },
-                        enabled = name.isNotBlank() && name.trim() != self?.name,
-                    ) { Text("Set name") }
+        // Steps and wording are shared (SetupChecklist) so iOS says the same.
+        val connectionLabel by vm.connectionLabel.collectAsState()
+        val steps = io.github.thatsfguy.meshcore.presentation.SetupChecklist.steps(
+            connected = connected,
+            connectionLabel = connectionLabel,
+            nodeName = self?.name,
+            matchingPresets = matches.map { it.name },
+            simple = simple,
+            inAGroup = inAGroup,
+        )
+        for (step in steps) {
+            SetupStep(step.number, step.title, step.done, step.detail) {
+                when (step.key) {
+                    io.github.thatsfguy.meshcore.presentation.SetupChecklist.CONNECT ->
+                        HintText("Open Settings → Connection to pair or plug in a radio.")
+                    io.github.thatsfguy.meshcore.presentation.SetupChecklist.NAME ->
+                        if (!connected) {
+                            HintText(io.github.thatsfguy.meshcore.presentation.SetupChecklist.NEEDS_RADIO)
+                        } else {
+                            OutlinedTextField(
+                                value = name,
+                                onValueChange = { name = it },
+                                label = { Text("Node name") },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                            ButtonFlowRow {
+                                TextButton(
+                                    onClick = { vm.setAdvertName(name.trim()) },
+                                    enabled = name.isNotBlank() && name.trim() != self?.name,
+                                ) { Text("Set name") }
+                            }
+                        }
+                    io.github.thatsfguy.meshcore.presentation.SetupChecklist.RADIO ->
+                        if (!connected) {
+                            HintText(io.github.thatsfguy.meshcore.presentation.SetupChecklist.NEEDS_RADIO)
+                        } else {
+                            ButtonFlowRow {
+                                TextButton(onClick = { presetSheet = true }) { Text("Pick a regional preset…") }
+                            }
+                            HintText(io.github.thatsfguy.meshcore.protocol.RadioPresets.REGULATORY_CAVEAT)
+                        }
+                    io.github.thatsfguy.meshcore.presentation.SetupChecklist.GROUP ->
+                        if (connected) {
+                            OutlinedButton(onClick = {
+                                scanLauncher.launch(meshScanOptions("Scan your group's channel code"))
+                            }) { Text("Scan the channel code") }
+                        } else {
+                            HintText(io.github.thatsfguy.meshcore.presentation.SetupChecklist.NEEDS_RADIO)
+                        }
+                    else -> HintText("The full list is in Settings → About.")
                 }
             }
-        }
-
-        SetupStep(
-            number = 3,
-            title = "Match your local radio settings",
-            done = connected && matches.isNotEmpty(),
-            detail = if (matches.isNotEmpty()) {
-                "Currently on ${matches.joinToString(", ") { it.name }}."
-            } else {
-                "Every node on a mesh must share the same frequency, bandwidth, " +
-                    "spreading factor and coding rate. Mismatched, you'll see an empty " +
-                    "app rather than an error."
-            },
-        ) {
-            if (!connected) {
-                HintText("Connect a radio first.")
-            } else {
-                ButtonFlowRow {
-                    TextButton(onClick = { presetSheet = true }) { Text("Pick a regional preset…") }
-                }
-                HintText(io.github.thatsfguy.meshcore.protocol.RadioPresets.REGULATORY_CAVEAT)
-            }
-        }
-
-        if (simple) {
-            SetupStep(
-                number = 4,
-                title = "Join your group's channel",
-                done = inAGroup,
-                detail = "Your group talks on its own channel. Scan the channel code someone " +
-                    "in the group shows you, or tap the link they sent.",
-            ) {
-                if (connected) {
-                    OutlinedButton(onClick = {
-                        scanLauncher.launch(meshScanOptions("Scan your group's channel code"))
-                    }) { Text("Scan the channel code") }
-                } else {
-                    HintText("Connect a radio first.")
-                }
-            }
-        }
-
-        SetupStep(
-            number = if (simple) 5 else 4,
-            title = "Know what this app protects",
-            done = false,
-            detail = "Direct messages are end-to-end encrypted. Channels are only " +
-                "obfuscated — AES-ECB with a 2-byte MAC and a key that never changes — " +
-                "so treat a channel as a room with an unlocked door, not a sealed one.",
-        ) {
-            HintText("The full list is in Settings → About.")
         }
 
         Spacer(Modifier.height(24.dp))
@@ -203,7 +168,7 @@ fun SetupScreen(vm: MeshCoreViewModel, onDone: () -> Unit) {
             OutlinedButton(onClick = {
                 vm.prefs.setupComplete = true
                 onDone()
-            }) { Text(if (connected) "Done" else "Skip for now") }
+            }) { Text(io.github.thatsfguy.meshcore.presentation.SetupChecklist.finishLabel(connected)) }
         }
         Spacer(Modifier.height(32.dp))
     }

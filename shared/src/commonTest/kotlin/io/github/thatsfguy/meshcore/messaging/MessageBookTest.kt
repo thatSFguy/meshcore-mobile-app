@@ -365,4 +365,18 @@ class MessageBookTest {
         b.markUnread(dm)
         assertNull(b.unread.value[dm], "the thread on screen accrues no unread")
     }
+
+    @Test
+    fun namesSeenCountsEachNameAndPutsTheLatestFirst() {
+        val b = book()
+        b.receive(ch, true, "Bob", "a", 1, "k1")
+        b.receive(ch, true, "Ann", "b", 2, "k2")
+        b.receive(ch, true, " Bob ", "c", 3, "k3")
+        b.receive(dm, false, null, "d", 4, "k4")
+        val seen = b.senders(ch)
+        assertEquals(listOf("Bob", "Ann"), seen.map { it.name })
+        assertEquals(2, seen.first().messageCount)
+        assertTrue(seen.first().lastSeenAtMs > seen.last().lastSeenAtMs)
+        assertTrue(b.senders(dm).isEmpty(), "a DM names no author")
+    }
 }

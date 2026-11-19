@@ -292,7 +292,7 @@ private struct SignalSection: View {
     }
 }
 
-private struct PresetSheet: View {
+struct PresetSheet: View {
     @EnvironmentObject var node: NodeSettingsStore
     @Environment(\.dismiss) private var dismiss
     @State private var query = ""

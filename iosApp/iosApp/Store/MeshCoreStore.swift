@@ -490,6 +490,18 @@ final class MeshCoreStore: ObservableObject {
     var drafts: [String: String] = [:]
 
     /// Names that have posted in a thread, newest first (mention candidates).
+    /// "Names seen": who has posted here, with counts (shared MessageBook).
+    func senders(_ threadKey: String) -> [MessageBook.SenderSeen] {
+        session?.book.senders(threadKey: threadKey) ?? []
+    }
+
+    /// Whether a thread is a room server's (posts from many, through the room).
+    func isRoom(_ threadKey: String) -> Bool {
+        guard threadKey.hasPrefix("dm|") else { return false }
+        let key = String(threadKey.dropFirst(3))
+        return contacts.first(where: { $0.id == key })?.type == Codes.shared.ADV_TYPE_ROOM
+    }
+
     func senderNames(_ threadKey: String) -> [String] {
         session?.book.senderNames(threadKey: threadKey) ?? []
     }
@@ -611,8 +623,18 @@ final class MeshCoreStore: ObservableObject {
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
     }
 
+    /// Threads muted one by one (shared MutedThreads); unread still counts.
+    @AppStorage("mutedThreads") private var mutedThreadsRaw: String = ""
+
+    func isMuted(_ threadKey: String) -> Bool { MutedThreads.shared.isMuted(raw: mutedThreadsRaw, threadKey: threadKey) }
+
+    func toggleMute(_ threadKey: String) {
+        objectWillChange.send()
+        mutedThreadsRaw = MutedThreads.shared.toggled(raw: mutedThreadsRaw, threadKey: threadKey)
+    }
+
     private func notify(threadKey: String, sender: String?, text: String) {
-        guard notificationsEnabled else { return }
+        guard notificationsEnabled, !isMuted(threadKey) else { return }
         let isChannel = threadKey.hasPrefix("ch|")
         if isChannel ? !notifyChannels : !notifyDirect { return }
         let content = UNMutableNotificationContent()
@@ -1070,6 +1092,18 @@ final class MeshCoreStore: ObservableObject {
         }
     }
 
+    /// Whether the radio holds a group's private channel (setup step 4).
+    var inAGroup: Bool {
+        ((engine.channels.value as? [Channel]) ?? []).contains {
+            !$0.name.isEmpty && SetupChecklist.shared.isGroupChannel(kind: ChannelKinds.shared.of(name: $0.name, psk: $0.psk, crypto: crypto))
+        }
+    }
+
+    /// First-run setup has been finished or skipped (Android's setupComplete).
+    @AppStorage("setupComplete") var setupComplete: Bool = false {
+        willSet { objectWillChange.send() }
+    }
+
     private func channel(_ index: Int32) -> Channel? {
         (engine.channels.value as? [Channel])?.first { $0.index == index }
     }
@@ -1168,6 +1202,11 @@ final class MeshCoreStore: ObservableObject {
         objectWillChange.send()
         blockedKeysRaw = set.sorted().joined(separator: "\n")
         pushBlocks()
+    }
+
+    func isFiltered(_ name: String) -> Bool {
+        guard let n = BlockList.shared.canonicalName(raw: name) else { return false }
+        return filteredNames.contains(n)
     }
 
     func setFiltered(_ name: String, _ filtered: Bool) {

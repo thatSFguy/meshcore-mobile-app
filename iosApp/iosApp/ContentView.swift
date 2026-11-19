@@ -24,6 +24,12 @@ struct ContentView: View {
                 .tabItem { Label("Settings", systemImage: "gear") }
         }
         .onOpenURL { store.openIncoming($0) }
+        // First-run setup until it's finished or skipped (Android's setupComplete).
+        .fullScreenCover(isPresented: Binding(get: { !store.setupComplete }, set: { if !$0 { store.setupComplete = true } })) {
+            SetupView()
+                .environmentObject(store)
+                .environmentObject(store.node)
+        }
         // A community code (scanned or pasted): confirm before joining.
         .alert("Join community \(store.pendingCommunity.flatMap { store.communityName($0) } ?? "")?",
                isPresented: Binding(get: { store.pendingCommunity != nil }, set: { if !$0 { store.pendingCommunity = nil } })) {

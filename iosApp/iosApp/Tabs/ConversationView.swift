@@ -22,6 +22,11 @@ struct ConversationView: View {
     @State private var reactingTo: UiMessage?
     @State private var askName: String?
     @State private var dmNote: String?
+    @State private var showSenders = false
+    @State private var roomSignIn = false
+    @State private var manageRoom = false
+    @State private var clearConfirm = false
+    @Environment(\.dismiss) private var dismiss
 
     private var isChannel: Bool { threadKey.hasPrefix("ch|") }
 
@@ -98,6 +103,7 @@ struct ConversationView: View {
             if let dmNote {
                 Text(dmNote).font(.caption).foregroundStyle(.secondary).padding(.horizontal, 8)
             }
+            roomBanner
             if let target = replyingTo { replyBanner(target) }
             mentionSuggestions
             HStack {
@@ -127,6 +133,29 @@ struct ConversationView: View {
                         .sheet(isPresented: $showChannelInfo) { ChannelInfoSheet(index: idx) }
                 }
             }
+            ToolbarItem(placement: .topBarTrailing) { threadMenu }
+        }
+        .sheet(isPresented: $showSenders) { NamesSeenSheet(threadKey: threadKey, isChannel: isChannel) }
+        .sheet(isPresented: $roomSignIn) {
+            if let node = roomNode {
+                NavigationStack {
+                    RepeaterSignIn(node: node, isRoom: true)
+                        .navigationTitle(node.displayName)
+                        .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { roomSignIn = false } } }
+                }
+                .onChange(of: store.adminSession(node.id).signedIn) { _, now in if now { roomSignIn = false } }
+            }
+        }
+        .navigationDestination(isPresented: $manageRoom) {
+            if let node = roomNode { RepeaterView(node: node) }
+        }
+        .confirmationDialog("Clear this thread?", isPresented: $clearConfirm, titleVisibility: .visible) {
+            Button("Clear thread", role: .destructive) {
+                store.deleteThread(threadKey)
+                dismiss()
+            }
+        } message: {
+            Text("Removes the messages from this phone only — nothing is sent to the mesh.")
         }
         .confirmationDialog(
             "Hide messages from \(hideName ?? "")?",
@@ -156,6 +185,57 @@ struct ConversationView: View {
         }
     }
 
+    // MARK: Thread menu and rooms (as Android's conversation menu)
+
+    private var isRoom: Bool { store.isRoom(threadKey) }
+
+    private var roomNode: UiNode? {
+        guard isRoom else { return nil }
+        let key = String(threadKey.dropFirst(3))
+        let now = Int64(Date().timeIntervalSince1970)
+        return store.nodes.first { $0.keyHex == key }.map { UiNode($0, now: now, nickname: store.nickname(key)) }
+    }
+
+    private var threadMenu: some View {
+        Menu {
+            Toggle("Mute notifications", isOn: Binding(
+                get: { store.isMuted(threadKey) },
+                set: { _ in store.toggleMute(threadKey) }
+            ))
+            Button("Mark unread") {
+                store.markUnread(threadKey)
+                dismiss()
+            }
+            if isChannel || isRoom {
+                Button("Names seen…") { showSenders = true }
+            }
+            if isRoom, let node = roomNode, store.adminSession(node.id).isAdmin {
+                Button("Manage room…") { manageRoom = true }
+            }
+            Button("Clear thread…", role: .destructive) { clearConfirm = true }
+        } label: {
+            Image(systemName: "ellipsis.circle")
+        }
+    }
+
+    /// Why a room isn't working yet, and the way to fix it (shared RoomModel).
+    @ViewBuilder private var roomBanner: some View {
+        if isRoom, let node = roomNode {
+            let session = store.adminSession(node.id)
+            if let notice = RoomModelKt.roomAccessNotice(session: session) {
+                HStack(alignment: .top) {
+                    Text(notice).font(.caption)
+                    Spacer()
+                    if let action = RoomModelKt.roomAccessAction(session: session) {
+                        Button(action) { roomSignIn = true }.font(.caption.bold())
+                    }
+                }
+                .padding(8)
+                .background(Color.orange.opacity(0.15))
+            }
+        }
+    }
+
     // MARK: Reply and mention (shared Quoting / Mentions, as Android)
 
     private func replyBanner(_ target: UiMessage) -> some View {
@@ -178,7 +258,7 @@ struct ConversationView: View {
 
     /// Who can be mentioned here: a channel's recent senders, or the DM peer.
     private var mentionNames: [String] {
-        if isChannel { return store.senderNames(threadKey) }
+        if isChannel || isRoom { return store.senderNames(threadKey) }
         let peer = store.title(for: threadKey)
         return Mentions.shared.canMention(name: peer) ? [peer] : []
     }
@@ -496,6 +576,53 @@ private struct ReactionPicker: View {
             }
             .navigationTitle("React")
             .navigationBarTitleDisplayMode(.inline)
+        }
+    }
+}
+
+/// "Names seen": who has posted here, among the messages kept. Names, not
+/// identities — the reason it isn't called "Members" (Android's sheet).
+private struct NamesSeenSheet: View {
+    @EnvironmentObject var store: MeshCoreStore
+    @Environment(\.dismiss) private var dismiss
+    let threadKey: String
+    let isChannel: Bool
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    let seen = store.senders(threadKey)
+                    if seen.isEmpty {
+                        Text("No inbound messages kept here yet.").foregroundStyle(.secondary)
+                    }
+                    ForEach(seen, id: \.name) { row($0) }
+                } footer: {
+                    Text(isChannel
+                         ? "Anyone with the channel key can post under any name, including one you recognise. A channel message carries a name, not a key, so nothing here can be verified."
+                         : "Names as the room relayed them.")
+                }
+            }
+            .navigationTitle("Names seen")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+        }
+    }
+
+    private func row(_ s: MessageBook.SenderSeen) -> some View {
+        let ago = RelativeTime.shared.agoMillis(elapsedMillis: Int64(Date().timeIntervalSince1970 * 1000) - s.lastSeenAtMs)
+        return HStack {
+            VStack(alignment: .leading) {
+                Text(s.name)
+                Text("\(s.messageCount) message(s) · last \(ago)").font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+            if isChannel {
+                Button(store.isFiltered(s.name) ? "Show" : "Hide") {
+                    store.setFiltered(s.name, !store.isFiltered(s.name))
+                }
+                .buttonStyle(.borderless)
+            }
         }
     }
 }

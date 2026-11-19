@@ -393,7 +393,7 @@ private struct AboutSpoke: View {
 
 /// The scanner is owned by the store (it holds the app's one BLE
 /// central); this view only observes it.
-private struct BluetoothSection: View {
+struct BluetoothSection: View {
     @EnvironmentObject var store: MeshCoreStore
     @ObservedObject var scanner: BleScanner
 

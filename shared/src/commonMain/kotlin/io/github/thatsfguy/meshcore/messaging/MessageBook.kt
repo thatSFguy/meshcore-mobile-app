@@ -340,6 +340,20 @@ class MessageBook(
             .mapNotNull { it.senderName?.trim() }
             .distinct()
 
+    /** One name that has posted in a thread, for "Names seen". */
+    data class SenderSeen(val name: String, val messageCount: Int, val lastSeenAtMs: Long)
+
+    /**
+     * "Names seen" (Android's ChannelSendersSheet): every name that has
+     * posted in [threadKey] among the messages kept, most recent first.
+     * Names, not identities — a channel post carries no key.
+     */
+    fun senders(threadKey: String): List<SenderSeen> =
+        _messages.value.filter { it.threadKey == threadKey && !it.outgoing && !it.senderName.isNullOrBlank() }
+            .groupBy { it.senderName!!.trim() }
+            .map { (name, rows) -> SenderSeen(name, rows.size, rows.maxOf { it.receivedAtMs }) }
+            .sortedByDescending { it.lastSeenAtMs }
+
     /** The newest inbound message in [threadKey] whose route is known. */
     fun latestArrival(threadKey: String): BookMessage? =
         _messages.value.filter { it.threadKey == threadKey && !it.outgoing && !it.arrivalPathHex.isNullOrEmpty() }

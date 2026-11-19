@@ -142,9 +142,17 @@ struct NodesView: View {
                     Button("Info") { detail = node }.tint(.blue)
                 }
                 .contextMenu { Button("Details") { detail = node } }
-        } else if node.type == 2 || node.type == 3 {
-            // A repeater or room opens its admin (sign-in is the gate),
-            // as on Android; the detail is a swipe or long-press away.
+        } else if node.type == 3 {
+            // A room opens its conversation, through the sign-in (Android's
+            // openRoom); its management is inside, for an admin.
+            NavigationLink { RoomView(node: node) } label: { content }
+                .swipeActions(edge: .trailing) {
+                    Button("Info") { detail = node }.tint(.blue)
+                }
+                .contextMenu { Button("Details") { detail = node } }
+        } else if node.type == 2 {
+            // A repeater opens its admin (sign-in is the gate), as on
+            // Android; the detail is a swipe or long-press away.
             NavigationLink { RepeaterView(node: node) } label: { content }
                 .swipeActions(edge: .trailing) {
                     Button("Info") { detail = node }.tint(.blue)
