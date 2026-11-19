@@ -90,6 +90,17 @@ fun AboutSection(vm: MeshCoreViewModel) {
  * is a changelog you can't read in the field.
  */
 private val CHANGELOG: List<Pair<String, List<String>>> = listOf(
+    "0.11.1" to listOf(
+        "Renaming a contact no longer stops it updating: the rename kept the phone's clock, and " +
+            "the radio then ignored that node's own adverts.",
+        "Messages from a node whose clock had reset were deleted on arrival. Retention now goes " +
+            "by when a message arrived on this phone.",
+        "A scanned settings code no longer says \"Applied\" when the radio refused it.",
+        "Repeater settings keep line breaks in owner text and send only whole numbers for " +
+            "forwarding values.",
+        "Trace places each hop using the hop size the trace reports.",
+        "Export nodes as GPX is removed.",
+    ),
     "0.11.0" to listOf(
         "Simple mode: Chats and Settings only, for people who just need a group's channel. It " +
             "hides things and changes no settings.",

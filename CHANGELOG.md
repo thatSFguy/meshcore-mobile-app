@@ -11,6 +11,31 @@ Every entry describes what is in **that tagged build**. A feature that landed af
 belongs in the next section, not this one — 0.3.0 was once credited with four features that
 shipped after it, which misled nobody so much as the author, three months later.
 
+## 0.11.1
+
+Fixes, mostly found while bringing the iOS app level with this one. Much of the logic both apps
+use now lives in shared code, so a fix lands in both.
+
+**Fixes**
+- **Renaming a contact stopped it updating.** The rename stamped the contact with the phone's
+  clock, and the radio then dropped that node's own adverts as replays, so its name, location
+  and route quietly stopped changing. A rename now keeps the contact's own timestamp.
+- **Messages from a node with a reset clock were deleted on arrival.** Message retention judged
+  age by the sender's clock, which a radio without GPS can lose. It now uses when the message
+  arrived on this phone.
+- **A scanned settings code said "Applied" when the radio had refused it.** It now reports the
+  refusal.
+- **Repeater settings:** owner text lost its line breaks when saved, and forwarding values were
+  sent unchecked. Line breaks survive, and only whole numbers are sent.
+- **Trace:** each hop is now placed on the map using the hop size the trace itself reports, rather
+  than the radio's setting.
+- A heard node of an unknown type was labelled "Othe".
+- Creating the key that protects stored secrets is more robust on phones whose secure storage
+  rejects the first settings tried — thanks to jpantonow (#10).
+
+**Removed:** Export nodes as GPX. No one had a use for it, and it wrote every node's position to
+a file that left the app.
+
 ## 0.11.0
 
 **Simple mode.** For handing the app to someone who just needs to talk on a group's channel,
