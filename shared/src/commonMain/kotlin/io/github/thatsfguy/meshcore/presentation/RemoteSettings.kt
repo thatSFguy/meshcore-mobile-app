@@ -266,6 +266,17 @@ class RemoteSettingsForm {
             else -> "Saved $ok/$sent — check Console"
         }
 
+        /**
+         * A regional preset on a REMOTE node: TX power, then the four radio
+         * values (Android's "Use a regional preset…"). `set radio` over the
+         * CLI only writes prefs — the node keeps running the old values until
+         * it reboots (CommonCLI.cpp:571), so the caller shows [rebootNote].
+         */
+        fun presetCommands(preset: io.github.thatsfguy.meshcore.protocol.RadioPresets.Preset): List<String> = listOf(
+            "set ${io.github.thatsfguy.meshcore.protocol.CliIds.TX} ${preset.txPowerDbm}",
+            "set ${io.github.thatsfguy.meshcore.protocol.CliIds.RADIO} ${preset.toRadioCsv()}",
+        )
+
         fun rebootNote(node: String, what: String): String =
             "$what is saved on $node, but the node is still running on its old radio settings. It applies them when it restarts."
 

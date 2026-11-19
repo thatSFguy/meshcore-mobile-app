@@ -594,6 +594,7 @@ private struct DiagnosticsSection: View {
             if enabled {
                 NavigationLink("View log") { DiagnosticsView() }
             }
+            NavigationLink(DatagramTool.shared.TITLE) { DatagramToolView() }
         } header: {
             Text("Diagnostics")
         } footer: {
@@ -637,6 +638,49 @@ private struct DiagnosticsView: View {
                 Button("Clear", role: .destructive) { diag.clear() }
                     .disabled(diag.lines.isEmpty)
             }
+        }
+    }
+}
+
+/// Send raw bytes of a data type to a channel (Android's developer tool;
+/// parsing and wording are the shared DatagramTool).
+private struct DatagramToolView: View {
+    @EnvironmentObject var store: MeshCoreStore
+    @State private var channel = "0"
+    @State private var type = DatagramTool.shared.DEFAULT_TYPE
+    @State private var payload = ""
+    @State private var note: String?
+    @State private var busy = false
+
+    var body: some View {
+        Form {
+            Section {
+                TextField("Channel", text: $channel).keyboardType(.numberPad)
+                TextField("Type (hex)", text: $type).textInputAutocapitalization(.characters).autocorrectionDisabled()
+                TextField("Payload (hex)", text: $payload).textInputAutocapitalization(.never).autocorrectionDisabled()
+                    .font(.system(.body, design: .monospaced))
+            } footer: {
+                Text(DatagramTool.shared.HINT)
+            }
+            Section {
+                Button(busy ? "Sending…" : "Send datagram") { send() }
+                    .disabled(busy || !store.isReady || payload.isEmpty)
+                if let note { Text(note).font(.caption) }
+            }
+        }
+        .navigationTitle("Channel datagram")
+    }
+
+    private func send() {
+        guard let r = DatagramTool.shared.parse(channel: channel, typeHex: type, payloadHex: payload) else {
+            note = DatagramTool.shared.problem(channel: channel, typeHex: type, payloadHex: payload)
+            return
+        }
+        busy = true
+        Task {
+            let ok = await store.sendDatagram(r)
+            note = DatagramTool.shared.result(ok: ok, request: r)
+            busy = false
         }
     }
 }

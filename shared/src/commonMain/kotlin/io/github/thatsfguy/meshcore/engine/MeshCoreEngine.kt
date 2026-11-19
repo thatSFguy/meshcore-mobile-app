@@ -1880,6 +1880,35 @@ class MeshCoreEngine(
      * Toggle the favourite bit in a contact's flags (the radio owns the
      * flag, so this is a contact-record rewrite like routing changes).
      */
+    /**
+     * Rename a contact ON THE RADIO (not a phone-side nickname). Like every
+     * rewrite it carries the contact's own advert timestamp — Android's
+     * first rename passed the phone's clock, which future-stamps the record
+     * so the node's real adverts are dropped as replays (see
+     * [Frames.addUpdateContact]). The name is cut to the slot on a
+     * character boundary by the frame builder.
+     */
+    suspend fun renameContact(pubKey: ByteArray, name: String): Boolean {
+        val trimmed = name.trim()
+        if (trimmed.isEmpty()) return false
+        val c = _contacts.value[pubKey.toHex()] ?: return false
+        val ok = sendRaw(
+            Frames.addUpdateContact(
+                pubKey = pubKey,
+                type = c.type,
+                flags = c.flags,
+                pathLen = c.pathLen,
+                path = c.path,
+                name = trimmed,
+                timestampSeconds = c.timestamp,
+                lat = c.latitude,
+                lon = c.longitude,
+            ),
+        )
+        if (ok) sendOnly(Frames.getContactByKey(pubKey))
+        return ok
+    }
+
     suspend fun setFavourite(pubKey: ByteArray, favourite: Boolean): Boolean =
         setContactFlag(pubKey, Codes.CONTACT_FLAG_FAVORITE, favourite)
 

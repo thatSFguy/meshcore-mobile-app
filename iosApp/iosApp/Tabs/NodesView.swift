@@ -264,6 +264,8 @@ struct NodeDetailSheet: View {
     @State private var pinging = false
     @State private var pingLine: String?
     @State private var nick = ""
+    @State private var radioName = ""
+    @State private var renameNote: String?
     @State private var favourite = false
     @State private var sharing = false
 
@@ -314,6 +316,7 @@ struct NodeDetailSheet: View {
                 } footer: {
                     Text("A favourite is never removed by the stale-node sweep. A nickname replaces the advertised name in this app only.")
                 }
+                renameAndTelemetry
                 if node.type == 1 {
                     Section {
                         teleToggle("Battery", Codes.shared.CONTACT_FLAG_TELE_BASE)
@@ -372,6 +375,7 @@ struct NodeDetailSheet: View {
             .sheet(isPresented: $sharing) { ContactQrSheet(title: node.displayName, link: store.contactShareLink(node.id)) }
             .onAppear {
                 nick = store.nickname(node.id) ?? ""
+                radioName = store.liveContactName(node.id) ?? node.name
                 favourite = node.isFavorite
             }
             .confirmationDialog(
@@ -473,6 +477,28 @@ private struct HeardSection: View {
 }
 
 extension NodeDetailSheet {
+    /// Rename on the radio (shared engine; keeps the replay guard), and
+    /// anyone's telemetry as far as they allow it — people and sensors
+    /// need no sign-in (shared TelemetryFetch).
+    @ViewBuilder var renameAndTelemetry: some View {
+        Section {
+            HStack {
+                TextField("Name on the radio", text: $radioName).autocorrectionDisabled()
+                Button("Rename") {
+                    Task { renameNote = await store.renameOnRadio(node.id, radioName) ? "Renamed on the radio" : "Rename failed" }
+                }
+                .buttonStyle(.borderless)
+                .disabled(!store.isReady || radioName.trimmingCharacters(in: .whitespaces).isEmpty || radioName == node.name)
+            }
+            if let renameNote { Text(renameNote).font(.caption).foregroundStyle(.secondary) }
+        } footer: {
+            Text("Changes the name your radio stores for this node. Their next advert may set it back.")
+        }
+        if node.type == Codes.shared.ADV_TYPE_CHAT || node.type == Codes.shared.ADV_TYPE_SENSOR {
+            TelemetrySection(node: node)
+        }
+    }
+
     /// One of the radio's per-contact telemetry flags, as a switch.
     func teleToggle(_ title: String, _ flag: Int32) -> some View {
         Toggle(title, isOn: Binding(

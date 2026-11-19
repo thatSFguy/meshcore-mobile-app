@@ -305,6 +305,9 @@ private struct SignalSection: View {
 struct PresetSheet: View {
     @EnvironmentObject var node: NodeSettingsStore
     @Environment(\.dismiss) private var dismiss
+    /// Set for a REMOTE node: the preset goes to it instead of this radio.
+    var targetName: String? = nil
+    var onApply: ((RadioPresets.Preset) -> Void)? = nil
     @State private var query = ""
     @State private var chosen: RadioPresets.Preset?
 
@@ -347,9 +350,11 @@ struct PresetSheet: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } }
             }
-            .alert("Apply \(chosen?.name ?? "")?", isPresented: Binding(get: { chosen != nil }, set: { if !$0 { chosen = nil } })) {
+            .alert("Apply \(chosen?.name ?? "")\(targetName.map { " to \($0)" } ?? "")?", isPresented: Binding(get: { chosen != nil }, set: { if !$0 { chosen = nil } })) {
                 Button("Apply", role: .destructive) {
-                    if let p = chosen { node.applyPreset(p) }
+                    if let p = chosen {
+                        if let onApply { onApply(p) } else { node.applyPreset(p) }
+                    }
                     chosen = nil
                     dismiss()
                 }
@@ -646,6 +651,19 @@ struct AutoAddSpoke: View {
                     bit("Sensors", Codes.shared.AUTO_ADD_SENSOR, flags)
                 } footer: {
                     Text("Which advert types are added to the contact list automatically when heard.")
+                }
+                // The app's own rules — the radio has no notion of which
+                // repeaters are useful, so they only apply while it isn't
+                // adding every one (shared RepeaterAutoAdd, as Android).
+                if (Int32(flags) & Codes.shared.AUTO_ADD_REPEATER) == 0 {
+                    Section {
+                        Toggle("…that relayed messages I received", isOn: $store.autoAddRelaying)
+                        Toggle("…heard directly by my radio", isOn: $store.autoAddDirect)
+                    } header: {
+                        Text("The radio isn't adding repeaters. This app can add the useful ones:")
+                    } footer: {
+                        Text("\"Relayed\" means its hash is in the routes of \(RepeaterSignals.shared.MIN_RELAYS) or more messages you received in the last week — fewer can be a one-off flood, or another node sharing the hash. A repeater whose short hash another known node shares isn't counted.")
+                    }
                 }
                 Section {
                     bit("Overwrite oldest when full", Codes.shared.AUTO_ADD_OVERWRITE_OLDEST, flags)

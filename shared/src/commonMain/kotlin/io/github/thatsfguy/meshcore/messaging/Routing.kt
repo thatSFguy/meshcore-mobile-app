@@ -49,6 +49,32 @@ class Routing(private val radio: Radio) {
         return Outcome(true, "Routing set to ${mode.name.lowercase()}")
     }
 
+    /**
+     * A trace, with what Android's routing sheet does with one: [lines] to
+     * show, [hops] for "Use traced path", and [placements] — one line per
+     * hop saying where it is, or why it can't be placed (an ambiguous hop
+     * is a gap, never pinned to a guess). Everything is split at the
+     * TRACE'S own hash width, carried in its frame — never an assumed one
+     * (CLAUDE.md: the hop-hash width is this codebase's recurring defect).
+     */
+    class TraceView(
+        val lines: List<String>,
+        val hops: List<io.github.thatsfguy.meshcore.protocol.HopSelection.Hop>,
+        val placements: List<String>,
+        val summary: String?,
+    )
+
+    suspend fun traceView(
+        contact: Contact,
+        meshWidth: Int,
+        contacts: List<io.github.thatsfguy.meshcore.protocol.PathGeometry.PositionedContact>,
+    ): TraceView {
+        if (contact.storedPath.isEmpty()) return TraceView(listOf(traceFailure(contact.pathLen)), emptyList(), emptyList(), null)
+        val t = runCatching { radio.trace(contact.storedPath, meshWidth.coerceIn(1, 4)) }.getOrNull()
+            ?: return TraceView(listOf(traceFailure(contact.pathLen)), emptyList(), emptyList(), null)
+        return traceViewOf(t, contacts)
+    }
+
     /** Run a trace along [contact]'s stored route; the sentence(s) to show. */
     suspend fun trace(contact: Contact, meshWidth: Int): List<String> {
         if (contact.storedPath.isEmpty()) return listOf(traceFailure(contact.pathLen))
@@ -147,6 +173,27 @@ class Routing(private val radio: Radio) {
             "No stored route to trace — this contact is reached by flooding. Pin a path first, or trace a contact that has one."
         } else {
             "No reply. A trace has to reach every hop on this route and return — check the nodes on it have been heard recently."
+        }
+
+        fun traceViewOf(
+            t: TraceResult,
+            contacts: List<io.github.thatsfguy.meshcore.protocol.PathGeometry.PositionedContact>,
+        ): TraceView {
+            val path = hexToBytesOrNull(t.hops.joinToString("")) ?: ByteArray(0)
+            val width = t.hashWidth.coerceIn(1, 4)
+            val names = contacts.associate { it.keyHex to it.name }
+            val hops = io.github.thatsfguy.meshcore.protocol.HopSelection.fromPath(path, width, names)
+            val plot = io.github.thatsfguy.meshcore.protocol.PathGeometry.plot(path, width, contacts)
+            val placements = plot.hops.map { hop ->
+                val where = when {
+                    hop.isPlotted -> "${hop.name} · ${fixed(hop.latitude!!, 4)}, ${fixed(hop.longitude!!, 4)}"
+                    hop.gap != null -> (hop.name?.plus(" · ") ?: "") +
+                        io.github.thatsfguy.meshcore.protocol.PathGeometry.gapReason(hop.gap!!)
+                    else -> "unknown"
+                }
+                "${hop.hashHex}  $where"
+            }
+            return TraceView(traceLines(t), hops, placements, if (plot.hops.isEmpty()) null else plot.summary())
         }
 
         fun traceLines(t: TraceResult): List<String> = listOf(

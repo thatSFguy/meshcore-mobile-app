@@ -133,4 +133,24 @@ class RoutingTest {
         assertTrue(Routing(FakeRadio(trace = null)).ping(al, 2, emptyList()) { 0 }.startsWith("No reply."))
         assertTrue("3-byte hop hashes" in Routing(FakeRadio()).ping(al, 3, emptyList()) { 0 })
     }
+
+    @Test
+    fun aTraceIsSplitAtItsOwnWidthAndEachHopIsPlacedOrExplained() {
+        // The live capture's route: two hops at 2-byte hashes. Split at 1
+        // it would be four hops — the recurring width defect.
+        val t = TraceResult(1, 0, 1, 2, listOf("b389", "c985"), listOf(6.5, -2.25, 4.0))
+        val contacts = listOf(
+            io.github.thatsfguy.meshcore.protocol.PathGeometry.PositionedContact("b389" + "00".repeat(30), "Ridge", 42.96, -85.67),
+            io.github.thatsfguy.meshcore.protocol.PathGeometry.PositionedContact("c985" + "11".repeat(30), "Mill", 42.90, -85.60),
+            io.github.thatsfguy.meshcore.protocol.PathGeometry.PositionedContact("c985" + "22".repeat(30), "Mill too", 42.80, -85.50),
+        )
+        val v = Routing.traceViewOf(t, contacts)
+        assertEquals(2, v.hops.size, "split at the trace's width, 2 bytes")
+        assertEquals("b389" + "00".repeat(30), v.hops[0].keyHex, "a unique hash resolves to its full key")
+        assertEquals(null, v.hops[1].keyHex, "an ambiguous hash is not pinned to a guess")
+        assertEquals(2, v.placements.size)
+        assertTrue(v.placements[0].startsWith("b389  Ridge · 42.9600"), v.placements[0])
+        assertTrue("several contacts match" in v.placements[1], v.placements[1])
+        assertEquals(Routing.traceLines(t), v.lines)
+    }
 }

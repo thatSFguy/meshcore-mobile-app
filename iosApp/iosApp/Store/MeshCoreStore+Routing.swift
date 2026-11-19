@@ -52,11 +52,17 @@ extension MeshCoreStore {
         return message
     }
 
-    func trace(_ keyHex: String) async -> [String] {
-        guard let c = liveContact(keyHex) else { return ["That contact is no longer on the radio."] }
-        let lines = (try? await Routing.companion.over(engine: engine).trace(contact: c, meshWidth: meshWidth)) ?? []
-        diag.log("Routing", "trace \(keyHex.prefix(12)): \(lines.first ?? "nothing")")
-        return lines
+    /// A trace with its hops (for "Use traced path") and where each hop
+    /// is, all at the trace's own width (shared Routing.traceView).
+    func trace(_ keyHex: String) async -> Routing.TraceView? {
+        guard let c = liveContact(keyHex) else { return nil }
+        let positioned = allContacts.map {
+            PathGeometry.PositionedContact(keyHex: $0.publicKeyHex, name: $0.name,
+                                           latitude: $0.latitude, longitude: $0.longitude)
+        }
+        let view = try? await Routing.companion.over(engine: engine).traceView(contact: c, meshWidth: meshWidth, contacts: positioned)
+        diag.log("Routing", "trace \(keyHex.prefix(12)): \(view?.lines.first ?? "nothing")")
+        return view
     }
 
     func checkReach(_ keyHex: String) async -> String {
@@ -201,6 +207,20 @@ extension MeshCoreStore {
     func setTelemetryAllowed(_ keyHex: String, flag: Int32, _ on: Bool) async -> Bool {
         guard let key = HexKt.hexToBytesOrNull(hex: keyHex) else { return false }
         let ok = (try? await engine.setContactFlag(pubKey: key, flag: flag, enabled: on))?.boolValue ?? false
+        objectWillChange.send()
+        return ok
+    }
+}
+
+// MARK: - Rename on the radio (shared engine, keeps the replay guard)
+
+extension MeshCoreStore {
+    func liveContactName(_ keyHex: String) -> String? { liveContact(keyHex)?.name }
+
+    func renameOnRadio(_ keyHex: String, _ name: String) async -> Bool {
+        guard let key = HexKt.hexToBytesOrNull(hex: keyHex) else { return false }
+        let ok = (try? await engine.renameContact(pubKey: key, name: name))?.boolValue ?? false
+        diag.log("Store", "rename \(keyHex.prefix(12)) on radio: \(ok)")
         objectWillChange.send()
         return ok
     }

@@ -634,8 +634,9 @@ fun RemoteSettingsForm(
             targetName = contact?.name?.ifBlank { null } ?: keyHex.take(12),
             onApply = { preset ->
                 scope.launch {
-                    vm.cliQuery(keyHex, "set ${CliIds.TX} ${preset.txPowerDbm}")
-                    vm.cliQuery(keyHex, "set ${CliIds.RADIO} ${preset.toRadioCsv()}")
+                    for (command in io.github.thatsfguy.meshcore.presentation.RemoteSettingsForm.presetCommands(preset)) {
+                        vm.cliQuery(keyHex, command)
+                    }
                     // `set radio` over the CLI only writes prefs — the
                     // firmware answers "OK - reboot to apply" and keeps
                     // running on the old parameters until it restarts

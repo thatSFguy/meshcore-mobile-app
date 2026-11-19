@@ -879,25 +879,16 @@ private fun ChannelDatagramTool(vm: MeshCoreViewModel) {
     val channels by vm.dbChannels.collectAsState()
     val connected by vm.engineState.collectAsState()
     var channelIdx by remember { mutableStateOf("0") }
-    var dataType by remember { mutableStateOf("FF00") }
+    var dataType by remember { mutableStateOf(io.github.thatsfguy.meshcore.presentation.DatagramTool.DEFAULT_TYPE) }
     var payloadHex by remember { mutableStateOf("") }
     var note by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
-    Text("Channel datagram (developer)", style = MaterialTheme.typography.labelLarge)
-    ExpandableHint("Sends raw bytes to a channel. Nothing in this app reads them.") {
+    Text(io.github.thatsfguy.meshcore.presentation.DatagramTool.TITLE, style = MaterialTheme.typography.labelLarge)
+    ExpandableHint(io.github.thatsfguy.meshcore.presentation.DatagramTool.SUMMARY) {
         Text(
-            "A datagram names an application by its 16-bit data type, not a person — see " +
-                "the firmware's docs/number_allocations.md. FF00-FFFF needs no registration " +
-                "and is the range to test with. Received datagrams appear in the " +
-                "diagnostics log above with their type and payload in hex; they are never " +
-                "shown as text, because the bytes belong to another application and are " +
-                "chosen by whoever sent them.\n\n" +
-                "Change the payload every time. A datagram carries no timestamp, so the " +
-                "same type and payload make an identical packet, and the mesh drops it as " +
-                "one it has already seen. It still says \"Sent\" — the radio did transmit " +
-                "it — but nothing receives it.",
+            io.github.thatsfguy.meshcore.presentation.DatagramTool.HINT,
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -937,14 +928,13 @@ private fun ChannelDatagramTool(vm: MeshCoreViewModel) {
                 scope.launch {
                     val bytes = io.github.thatsfguy.meshcore.util.hexToBytesOrNull(payloadHex)
                     note = when {
-                        bytes == null -> "Payload must be an even number of hex digits."
+                        bytes == null -> io.github.thatsfguy.meshcore.presentation.DatagramTool.BAD_PAYLOAD
                         else -> {
                             val ok = vm.sendChannelDatagram(idx ?: -1, type ?: 0, bytes)
                             if (ok) {
                                 "Sent ${bytes.size} bytes to channel $idx."
                             } else {
-                                "Refused. Check the channel exists, the type is not 0000, " +
-                                    "and the payload is 1-163 bytes."
+                                io.github.thatsfguy.meshcore.presentation.DatagramTool.REFUSED
                             }
                         }
                     }

@@ -19,7 +19,7 @@ struct RoutingView: View {
     @State private var tokens = ""
     @State private var message: String?
     @State private var busy = false
-    @State private var traceLines: [String] = []
+    @State private var traced: Routing.TraceView?
     @State private var tracing = false
 
     private var width: Int32 { store.meshWidth }
@@ -200,17 +200,31 @@ struct RoutingView: View {
                 Button(tracing ? "Tracing…" : "Run trace") {
                     Task {
                         tracing = true
-                        traceLines = await store.trace(keyHex)
+                        traced = await store.trace(keyHex)
                         tracing = false
                     }
                 }
                 .disabled(tracing || !Routing.companion.canTrace(contact: c) || !store.isReady)
                 if tracing { HStack { ProgressView(); Text("Waiting for trace…") } }
-                ForEach(traceLines, id: \.self) { Text($0).font(.system(.callout, design: .monospaced)) }
+                if let traced { tracedRows(traced) }
             } header: {
                 Text("Trace")
             } footer: {
                 Text(Routing.companion.traceHint(contact: c))
+            }
+        }
+    }
+
+    /// The trace's lines, where each hop is (or why it can't be placed —
+    /// an ambiguous hop is never pinned to a guess), and Use traced path.
+    @ViewBuilder private func tracedRows(_ t: Routing.TraceView) -> some View {
+        ForEach(t.lines, id: \.self) { Text($0).font(.system(.callout, design: .monospaced)) }
+        if let summary = t.summary { Text(summary).font(.caption).foregroundStyle(.secondary) }
+        ForEach(t.placements, id: \.self) { Text($0).font(.system(.caption, design: .monospaced)).foregroundStyle(.secondary) }
+        if !t.hops.isEmpty {
+            Button("Use traced path") {
+                hops = t.hops
+                mode = Routing.companion.MANUAL
             }
         }
     }

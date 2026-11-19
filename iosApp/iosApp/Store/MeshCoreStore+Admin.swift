@@ -177,3 +177,10 @@ extension MeshCoreStore {
         return Purge.shared.result(messages: messages, contacts: nil, channels: nil, alsoSecrets: alsoSecrets)
     }
 }
+
+extension MeshCoreStore {
+    /// The developer datagram tool's send (shared DatagramTool parses it).
+    func sendDatagram(_ r: DatagramTool.Request) async -> Bool {
+        (try? await engine.sendChannelDatagram(channelIndex: r.channel, dataType: r.dataType, payload: r.payload))?.boolValue ?? false
+    }
+}

@@ -1214,21 +1214,18 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
      * Where a path's hops are, as far as can honestly be said
      * (PARITY §9). Ambiguous hops come back as gaps, never as a guess.
      */
-    fun plotPath(hopTokens: String): io.github.thatsfguy.meshcore.protocol.PathGeometry.Plot {
-        val width = deviceInfo.value?.pathHashByteWidth ?: 1
-        val path = io.github.thatsfguy.meshcore.protocol.PathCodec
-            .parseHopTokens(hopTokens, width)
-            ?: return io.github.thatsfguy.meshcore.protocol.PathGeometry.Plot(emptyList())
-        return io.github.thatsfguy.meshcore.protocol.PathGeometry.plot(
-            path,
-            width,
+    /**
+     * A trace's hops and placements at the TRACE's own width (shared
+     * Routing.traceViewOf; iOS uses the same). [plotPath] parsed the
+     * trace's hops at the device's width instead, and is gone.
+     */
+    fun traceView(t: io.github.thatsfguy.meshcore.protocol.TraceResult): io.github.thatsfguy.meshcore.messaging.Routing.TraceView =
+        io.github.thatsfguy.meshcore.messaging.Routing.traceViewOf(
+            t,
             dbContacts.value.map {
-                io.github.thatsfguy.meshcore.protocol.PathGeometry.PositionedContact(
-                    it.keyHex, it.name, it.latitude, it.longitude,
-                )
+                io.github.thatsfguy.meshcore.protocol.PathGeometry.PositionedContact(it.keyHex, it.name, it.latitude, it.longitude)
             },
         )
-    }
 
     /**
      * The route a received message took, laid out for a map.
@@ -1497,36 +1494,17 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
         val svc = _service.value ?: return
         val key = hexToBytesOrNull(contact.keyHex) ?: return
         viewModelScope.launch {
-            val live = svc.engine.contacts.value[contact.keyHex]
-            val ok = runCatching {
-                svc.engine.let {
-                    // Re-write the radio's contact record with the new name.
-                    val frame = io.github.thatsfguy.meshcore.protocol.Frames.addUpdateContact(
-                        pubKey = key,
-                        type = live?.type ?: contact.type,
-                        flags = live?.flags ?: contact.flags,
-                        pathLen = live?.pathLen ?: contact.pathLen,
-                        path = live?.path ?: ByteArray(0),
-                        name = newName,
-                        timestampSeconds = System.currentTimeMillis() / 1000,
-                        lat = live?.latitude,
-                        lon = live?.longitude,
-                    )
-                    sendRawExpectOk(frame)
-                }
-            }.getOrDefault(false)
+            // The shared engine rewrites the record with the contact's OWN
+            // advert timestamp. This used to pass the phone's clock, which
+            // future-stamps the record: the firmware then drops the node's
+            // real adverts as replays (Frames.addUpdateContact).
+            val ok = runCatching { svc.engine.renameContact(key, newName) }.getOrDefault(false)
             if (ok) {
                 svc.engine.syncContacts()
             } else {
                 transientMessage.value = "Rename failed"
             }
         }
-    }
-
-    private suspend fun sendRawExpectOk(frame: ByteArray): Boolean {
-        // Thin passthrough for commands the engine doesn't wrap 1:1.
-        val svc = _service.value ?: return false
-        return runCatching { svc.engine.sendRaw(frame) }.getOrDefault(false)
     }
 
     /**

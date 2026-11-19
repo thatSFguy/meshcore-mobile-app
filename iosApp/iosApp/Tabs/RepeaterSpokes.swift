@@ -68,6 +68,7 @@ struct RemoteSettingsView: View {
     @State private var rebootNote: String?
     @State private var scanning = false
     @State private var scanned: RemoteScan?
+    @State private var presets = false
 
     private var sections: [RemoteSettingsForm.Section] {
         RemoteSettingsForm.companion.sections(role: RepeaterReadout.shared.roleOf(advType: node.type))
@@ -95,6 +96,16 @@ struct RemoteSettingsView: View {
                     status[RemoteSettingsForm.companion.RADIO] = "That isn't a settings code."
                 }
             }
+        }
+        // A preset on the node: saved there, applied when it restarts —
+        // so the reboot note shows (shared presetCommands, as Android).
+        .sheet(isPresented: $presets) {
+            PresetSheet(targetName: node.displayName) { preset in
+                run(RemoteSettingsForm.companion.RADIO, RemoteSettingsForm.companion.presetCommands(preset: preset),
+                    done: "Saved \(preset.name) on the node")
+                rebootNote = preset.name
+            }
+            .environmentObject(store.node)
         }
         .sheet(item: Binding(get: { scanned.map(ScanRef.init) }, set: { scanned = $0?.scan })) { ref in
             RemoteScanSheet(node: node, scan: ref.scan) { message, reboot in
@@ -157,6 +168,7 @@ struct RemoteSettingsView: View {
     @ViewBuilder private func extras(_ sectionId: String) -> some View {
         if sectionId == RemoteSettingsForm.companion.RADIO {
             hashModePicker(sectionId)
+            Button("Use a regional preset…") { presets = true }.disabled(busy != nil || !store.isReady)
             Button("Scan settings QR…") { scanning = true }.disabled(busy != nil || !store.isReady)
         }
         if sectionId == RemoteSettingsForm.companion.ADVANCED { loopPicker(sectionId) }

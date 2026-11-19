@@ -357,6 +357,8 @@ final class MeshCoreStore: ObservableObject {
         diag.log("Store", "history opened for radio \(selfKey.prefix(12)): \((book.messages.value as? [Any])?.count ?? 0) messages")
         s.onNewMessage = { [weak self] key, sender, text in
             self?.notify(threadKey: key, sender: sender, text: text)
+            // Each arrival can make a relaying repeater qualify (throttled).
+            self?.runRepeaterAutoAdd(throttle: true)
         }
         session = s
         bookOwner = selfKey
@@ -580,6 +582,30 @@ final class MeshCoreStore: ObservableObject {
             }
         } catch {
             historyProblem = "Message history could not be saved: \(error.localizedDescription)"
+        }
+    }
+
+    // MARK: - App-side repeater auto-add (shared RepeaterAutoAdd)
+
+    @AppStorage("autoAddRelaying") var autoAddRelaying: Bool = false {
+        willSet { objectWillChange.send() }
+        didSet { runRepeaterAutoAdd(throttle: false) }
+    }
+    @AppStorage("autoAddDirect") var autoAddDirect: Bool = false {
+        willSet { objectWillChange.send() }
+        didSet { runRepeaterAutoAdd(throttle: false) }
+    }
+    private lazy var repeaterAutoAdd = RepeaterAutoAdd.companion.over(engine: engine, nowMs: { KotlinLong(value: MeshCoreStore.nowMs()) })
+
+    /// Add the heard repeaters a switched-on rule picks; logged, never shown.
+    func runRepeaterAutoAdd(throttle: Bool) {
+        guard isReady, let book = session?.book, let heard else { return }
+        let rules = RepeaterSignals.Rules(relaysMyTraffic: autoAddRelaying, heardDirect: autoAddDirect)
+        let pass = repeaterAutoAdd
+        Task {
+            let lines = (try? await pass.run(book: book, heard: heard, rules: rules, throttle: throttle)) ?? []
+            for line in lines { diag.log("Store", line) }
+            if !lines.isEmpty { scheduleSave() }
         }
     }
 
