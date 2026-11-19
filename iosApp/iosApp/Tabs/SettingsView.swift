@@ -396,6 +396,7 @@ private struct DataSpoke: View {
                         Text(p.label()).tag(p.encode())
                     }
                 }
+                if let note = store.retentionNote { Text(note).font(.caption).foregroundStyle(.secondary) }
             } header: {
                 Text("Message history")
             } footer: {

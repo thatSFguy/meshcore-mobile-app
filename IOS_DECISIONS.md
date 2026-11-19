@@ -461,6 +461,36 @@ Keep the pattern for further iOS work: branch, dispatch, merge on green.)
     Purge local data, the map position picker, and (back burner) firmware
     updates and repeater rekey.
 
+62. **Parity with Android, back burner excepted** (2026-11-18). Driven by a
+    screen-by-screen comparison and then an independent sweep of every
+    Android menu item, switch, dialog and sheet against the Swift: rooms
+    (sign in, then the conversation; access banner; Manage room), a thread
+    menu (mute, mark unread, Names seen, contact details, routing, clear),
+    first-run setup (the checklist is shared, `SetupChecklist`), conversation
+    search and pins, message links behind the leave-the-mesh warning
+    (`MessageLinkSpans`), the composer's byte limit (`ComposerBudget` — iOS
+    had none, and the frame builder does not trim), New message, Paste a
+    code, Join Public, units and theme, distances and Nearest (from the
+    radio's own position), the channel editor and its QR, rename on the
+    radio, telemetry without a sign-in, remote presets, Use traced path,
+    the app's repeater auto-add rules (`RepeaterAutoAdd`), Purge
+    (`Purge`), the map position picker, What's new, the datagram tool, a
+    Bluetooth switch, and a link-state chip on every tab. Almost all of it
+    is shared code that Android now delegates to as well.
+
+    Two Android defects surfaced on the way and are fixed in shared code:
+    **rename future-stamped the contact** (it passed the phone's clock as
+    the advert timestamp — the firmware's replay guard then dropped the
+    node's real adverts; `engine.renameContact` keeps the contact's own),
+    and **trace hops were placed at the device's hash width** instead of the
+    trace's own (`Routing.traceViewOf`). Both are pinned by tests.
+
+    Deliberately different on iOS: repeater passwords are never stored (so
+    no "Forget saved password"), sessions and the console are memory-only,
+    the map is Apple's (no tile controls), there is no USB, and the
+    link-state chip shows only when not connected or on plaintext TCP.
+    Back burner, by decision 58: firmware updates and repeater rekey.
+
 ## Swift interop rules learned from CI (Kotlin 2.0.21)
 
 Written down because each one cost a ~20-minute CI round trip:
@@ -488,3 +518,13 @@ Written down because each one cost a ~20-minute CI round trip:
   give long string expressions their own `let`.
 - No default arguments cross over — hence `RepeaterAdmin`, and why the
   engine's `appName` had drifted.
+- **A function whose name starts with `new` (or `alloc`, `copy`,
+  `init`) is renamed** for Objective-C's ownership convention:
+  `ContactNodes.newMessageCandidates` reached Swift as
+  `doNewMessageCandidates` and the call failed (2026-11-18). Don't
+  start a shared function's name with those words.
+- Return types are kept **top-level or nested in a class**, never in a
+  companion object, so their Swift name isn't a guess
+  (`NodeDiscoveryResult`). A Kotlin extension on `ByteArray` is avoided
+  in Swift for the same reason — use a property (`Channel.pskHex`).
+- A parameter named `self` is renamed `origin` before it reaches Swift.

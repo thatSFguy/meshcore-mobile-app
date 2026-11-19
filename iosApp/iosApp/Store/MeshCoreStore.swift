@@ -426,20 +426,27 @@ final class MeshCoreStore: ObservableObject {
     @AppStorage("retentionPolicy") var retentionEncoded: String = "forever" {
         // @AppStorage does not publish from inside an ObservableObject.
         willSet { objectWillChange.send() }
-        didSet { applyRetention() }
+        didSet {
+            let removed = applyRetention()
+            retentionNote = removed > 0 ? "Removed \(removed) older message(s)." : "Nothing older to remove."
+        }
     }
+    /// What changing the policy just removed (Android reports it too).
+    @Published var retentionNote: String?
 
     var retentionPolicy: Retention.Policy { Retention.shared.decode(raw: retentionEncoded) }
 
     /// Trim history to the policy. Run when a book opens, when the policy
     /// changes, and when the app comes back to the foreground.
-    func applyRetention() {
-        guard let book = session?.book else { return }
-        let removed = book.applyRetention(policy: retentionPolicy, nowMs: MeshCoreStore.nowMs())
+    @discardableResult
+    func applyRetention() -> Int {
+        guard let book = session?.book else { return 0 }
+        let removed = Int(book.applyRetention(policy: retentionPolicy, nowMs: MeshCoreStore.nowMs()))
         if removed > 0 {
             refreshThreads()
             scheduleSave()
         }
+        return removed
     }
 
     /// "Arrived via" (inbound) or "Repeated by" (outgoing) for the info sheet.

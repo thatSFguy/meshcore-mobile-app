@@ -59,9 +59,11 @@ changelog for what has and hasn't been tried on hardware.
   "Message privately" (request / accept over a channel), "Who repeats
   me", and the stale-node sweep.
 
-**Not ported yet:** nothing user-facing beyond the back burner. Simple
-mode, per-channel regions, route maps and remote settings codes came in
-Phase 5. **Back burner by decision:** firmware updates and repeater identity rekey.
+**Parity with Android** (2026-11-18, IOS_DECISIONS §62): every
+user-facing Android feature is on iOS except the back burner — firmware
+updates and repeater identity rekey — and what iOS does differently on
+purpose: no stored repeater passwords, Apple's map instead of tile
+controls, no USB.
 
 **Writing Swift against `Shared`:** read the interop rules at the end of
 `IOS_DECISIONS.md` first — nested Kotlin types are nested Swift types,
