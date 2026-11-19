@@ -7,6 +7,58 @@ Android's notes are in the repository's top-level `CHANGELOG.md`.
 
 Every entry describes what is in **that tagged build**.
 
+## 0.2.0
+
+Parity with the Android app. Everything Android does is now on iOS, apart from
+firmware updates and repeater identity rekey, which stay Android-only for now.
+Most of it is the same shared code Android runs, and it is tested, but much of
+it has not yet been driven against a radio on an iPhone — rooms, setup, links,
+remote presets and the repeater auto-add rules most of all.
+
+**Install.** Unsigned, as before: re-sign with your own Apple ID (a free one
+lasts 7 days; re-sign and reinstall after that — your messages are kept).
+
+**Messaging**
+- Room servers: tap a room to sign in, then read and post. Posts show who wrote
+  them, a banner says when your session can't post, and an admin gets Manage room.
+- Links in messages are tappable. A web link asks first, because opening it
+  leaves the mesh and shows the site your address; a `meshcore://` link goes
+  through the same confirmation as a scanned code.
+- The composer stops at the radio's size limit, quote included, with a counter
+  near the end. Before, iOS would send a message too long for the radio.
+- A thread menu: mute notifications, mark unread, Names seen (who has posted, to
+  hide a name), contact details and routing, clear thread. Drafts are kept.
+- Chats: search, pin a thread to the top, start a message to a contact, paste a
+  code from the clipboard, join the Public channel in one tap, and your own QR.
+
+**Nodes, map and routing**
+- Favourites, nicknames, ping, and rename a contact on the radio.
+- Distances from your radio's own position, and a Nearest sort.
+- A node's stored path hop by hop, its hash size, and a warning when its clock
+  is wrong.
+- Telemetry from people and sensors without signing in; who may read yours.
+- Heard nodes not in your contacts: an inbox with a detail sheet, Add (with a
+  warning for a far node) and Dismiss. Discover nodes lists who answered.
+- The app's own repeater auto-add rules, for when the radio adds none itself.
+- Trace places each hop, or says why it can't, and Use traced path fills the
+  route. Pick your position on a map.
+
+**Repeaters**
+- Use a regional preset on a remote node (it applies on the node's next
+  restart, and the app says so), Request status, a console that keeps its lines
+  and can be cleared, and command help that fills the console in.
+- Sensors open the same sign-in and admin screens as repeaters.
+
+**Settings**
+- First-run setup checklist, units and theme, saved radios to switch between,
+  a Bluetooth switch for TCP-only setups, Purge local data, What's new, and the
+  channel datagram developer tool. Community codes, with the secret in the
+  Keychain. Channels can be renamed or rekeyed and shared as a QR.
+- A bar at the top of every tab when you're not connected or on unencrypted TCP.
+
+**Removed:** Export nodes as GPX. No one had a use for it, and it wrote every
+node's position to a file that left the app.
+
 ## 0.1.0
 
 The first iOS release. It talks to the same radios as the Android app, follows
