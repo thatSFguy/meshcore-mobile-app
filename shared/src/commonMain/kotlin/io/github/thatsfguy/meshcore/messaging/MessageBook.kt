@@ -127,6 +127,17 @@ class MessageBook(
 
     fun unreadTotal(): Int = Inbox.unreadTotal(_unread.value.values.toList())
 
+    /**
+     * Mark [threadKey] unread by hand ("come back to this"): at least one
+     * unread, never fewer than it already had. Not for the thread on
+     * screen, which never accrues unread.
+     */
+    fun markUnread(threadKey: String) {
+        if (threadKey == activeThread) return
+        val now = _unread.value[threadKey] ?: 0
+        _unread.value = _unread.value + (threadKey to maxOf(now, 1))
+    }
+
     fun markRead(threadKey: String) {
         if ((_unread.value[threadKey] ?: 0) == 0) return
         _unread.value = _unread.value - threadKey
@@ -329,6 +340,20 @@ class MessageBook(
             .mapNotNull { it.senderName?.trim() }
             .distinct()
 
+    /** One name that has posted in a thread, for "Names seen". */
+    data class SenderSeen(val name: String, val messageCount: Int, val lastSeenAtMs: Long)
+
+    /**
+     * "Names seen" (Android's ChannelSendersSheet): every name that has
+     * posted in [threadKey] among the messages kept, most recent first.
+     * Names, not identities — a channel post carries no key.
+     */
+    fun senders(threadKey: String): List<SenderSeen> =
+        _messages.value.filter { it.threadKey == threadKey && !it.outgoing && !it.senderName.isNullOrBlank() }
+            .groupBy { it.senderName!!.trim() }
+            .map { (name, rows) -> SenderSeen(name, rows.size, rows.maxOf { it.receivedAtMs }) }
+            .sortedByDescending { it.lastSeenAtMs }
+
     /** The newest inbound message in [threadKey] whose route is known. */
     fun latestArrival(threadKey: String): BookMessage? =
         _messages.value.filter { it.threadKey == threadKey && !it.outgoing && !it.arrivalPathHex.isNullOrEmpty() }
@@ -336,6 +361,14 @@ class MessageBook(
 
     fun delete(id: Long) {
         _messages.value = _messages.value.filterNot { it.id == id }
+    }
+
+    /** Purge: every message and unread count; how many messages went. */
+    fun clearAll(): Int {
+        val n = _messages.value.size
+        _messages.value = emptyList()
+        _unread.value = emptyMap()
+        return n
     }
 
     fun deleteThread(threadKey: String) {

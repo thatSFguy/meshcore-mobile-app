@@ -29,6 +29,14 @@ final class NodeSettingsStore: ObservableObject {
     @AppStorage("channelRegions") private var channelRegionsRaw: String = ""
     /// Told when a channel's region changes, so the session sends scoped.
     var onChannelRegionsChanged: (() -> Void)?
+    /// Purge: the phone's region labels and per-channel regions.
+    func forgetRegionLabels() {
+        objectWillChange.send()
+        regionsRaw = ""
+        channelRegionsRaw = ""
+        onChannelRegionsChanged?()
+    }
+
     /// The app-wide flood scope, persisted so it can be restored on
     /// connect: "" = cleared, absent = never set (Android's rule).
     private static let floodScopeKey = "floodScope"

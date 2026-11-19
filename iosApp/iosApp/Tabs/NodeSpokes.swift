@@ -5,6 +5,7 @@
 
 import SwiftUI
 import UniformTypeIdentifiers
+import MapKit
 import Shared
 
 /// Shown on a node spoke when there is no radio to read.
@@ -110,6 +111,7 @@ struct IdentitySpoke: View {
     @State private var lat = ""
     @State private var lon = ""
     @State private var showQr = false
+    @State private var picking = false
 
     var body: some View {
         Form {
@@ -130,6 +132,8 @@ struct IdentitySpoke: View {
                 Section {
                     TextField("Latitude", text: $lat).keyboardType(.numbersAndPunctuation)
                     TextField("Longitude", text: $lon).keyboardType(.numbersAndPunctuation)
+                    // Fills the fields, as Android's picker does; Set sends it.
+                    Button("Pick on map…") { picking = true }
                     Button("Set position") { node.setPosition(lat: lat, lon: lon) }
                         .disabled(node.busy)
                 } header: {
@@ -157,6 +161,12 @@ struct IdentitySpoke: View {
             }
         }
         .navigationTitle("Identity")
+        .sheet(isPresented: $picking) {
+            PositionPicker(lat: Double(lat), lon: Double(lon)) { la, lo in
+                lat = String(format: "%.5f", la)
+                lon = String(format: "%.5f", lo)
+            }
+        }
         .onAppear { node.refreshSelf(); load() }
         .onChange(of: node.selfInfo) { _, _ in load() }
         .sheet(isPresented: $showQr) { MyContactSheet() }
@@ -292,9 +302,12 @@ private struct SignalSection: View {
     }
 }
 
-private struct PresetSheet: View {
+struct PresetSheet: View {
     @EnvironmentObject var node: NodeSettingsStore
     @Environment(\.dismiss) private var dismiss
+    /// Set for a REMOTE node: the preset goes to it instead of this radio.
+    var targetName: String? = nil
+    var onApply: ((RadioPresets.Preset) -> Void)? = nil
     @State private var query = ""
     @State private var chosen: RadioPresets.Preset?
 
@@ -337,9 +350,11 @@ private struct PresetSheet: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } }
             }
-            .alert("Apply \(chosen?.name ?? "")?", isPresented: Binding(get: { chosen != nil }, set: { if !$0 { chosen = nil } })) {
+            .alert("Apply \(chosen?.name ?? "")\(targetName.map { " to \($0)" } ?? "")?", isPresented: Binding(get: { chosen != nil }, set: { if !$0 { chosen = nil } })) {
                 Button("Apply", role: .destructive) {
-                    if let p = chosen { node.applyPreset(p) }
+                    if let p = chosen {
+                        if let onApply { onApply(p) } else { node.applyPreset(p) }
+                    }
                     chosen = nil
                     dismiss()
                 }
@@ -636,6 +651,19 @@ struct AutoAddSpoke: View {
                     bit("Sensors", Codes.shared.AUTO_ADD_SENSOR, flags)
                 } footer: {
                     Text("Which advert types are added to the contact list automatically when heard.")
+                }
+                // The app's own rules — the radio has no notion of which
+                // repeaters are useful, so they only apply while it isn't
+                // adding every one (shared RepeaterAutoAdd, as Android).
+                if (Int32(flags) & Codes.shared.AUTO_ADD_REPEATER) == 0 {
+                    Section {
+                        Toggle("…that relayed messages I received", isOn: $store.autoAddRelaying)
+                        Toggle("…heard directly by my radio", isOn: $store.autoAddDirect)
+                    } header: {
+                        Text("The radio isn't adding repeaters. This app can add the useful ones:")
+                    } footer: {
+                        Text("\"Relayed\" means its hash is in the routes of \(RepeaterSignals.shared.MIN_RELAYS) or more messages you received in the last week — fewer can be a one-off flood, or another node sharing the hash. A repeater whose short hash another known node shares isn't counted.")
+                    }
                 }
                 Section {
                     bit("Overwrite oldest when full", Codes.shared.AUTO_ADD_OVERWRITE_OLDEST, flags)
@@ -1008,6 +1036,55 @@ struct HeardRepeatsView: View {
             }
             Text(row.direction).font(.caption).foregroundStyle(.secondary)
             Text(parts.joined(separator: " · ")).font(.caption).foregroundStyle(.secondary)
+        }
+    }
+}
+
+/// "Pick on map": move the map until the crosshair is on the spot. Only
+/// fills the fields — nothing is sent until Set position (Android's
+/// PositionPickerDialog). Uses Apple's map tiles.
+private struct PositionPicker: View {
+    @Environment(\.dismiss) private var dismiss
+    let lat: Double?
+    let lon: Double?
+    let onPick: (Double, Double) -> Void
+    @State private var position: MapCameraPosition = .automatic
+    @State private var centre: CLLocationCoordinate2D?
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                Map(position: $position)
+                    .onMapCameraChange(frequency: .continuous) { centre = $0.region.center }
+                Image(systemName: "plus")
+                    .font(.title.weight(.light))
+                    .allowsHitTesting(false)
+            }
+            .safeAreaInset(edge: .bottom) {
+                Text(centre.map { String(format: "%.5f, %.5f", $0.latitude, $0.longitude) } ?? "Move the map to the spot")
+                    .font(.caption.monospacedDigit())
+                    .padding(6)
+                    .background(.thinMaterial, in: Capsule())
+                    .padding(.bottom, 8)
+            }
+            .navigationTitle("Pick on map")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Use this point") {
+                        if let c = centre { onPick(c.latitude, c.longitude) }
+                        dismiss()
+                    }
+                    .disabled(centre == nil)
+                }
+            }
+            .onAppear {
+                if let lat, let lon, GeoKt.isPlausiblePosition(lat: KotlinDouble(double: lat), lon: KotlinDouble(double: lon)) {
+                    position = .region(MKCoordinateRegion(center: CLLocationCoordinate2D(latitude: lat, longitude: lon),
+                                                          latitudinalMeters: 2000, longitudinalMeters: 2000))
+                }
+            }
         }
     }
 }

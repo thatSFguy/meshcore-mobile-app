@@ -9,6 +9,7 @@ import io.github.thatsfguy.meshcore.util.toHex
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class ContactNodesTest {
 
@@ -22,10 +23,12 @@ class ContactNodesTest {
         advertAt: Long = now - 60,
         lastMod: Long = now - 60,
         flags: Int = 0,
+        lat: Double? = null,
+        lon: Double? = null,
     ) = Contact(
         publicKey = ByteArray(32) { (seed + it).toByte() },
         type = type, flags = flags, pathLen = pathLen, path = ByteArray(64),
-        name = name, timestamp = advertAt, latitude = null, longitude = null,
+        name = name, timestamp = advertAt, latitude = lat, longitude = lon,
         lastModified = lastMod,
     )
 
@@ -96,9 +99,9 @@ class ContactNodesTest {
             ),
             null, now,
         )
-        val chat = ContactNodes.arrange(nodes, NodeTab.Contacts, "", NodeListModel.Sort.Name, emptySet(), now)
+        val chat = ContactNodes.arrange(nodes, NodeTab.Contacts, "", NodeListModel.Sort.Name, emptySet(), now, null)
         assertEquals(listOf("amy", "fav", "zed"), chat.map { it.name })
-        val favs = ContactNodes.arrange(nodes, null, "", NodeListModel.Sort.Name, setOf(NodeListModel.Filter.Favorites), now)
+        val favs = ContactNodes.arrange(nodes, null, "", NodeListModel.Sort.Name, setOf(NodeListModel.Filter.Favorites), now, null)
         assertEquals(listOf("fav"), favs.map { it.name })
         assertEquals(mapOf(NodeTab.Contacts to 3, NodeTab.Repeaters to 1), ContactNodes.counts(nodes))
     }
@@ -107,8 +110,8 @@ class ContactNodesTest {
     fun searchMatchesNameOrKeyPrefix() {
         val nodes = ContactNodes.build(listOf(contact(1, "Alpha"), contact(0x40, "Bravo")), null, now)
         val key = ByteArray(32) { (0x40 + it).toByte() }.toHex()
-        assertEquals(listOf("Alpha"), ContactNodes.arrange(nodes, null, "alp", NodeListModel.Sort.Name, emptySet(), now).map { it.name })
-        assertEquals(listOf("Bravo"), ContactNodes.arrange(nodes, null, key.take(6), NodeListModel.Sort.Name, emptySet(), now).map { it.name })
+        assertEquals(listOf("Alpha"), ContactNodes.arrange(nodes, null, "alp", NodeListModel.Sort.Name, emptySet(), now, null).map { it.name })
+        assertEquals(listOf("Bravo"), ContactNodes.arrange(nodes, null, key.take(6), NodeListModel.Sort.Name, emptySet(), now, null).map { it.name })
     }
 
     @Test
@@ -117,5 +120,57 @@ class ContactNodesTest {
         val c = contact(1, "Al", advertAt = 1_577_836_800L, lastMod = now - 60)
         assertEquals("heard 1 min ago", ContactNodes.build(listOf(c), null, now).single().heardLabel(now))
         assertNull(ContactNodes.build(listOf(contact(1, "x", lastMod = 0)), null, now).single().heardLabel(now))
+    }
+
+    @Test
+    fun nearestIsMeasuredFromTheRadioAndUnplacedNodesGoLast() {
+        // Grand Rapids area, region-level only.
+        val me = io.github.thatsfguy.meshcore.presentation.SelfPosition(42.96, -85.67)
+        val nodes = ContactNodes.build(
+            listOf(
+                contact(1, "far", lat = 43.40, lon = -85.67),
+                contact(2, "nowhere"),
+                contact(3, "near", lat = 42.97, lon = -85.67),
+            ),
+            null, now,
+        )
+        val order = ContactNodes.arrange(nodes, null, "", NodeListModel.Sort.Distance, emptySet(), now, me).map { it.name }
+        assertEquals(listOf("near", "far", "nowhere"), order)
+        val near = nodes.first { it.name == "near" }
+        assertEquals("1.1 km", ContactNodes.distanceLabel(near, me, io.github.thatsfguy.meshcore.presentation.UnitSystem.Metric))
+        assertEquals("3648 ft", ContactNodes.distanceLabel(near, me, io.github.thatsfguy.meshcore.presentation.UnitSystem.Imperial))
+        assertNull(ContactNodes.distanceLabel(nodes.first { it.name == "nowhere" }, me, io.github.thatsfguy.meshcore.presentation.UnitSystem.Metric))
+    }
+
+    @Test
+    fun newMessageOffersPeopleOnly() {
+        val nodes = ContactNodes.build(
+            listOf(contact(1, "Amy"), contact(2, "Rptr", type = Codes.ADV_TYPE_REPEATER), contact(3, "Room", type = Codes.ADV_TYPE_ROOM)),
+            null, now,
+        )
+        assertEquals(listOf("Amy"), ContactNodes.messageCandidates(nodes, "").map { it.name })
+        assertTrue(ContactNodes.messageCandidates(nodes, "zz").isEmpty())
+        assertEquals(io.github.thatsfguy.meshcore.presentation.NewMessage.NO_MATCH,
+            io.github.thatsfguy.meshcore.presentation.NewMessage.emptyText("zz"))
+    }
+
+    @Test
+    fun theOutPathIsSplitAtTheContactsOwnWidthAndAmbiguityIsListed() {
+        // path_len 0x42: 2-byte hashes, two hops — the live route b389 c985.
+        val path = ByteArray(64).also { byteArrayOf(0xB3.toByte(), 0x89.toByte(), 0xC9.toByte(), 0x85.toByte()).copyInto(it) }
+        val c = Contact(
+            publicKey = ByteArray(32) { 9 }, type = Codes.ADV_TYPE_CHAT, flags = 0, pathLen = 0x42, path = path,
+            name = "Bob", timestamp = now, latitude = null, longitude = null, lastModified = now,
+        )
+        val names = mapOf("b389" + "00".repeat(30) to "Ridge", "c985" + "11".repeat(30) to "Mill", "c985" + "22".repeat(30) to "Mill too")
+        val lines = ContactNodes.outPathLines(c, names)
+        assertEquals(2, lines.size, "two hops at two bytes, not four at one")
+        assertEquals("1. b389 Ridge", lines[0])
+        assertTrue(lines[1].startsWith("2. c985 ") && "Mill or Mill too" in lines[1], lines[1])
+        assertEquals("2-bytes per hop", ContactNodes.hashWidthLine(c, 1), "the contact's own width beats the device's")
+        val flood = Contact(publicKey = ByteArray(32) { 9 }, type = 1, flags = 0, pathLen = 0xFF, path = ByteArray(64),
+            name = "F", timestamp = now, latitude = null, longitude = null, lastModified = now)
+        assertTrue(ContactNodes.outPathLines(flood, names).isEmpty())
+        assertEquals("1-byte per hop", ContactNodes.hashWidthLine(flood, 1))
     }
 }

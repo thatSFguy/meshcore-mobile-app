@@ -113,7 +113,6 @@ fun MapScreen(vm: MeshCoreViewModel, nav: NavController) {
                         "Only rooms",
                         checked = io.github.thatsfguy.meshcore.protocol.Codes.ADV_TYPE_ROOM in typeFilter,
                     ) { toggleType(io.github.thatsfguy.meshcore.protocol.Codes.ADV_TYPE_ROOM) },
-                    MenuAction("Export nodes as GPX") { vm.exportGpx(located.size) },
                     MenuAction("Load tiles (network)", checked = tilesEnabled) {
                         tilesEnabled = !tilesEnabled
                         vm.prefs.mapTilesEnabled = tilesEnabled

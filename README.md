@@ -377,11 +377,11 @@ thing that compiles it, on every push, including the shared tests on the iOS sim
 | USB serial | ❌ | Not practical on iOS for these radios. |
 | Messaging | ✅ | DMs with the 3-attempt retry and flood fallback, channels, reactions, swipe-to-reply, `@` mentions, resend, "Message privately", message info with the route a message took. |
 | History | ✅ | Per radio, under iOS Data Protection, excluded from backups; retention by arrival time. |
-| Nodes, routing, map | ✅ | Search/sort/filters and reachability; manual routes, path history, trace, two-way check; map with neighbour links and GPX; "Who repeats me"; stale-node sweep. |
+| Nodes, routing, map | ✅ | Search/sort/filters and reachability; manual routes, path history, trace, two-way check; map with neighbour links; "Who repeats me"; stale-node sweep. |
 | Settings | ✅ | Android's tile layout: radio parameters and presets, settings QR in and out, PIN, clock, policies, flood scope and regions, auto-add, backup/restore (interchangeable with Android), Simple mode. |
 | Repeater / room admin | ✅ | Sign-in, status, telemetry, neighbours, access list, console and help, remote settings, regions, maintenance. |
 | Firmware updates, repeater rekey | ❌ | Deliberately not on iOS for now. |
-| Favourites, nicknames, ping, discovered nodes, saved radios, community codes | ❌ | Next. |
+| Everything else Android has (rooms, setup, search, links, units, community codes, …) | ◐ | Written since 0.1.0 (branch `ios-next`); in the next iOS release. Firmware updates and rekey stay Android-only. |
 
 ✅ = run on an iPhone against a radio, or the same shared code Android ships, with tests.
 ◐ = written and tested, not yet tried on hardware from iOS. Every decision taken during the port, and

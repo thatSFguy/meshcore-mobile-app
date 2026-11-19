@@ -63,6 +63,16 @@ enum class ScannedCode {
          * and it fails visibly rather than silently importing the wrong
          * thing.
          */
+        /**
+         * "Paste a code": why the clipboard can't be imported, or null when
+         * it holds a code ([extract] finds it). Android's importPastedText.
+         */
+        fun pasteProblem(raw: String?): String? = when {
+            raw.isNullOrBlank() -> "Nothing on the clipboard"
+            extract(raw) == null -> "No MeshCore code on the clipboard"
+            else -> null
+        }
+
         fun extract(text: String): String? {
             val trimmed = text.trim()
             if (trimmed.isEmpty()) return null

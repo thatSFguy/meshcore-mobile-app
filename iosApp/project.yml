@@ -62,6 +62,10 @@ targets:
           codes so you can add them without typing long hex strings.
     sources:
       - path: iosApp
+      # The release notes, bundled for Settings → About → What's new, so
+      # they read offline (Android carries the same in AboutSection.kt).
+      - path: CHANGELOG.md
+        buildPhase: resources
     settings:
       base:
         TARGETED_DEVICE_FAMILY: "1,2"

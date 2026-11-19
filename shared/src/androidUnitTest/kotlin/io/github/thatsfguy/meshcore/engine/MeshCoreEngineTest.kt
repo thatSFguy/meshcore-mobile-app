@@ -2773,6 +2773,23 @@ class MeshCoreEngineTest {
     }
 
     @Test
+    fun renamingAContactWritesTheNameAndKeepsItsLastAdvert() = runTest {
+        val radio = FakeRadio()
+        radio.responder = standardResponder(radio)
+        val engine = readyEngine(radio)
+
+        assertTrue(engine.renameContact(peerKey, "  Base camp "))
+
+        val sent = radio.sentFrames.last { (it[0].toInt() and 0xFF) == Codes.CMD_ADD_UPDATE_CONTACT }
+        assertContentEquals(peerKey, sent.copyOfRange(1, 33))
+        // name cstr32 sits after cmd, key, type, flags, path_len and path x64.
+        val nameAt = 1 + 32 + 3 + 64
+        assertEquals("Base camp", sent.copyOfRange(nameAt, nameAt + 32).decodeToString().trimEnd('\u0000'))
+        assertEquals(1L, advertTimestampOf(sent), "the contact's own timestamp, not now() — the replay guard")
+        assertFalse(engine.renameContact(peerKey, "   "), "a blank name is refused, nothing sent")
+    }
+
+    @Test
     fun pinningARouteDoesNotRestampItsLastAdvert() = runTest {
         val radio = FakeRadio()
         radio.responder = standardResponder(radio)

@@ -95,4 +95,14 @@ class MessageDetailTest {
         assertTrue(f("b389" + "00".repeat(30))!! in 5_000.0..6_000.0)
         assertNull(f("ff".repeat(32)))
     }
+
+    @Test
+    fun theTechnicalRowsAreFormattedAsAndroidShowsThem() {
+        assertEquals("0000002a", MessageDetail.ackHex(42))
+        assertEquals("deadbeef", MessageDetail.ackHex(0xDEADBEEFL))
+        assertEquals(null, MessageDetail.ackHex(null))
+        assertEquals("(none) — unauthenticated", MessageDetail.senderLine(" "))
+        assertEquals("Bob — unauthenticated", MessageDetail.senderLine("Bob"))
+        assertEquals("3 bytes", MessageDetail.lengthLine("hé"), "bytes on the wire, not characters")
+    }
 }

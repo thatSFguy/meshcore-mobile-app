@@ -39,6 +39,14 @@ struct AddChannelSheet: View {
                 }
                 .pickerStyle(.segmented)
 
+                if !store.hasPublic {
+                    Section {
+                        Button("Join the Public channel") { store.joinPublic() }.disabled(!store.isReady)
+                    } footer: {
+                        Text("The channel every MeshCore radio shares by default. Its key is public: anyone can read it.")
+                    }
+                }
+
                 switch mode {
                 case .hashtag:
                     Section {
@@ -115,13 +123,23 @@ struct ChannelInfoSheet: View {
                 }
                 Section {
                     if revealLink, let link = store.shareLink(index) {
+                        if let image = QrCode.image(link) {
+                            Image(uiImage: image)
+                                .interpolation(.none)
+                                .resizable()
+                                .scaledToFit()
+                                .frame(maxWidth: 240)
+                                .padding(8)
+                                .background(.white, in: RoundedRectangle(cornerRadius: 8))
+                                .frame(maxWidth: .infinity)
+                        }
                         Text(link)
                             .font(.system(.caption, design: .monospaced))
                             .textSelection(.enabled)
                         ShareLink(item: link) { Label("Share link", systemImage: "square.and.arrow.up") }
                         Button("Copy link") { UIPasteboard.general.string = link }
                     } else {
-                        Button("Show share link") { revealLink = true }
+                        Button("Show QR code and link") { revealLink = true }
                     }
                 } header: {
                     Text("Share")
@@ -131,6 +149,12 @@ struct ChannelInfoSheet: View {
                     Text("Anyone with this link can read every message on the channel — including ones sent before they had it. There is no revoking it short of changing the key everywhere.")
                 }
                 regionSection
+                if AppModes.shared.showsTechnicalActions(mode: store.appMode) {
+                    Section {
+                        NavigationLink("Rename or change key…") { ChannelEditView(index: index) }
+                            .disabled(!store.isReady)
+                    }
+                }
                 Section {
                     Button("Leave channel", role: .destructive) { confirmLeave = true }
                         .disabled(!store.isReady)
@@ -257,6 +281,49 @@ struct LinkConfirmSheet: View {
                 setRegion = p.regionStartsTicked
                 region = p.initialRegion ?? ""
             }
+        }
+    }
+}
+
+/// Rename a channel or change its key (Android's channel editor, behind
+/// "Channel settings…" in full mode). The key is shown only on request.
+private struct ChannelEditView: View {
+    @EnvironmentObject var store: MeshCoreStore
+    let index: Int32
+    @State private var name = ""
+    @State private var key = ""
+    @State private var showKey = false
+
+    var body: some View {
+        Form {
+            Section("Name") {
+                TextField("Name", text: $name).autocorrectionDisabled()
+            }
+            Section {
+                if showKey {
+                    TextField("32 hex characters", text: $key)
+                        .font(.system(.body, design: .monospaced))
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                } else {
+                    Button("Show key") { showKey = true }
+                }
+            } header: {
+                Text("Key")
+            } footer: {
+                Text("Changing the key moves you to a different channel: only people with the new key can read it, and you stop reading the old one.")
+            }
+            Section {
+                Button("Save") { store.editChannel(index, name: name, pskHex: key) }
+                    .disabled(!store.isReady || name.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+            if let message = store.channelMessage { Section { Text(message) } }
+        }
+        .navigationTitle("Channel \(index)")
+        .onAppear {
+            store.channelMessage = nil
+            name = store.channels.first { $0.id == index }?.name ?? ""
+            key = store.channelPskHex(index) ?? ""
         }
     }
 }

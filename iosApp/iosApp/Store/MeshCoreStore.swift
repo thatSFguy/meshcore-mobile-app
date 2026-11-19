@@ -128,6 +128,15 @@ final class MeshCoreStore: ObservableObject {
 
     /// TCP transport gate — same off-by-default + stern warning as
     /// Android (SCOPE.md).
+    /// Bluetooth as a transport (Android's per-transport switch): off, the
+    /// app neither reconnects to nor scans for a BLE radio — for someone
+    /// who only uses a networked radio over TCP.
+    @AppStorage("bleEnabled") var bleEnabled: Bool = true {
+        willSet { objectWillChange.send() }
+        didSet {
+            if !bleEnabled && lastLinkKind == ConnectionMemoryCompanion.shared.KIND_BLE && supervisor != nil { disconnect() }
+        }
+    }
     @AppStorage("tcpEnabled") var tcpEnabled: Bool = false
     @AppStorage("tcpWarningAccepted") var tcpWarningAccepted: Bool = false
     @AppStorage("tcpHost") var tcpHost: String = "192.168.40.10"
@@ -153,6 +162,8 @@ final class MeshCoreStore: ObservableObject {
     /// kept per identity (Android keys every row by self key the same
     /// way), so swapping radios never mixes two people's threads.
     private var session: MessagingSession?
+    /// Nodes heard advertising that the radio doesn't hold (per radio).
+    private(set) var heard: DiscoveredBook?
     /// "Message privately" handshakes for the open radio.
     private(set) var dmRequests: DmRequests?
     /// Routes used to each contact and how they did (per radio, persisted).
@@ -245,6 +256,7 @@ final class MeshCoreStore: ObservableObject {
                 )
             }.sorted { $0.name.lowercased() < $1.name.lowercased() }
             self.paths?.rememberContacts(contacts: Array(live.values))
+            self.heard?.forgetHeld(heldKeys: Array(live.keys))
             self.rebuildNodes()
         })
         watches.append(FlowWatchKt.watch(flow: engine.channels, scope: scope) { [weak self] value in
@@ -326,6 +338,12 @@ final class MeshCoreStore: ObservableObject {
         let paths = PathHistoryBook.companion.fromJson(json: pathsJson, nowMs: { KotlinLong(value: MeshCoreStore.nowMs()) })
         s.paths = paths
         self.paths = paths
+        // The discovery inbox, per radio, beside the history.
+        let heardURL = url?.deletingLastPathComponent().appendingPathComponent("heard-\(selfKey.prefix(16)).json")
+        let heardJson = heardURL.flatMap { try? String(contentsOf: $0, encoding: .utf8) }
+        let heard = DiscoveredBook.companion.fromJson(json: heardJson, nowMs: { KotlinLong(value: MeshCoreStore.nowMs()) })
+        s.discovered = heard
+        self.heard = heard
         paths.rememberContacts(contacts: Array(((engine.contacts.value as? [String: Contact]) ?? [:]).values))
         s.floodFallback = floodFallback
         s.channelRegions = node.channelRegions
@@ -348,6 +366,8 @@ final class MeshCoreStore: ObservableObject {
         diag.log("Store", "history opened for radio \(selfKey.prefix(12)): \((book.messages.value as? [Any])?.count ?? 0) messages")
         s.onNewMessage = { [weak self] key, sender, text in
             self?.notify(threadKey: key, sender: sender, text: text)
+            // Each arrival can make a relaying repeater qualify (throttled).
+            self?.runRepeaterAutoAdd(throttle: true)
         }
         session = s
         bookOwner = selfKey
@@ -406,20 +426,27 @@ final class MeshCoreStore: ObservableObject {
     @AppStorage("retentionPolicy") var retentionEncoded: String = "forever" {
         // @AppStorage does not publish from inside an ObservableObject.
         willSet { objectWillChange.send() }
-        didSet { applyRetention() }
+        didSet {
+            let removed = applyRetention()
+            retentionNote = removed > 0 ? "Removed \(removed) older message(s)." : "Nothing older to remove."
+        }
     }
+    /// What changing the policy just removed (Android reports it too).
+    @Published var retentionNote: String?
 
     var retentionPolicy: Retention.Policy { Retention.shared.decode(raw: retentionEncoded) }
 
     /// Trim history to the policy. Run when a book opens, when the policy
     /// changes, and when the app comes back to the foreground.
-    func applyRetention() {
-        guard let book = session?.book else { return }
-        let removed = book.applyRetention(policy: retentionPolicy, nowMs: MeshCoreStore.nowMs())
+    @discardableResult
+    func applyRetention() -> Int {
+        guard let book = session?.book else { return 0 }
+        let removed = Int(book.applyRetention(policy: retentionPolicy, nowMs: MeshCoreStore.nowMs()))
         if removed > 0 {
             refreshThreads()
             scheduleSave()
         }
+        return removed
     }
 
     /// "Arrived via" (inbound) or "Repeated by" (outgoing) for the info sheet.
@@ -475,7 +502,24 @@ final class MeshCoreStore: ObservableObject {
         _ = session?.resend(id: id)
     }
 
+    /// Half-typed messages per thread, kept while the app runs (Android
+    /// keeps them for the ViewModel's life) so stepping out of a
+    /// conversation doesn't throw away what was being written.
+    var drafts: [String: String] = [:]
+
     /// Names that have posted in a thread, newest first (mention candidates).
+    /// "Names seen": who has posted here, with counts (shared MessageBook).
+    func senders(_ threadKey: String) -> [MessageBook.SenderSeen] {
+        session?.book.senders(threadKey: threadKey) ?? []
+    }
+
+    /// Whether a thread is a room server's (posts from many, through the room).
+    func isRoom(_ threadKey: String) -> Bool {
+        guard threadKey.hasPrefix("dm|") else { return false }
+        let key = String(threadKey.dropFirst(3))
+        return contacts.first(where: { $0.id == key })?.type == Codes.shared.ADV_TYPE_ROOM
+    }
+
     func senderNames(_ threadKey: String) -> [String] {
         session?.book.senderNames(threadKey: threadKey) ?? []
     }
@@ -487,6 +531,21 @@ final class MeshCoreStore: ObservableObject {
     /// The thread on screen: it accrues no unread and raises no banner.
     func setActiveThread(_ key: String?) {
         session?.book.activeThread = key
+        refreshThreads()
+        scheduleSave()
+    }
+
+    /// Purge: every message in the open radio's history; nil when none is open.
+    func clearAllHistory() -> Int32? {
+        guard let book = session?.book else { return nil }
+        let n = book.clearAll()
+        refreshThreads()
+        return n
+    }
+
+    /// Mark a thread unread by hand ("come back to this").
+    func markUnread(_ key: String) {
+        session?.book.markUnread(threadKey: key)
         refreshThreads()
         scheduleSave()
     }
@@ -525,6 +584,12 @@ final class MeshCoreStore: ObservableObject {
                 to: url,
                 options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication]
             )
+            if let heard {
+                try Data(heard.toJson().utf8).write(
+                    to: url.deletingLastPathComponent().appendingPathComponent("heard-\(owner.prefix(16)).json"),
+                    options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication]
+                )
+            }
             if let paths {
                 try Data(paths.toJson().utf8).write(
                     to: url.deletingLastPathComponent().appendingPathComponent("paths-\(owner.prefix(16)).json"),
@@ -534,6 +599,57 @@ final class MeshCoreStore: ObservableObject {
         } catch {
             historyProblem = "Message history could not be saved: \(error.localizedDescription)"
         }
+    }
+
+    // MARK: - App-side repeater auto-add (shared RepeaterAutoAdd)
+
+    @AppStorage("autoAddRelaying") var autoAddRelaying: Bool = false {
+        willSet { objectWillChange.send() }
+        didSet { runRepeaterAutoAdd(throttle: false) }
+    }
+    @AppStorage("autoAddDirect") var autoAddDirect: Bool = false {
+        willSet { objectWillChange.send() }
+        didSet { runRepeaterAutoAdd(throttle: false) }
+    }
+    private lazy var repeaterAutoAdd = RepeaterAutoAdd.companion.over(engine: engine, nowMs: { KotlinLong(value: MeshCoreStore.nowMs()) })
+
+    /// Add the heard repeaters a switched-on rule picks; logged, never shown.
+    func runRepeaterAutoAdd(throttle: Bool) {
+        guard isReady, let book = session?.book, let heard else { return }
+        let rules = RepeaterSignals.Rules(relaysMyTraffic: autoAddRelaying, heardDirect: autoAddDirect)
+        let pass = repeaterAutoAdd
+        Task {
+            let lines = (try? await pass.run(book: book, heard: heard, rules: rules, throttle: throttle)) ?? []
+            for line in lines { diag.log("Store", line) }
+            if !lines.isEmpty { scheduleSave() }
+        }
+    }
+
+    // MARK: - Units and theme (Android's Appearance section)
+
+    /// "system" / "metric" / "imperial" (shared UnitSystem constants).
+    @AppStorage("units") var unitsPreference: String = UnitSystem.companion.FOLLOW_SYSTEM {
+        willSet { objectWillChange.send() }
+    }
+    var unitSystem: UnitSystem {
+        UnitSystem.companion.resolve(preference: unitsPreference, deviceCountry: Locale.current.region?.identifier)
+    }
+    /// "system" / "light" / "dark".
+    @AppStorage("theme") var theme: String = "system" {
+        willSet { objectWillChange.send() }
+    }
+    var colorScheme: ColorScheme? { theme == "light" ? .light : theme == "dark" ? .dark : nil }
+
+    /// Where distances are measured from: the radio's own advertised
+    /// position (as Android), so no phone location is needed.
+    var radioPosition: SelfPosition {
+        let info = node.selfInfo
+        return SelfPosition(latitude: info.map { KotlinDouble(double: $0.latitude) },
+                            longitude: info.map { KotlinDouble(double: $0.longitude) })
+    }
+
+    func distance(to n: ContactNode) -> String? {
+        ContactNodes.shared.distanceLabel(node: n, origin: radioPosition, system: unitSystem)
     }
 
     // MARK: - Simple mode (shared AppModes, as Android)
@@ -584,8 +700,28 @@ final class MeshCoreStore: ObservableObject {
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
     }
 
+    /// Threads muted one by one (shared MutedThreads); unread still counts.
+    @AppStorage("mutedThreads") private var mutedThreadsRaw: String = ""
+
+    /// Threads pinned to the top of Chats (shared ThreadKeys).
+    @AppStorage("pinnedThreads") private var pinnedThreadsRaw: String = ""
+
+    func isPinnedThread(_ threadKey: String) -> Bool { ThreadKeys.shared.contains(raw: pinnedThreadsRaw, threadKey: threadKey) }
+
+    func togglePinThread(_ threadKey: String) {
+        objectWillChange.send()
+        pinnedThreadsRaw = ThreadKeys.shared.toggled(raw: pinnedThreadsRaw, threadKey: threadKey)
+    }
+
+    func isMuted(_ threadKey: String) -> Bool { MutedThreads.shared.isMuted(raw: mutedThreadsRaw, threadKey: threadKey) }
+
+    func toggleMute(_ threadKey: String) {
+        objectWillChange.send()
+        mutedThreadsRaw = MutedThreads.shared.toggled(raw: mutedThreadsRaw, threadKey: threadKey)
+    }
+
     private func notify(threadKey: String, sender: String?, text: String) {
-        guard notificationsEnabled else { return }
+        guard notificationsEnabled, !isMuted(threadKey) else { return }
         let isChannel = threadKey.hasPrefix("ch|")
         if isChannel ? !notifyChannels : !notifyDirect { return }
         let content = UNMutableNotificationContent()
@@ -609,6 +745,7 @@ final class MeshCoreStore: ObservableObject {
             return channels.first { $0.id == idx && !$0.name.isEmpty }.map { $0.name } ?? "Channel \(parts[1])"
         }
         let hex = parts[1]
+        if let nick = nickname(hex) { return nick }
         if let c = contacts.first(where: { $0.id == hex }), !c.name.isEmpty { return c.name }
         if let c = contacts.first(where: { $0.id.hasPrefix(hex) }), !c.name.isEmpty { return c.name }
         return String(hex.prefix(12))
@@ -655,9 +792,12 @@ final class MeshCoreStore: ObservableObject {
             tcpEnabled: tcpEnabled
         )
         diag.log("Store", "restore connection: \(memory.map { String(describing: type(of: $0)) } ?? "nothing remembered")")
-        if let ble = memory as? ConnectionMemoryBle,
+        if bleEnabled, let ble = memory as? ConnectionMemoryBle,
            let id = UUID(uuidString: ble.address),
            let peripheral = scanner.knownPeripheral(id) {
+            // The radio reconnected to from memory belongs in the saved list
+            // too (it was connected before the list existed).
+            remember(SavedNode(kind: ConnectionMemoryCompanion.shared.KIND_BLE, address: ble.address, port: nil, name: ble.name))
             superviseBle(peripheral, name: ble.name ?? "radio")
         } else if memory is ConnectionMemoryTcp {
             superviseTcp()
@@ -666,9 +806,11 @@ final class MeshCoreStore: ObservableObject {
 
     /// Attach over BLE to a radio the scanner found.
     func connectBle(_ radio: DiscoveredRadio) {
+        guard bleEnabled else { return }
         lastLinkKind = ConnectionMemoryCompanion.shared.KIND_BLE
         lastBleId = radio.id.uuidString
         lastBleName = radio.name
+        remember(SavedNode(kind: ConnectionMemoryCompanion.shared.KIND_BLE, address: radio.id.uuidString, port: nil, name: radio.name))
         superviseBle(radio.peripheral, name: radio.name)
         requestNotificationPermission()
     }
@@ -676,6 +818,8 @@ final class MeshCoreStore: ObservableObject {
     func connectTcp() {
         guard tcpEnabled else { return }
         lastLinkKind = ConnectionMemoryCompanion.shared.KIND_TCP
+        remember(SavedNode(kind: ConnectionMemoryCompanion.shared.KIND_TCP, address: tcpHost,
+                           port: KotlinInt(int: Int32(clamping: tcpPort)), name: nil))
         superviseTcp()
     }
 
@@ -741,6 +885,57 @@ final class MeshCoreStore: ObservableObject {
         engine.detach()
         if let t = transport { Task { try? await t.disconnect() } }
         transport = nil
+    }
+
+    // MARK: - Saved radios (shared SavedNodes, as Android)
+
+    @AppStorage("savedNodes") private var savedNodesRaw: String = ""
+
+    var savedRadios: [SavedNode] { SavedNodes.shared.decode(raw: savedNodesRaw) }
+
+    private func remember(_ node: SavedNode) {
+        objectWillChange.send()
+        savedNodesRaw = SavedNodes.shared.encode(nodes: SavedNodes.shared.with(nodes: savedRadios, node: node))
+    }
+
+    /// Whether [node] is the radio the app reconnects to.
+    func isCurrent(_ node: SavedNode) -> Bool {
+        SavedNodes.shared.isBle(node: node) ? (lastLinkKind == ConnectionMemoryCompanion.shared.KIND_BLE && lastBleId == node.address)
+            : (lastLinkKind == ConnectionMemoryCompanion.shared.KIND_TCP && tcpHost == node.address)
+    }
+
+    /// Connect to a saved radio; nil on success, else the sentence to show.
+    func connectSaved(_ node: SavedNode) -> String? {
+        if SavedNodes.shared.isBle(node: node) {
+            guard bleEnabled else { return "Turn on Bluetooth under Transports first." }
+            guard let id = UUID(uuidString: node.address), let p = scanner.knownPeripheral(id) else {
+                return "iOS doesn't know this radio right now. Scan once, and it will reconnect from then on."
+            }
+            if supervisor != nil { disconnect() }
+            lastLinkKind = ConnectionMemoryCompanion.shared.KIND_BLE
+            lastBleId = node.address
+            lastBleName = node.name ?? ""
+            superviseBle(p, name: SavedNodes.shared.label(node: node))
+        } else {
+            guard tcpEnabled else { return "Turn on TCP under Transports first." }
+            tcpHost = node.address
+            if let port = node.port { tcpPort = Int(port.int32Value) }
+            if supervisor != nil { disconnect() }
+            connectTcp()
+        }
+        return nil
+    }
+
+    /// Forget a saved radio — and stop reconnecting to it, or it would come
+    /// straight back (the bug Android's rule fixed).
+    func forgetSaved(_ node: SavedNode) {
+        let wasCurrent = isCurrent(node)
+        objectWillChange.send()
+        savedNodesRaw = SavedNodes.shared.encode(nodes: SavedNodes.shared.without(nodes: savedRadios, key: node.key))
+        if wasCurrent {
+            lastLinkKind = ""
+            if supervisor != nil { disconnect() }
+        }
     }
 
     /// Drop the link and stay down. Auto-reconnect resumes only on the
@@ -813,10 +1008,40 @@ final class MeshCoreStore: ObservableObject {
         return ShareUri.shared.encodeContact(name: selfName, pubKeyHex: selfKeyHex, type: 1)
     }
 
+    /// Showing our code is an invitation: an answer on a shared channel from
+    /// whoever scanned it should add them (shared DmRequests.myCode, as Android).
+    func myCodeShown() {
+        _ = dmRequests?.myCode(nowSec: Int64(Date().timeIntervalSince1970))
+    }
+
     /// A scanned code goes to the same confirmation as an opened link.
     /// Unlike a link it is not filtered to meshcore:// first — a stray
     /// code should be explained ("not a MeshCore link"), not ignored.
+    /// A community code waiting for the person's confirmation.
+    @Published var pendingCommunity: String?
+
+    /// The community's name, for the confirmation; nil if the code can't be read.
+    func communityName(_ text: String) -> String? { CommunityCode.shared.parse(text: text)?.name }
+
+    /// Join a confirmed community code: its secret into the Keychain first,
+    /// then its public channel (shared ChannelJoin.joinCommunity).
+    func joinCommunity(_ text: String) {
+        let join = channelJoin
+        Task {
+            let out = try? await join.joinCommunity(text: text) { idHex, secret in
+                KotlinBoolean(bool: CommunityKeychain.keep(idHex: idHex, secret: secret.toData()))
+            }
+            channelMessage = out?.message ?? "Couldn't join the community."
+            nodeActionNote = channelMessage // the scanner lives on Nodes
+            diag.log("Store", "community join: \(channelMessage ?? "")")
+        }
+    }
+
     func openScanned(_ text: String) {
+        if CommunityCode.shared.isCommunity(text: text) {
+            pendingCommunity = text
+            return
+        }
         pendingLink = text
     }
 
@@ -950,6 +1175,18 @@ final class MeshCoreStore: ObservableObject {
     }
     func joinSharedLink(_ link: String) { runChannel { try await $0.joinShared(link: link) } }
     func leaveChannel(_ index: Int32) { runChannel { try await $0.leave(index: index) } }
+    func joinPublic() { runChannel { try await $0.joinPublic() } }
+    var hasPublic: Bool { _ = channels; return channelJoin.hasPublic() }
+
+    /// "Paste a code": a contact, channel, community or settings code from
+    /// the clipboard goes to the same confirmation as a scan; nil on
+    /// success, else why not (shared ScannedCode.pasteProblem).
+    func pasteCode() -> String? {
+        let raw = UIPasteboard.general.string
+        if let problem = ScannedCode.companion.pasteProblem(raw: raw) { return problem }
+        if let code = ScannedCode.companion.extract(text: raw ?? "") { openScanned(code) }
+        return nil
+    }
 
     private func runChannel(_ op: @escaping (ChannelJoin) async throws -> ChannelJoin.Outcome) {
         let join = channelJoin
@@ -960,6 +1197,32 @@ final class MeshCoreStore: ObservableObject {
                 channelMessage = error.localizedDescription
             }
         }
+    }
+
+    /// The key of a channel slot, for the editor (read from the radio's copy).
+    func channelPskHex(_ index: Int32) -> String? {
+        channel(index).map { $0.pskHex }
+    }
+
+    /// Rename a channel or change its key (shared ChannelJoin.edit).
+    func editChannel(_ index: Int32, name: String, pskHex: String) {
+        let join = channelJoin
+        Task {
+            channelMessage = (try? await join.edit(index: index, name: name, pskHex: pskHex)) ?? "Channel write failed"
+            diag.log("Store", "channel \(index) edit: \(channelMessage ?? "")")
+        }
+    }
+
+    /// Whether the radio holds a group's private channel (setup step 4).
+    var inAGroup: Bool {
+        ((engine.channels.value as? [Channel]) ?? []).contains {
+            !$0.name.isEmpty && SetupChecklist.shared.isGroupChannel(kind: ChannelKinds.shared.of(name: $0.name, psk: $0.psk, crypto: crypto))
+        }
+    }
+
+    /// First-run setup has been finished or skipped (Android's setupComplete).
+    @AppStorage("setupComplete") var setupComplete: Bool = false {
+        willSet { objectWillChange.send() }
     }
 
     private func channel(_ index: Int32) -> Channel? {
@@ -1000,6 +1263,8 @@ final class MeshCoreStore: ObservableObject {
     /// Repeaters' neighbour tables as read, for the map (memory only).
     let neighbourBook = NeighbourBook()
     @Published private var adminSessions: [String: AdminSession] = [:]
+    /// Repeater console lines per node, already redacted (memory only).
+    @Published var consoleLines: [String: [String]] = [:]
 
     func adminSession(_ keyHex: String) -> AdminSession {
         adminSessions[keyHex] ?? RepeaterReadout.shared.signedOut
@@ -1060,6 +1325,11 @@ final class MeshCoreStore: ObservableObject {
         objectWillChange.send()
         blockedKeysRaw = set.sorted().joined(separator: "\n")
         pushBlocks()
+    }
+
+    func isFiltered(_ name: String) -> Bool {
+        guard let n = BlockList.shared.canonicalName(raw: name) else { return false }
+        return filteredNames.contains(n)
     }
 
     func setFiltered(_ name: String, _ filtered: Bool) {

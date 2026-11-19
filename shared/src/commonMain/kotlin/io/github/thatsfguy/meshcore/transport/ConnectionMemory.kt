@@ -122,3 +122,29 @@ data class SavedNode(
         }
     }
 }
+
+/**
+ * The saved-radios list — every radio this phone has connected to, to
+ * switch between. Stored as one string of [SavedNode.encode] lines. The
+ * list rules lived in Android's Preferences; shared since 2026-11-18 so
+ * iOS keeps the same list the same way.
+ */
+object SavedNodes {
+    fun decode(raw: String?): List<SavedNode> =
+        raw.orEmpty().split('\n').mapNotNull { line -> line.takeIf { it.isNotBlank() }?.let(SavedNode::decode) }
+
+    fun encode(nodes: List<SavedNode>): String = nodes.joinToString("\n") { it.encode() }
+
+    /** [nodes] with [node] saved — replacing any entry with the same key, newest last. */
+    fun with(nodes: List<SavedNode>, node: SavedNode): List<SavedNode> = nodes.filter { it.key != node.key } + node
+
+    fun without(nodes: List<SavedNode>, key: String): List<SavedNode> = nodes.filter { it.key != key }
+
+    /** The display name for a saved radio. */
+    fun label(node: SavedNode): String = node.name?.takeIf { it.isNotBlank() } ?: when (node.kind) {
+        ConnectionMemory.KIND_TCP -> "${node.address}:${node.port ?: ""}"
+        else -> node.address
+    }
+
+    fun isBle(node: SavedNode): Boolean = node.kind == ConnectionMemory.KIND_BLE
+}

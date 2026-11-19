@@ -416,38 +416,19 @@ fun RoutingSheet(
                     // said (PARITY §9). An ambiguous hop is reported as a
                     // gap rather than pinned to a guess — a map that
                     // guesses looks exactly like one that knows.
-                    val plot = vm.plotPath(t.hops.joinToString(" "))
-                    HintText(plot.summary())
-                    for (hop in plot.hops) {
-                        val where = when {
-                            hop.isPlotted ->
-                                "${hop.name} · %.4f, %.4f".format(hop.latitude, hop.longitude)
-                            hop.gap != null ->
-                                (hop.name?.plus(" · ") ?: "") +
-                                    io.github.thatsfguy.meshcore.protocol.PathGeometry
-                                        .gapReason(hop.gap!!)
-                            else -> "unknown"
-                        }
+                    val view = vm.traceView(t)
+                    view.summary?.let { HintText(it) }
+                    for (line in view.placements) {
                         Text(
-                            "${hop.hashHex}  $where",
+                            line,
                             style = MaterialTheme.typography.bodySmall,
                             fontFamily = FontFamily.Monospace,
-                            color = if (hop.isPlotted) {
-                                MaterialTheme.colorScheme.onSurface
-                            } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                            },
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                     TextButton(onClick = {
-                        // The trace reports its OWN hash width in the
-                        // frame; split at that, not at whatever the
-                        // editor happens to assume.
-                        hops = HopSelection.fromPath(
-                            hexToBytes(t.hops.joinToString("")),
-                            t.hashWidth,
-                            contactNames,
-                        )
+                        // Split at the trace's OWN width (shared traceViewOf).
+                        hops = view.hops
                         mode = RoutingMode.Manual
                     }) { Text("Use traced path") }
                 }

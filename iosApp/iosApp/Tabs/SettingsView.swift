@@ -77,7 +77,8 @@ struct SettingsView: View {
         case "connection":
             return store.linkTarget.map { "\(store.engineStateLabel) · \($0)" } ?? store.engineStateLabel
         case "transports":
-            return store.tcpEnabled ? "⚠ Bluetooth and TCP (unencrypted)" : "Bluetooth"
+            // The shared wording (Android's), now that Bluetooth can be off too.
+            return SettingsHubModelKt.transportsSubtitle(ble: store.bleEnabled, usb: false, tcp: store.tcpEnabled)
         case "identity":
             return store.isReady ? SettingsHubModelKt.identitySubtitle(name: info?.name) : "Connect to a radio"
         case "radio":
@@ -124,6 +125,33 @@ struct SettingsView: View {
 
 private struct ConnectionSpoke: View {
     @EnvironmentObject var store: MeshCoreStore
+    @State private var savedNote: String?
+
+    private var savedSection: some View {
+        Section {
+            ForEach(store.savedRadios, id: \.key) { node in
+                Button {
+                    savedNote = store.connectSaved(node)
+                } label: {
+                    HStack {
+                        Text(SavedNodes.shared.label(node: node)).foregroundStyle(.primary)
+                        Spacer()
+                        if store.isCurrent(node) {
+                            Text(store.isReady ? "Connected" : "Current").font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                .swipeActions {
+                    Button("Forget", role: .destructive) { store.forgetSaved(node) }
+                }
+            }
+            if let savedNote { Text(savedNote).font(.caption).foregroundStyle(.secondary) }
+        } header: {
+            Text("Saved radios")
+        } footer: {
+            Text("Tap to switch. Swipe to forget — the app then stops reconnecting to it.")
+        }
+    }
 
     var body: some View {
         Form {
@@ -151,7 +179,8 @@ private struct ConnectionSpoke: View {
                         .disabled(!store.isReady)
                 }
             }
-            BluetoothSection(scanner: store.scanner)
+            if !store.savedRadios.isEmpty { savedSection }
+            if store.bleEnabled { BluetoothSection(scanner: store.scanner) }
             if store.tcpEnabled {
                 Section {
                     LabeledContent("Host", value: "\(store.tcpHost):\(store.tcpPort)")
@@ -174,9 +203,9 @@ private struct TransportsSpoke: View {
     var body: some View {
         Form {
             Section {
-                LabeledContent("Bluetooth", value: "Always on")
+                Toggle("Bluetooth LE", isOn: $store.bleEnabled)
             } footer: {
-                Text("iPhones have no USB serial for radios, so Bluetooth is the everyday link.")
+                Text("iPhones have no USB serial for radios, so Bluetooth is the everyday link. Off, the app won't scan for or reconnect to a Bluetooth radio — for a networked radio over TCP only.")
             }
             Section {
                 Toggle("TCP transport (unencrypted)", isOn: Binding(
@@ -264,9 +293,21 @@ private struct ChannelsSpoke: View {
 
 private struct BlockingSpoke: View {
     @EnvironmentObject var store: MeshCoreStore
+    @State private var name = ""
 
     var body: some View {
         List {
+            // Typed in, as Android's "Sender name to hide".
+            Section {
+                TextField("Sender name to hide", text: $name).autocorrectionDisabled()
+                Button("Hide on every channel") {
+                    store.setFiltered(name, true)
+                    name = ""
+                }
+                .disabled(BlockList.shared.canonicalName(raw: name) == nil)
+            } footer: {
+                Text(BlockList.shared.CHANNEL_FILTER_CAVEAT)
+            }
             Section {
                 if store.blockedKeys.isEmpty && store.filteredNames.isEmpty {
                     Text("Nobody is blocked. Block someone from their contact page, or hide a channel name from a message.")
@@ -313,6 +354,23 @@ private struct AppSpoke: View {
                 Text("iOS may also need notifications allowed for this app in the system Settings.")
             }
             Section {
+                Picker("Theme", selection: $store.theme) {
+                    Text("System").tag("system")
+                    Text("Light").tag("light")
+                    Text("Dark").tag("dark")
+                }
+                Picker("Units", selection: $store.unitsPreference) {
+                    Text("System").tag(UnitSystem.companion.FOLLOW_SYSTEM)
+                    Text("Metric").tag(UnitSystem.companion.METRIC)
+                    Text("Imperial").tag(UnitSystem.companion.IMPERIAL)
+                }
+            } header: {
+                Text("Appearance")
+            } footer: {
+                // What is in force, not just what was chosen (Android's hint).
+                Text("Showing \(Units.shared.label(system: store.unitSystem)). Distances, temperatures and altitudes only — radio figures stay in MHz and dB.")
+            }
+            Section {
                 Text("Message history is stored on this phone only, encrypted by iOS (Data Protection) and excluded from backups.")
                 Text("The map loads Apple Maps tiles; that is the app's only outbound connection. Nothing else in this app contacts a server, and it works in airplane mode.")
             } header: {
@@ -327,6 +385,8 @@ private struct AppSpoke: View {
 
 private struct DataSpoke: View {
     @EnvironmentObject var store: MeshCoreStore
+    @State private var purging = false
+    @State private var purgeNote: String?
 
     var body: some View {
         Form {
@@ -336,22 +396,82 @@ private struct DataSpoke: View {
                         Text(p.label()).tag(p.encode())
                     }
                 }
+                if let note = store.retentionNote { Text(note).font(.caption).foregroundStyle(.secondary) }
             } header: {
                 Text("Message history")
             } footer: {
                 Text("Older messages are deleted from this phone. Age is when they arrived here, not the sender's clock, which may be wrong.")
             }
+            Section {
+                Button(Purge.shared.TITLE + "…", role: .destructive) { purging = true }
+                if let purgeNote { Text(purgeNote).font(.caption) }
+            } footer: {
+                Text(Purge.shared.HINT)
+            }
         }
         .navigationTitle("Data and storage")
+        .sheet(isPresented: $purging) {
+            PurgeSheet { alsoSecrets in purgeNote = store.purgeLocal(alsoSecrets: alsoSecrets) }
+        }
+    }
+}
+
+/// The purge confirmation: the list spelled out, and a typed word —
+/// history is the one thing the radio can't give back (shared Purge).
+private struct PurgeSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let onConfirm: (Bool) -> Void
+    @State private var typed = ""
+    @State private var alsoSecrets = false
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("This deletes, from this phone only:") {
+                    ForEach(Purge.shared.DELETES, id: \.self) { Text("• \($0)").font(.callout) }
+                }
+                Section("It does NOT delete:") {
+                    ForEach(Purge.shared.KEEPS, id: \.self) { Text("• \($0)").font(.callout) }
+                }
+                Section {
+                    Text(Purge.shared.NO_RECOVERY).font(.callout).foregroundStyle(.red)
+                    Toggle(Purge.shared.SECRETS_TOGGLE, isOn: $alsoSecrets)
+                    if alsoSecrets {
+                        Text(Purge.shared.secretsWarning(what: "Community secrets in this iPhone's Keychain"))
+                            .font(.caption).foregroundStyle(.red)
+                    }
+                }
+                Section {
+                    TextField("Type \(Purge.shared.CONFIRM_WORD) to confirm", text: $typed)
+                        .textInputAutocapitalization(.characters)
+                        .autocorrectionDisabled()
+                }
+            }
+            .navigationTitle(Purge.shared.TITLE)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Purge", role: .destructive) {
+                        onConfirm(alsoSecrets)
+                        dismiss()
+                    }
+                    .disabled(!Purge.shared.armed(typed: typed))
+                }
+            }
+        }
     }
 }
 
 private struct AboutSpoke: View {
+    @State private var whatsNew = false
+
     var body: some View {
         Form {
             Section {
                 LabeledContent("App", value: "MeshCore Hardened")
                 LabeledContent("Version", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?")
+                Button("What's new") { whatsNew = true }
             }
             Section {
                 Text("No servers, no accounts, no analytics. Message history stays on this phone, encrypted by iOS and excluded from backups. " +
@@ -360,12 +480,70 @@ private struct AboutSpoke: View {
             }
         }
         .navigationTitle("About")
+        .sheet(isPresented: $whatsNew) { WhatsNewSheet() }
+    }
+}
+
+/// The bundled iosApp/CHANGELOG.md, from its first release heading on,
+/// with hard-wrapped lines joined back into headings, bullets and paragraphs.
+private struct WhatsNewSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    private enum Kind { case heading, bullet, text }
+    private struct Block { let kind: Kind; var text: String }
+
+    private var blocks: [Block] {
+        guard let url = Bundle.main.url(forResource: "CHANGELOG", withExtension: "md"),
+              let text = try? String(contentsOf: url, encoding: .utf8) else { return [] }
+        let all = text.components(separatedBy: "\n")
+        let start = all.firstIndex { $0.hasPrefix("## ") } ?? 0
+        var out: [Block] = []
+        var open = false // whether the last block takes continuation lines
+        for raw in all[start...] {
+            let line = raw.trimmingCharacters(in: .whitespaces)
+            if line.isEmpty { open = false; continue }
+            if raw.hasPrefix("## ") {
+                out.append(Block(kind: .heading, text: String(raw.dropFirst(3)))); open = false
+            } else if raw.hasPrefix("- ") {
+                out.append(Block(kind: .bullet, text: String(raw.dropFirst(2)))); open = true
+            } else if open, !out.isEmpty {
+                out[out.count - 1].text += " " + line
+            } else {
+                out.append(Block(kind: .text, text: line)); open = true
+            }
+        }
+        return out
+    }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 6) {
+                    let all = blocks
+                    if all.isEmpty { Text("The release notes aren't in this build.").foregroundStyle(.secondary) }
+                    ForEach(Array(all.enumerated()), id: \.offset) { _, block in row(block) }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding()
+            }
+            .navigationTitle("What's new")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+        }
+    }
+
+    @ViewBuilder private func row(_ block: Block) -> some View {
+        switch block.kind {
+        case .heading: Text(block.text).font(.title3.bold()).padding(.top, 8)
+        case .bullet: Text(LocalizedStringKey("• " + block.text)).font(.callout)
+        case .text: Text(LocalizedStringKey(block.text)).font(.callout)
+        }
     }
 }
 
 /// The scanner is owned by the store (it holds the app's one BLE
 /// central); this view only observes it.
-private struct BluetoothSection: View {
+struct BluetoothSection: View {
     @EnvironmentObject var store: MeshCoreStore
     @ObservedObject var scanner: BleScanner
 
@@ -418,6 +596,7 @@ private struct DiagnosticsSection: View {
             if enabled {
                 NavigationLink("View log") { DiagnosticsView() }
             }
+            NavigationLink(DatagramTool.shared.TITLE) { DatagramToolView() }
         } header: {
             Text("Diagnostics")
         } footer: {
@@ -461,6 +640,49 @@ private struct DiagnosticsView: View {
                 Button("Clear", role: .destructive) { diag.clear() }
                     .disabled(diag.lines.isEmpty)
             }
+        }
+    }
+}
+
+/// Send raw bytes of a data type to a channel (Android's developer tool;
+/// parsing and wording are the shared DatagramTool).
+private struct DatagramToolView: View {
+    @EnvironmentObject var store: MeshCoreStore
+    @State private var channel = "0"
+    @State private var type = DatagramTool.shared.DEFAULT_TYPE
+    @State private var payload = ""
+    @State private var note: String?
+    @State private var busy = false
+
+    var body: some View {
+        Form {
+            Section {
+                TextField("Channel", text: $channel).keyboardType(.numberPad)
+                TextField("Type (hex)", text: $type).textInputAutocapitalization(.characters).autocorrectionDisabled()
+                TextField("Payload (hex)", text: $payload).textInputAutocapitalization(.never).autocorrectionDisabled()
+                    .font(.system(.body, design: .monospaced))
+            } footer: {
+                Text(DatagramTool.shared.HINT)
+            }
+            Section {
+                Button(busy ? "Sending…" : "Send datagram") { send() }
+                    .disabled(busy || !store.isReady || payload.isEmpty)
+                if let note { Text(note).font(.caption) }
+            }
+        }
+        .navigationTitle("Channel datagram")
+    }
+
+    private func send() {
+        guard let r = DatagramTool.shared.parse(channel: channel, typeHex: type, payloadHex: payload) else {
+            note = DatagramTool.shared.problem(channel: channel, typeHex: type, payloadHex: payload)
+            return
+        }
+        busy = true
+        Task {
+            let ok = await store.sendDatagram(r)
+            note = DatagramTool.shared.result(ok: ok, request: r)
+            busy = false
         }
     }
 }

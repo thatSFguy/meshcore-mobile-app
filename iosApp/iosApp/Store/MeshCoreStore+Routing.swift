@@ -52,11 +52,17 @@ extension MeshCoreStore {
         return message
     }
 
-    func trace(_ keyHex: String) async -> [String] {
-        guard let c = liveContact(keyHex) else { return ["That contact is no longer on the radio."] }
-        let lines = (try? await Routing.companion.over(engine: engine).trace(contact: c, meshWidth: meshWidth)) ?? []
-        diag.log("Routing", "trace \(keyHex.prefix(12)): \(lines.first ?? "nothing")")
-        return lines
+    /// A trace with its hops (for "Use traced path") and where each hop
+    /// is, all at the trace's own width (shared Routing.traceView).
+    func trace(_ keyHex: String) async -> Routing.TraceView? {
+        guard let c = liveContact(keyHex) else { return nil }
+        let positioned = allContacts.map {
+            PathGeometry.PositionedContact(keyHex: $0.publicKeyHex, name: $0.name,
+                                           latitude: $0.latitude, longitude: $0.longitude)
+        }
+        let view = try? await Routing.companion.over(engine: engine).traceView(contact: c, meshWidth: meshWidth, contacts: positioned)
+        diag.log("Routing", "trace \(keyHex.prefix(12)): \(view?.lines.first ?? "nothing")")
+        return view
     }
 
     func checkReach(_ keyHex: String) async -> String {
@@ -107,13 +113,6 @@ extension MeshCoreStore {
 }
 
 extension MeshCoreStore {
-    /// GPX of the radio's contacts with a position, or nil when none has one.
-    func gpxText() -> String? {
-        Gpx.shared.fromContacts(contacts: Array(((engine.contacts.value as? [String: Contact]) ?? [:]).values))
-    }
-}
-
-extension MeshCoreStore {
     private var selfPosition: (lat: KotlinDouble?, lon: KotlinDouble?) {
         guard let me = node.selfInfo,
               GeoKt.isPlausiblePosition(lat: KotlinDouble(double: me.latitude), lon: KotlinDouble(double: me.longitude))
@@ -149,5 +148,80 @@ extension MeshCoreStore {
     func clearHeardRepeats() {
         engine.clearHeardRepeats()
         objectWillChange.send()
+    }
+}
+
+// MARK: - Favourite, nickname, ping (iOS after 0.1.0)
+
+extension MeshCoreStore {
+    /// Ping a node in direct range (shared Routing.ping); the sentence to show.
+    func ping(_ keyHex: String) async -> String {
+        let keys = Array(((engine.contacts.value as? [String: Contact]) ?? [:]).keys)
+        let line = (try? await Routing.companion.over(engine: engine).ping(
+            keyHex: keyHex, meshWidth: meshWidth, knownKeys: keys,
+            nowMs: { KotlinLong(value: Int64(ProcessInfo.processInfo.systemUptime * 1000)) }
+        )) ?? "No reply."
+        diag.log("Routing", "ping \(keyHex.prefix(12)): \(line.prefix(40))")
+        return line
+    }
+
+    /// Favourite is a flag on the RADIO's contact record (as Android): it
+    /// sorts first, and the stale-node sweep never removes it.
+    func setFavourite(_ keyHex: String, _ on: Bool) async -> Bool {
+        guard let key = HexKt.hexToBytesOrNull(hex: keyHex) else { return false }
+        let ok = (try? await engine.setFavourite(pubKey: key, favourite: on))?.boolValue ?? false
+        diag.log("Store", "favourite \(keyHex.prefix(12)) \(on): \(ok ? "ok" : "refused")")
+        return ok
+    }
+
+    /// A name of your own for a contact, kept on this phone only (Android's
+    /// "nick_<key>" rule) — the radio's record keeps the advertised name.
+    func nickname(_ keyHex: String) -> String? {
+        UserDefaults.standard.string(forKey: "nick_\(keyHex.lowercased())").flatMap { $0.isEmpty ? nil : $0 }
+    }
+
+    func setNickname(_ keyHex: String, _ name: String?) {
+        let key = "nick_\(keyHex.lowercased())"
+        let trimmed = name?.trimmingCharacters(in: .whitespaces) ?? ""
+        if trimmed.isEmpty { UserDefaults.standard.removeObject(forKey: key) } else { UserDefaults.standard.set(trimmed, forKey: key) }
+        objectWillChange.send()
+    }
+}
+
+// MARK: - Unread, drafts, contact sharing, telemetry permission
+
+extension MeshCoreStore {
+    /// The meshcore:// card for a contact, to show as a QR or send.
+    func contactShareLink(_ keyHex: String) -> String? {
+        guard let c = liveContact(keyHex) else { return nil }
+        return ShareUri.shared.encodeContact(name: c.name, pubKeyHex: c.publicKeyHex, type: c.type)
+    }
+
+    /// Whether this contact may read our telemetry of one kind (a flag on
+    /// the radio's record: base = battery, location, environment).
+    func telemetryAllowed(_ keyHex: String, flag: Int32) -> Bool {
+        guard let c = liveContact(keyHex) else { return false }
+        return (c.flags & flag) != 0
+    }
+
+    func setTelemetryAllowed(_ keyHex: String, flag: Int32, _ on: Bool) async -> Bool {
+        guard let key = HexKt.hexToBytesOrNull(hex: keyHex) else { return false }
+        let ok = (try? await engine.setContactFlag(pubKey: key, flag: flag, enabled: on))?.boolValue ?? false
+        objectWillChange.send()
+        return ok
+    }
+}
+
+// MARK: - Rename on the radio (shared engine, keeps the replay guard)
+
+extension MeshCoreStore {
+    func liveContactName(_ keyHex: String) -> String? { liveContact(keyHex)?.name }
+
+    func renameOnRadio(_ keyHex: String, _ name: String) async -> Bool {
+        guard let key = HexKt.hexToBytesOrNull(hex: keyHex) else { return false }
+        let ok = (try? await engine.renameContact(pubKey: key, name: name))?.boolValue ?? false
+        diag.log("Store", "rename \(keyHex.prefix(12)) on radio: \(ok)")
+        objectWillChange.send()
+        return ok
     }
 }

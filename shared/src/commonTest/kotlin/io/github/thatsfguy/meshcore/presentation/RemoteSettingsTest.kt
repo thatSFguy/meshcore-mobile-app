@@ -130,4 +130,14 @@ class RemoteSettingsTest {
         assertNull(RemoteSettingsForm.forwardingCommand("rxdelay", "-1"))
         assertNull(RemoteSettingsForm.forwardingCommand("rxdelay", ""))
     }
+
+    @Test
+    fun aRemotePresetSetsPowerThenTheFourRadioValues() {
+        val preset = io.github.thatsfguy.meshcore.protocol.RadioPresets.ALL.first()
+        val cmds = RemoteSettingsForm.presetCommands(preset)
+        assertEquals("set tx ${preset.txPowerDbm}", cmds[0])
+        assertEquals("set radio ${preset.toRadioCsv()}", cmds[1])
+        // The firmware's `set radio` reads freq,bw,sf,cr (CommonCLI.cpp).
+        assertEquals(4, cmds[1].removePrefix("set radio ").split(",").size)
+    }
 }

@@ -81,7 +81,8 @@ extension MeshCoreStore {
         try? await repeaterAdmin.telemetry(
             keyHex: keyHex, contactType: type,
             signedIn: adminSession(keyHex).signedIn, pinned: isPinned(keyHex),
-            deviceCountry: Locale.current.region?.identifier
+            deviceCountry: Locale.current.region?.identifier,
+            unitsPreference: unitsPreference
         )
     }
 
@@ -109,5 +110,77 @@ extension MeshCoreStore {
         let message = result?.message ?? "Nothing was removed."
         diag.log("Store", "stale sweep (\(days) d): \(message)")
         return message
+    }
+}
+
+// MARK: - Discovered nodes (iOS after 0.1.0)
+
+extension MeshCoreStore {
+    var heardNodes: [HeardNode] { (heard?.nodes.value as? [HeardNode]) ?? [] }
+
+    func heardDetail(_ n: HeardNode) -> String {
+        DiscoveredBook.companion.detail(node: n, nowMs: Int64(Date().timeIntervalSince1970 * 1000))
+    }
+
+    func addHeard(_ n: HeardNode) async -> String {
+        let msg = (try? await DiscoveredBook.companion.add(engine: engine, node: n)) ?? "Couldn't add it."
+        diag.log("Store", "add heard \(n.keyHex.prefix(12)): \(msg)")
+        objectWillChange.send()
+        return msg
+    }
+
+    func dismissHeard(_ n: HeardNode) {
+        heard?.dismiss(keyHex: n.keyHex)
+        objectWillChange.send()
+        scheduleSave()
+    }
+
+    func clearHeard() {
+        heard?.clear()
+        objectWillChange.send()
+        scheduleSave()
+    }
+
+    func discoverNodes() async -> NodeDiscoveryResult? {
+        let d = try? await DiscoveredBook.companion.discoverDetailed(engine: engine)
+        diag.log("Store", "discover: \(d?.message ?? "no answer")")
+        return d
+    }
+}
+
+// MARK: - Purge local data (shared Purge wording, as Android)
+
+extension MeshCoreStore {
+    /// Delete this phone's copy of everything; the radio is not touched.
+    /// Returns the facts, as Android reports them.
+    func purgeLocal(alsoSecrets: Bool) -> String {
+        // History is per radio and opened when one connects (as Android).
+        guard let messages = clearAllHistory() else { return "Not connected — nothing to purge against." }
+        paths?.clearAll()
+        heard?.clear()
+        drafts = [:]
+        consoleLines = [:]
+        let defaults = UserDefaults.standard
+        for key in defaults.dictionaryRepresentation().keys where key.hasPrefix("nick_") {
+            defaults.removeObject(forKey: key)
+        }
+        defaults.removeObject(forKey: "pinnedRoutes")
+        defaults.removeObject(forKey: "mutedThreads")
+        defaults.removeObject(forKey: "pinnedThreads")
+        node.forgetRegionLabels()
+        if alsoSecrets { CommunityKeychain.forgetAll() }
+        objectWillChange.send()
+        saveNow() // writes the emptied history, paths and inbox
+        diag.log("Store", "purged local data (\(messages) messages, secrets: \(alsoSecrets))")
+        // iOS keeps no copy of the radio's contacts or channels (they are
+        // read live), so there are none to count.
+        return Purge.shared.result(messages: messages, contacts: nil, channels: nil, alsoSecrets: alsoSecrets)
+    }
+}
+
+extension MeshCoreStore {
+    /// The developer datagram tool's send (shared DatagramTool parses it).
+    func sendDatagram(_ r: DatagramTool.Request) async -> Bool {
+        (try? await engine.sendChannelDatagram(channelIndex: r.channel, dataType: r.dataType, payload: r.payload))?.boolValue ?? false
     }
 }

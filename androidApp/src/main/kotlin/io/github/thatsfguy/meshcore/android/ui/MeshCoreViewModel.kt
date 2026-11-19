@@ -1214,21 +1214,18 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
      * Where a path's hops are, as far as can honestly be said
      * (PARITY §9). Ambiguous hops come back as gaps, never as a guess.
      */
-    fun plotPath(hopTokens: String): io.github.thatsfguy.meshcore.protocol.PathGeometry.Plot {
-        val width = deviceInfo.value?.pathHashByteWidth ?: 1
-        val path = io.github.thatsfguy.meshcore.protocol.PathCodec
-            .parseHopTokens(hopTokens, width)
-            ?: return io.github.thatsfguy.meshcore.protocol.PathGeometry.Plot(emptyList())
-        return io.github.thatsfguy.meshcore.protocol.PathGeometry.plot(
-            path,
-            width,
+    /**
+     * A trace's hops and placements at the TRACE's own width (shared
+     * Routing.traceViewOf; iOS uses the same). [plotPath] parsed the
+     * trace's hops at the device's width instead, and is gone.
+     */
+    fun traceView(t: io.github.thatsfguy.meshcore.protocol.TraceResult): io.github.thatsfguy.meshcore.messaging.Routing.TraceView =
+        io.github.thatsfguy.meshcore.messaging.Routing.traceViewOf(
+            t,
             dbContacts.value.map {
-                io.github.thatsfguy.meshcore.protocol.PathGeometry.PositionedContact(
-                    it.keyHex, it.name, it.latitude, it.longitude,
-                )
+                io.github.thatsfguy.meshcore.protocol.PathGeometry.PositionedContact(it.keyHex, it.name, it.latitude, it.longitude)
             },
         )
-    }
 
     /**
      * The route a received message took, laid out for a map.
@@ -1497,36 +1494,17 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
         val svc = _service.value ?: return
         val key = hexToBytesOrNull(contact.keyHex) ?: return
         viewModelScope.launch {
-            val live = svc.engine.contacts.value[contact.keyHex]
-            val ok = runCatching {
-                svc.engine.let {
-                    // Re-write the radio's contact record with the new name.
-                    val frame = io.github.thatsfguy.meshcore.protocol.Frames.addUpdateContact(
-                        pubKey = key,
-                        type = live?.type ?: contact.type,
-                        flags = live?.flags ?: contact.flags,
-                        pathLen = live?.pathLen ?: contact.pathLen,
-                        path = live?.path ?: ByteArray(0),
-                        name = newName,
-                        timestampSeconds = System.currentTimeMillis() / 1000,
-                        lat = live?.latitude,
-                        lon = live?.longitude,
-                    )
-                    sendRawExpectOk(frame)
-                }
-            }.getOrDefault(false)
+            // The shared engine rewrites the record with the contact's OWN
+            // advert timestamp. This used to pass the phone's clock, which
+            // future-stamps the record: the firmware then drops the node's
+            // real adverts as replays (Frames.addUpdateContact).
+            val ok = runCatching { svc.engine.renameContact(key, newName) }.getOrDefault(false)
             if (ok) {
                 svc.engine.syncContacts()
             } else {
                 transientMessage.value = "Rename failed"
             }
         }
-    }
-
-    private suspend fun sendRawExpectOk(frame: ByteArray): Boolean {
-        // Thin passthrough for commands the engine doesn't wrap 1:1.
-        val svc = _service.value ?: return false
-        return runCatching { svc.engine.sendRaw(frame) }.getOrDefault(false)
     }
 
     /**
@@ -3223,12 +3201,7 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
         if (alsoSecrets) prefs.clearAllSealed()
         regionRevision.value++
 
-        return buildString {
-            append("Purged ${counts.messages} message(s), ${counts.contacts} contact(s), ")
-            append("${counts.channels} channel(s)")
-            if (alsoSecrets) append(", and all stored keys and passwords")
-            append(". The radio was not touched.")
-        }
+        return io.github.thatsfguy.meshcore.presentation.Purge.result(counts.messages, counts.contacts, counts.channels, alsoSecrets)
     }
 
     // --- Config backup / restore (PARITY §1) ---
@@ -3480,49 +3453,6 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
     suspend fun queryCustomVars() {
         if (engineState.value != EngineState.Ready) return
         runCatching { _service.value?.engine?.requestCustomVars() }
-    }
-
-    /**
-     * Write every located node to a GPX file in the app's cache and
-     * offer it via a share sheet — nothing leaves the device unless the
-     * user picks a target.
-     */
-    fun exportGpx(@Suppress("UNUSED_PARAMETER") count: Int) {
-        val app = getApplication<Application>()
-        viewModelScope.launch {
-            // Built in shared (Gpx) since 2026-11-18: escaped for XML and
-            // stripped of characters XML 1.0 can't carry — a node name is
-            // attacker-controlled.
-            val points = dbContacts.value.map {
-                io.github.thatsfguy.meshcore.presentation.Gpx.Waypoint(it.keyHex, it.name, it.latitude, it.longitude)
-            }
-            val nodes = points.filter { isPlausiblePosition(it.latitude, it.longitude) }
-            val gpx = io.github.thatsfguy.meshcore.presentation.Gpx.build(points)
-            if (gpx == null) {
-                transientMessage.value = io.github.thatsfguy.meshcore.presentation.Gpx.NOTHING_TO_EXPORT
-                return@launch
-            }
-            val dir = java.io.File(app.cacheDir, "exports").apply {
-                // Clear previous exports — an old GPX is node names, keys
-                // and GPS sitting around for no reason.
-                deleteRecursively()
-                mkdirs()
-            }
-            val file = java.io.File(dir, "meshcore-nodes.gpx")
-            file.writeText(gpx)
-            val uri = androidx.core.content.FileProvider.getUriForFile(
-                app, "${app.packageName}.fileprovider", file,
-            )
-            val share = Intent(Intent.ACTION_SEND).apply {
-                type = "application/gpx+xml"
-                putExtra(Intent.EXTRA_STREAM, uri)
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-            app.startActivity(Intent.createChooser(share, "Export nodes").apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            })
-            transientMessage.value = "Exported ${nodes.size} nodes"
-        }
     }
 
     /**

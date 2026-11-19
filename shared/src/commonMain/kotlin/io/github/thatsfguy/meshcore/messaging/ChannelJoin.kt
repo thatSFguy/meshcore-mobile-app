@@ -154,6 +154,48 @@ class ChannelJoin(private val radio: Radio, private val crypto: CryptoProvider) 
         }
     }
 
+    /**
+     * Join a community from its code: KEEP its secret first (via
+     * [keepSecret], the platform keystore — `communityIdHex`, secret),
+     * and refuse the join if it can't be kept; then add the community's
+     * public channel. Android's order and rule.
+     */
+    suspend fun joinCommunity(text: String, keepSecret: (String, ByteArray) -> Boolean): Outcome {
+        val c = io.github.thatsfguy.meshcore.protocol.CommunityCode.parse(text)
+            ?: return Outcome.Refused("That isn't a community code this app can read.")
+        val id = io.github.thatsfguy.meshcore.protocol.CommunityCode.idHex(crypto, c.secret)
+        if (!runCatching { keepSecret(id, c.secret) }.getOrDefault(false)) {
+            return Outcome.Refused("This phone couldn't store the community secret securely, so the community was not joined.")
+        }
+        val psk = io.github.thatsfguy.meshcore.protocol.CommunityCode.publicPsk(crypto, c.secret)
+        return when (val out = add(c.name, psk)) {
+            is Outcome.Added -> out.copy(message = "Joined community \"${c.name}\"")
+            else -> out
+        }
+    }
+
+    /**
+     * Rename a channel or change its key (Android's channel editor). The
+     * key is 16 bytes as 32 hex characters (spaces allowed); the name is
+     * what fits the radio's slot. Returns the sentence to show.
+     */
+    suspend fun edit(index: Int, name: String, pskHex: String): String {
+        val psk = io.github.thatsfguy.meshcore.util.hexToBytesOrNull(pskHex.replace(" ", "").trim())
+        if (psk == null || psk.size != 16) return "The key must be 32 hex characters."
+        val n = name.trim()
+        if (n.isEmpty() || n.encodeToByteArray().size >= io.github.thatsfguy.meshcore.protocol.Codes.MAX_NAME_SIZE) {
+            return "The name must be 1 to ${io.github.thatsfguy.meshcore.protocol.Codes.MAX_NAME_SIZE - 1} bytes."
+        }
+        return if (runCatching { radio.setChannel(index, n, psk) }.getOrDefault(false)) "Channel updated" else "Channel write failed"
+    }
+
+    /** "Join the Public channel": the well-known key under its usual name (Android's joinPublicChannel). */
+    suspend fun joinPublic(): Outcome =
+        add(io.github.thatsfguy.meshcore.presentation.ChannelSetup.PUBLIC_NAME, io.github.thatsfguy.meshcore.protocol.ChannelCrypto.PUBLIC_CHANNEL_PSK)
+
+    /** Whether the radio already holds the Public channel's key, under any name. */
+    fun hasPublic(): Boolean = ChannelList.findByPsk(radio.channels, io.github.thatsfguy.meshcore.protocol.ChannelCrypto.PUBLIC_CHANNEL_PSK.toHex()) != null
+
     /** The link that shares [channel], for a person you trust with every message on it. */
     fun shareLink(channel: Channel): String = ShareUri.encodeChannel(channel.name, channel.pskHex)
 

@@ -3,8 +3,8 @@
 //
 // Phase 4 (2026-11-18) brought it toward Android's map: a pin for this
 // radio, per-type colours and symbols, a labels switch, type filters,
-// "fit all", tapping a pin to open the node, and GPX export (shared
-// `Gpx`, which escapes attacker-controlled names). Positions are judged
+// "fit all", and tapping a pin to open the node. (GPX export was removed
+// 2026-11-18: no one had a use for it.) Positions are judged
 // by the shared `isPlausiblePosition`, not an inline check. Neighbour
 // links come with repeater admin (Phase 5).
 
@@ -21,7 +21,6 @@ struct NodeMapView: View {
     @AppStorage("mapTypeFilter") private var filterRaw = ""
     @State private var position: MapCameraPosition = .automatic
     @State private var selected: String?
-    @State private var export: ExportFile?
 
     private var filter: Set<Int32> {
         Set(filterRaw.split(separator: ",").compactMap { Int32($0) })
@@ -29,7 +28,7 @@ struct NodeMapView: View {
 
     private var located: [UiNode] {
         let now = Int64(Date().timeIntervalSince1970)
-        return store.nodes.map { UiNode($0, now: now) }.filter { n in
+        return store.nodes.map { UiNode($0, now: now, nickname: store.nickname($0.keyHex)) }.filter { n in
             GeoKt.isPlausiblePosition(lat: n.latitude.map { KotlinDouble(double: $0) },
                                       lon: n.longitude.map { KotlinDouble(double: $0) })
                 && (filter.isEmpty || filter.contains(n.type))
@@ -88,7 +87,6 @@ struct NodeMapView: View {
             .sheet(item: Binding(get: { selected.flatMap(uiNode(for:)) }, set: { selected = $0?.id })) { n in
                 NodeDetailSheet(node: n)
             }
-            .sheet(item: $export) { file in ActivityView(items: [file.url]) }
         }
     }
 
@@ -103,7 +101,6 @@ struct NodeMapView: View {
                 typeToggle("Only rooms", Codes.shared.ADV_TYPE_ROOM)
                 if !filter.isEmpty { Button("Every type") { filterRaw = "" } }
             }
-            Button("Export nodes as GPX") { exportGpx() }
         } label: {
             Image(systemName: "ellipsis.circle")
         }
@@ -158,22 +155,6 @@ struct NodeMapView: View {
         located.first { $0.id == id }
     }
 
-    private func exportGpx() {
-        guard let text = store.gpxText() else {
-            store.nodeActionProblem = Gpx.shared.NOTHING_TO_EXPORT
-            return
-        }
-        // Replaced on every export: an old file is node names, keys and
-        // positions sitting around for no reason.
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent(Gpx.shared.FILE_NAME)
-        do {
-            try Data(text.utf8).write(to: url, options: [.atomic, .completeFileProtection])
-            export = ExportFile(url: url)
-        } catch {
-            store.nodeActionProblem = "Couldn't write the GPX file: \(error.localizedDescription)"
-        }
-    }
-
     static func colour(_ type: Int32) -> Color {
         switch type {
         case Codes.shared.ADV_TYPE_REPEATER: return .gray
@@ -191,20 +172,6 @@ struct NodeMapView: View {
         default: return "person.fill"
         }
     }
-}
-
-private struct ExportFile: Identifiable {
-    let url: URL
-    var id: String { url.path }
-}
-
-/// The system share sheet, for a file the user chose to export.
-private struct ActivityView: UIViewControllerRepresentable {
-    let items: [Any]
-    func makeUIViewController(context: Context) -> UIActivityViewController {
-        UIActivityViewController(activityItems: items, applicationActivities: nil)
-    }
-    func updateUIViewController(_ vc: UIActivityViewController, context: Context) {}
 }
 
 private struct LinkSegment: Identifiable {

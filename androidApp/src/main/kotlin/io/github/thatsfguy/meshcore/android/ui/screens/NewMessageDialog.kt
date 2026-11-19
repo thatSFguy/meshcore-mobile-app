@@ -53,13 +53,7 @@ fun NewMessageDialog(
                 )
                 if (shown.isEmpty()) {
                     Text(
-                        if (query.isBlank()) {
-                            "No contacts yet. Add someone by scanning their code or opening " +
-                                "a link they sent, or long-press their message in a channel " +
-                                "and choose Message privately."
-                        } else {
-                            "Nobody matches."
-                        },
+                        io.github.thatsfguy.meshcore.presentation.NewMessage.emptyText(query),
                         style = MaterialTheme.typography.bodyMedium,
                         modifier = Modifier.padding(top = 12.dp),
                     )

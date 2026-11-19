@@ -163,14 +163,13 @@ class Preferences(context: Context) {
 
     // --- Saved nodes ---
 
+    // List rules shared with iOS (SavedNodes) since 2026-11-18.
     fun savedNodes(): List<SavedNode> =
-        prefs.getString("saved_nodes", "")!!
-            .split('\n')
-            .mapNotNull { line -> line.takeIf { it.isNotBlank() }?.let(SavedNode::decode) }
+        io.github.thatsfguy.meshcore.transport.SavedNodes.decode(prefs.getString("saved_nodes", ""))
 
     fun saveNode(node: SavedNode) {
-        val nodes = savedNodes().filter { it.key != node.key } + node
-        prefs.edit().putString("saved_nodes", nodes.joinToString("\n") { it.encode() }).apply()
+        val nodes = io.github.thatsfguy.meshcore.transport.SavedNodes.with(savedNodes(), node)
+        prefs.edit().putString("saved_nodes", io.github.thatsfguy.meshcore.transport.SavedNodes.encode(nodes)).apply()
     }
 
     /**
@@ -183,8 +182,8 @@ class Preferences(context: Context) {
      * from its own list.
      */
     fun forgetNode(key: String) {
-        val nodes = savedNodes().filter { it.key != key }
-        prefs.edit().putString("saved_nodes", nodes.joinToString("\n") { it.encode() }).apply()
+        val nodes = io.github.thatsfguy.meshcore.transport.SavedNodes.without(savedNodes(), key)
+        prefs.edit().putString("saved_nodes", io.github.thatsfguy.meshcore.transport.SavedNodes.encode(nodes)).apply()
         if (reconnectKey() == key) clearReconnect()
     }
 

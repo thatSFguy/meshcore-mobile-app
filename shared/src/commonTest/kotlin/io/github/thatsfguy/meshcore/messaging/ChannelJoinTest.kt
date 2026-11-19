@@ -4,6 +4,8 @@ import io.github.thatsfguy.meshcore.crypto.CryptoProvider
 import io.github.thatsfguy.meshcore.model.Channel
 import io.github.thatsfguy.meshcore.protocol.ChannelCrypto
 import kotlinx.coroutines.test.runTest
+import io.github.thatsfguy.meshcore.util.toHex
+import kotlin.test.assertFalse
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
@@ -212,5 +214,40 @@ class ChannelJoinTest {
         assertIs<ChannelJoin.Outcome.AlreadyHeld>(again)
         assertTrue(scopes.applied.isEmpty(), "a QR is not authority to undo a routing choice")
         assertTrue("#mi" in again.message, again.message)
+    }
+
+    @Test
+    fun anEditWritesTheSlotAndRefusesABadKeyOrName() = runTest {
+        val radio = FakeRadio()
+        val join = ChannelJoin(radio, crypto)
+        // A captured 16-byte PSK, typed with a space in it.
+        assertEquals("Channel updated", join.edit(1, " Ops ", "8b3387e9c5cdea6a c9e5edbaa115cd72"))
+        val (idx, name, psk) = radio.writes.single()
+        assertEquals(1, idx)
+        assertEquals("Ops", name)
+        assertEquals("8b3387e9c5cdea6ac9e5edbaa115cd72", psk.toHex())
+        assertEquals("The key must be 32 hex characters.", join.edit(1, "Ops", "8b3387e9c5cdea6a"))
+        assertEquals("The key must be 32 hex characters.", join.edit(1, "Ops", "zz".repeat(16)))
+        assertTrue(join.edit(1, "", "00".repeat(16)).startsWith("The name must be"))
+        assertTrue(join.edit(1, "x".repeat(40), "00".repeat(16)).startsWith("The name must be"))
+        assertEquals(1, radio.writes.size, "nothing refused reached the radio")
+        radio.accept = false
+        assertEquals("Channel write failed", join.edit(1, "Ops", "00".repeat(16)))
+    }
+
+    @Test
+    fun publicIsJoinedOnceUnderItsWellKnownKey() = runTest {
+        val empty = FakeRadio(channels = emptyList())
+        val join = ChannelJoin(empty, crypto)
+        assertFalse(join.hasPublic())
+        assertIs<ChannelJoin.Outcome.Added>(join.joinPublic())
+        val (_, name, psk) = empty.writes.single()
+        assertEquals("Public", name)
+        assertEquals(ChannelCrypto.PUBLIC_CHANNEL_PSK.toHex(), psk.toHex())
+        // The default fake already holds Public: a second join is refused, no write.
+        val held = FakeRadio()
+        assertTrue(ChannelJoin(held, crypto).hasPublic())
+        assertIs<ChannelJoin.Outcome.AlreadyHeld>(ChannelJoin(held, crypto).joinPublic())
+        assertTrue(held.writes.isEmpty())
     }
 }

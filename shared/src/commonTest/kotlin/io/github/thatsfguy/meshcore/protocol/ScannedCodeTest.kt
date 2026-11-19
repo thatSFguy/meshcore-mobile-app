@@ -163,4 +163,12 @@ class ScannedCodeTest {
             )
         }
     }
+
+    @Test
+    fun aPasteSaysWhyItCantBeImported() {
+        kotlin.test.assertEquals("Nothing on the clipboard", ScannedCode.pasteProblem("  "))
+        kotlin.test.assertEquals("Nothing on the clipboard", ScannedCode.pasteProblem(null))
+        kotlin.test.assertEquals("No MeshCore code on the clipboard", ScannedCode.pasteProblem("see you at 5"))
+        kotlin.test.assertNull(ScannedCode.pasteProblem("join us: meshcore://channel?name=x&psk=00 thanks"))
+    }
 }

@@ -21,7 +21,7 @@ struct RepeaterView: View {
             if session.signedIn {
                 RepeaterHub(node: node, session: session)
             } else {
-                RepeaterSignIn(node: node)
+                RepeaterSignIn(node: node, isRoom: node.type == Codes.shared.ADV_TYPE_ROOM)
             }
         }
         .navigationTitle(node.displayName)
@@ -29,9 +29,29 @@ struct RepeaterView: View {
     }
 }
 
-private struct RepeaterSignIn: View {
+/// A room: sign in, then read and post (Android's openRoom). The sign-in
+/// is not optional — a room only accepts posts from, and sends new posts
+/// to, people who have signed in (shared RoomModel). Management is inside
+/// the room, for an admin.
+struct RoomView: View {
     @EnvironmentObject var store: MeshCoreStore
     let node: UiNode
+
+    var body: some View {
+        if store.adminSession(node.id).signedIn {
+            ConversationView(threadKey: "dm|\(node.id)")
+        } else {
+            RepeaterSignIn(node: node, isRoom: true)
+                .navigationTitle(node.displayName)
+                .navigationBarTitleDisplayMode(.inline)
+        }
+    }
+}
+
+struct RepeaterSignIn: View {
+    @EnvironmentObject var store: MeshCoreStore
+    let node: UiNode
+    var isRoom: Bool = false
     @State private var password = ""
     @State private var busy = false
     @State private var problem: String?
@@ -52,7 +72,8 @@ private struct RepeaterSignIn: View {
                 }
                 .disabled(busy || !store.isReady)
             } footer: {
-                Text("A blank password works on a node that already knows this radio. The password crosses the mesh in the clear if the link is TCP.")
+                Text((isRoom ? RoomModelKt.roomPasswordHint() + " " : "") +
+                     "A blank password works on a node that already knows this radio. The password crosses the mesh in the clear if the link is TCP.")
             }
             if let problem {
                 Section { Text(problem).foregroundStyle(.red) }
@@ -77,6 +98,15 @@ private struct RepeaterHub: View {
     var body: some View {
         List {
             Section {
+                // Identity card (Android's): key prefix, and where it says it is.
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(String(node.id.prefix(12))).font(.system(.caption, design: .monospaced)).foregroundStyle(.secondary)
+                    if let lat = node.latitude, let lon = node.longitude,
+                       GeoKt.isPlausiblePosition(lat: KotlinDouble(double: lat), lon: KotlinDouble(double: lon)) {
+                        Label(String(format: "%.4f, %.4f", lat, lon), systemImage: "mappin")
+                            .font(.system(.caption, design: .monospaced)).foregroundStyle(.secondary)
+                    }
+                }
                 HStack {
                     Text(node.hopsLabel).foregroundStyle(.secondary)
                     Spacer()
@@ -101,7 +131,7 @@ private struct RepeaterHub: View {
                     case "help":
                         NavigationLink { CommandHelpView(node: node, session: session) } label: { tileLabel(tile) }
                     default:
-                        tileLabel(tile, note: "On Android only, for now")
+                        tileLabel(tile, note: "Not on iOS")
                             .foregroundStyle(.secondary)
                     }
                 }
@@ -164,6 +194,14 @@ private struct RepeaterStatusView: View {
             }
         }
         .navigationTitle("Status")
+        // Pull to refresh, or the button — Android's "Request status".
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button { Task { await fetch() } } label: { Image(systemName: "arrow.clockwise") }
+                    .accessibilityLabel("Request status")
+                    .disabled(busy || !store.isReady)
+            }
+        }
         .refreshable { await fetch() }
         .task { if groups.isEmpty { await fetch() } }
     }
@@ -177,12 +215,18 @@ private struct RepeaterStatusView: View {
     }
 }
 
-private struct RepeaterConsoleView: View {
+/// The console keeps its lines in the store, per node, for the app's
+/// lifetime — so leaving and coming back doesn't lose them (Android keeps
+/// them in its database; iOS keeps admin state in memory only).
+struct RepeaterConsoleView: View {
     @EnvironmentObject var store: MeshCoreStore
     let node: UiNode
+    /// A command from Command help, put in the field to edit and send.
+    var prefill: String? = nil
     @State private var command = ""
-    @State private var lines: [String] = []
     @State private var busy = false
+
+    private var lines: [String] { store.consoleLines[node.id] ?? [] }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -214,6 +258,12 @@ private struct RepeaterConsoleView: View {
             .padding(8)
         }
         .navigationTitle("Console")
+        .onAppear { if let prefill, command.isEmpty { command = prefill } }
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("Clear") { store.consoleLines[node.id] = nil }.disabled(lines.isEmpty)
+            }
+        }
     }
 
     private func run() {
@@ -221,10 +271,11 @@ private struct RepeaterConsoleView: View {
         guard !cmd.isEmpty else { return }
         command = ""
         busy = true
-        lines.append(RepeaterAdmin.companion.displayed(line: "$ \(cmd)"))
+        let key = node.id
+        store.consoleLines[key, default: []].append(RepeaterAdmin.companion.displayed(line: "$ \(cmd)"))
         Task {
-            let reply = await store.repeaterCli(node.id, command: cmd)
-            lines.append(RepeaterAdmin.companion.displayed(line: reply ?? "(no reply)"))
+            let reply = await store.repeaterCli(key, command: cmd)
+            store.consoleLines[key, default: []].append(RepeaterAdmin.companion.displayed(line: reply ?? "(no reply)"))
             busy = false
         }
     }

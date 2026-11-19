@@ -89,6 +89,23 @@ class DmRequests(private val radio: Radio) {
 
     fun decline(requesterKeyHex: String) = markHandled(requesterKeyHex)
 
+    /**
+     * "My code": our contact card as a link, for a QR or a message
+     * (Android's selfShareUri). Showing it is an invitation — whoever adds
+     * it can answer on a shared channel, and that answer should add them
+     * here — so it opens a shared-link window, as Android does.
+     */
+    fun myCode(nowSec: Long): String? {
+        val key = radio.myKeyHex?.takeIf { it.isNotBlank() } ?: return null
+        outstanding = outstanding.sharedLink(nowSec)
+        changed()
+        return io.github.thatsfguy.meshcore.protocol.ShareUri.encodeContact(
+            name = radio.myName.orEmpty(),
+            pubKeyHex = key,
+            type = Codes.ADV_TYPE_CHAT,
+        )
+    }
+
     private fun markHandled(keyHex: String) {
         handled = handled + keyHex.lowercase()
         changed()

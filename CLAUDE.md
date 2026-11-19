@@ -255,15 +255,19 @@ channels as obfuscated (AES-ECB + 2-byte MAC), not secure.
    supports ACLs), and the rows that need the mainstream app running to specify.
 4. Notifications for inbound messages (service already has the channel; wire
    MessageRepository events → NotificationCompat).
-5. iOS after 0.1.0 — favourites, nicknames, ping, the discovered-nodes inbox, saved
-   radios, community codes (`iosApp/README.md` lists what is and isn't ported).
-   Sideloading from WSL works without a Mac: plumesign signs, a small-chunk
-   pymobiledevice3 script installs (see the auto-memory note on it). Two Android follow-ups
-   the port surfaced (IOS_DECISIONS §1, §13a, §25): Android still runs its own copies
-   of the DM retry ladder and channel-join rules that now live in `shared/messaging`
-   (`DirectSend`, `ChannelJoin`) — delegate and delete; and Android's retention judges
-   age by the SENDER's unauthenticated timestamp, so a node with a reset clock has its
-   messages deleted on arrival — iOS uses arrival time.
+5. **Release iOS 0.2.0 from `ios-next`.** Parity with Android (back burner
+   excepted) is written and green on iOS CI as of 2026-11-18 — IOS_DECISIONS
+   §62 lists it — but most of it has not met a radio on the iPhone yet:
+   rooms, setup, links, the repeater auto-add rules and remote presets are
+   the ones to drive against Harbor Breeze first. The same work fixed two
+   Android defects in shared code (rename future-stamping a contact; trace
+   hops placed at the device's width) and removed GPX export from both apps
+   — Android's next CHANGELOG section needs them. Sideloading from WSL works
+   without a Mac: plumesign signs, a small-chunk pymobiledevice3 script
+   installs (see the auto-memory note on it). Still open from the port
+   (IOS_DECISIONS §1, §13a, §25): Android runs its own copies of the DM retry
+   ladder and channel-join rules that live in `shared/messaging`; and
+   Android's retention judges age by the SENDER's unauthenticated timestamp.
 6. Release plumbing (signing env vars are already read by `androidApp/build.gradle.kts`;
    tag scheme `android-vX.Y.Z` matches the sibling).
 

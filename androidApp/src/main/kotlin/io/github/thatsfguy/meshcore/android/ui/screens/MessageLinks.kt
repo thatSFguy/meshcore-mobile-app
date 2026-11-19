@@ -69,9 +69,12 @@ object MessageLinks {
         onMeshcoreLink: (String) -> Unit,
     ): AnnotatedString = buildAnnotatedString {
         val me = selfName?.trim()?.lowercase()?.takeIf { it.isNotEmpty() }
+        // Links come from the shared finder (iOS uses the same one); it
+        // already lets a mention win an overlap and trims punctuation.
         val matches = (
-            HTTP_PATTERN.findAll(text).map { it.range to Kind.Http } +
-                MESHCORE_PATTERN.findAll(text).map { it.range to Kind.Meshcore } +
+            io.github.thatsfguy.meshcore.presentation.MessageLinkSpans.find(text).asSequence().map {
+                (it.start until it.end) to if (it.isHttp) Kind.Http else Kind.Meshcore
+            } +
                 Mentions.spans(text).map { span ->
                     val mine = me != null && span.name.trim().lowercase() == me
                     span.range to if (mine) Kind.MentionOfMe else Kind.Mention
@@ -109,8 +112,7 @@ object MessageLinks {
                 continue
             }
 
-            val raw = text.substring(range.first, range.last + 1)
-            val url = trimTrailingPunctuation(raw)
+            val url = text.substring(range.first, range.last + 1)
             withLink(
                 LinkAnnotation.Clickable(
                     tag = url,
@@ -124,9 +126,6 @@ object MessageLinks {
                     },
                 ),
             ) { append(url) }
-            // Sentence punctuation that the regex swallowed belongs to
-            // the prose, not the link.
-            if (url.length < raw.length) append(raw.substring(url.length))
             cursor = range.last + 1
         }
         if (cursor < text.length) append(text.substring(cursor))
@@ -134,9 +133,4 @@ object MessageLinks {
 
     private enum class Kind { Http, Meshcore, Mention, MentionOfMe }
 
-    private fun trimTrailingPunctuation(url: String): String {
-        var end = url.length
-        while (end > 0 && url[end - 1] in ".,;:!?)]}>'\"") end--
-        return url.substring(0, end)
-    }
 }
