@@ -242,14 +242,85 @@ class MessageRepository(
             engine.channels.collect { channels ->
                 val self = resolveSelfKey(engine)
                 if (self.isEmpty()) return@collect
-                for (ch in channels) persistChannel(self, ch)
-                // Reconcile ALWAYS, including when the radio reports no
-                // channels at all. Gating this on a non-empty list left
-                // a radio whose slots were all cleared showing every
-                // stale row forever.
-                db.channels().deleteAbsent(self, channels.map { it.index })
+                // Only a list read from THIS radio. Until this session's
+                // first sweep completes, [MeshCoreEngine.channels] can
+                // still hold the previous radio's slots (a single slot
+                // report is folded into them), and reconciling against
+                // that would wipe the history of every slot the two
+                // radios use differently. The sweep that sets the flag
+                // also emits ChannelsSynced, which [handle] reconciles
+                // on, so an emission this guard skips is not lost.
+                if (!engine.channelsKnown) return@collect
+                reconcileChannels(self, channels)
             }
         }
+    }
+
+    /**
+     * Slot-keyed preferences to drop when a slot changes hands — region,
+     * retention, mute, pin. Set by the service, which owns [Preferences].
+     */
+    var onChannelSlotForgotten: (Int) -> Unit = {}
+
+    private val channelReconcileLock = Mutex()
+
+    /**
+     * Bring the channel rows — and everything keyed by SLOT — into line
+     * with what the radio reports.
+     *
+     * Channel messages are stored under the slot index, not under the
+     * channel: the radio hands a freed slot straight to the next join.
+     * So when a slot is emptied, or comes back holding a different key,
+     * its history belongs to a channel that is no longer there and must
+     * go with it. Before 2026-11-20 it did not, and a user who deleted
+     * #wardriving and joined #tumb saw #wardriving's history in #tumb.
+     *
+     * Reconcile ALWAYS, including when the radio reports no channels at
+     * all. Gating this on a non-empty list left a radio whose slots were
+     * all cleared showing every stale row forever.
+     */
+    internal suspend fun reconcileChannels(self: String, live: List<Channel>) =
+        channelReconcileLock.withLock {
+            val liveByIdx = live.associateBy { it.index }
+            for (row in db.channels().allOnce(self)) {
+                val now = liveByIdx[row.idx]
+                if (now == null || !sameChannel(row, now)) forgetChannelSlot(self, row.idx)
+            }
+            // History with no row at all: a slot cleared before this
+            // reconcile existed, whose messages are waiting for the next
+            // channel to be joined into it.
+            val liveSlots = liveByIdx.keys.map { it.toString() }.toSet()
+            for (t in db.messages().threadKeys(self)) {
+                if (t.kind != KIND_CHANNEL || t.peerKey in liveSlots) continue
+                val idx = t.peerKey.toIntOrNull() ?: continue
+                forgetChannelSlot(self, idx)
+            }
+            for (ch in live) persistChannel(self, ch)
+            db.channels().deleteAbsent(self, live.map { it.index })
+        }
+
+    /**
+     * Whether [now] is the channel [row] was stored for. **The key is
+     * the channel** (see ChannelList.findByPsk): a new name over the
+     * same PSK is a rename and keeps its history.
+     *
+     * Where the stored key cannot be read (no keystore, or unsealing
+     * failed) the name is all there is to go on.
+     */
+    private suspend fun sameChannel(row: ChannelEntity, now: Channel): Boolean {
+        val prevPsk = row.pskSealed.takeIf { it.isNotEmpty() }?.let { secrets.unsealPsk(it) }
+        return if (prevPsk != null) prevPsk.contentEquals(now.psk) else row.name == now.name
+    }
+
+    /**
+     * Forget everything stored under channel slot [idx]: its messages,
+     * its row (and with it the unread count) and its slot-keyed
+     * preferences. Used by the reconcile above and by deleting a channel.
+     */
+    suspend fun forgetChannelSlot(self: String, idx: Int) {
+        db.messages().clearThread(self, KIND_CHANNEL, idx.toString())
+        db.channels().delete(self, idx)
+        onChannelSlotForgotten(idx)
     }
 
     /**
@@ -633,6 +704,10 @@ class MessageRepository(
             is MeshEvent.ContactListComplete -> forgetDroppedContacts(self) {
                 it.keyHex !in event.publicKeysHex
             }
+
+            // A complete channel sweep of this radio — the one list the
+            // channels collector may have skipped (see its guard).
+            is MeshEvent.ChannelsSynced -> reconcileChannels(self, engine.channels.value)
 
             else -> Unit
         }

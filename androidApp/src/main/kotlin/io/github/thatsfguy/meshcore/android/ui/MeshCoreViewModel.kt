@@ -1978,12 +1978,13 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             val ok = runCatching { svc.engine.clearChannel(index) }.getOrDefault(false)
             if (ok) {
-                db.channels().delete(selfKey.value, index)
-                // Everything keyed by SLOT goes with the slot — the
-                // radio hands it straight back to the next join. See
-                // Preferences.forgetChannelSlot for why that is one
-                // function rather than a line per preference.
-                prefs.forgetChannelSlot(index)
+                // Everything keyed by SLOT goes with the slot — messages,
+                // row, preferences — because the radio hands it straight
+                // back to the next join. The reconcile after the sweep
+                // does this too; doing it here as well means a sweep that
+                // timed out cannot leave the history for the next channel.
+                svc.repository.forgetChannelSlot(selfKey.value, index)
+                drafts.remove(Inbox.threadKey(MessageRepository.KIND_CHANNEL, index.toString()))
                 regionRevision.value++
             }
             transientMessage.value = if (ok) "Channel removed" else "Channel clear failed"

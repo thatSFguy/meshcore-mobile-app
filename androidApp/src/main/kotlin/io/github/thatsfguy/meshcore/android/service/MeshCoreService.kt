@@ -185,6 +185,7 @@ class MeshCoreService : Service() {
         repository.onNewMessage = { kind, peerKey, senderName, text ->
             postMessageNotification(kind, peerKey, senderName, text)
         }
+        repository.onChannelSlotForgotten = { idx -> prefs.forgetChannelSlot(idx) }
         repository.dmOutstanding = { prefs.dmRequestsOutstanding }
         repository.onDmAccepted = { name, keyHex ->
             scope.launch {

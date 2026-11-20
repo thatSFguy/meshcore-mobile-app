@@ -11,6 +11,19 @@ Every entry describes what is in **that tagged build**. A feature that landed af
 belongs in the next section, not this one — 0.3.0 was once credited with four features that
 shipped after it, which misled nobody so much as the author, three months later.
 
+## 0.11.2
+
+**Fixes**
+- **A deleted channel's messages showed up in the next channel you joined.** The radio hands a
+  freed channel slot to the next join, and messages are stored by slot — so deleting #wardriving
+  and then joining #tumb put #wardriving's history in #tumb. Deleting a channel now removes its
+  messages, and so does any change the radio reports: a slot emptied or given a different key,
+  including by another app. A channel renamed over the same key keeps its history. Mute and pin
+  no longer pass to the next channel in the slot either.
+
+  If this already happened to you, clear the affected channel's history once; it can't happen
+  again.
+
 ## 0.11.1
 
 Fixes, mostly found while bringing the iOS app level with this one. Much of the logic both apps

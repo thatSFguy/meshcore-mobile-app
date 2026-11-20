@@ -90,6 +90,11 @@ fun AboutSection(vm: MeshCoreViewModel) {
  * is a changelog you can't read in the field.
  */
 private val CHANGELOG: List<Pair<String, List<String>>> = listOf(
+    "0.11.2" to listOf(
+        "A deleted channel's messages no longer appear in the next channel joined into its slot. " +
+            "Deleting a channel removes its history; a rename over the same key keeps it.",
+        "Mute and pin no longer pass to the next channel in a slot.",
+    ),
     "0.11.1" to listOf(
         "Renaming a contact no longer stops it updating: the rename kept the phone's clock, and " +
             "the radio then ignored that node's own adverts.",

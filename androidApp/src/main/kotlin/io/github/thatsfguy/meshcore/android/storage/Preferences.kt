@@ -12,6 +12,7 @@ import io.github.thatsfguy.meshcore.presentation.UnitSystem
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import io.github.thatsfguy.meshcore.presentation.NodeListModel
+import io.github.thatsfguy.meshcore.presentation.Inbox
 
 /**
  * Non-secret app preferences over SharedPreferences. Anything sensitive
@@ -501,6 +502,12 @@ class Preferences(context: Context) {
     fun forgetChannelSlot(idx: Int) {
         setChannelRegion(idx, null)
         setChannelRetention(idx, null)
+        // Mute and pin are sets, not `_<idx>` keys, so the suffix scan
+        // below cannot see them — and both used to pass to whichever
+        // channel was joined into the slot next.
+        if (idx in mutedChannels) setChannelMuted(idx, false)
+        val pin = Inbox.threadKey(MessageRepository.KIND_CHANNEL, idx.toString())
+        if (pin in pinnedThreads) setThreadPinned(pin, false)
     }
 
     /**
