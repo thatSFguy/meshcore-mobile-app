@@ -224,6 +224,11 @@ channels as obfuscated (AES-ECB + 2-byte MAC), not secure.
   reliable. The `-d` matters too: local builds get `versionCode 1` unless HEAD sits
   exactly on an `android-v*` tag, so installing over a tag-built APK looks like a
   downgrade. Never uninstall to get around it — that takes the message database with it.
+  **If installs crawl (0.1 MB/s) or die with `failed to read copy response: EOF`, check
+  WSL's networking mode before anything else** — `usbipd attach` prints it. `mirrored`
+  (in `C:\Users\rob\.wslconfig`) broke every install from 2026-11-19 to 11-24 across
+  cables, ports and reboots; NAT did the same install at 41 MB/s. Debug builds install
+  beside the release app as `…meshcore.native.debug`, and only one app can hold the BLE link.
 - **iOS cannot be compiled locally.** The app is developed on Linux with no Kotlin/Native
   Apple toolchain, so `.github/workflows/ios-ci.yml` on a macOS runner is the ONLY thing
   that compiles it. It was removed 2026-08-02 (private repo, macOS minutes bill at 10x)

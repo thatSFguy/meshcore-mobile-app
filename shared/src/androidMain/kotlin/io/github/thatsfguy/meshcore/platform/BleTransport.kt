@@ -20,6 +20,7 @@ import io.github.thatsfguy.meshcore.transport.IncomingFrame
 import io.github.thatsfguy.meshcore.transport.Transport
 import io.github.thatsfguy.meshcore.transport.TransportState
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -166,6 +167,25 @@ class BleTransport(
             if (data.isNotEmpty()) _incoming.tryEmit(IncomingFrame(data))
         }
 
+        // The security probe in secureLink(). API 33+ uses the 4-arg form.
+        override fun onCharacteristicRead(
+            g: BluetoothGatt,
+            characteristic: BluetoothGattCharacteristic,
+            value: ByteArray,
+            status: Int,
+        ) {
+            pending.succeed(PendingGattOps.Slot.CharacteristicRead, status)
+        }
+
+        @Deprecated("Pre-API-33 callback, kept for compatibility with minSdk 26.")
+        override fun onCharacteristicRead(
+            g: BluetoothGatt,
+            characteristic: BluetoothGattCharacteristic,
+            status: Int,
+        ) {
+            pending.succeed(PendingGattOps.Slot.CharacteristicRead, status)
+        }
+
         override fun onCharacteristicWrite(
             g: BluetoothGatt,
             characteristic: BluetoothGattCharacteristic,
@@ -258,7 +278,6 @@ class BleTransport(
                 connectAndDiscover()
                 requestMtu(247)
                 findNusCharacteristics()
-                enableNotifications()
                 true
             }
             if (reached != true) {
@@ -266,6 +285,12 @@ class BleTransport(
                     "The radio did not answer within ${budget / 1_000}s.",
                 )
             }
+            // Outside the connect budget: this waits on a person typing
+            // a PIN, not on the radio.
+            ensureBonded()
+            secureLink()
+            withTimeoutOrNull(SUBSCRIBE_TIMEOUT_MS) { enableNotifications(); true }
+                ?: throw IllegalStateException("The radio did not accept the subscription.")
             log("Connected (MTU $negotiatedMtu)")
             _state.value = TransportState.Connected
             watchAdapter()
@@ -304,6 +329,103 @@ class BleTransport(
             ?: throw IllegalStateException("NUS write characteristic not found")
         notifyChar = service.getCharacteristic(NUS_NOTIFY_UUID)
             ?: throw IllegalStateException("NUS notify characteristic not found")
+    }
+
+    /**
+     * Make sure the link is bonded before any frame is exchanged — see
+     * [BlePairing] for why an ESP32 radio never asks for this itself.
+     * Android shows its own PIN dialog (or notification, if the app is
+     * in the background); this waits for the outcome.
+     */
+    private suspend fun ensureBonded() {
+        if (!BlePairing.needsBond(device.bondState)) return
+        val states = Channel<Int>(Channel.UNLIMITED)
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(c: Context, intent: Intent) {
+                val dev: BluetoothDevice? = if (Build.VERSION.SDK_INT >= 33) {
+                    intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE, BluetoothDevice::class.java)
+                } else {
+                    @Suppress("DEPRECATION")
+                    intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)
+                }
+                if (dev?.address != device.address) return
+                states.trySend(intent.getIntExtra(BluetoothDevice.EXTRA_BOND_STATE, BluetoothDevice.ERROR))
+            }
+        }
+        val filter = IntentFilter(BluetoothDevice.ACTION_BOND_STATE_CHANGED)
+        if (Build.VERSION.SDK_INT >= 33) {
+            context.registerReceiver(receiver, filter, Context.RECEIVER_EXPORTED)
+        } else {
+            context.registerReceiver(receiver, filter)
+        }
+        try {
+            // Already BONDING means the radio or the stack started it;
+            // join that attempt rather than starting a second.
+            if (device.bondState == BluetoothDevice.BOND_NONE) {
+                log("Radio is not paired with this phone; requesting pairing (enter the radio's PIN)")
+                if (!device.createBond()) {
+                    // Carry on: a radio that truly needs the bond will
+                    // stall in the handshake, which the supervisor retries.
+                    log("Android refused to start pairing; continuing unpaired")
+                    return
+                }
+            }
+            val outcome = withTimeoutOrNull(PAIRING_TIMEOUT_MS) {
+                var previous = device.bondState
+                if (previous == BluetoothDevice.BOND_BONDED) return@withTimeoutOrNull BlePairing.Step.Paired
+                for (state in states) {
+                    val step = BlePairing.next(state, previous)
+                    if (step != BlePairing.Step.Waiting) return@withTimeoutOrNull step
+                    previous = state
+                }
+                BlePairing.Step.Failed
+            }
+            when (outcome) {
+                BlePairing.Step.Paired -> log("Paired with ${device.address}")
+                null -> throw IllegalStateException(
+                    "Pairing was not completed within ${PAIRING_TIMEOUT_MS / 1_000}s.",
+                )
+                else -> throw IllegalStateException(
+                    "Pairing with the radio failed or was cancelled. Check the PIN — 123456 " +
+                        "unless it was changed; a radio with a screen shows its own.",
+                )
+            }
+        } finally {
+            runCatching { context.unregisterReceiver(receiver) }
+            states.close()
+        }
+    }
+
+    /**
+     * Force the link to be encrypted before the first frame — see
+     * [BlePairing] for why a bond is not enough on ESP32. Reading the TX
+     * characteristic is refused on an unencrypted link, Android answers
+     * that by encrypting (or pairing, which may put up the PIN dialog)
+     * and retries the read itself; we only see the final status.
+     */
+    private suspend fun secureLink() {
+        val tx = notifyChar ?: return
+        val g = gatt ?: return
+        // nRF52's TX characteristic is notify-only; its CCCD does this job.
+        if (tx.properties and BluetoothGattCharacteristic.PROPERTY_READ == 0) return
+        val status = withTimeoutOrNull(PAIRING_TIMEOUT_MS) {
+            pending.await<Int>(PendingGattOps.Slot.CharacteristicRead) {
+                if (!g.readCharacteristic(tx)) {
+                    pending.succeed(PendingGattOps.Slot.CharacteristicRead, -1)
+                }
+            }
+        } ?: throw IllegalStateException(
+            "Pairing was not completed within ${PAIRING_TIMEOUT_MS / 1_000}s.",
+        )
+        when (BlePairing.readOutcome(status)) {
+            BlePairing.ReadOutcome.Secured -> log("Link encrypted")
+            BlePairing.ReadOutcome.NotApplicable -> log("Security probe not answered (status=$status); continuing")
+            BlePairing.ReadOutcome.Refused -> throw IllegalStateException(
+                "The radio refused this phone's pairing (status=$status). If it was paired " +
+                    "before — or reflashed since — remove it in Android's Bluetooth settings " +
+                    "and connect again; the PIN is 123456 unless it was changed.",
+            )
+        }
     }
 
     private suspend fun enableNotifications() {
@@ -434,6 +556,12 @@ class BleTransport(
          * refreshed instead of waited on forever.
          */
         const val BACKGROUND_CONNECT_TIMEOUT_MS = 300_000L
+
+        /** Time for a person to read the radio's PIN and type it. */
+        const val PAIRING_TIMEOUT_MS = 120_000L
+
+        /** The CCCD write, once paired — a radio round trip, nothing more. */
+        const val SUBSCRIBE_TIMEOUT_MS = 15_000L
 
         val NUS_SERVICE_UUID: UUID = UUID.fromString("6e400001-b5a3-f393-e0a9-e50e24dcca9e")
 

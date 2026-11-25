@@ -25,7 +25,7 @@ import kotlin.coroutines.resumeWithException
 internal class PendingGattOps {
 
     /** One awaited GATT callback. At most one of each is outstanding. */
-    enum class Slot { Services, Mtu, Descriptor, CharacteristicWrite }
+    enum class Slot { Services, Mtu, Descriptor, CharacteristicWrite, CharacteristicRead }
 
     private val lock = Any()
     private val pending = LinkedHashMap<Slot, CancellableContinuation<Any?>>()

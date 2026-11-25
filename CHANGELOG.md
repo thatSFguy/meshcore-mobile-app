@@ -11,6 +11,17 @@ Every entry describes what is in **that tagged build**. A feature that landed af
 belongs in the next section, not this one — 0.3.0 was once credited with four features that
 shipped after it, which misled nobody so much as the author, three months later.
 
+## 0.11.3
+
+**Fixes**
+- **ESP32 radios (T-LoRa, Heltec, T-Beam and the like) stuck at "handshaking" forever.** These
+  boards only talk over an encrypted, PIN-paired link, but unlike nRF52 boards they never ask
+  for one, and they ignore an unencrypted command without saying so. A radio the phone had
+  never paired with sat silent, and so did one paired before — Android does not encrypt a link
+  just because a pairing exists. The app now pairs when needed (Android shows its PIN prompt)
+  and makes sure the link is encrypted before sending anything. A wrong PIN, a cancelled prompt
+  or a pairing the radio has forgotten now ends with a message saying so, not a silent hang.
+
 ## 0.11.2
 
 **Fixes**

@@ -90,6 +90,11 @@ fun AboutSection(vm: MeshCoreViewModel) {
  * is a changelog you can't read in the field.
  */
 private val CHANGELOG: List<Pair<String, List<String>>> = listOf(
+    "0.11.3" to listOf(
+        "ESP32 radios (T-LoRa, Heltec, T-Beam) no longer hang at \"handshaking\": the app pairs " +
+            "with the radio's PIN when needed and makes sure the link is encrypted first.",
+        "A wrong PIN, a cancelled pairing prompt or a pairing the radio has forgotten now says so.",
+    ),
     "0.11.2" to listOf(
         "A deleted channel's messages no longer appear in the next channel joined into its slot. " +
             "Deleting a channel removes its history; a rename over the same key keeps it.",
