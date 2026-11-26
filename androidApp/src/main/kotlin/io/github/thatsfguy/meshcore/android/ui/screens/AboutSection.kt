@@ -90,6 +90,12 @@ fun AboutSection(vm: MeshCoreViewModel) {
  * is a changelog you can't read in the field.
  */
 private val CHANGELOG: List<Pair<String, List<String>>> = listOf(
+    "0.11.4" to listOf(
+        "Threads and Chats are in the order messages arrived, so a node whose clock runs ahead " +
+            "no longer puts its messages ahead of the conversation.",
+        "Message privately: if your acceptance was lost, the other person can ask again and you " +
+            "can accept again.",
+    ),
     "0.11.3" to listOf(
         "ESP32 radios (T-LoRa, Heltec, T-Beam) no longer hang at \"handshaking\": the app pairs " +
             "with the radio's PIN when needed and makes sure the link is encrypted first.",

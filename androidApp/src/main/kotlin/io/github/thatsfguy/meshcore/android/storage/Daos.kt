@@ -51,9 +51,28 @@ interface MessageDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insert(message: MessageEntity): Long
 
+    /**
+     * A whole thread in the order it ARRIVED here: by row `id`, never by
+     * the sender's `timestamp`.
+     *
+     * The sender's clock is unauthenticated and often wrong. Ordered by it,
+     * one message from a node whose clock ran days ahead sat at the bottom
+     * of its thread under every later reply, and (see [latestPerThread])
+     * pinned its thread to the top of Chats until that date came round.
+     * The chat queries had kept it since the first commit (fixed
+     * 2026-11-26), though the console, retention and iOS had moved off it.
+     *
+     * Why `id` and not `receivedAt`: MeshCore carries no sequence number
+     * and no receive time (MESHCORE_PROTOCOL §9), and every row is written
+     * live, as it arrives — backups carry no messages — so the
+     * auto-increment id IS arrival order, and it depends on no clock at
+     * all. `receivedAt` is the phone's clock, which can be set back. If
+     * anything ever bulk-inserts history (a message import), it must
+     * insert in arrival order or this breaks.
+     */
     @Query(
         "SELECT * FROM messages WHERE selfKey = :selfKey AND kind = :kind AND peerKey = :peerKey " +
-            "ORDER BY timestamp ASC, receivedAt ASC",
+            "ORDER BY id ASC",
     )
     fun thread(selfKey: String, kind: String, peerKey: String): Flow<List<MessageEntity>>
 
@@ -107,7 +126,7 @@ interface MessageDao {
     // every room thread.
     @Query(
         "SELECT * FROM messages WHERE selfKey = :selfKey AND kind = :kind AND peerKey = :peerKey " +
-            "AND txtType != 1 ORDER BY timestamp DESC, receivedAt DESC LIMIT :limit",
+            "AND txtType != 1 ORDER BY id DESC LIMIT :limit",
     )
     fun threadPaged(selfKey: String, kind: String, peerKey: String, limit: Int): Flow<List<MessageEntity>>
 
@@ -117,9 +136,14 @@ interface MessageDao {
     )
     fun threadCount(selfKey: String, kind: String, peerKey: String): Flow<Int>
 
+    /**
+     * The newest message of each thread, newest thread first — the last to
+     * ARRIVE, by row id, not the sender's clock (see [thread]). SQLite
+     * returns the row holding the MAX for the bare columns.
+     */
     @Query(
         "SELECT * FROM messages WHERE selfKey = :selfKey AND txtType != 1 " +
-            "GROUP BY kind, peerKey HAVING MAX(timestamp) ORDER BY MAX(timestamp) DESC",
+            "GROUP BY kind, peerKey HAVING MAX(id) ORDER BY MAX(id) DESC",
     )
     fun latestPerThread(selfKey: String): Flow<List<MessageEntity>>
 

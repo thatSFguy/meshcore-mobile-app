@@ -7,6 +7,16 @@ Android's notes are in the repository's top-level `CHANGELOG.md`.
 
 Every entry describes what is in **that tagged build**.
 
+## 0.2.1
+
+**Fixes**
+- **Message privately: a lost acceptance could not be retried.** An acceptance is a channel
+  post, and channel posts can be lost. When one was, the other person's radio never added you,
+  and asking again did nothing, because the request read as already answered. Asking again now
+  brings back Accept and Decline. Accepting again re-sends the acceptance without re-adding the
+  contact, which would have reset the route and name the radio had learned for them. (The fix
+  is in the shared code, so Android 0.11.4 has it too.)
+
 ## 0.2.0
 
 Parity with the Android app. Everything Android does is now on iOS, apart from

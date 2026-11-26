@@ -827,8 +827,15 @@ private fun MessageBubble(
                 Text(
                     buildString {
                         append(
-                            DateFormat.getTimeInstance(DateFormat.SHORT)
-                                .format(Date(m.timestamp * 1000)),
+                            // The sender's time unless it is later than our
+                            // arrival (presentation/MessageClock). The thread
+                            // is ordered by arrival either way.
+                            DateFormat.getTimeInstance(DateFormat.SHORT).format(
+                                Date(
+                                    io.github.thatsfguy.meshcore.presentation.MessageClock
+                                        .shownSec(m.timestamp, m.receivedAt, m.outgoing) * 1000,
+                                ),
+                            ),
                         )
                         if (outgoing) {
                             append(
@@ -1193,10 +1200,19 @@ private fun MessageInfoSheet(
             Spacer(Modifier.height(12.dp))
             InfoRow("Direction", if (m.outgoing) "Sent" else "Received")
             InfoRow(
-                "Time",
+                if (m.outgoing) "Time" else "Received",
                 DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.MEDIUM)
-                    .format(Date(m.timestamp * 1000)),
+                    .format(Date(m.receivedAt)),
             )
+            // The sender's own clock, unauthenticated. Shown because a
+            // node whose clock is wrong is worth being able to spot.
+            if (!m.outgoing) {
+                InfoRow(
+                    "Sender's clock",
+                    DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.MEDIUM)
+                        .format(Date(m.timestamp * 1000)),
+                )
+            }
             if (m.outgoing) {
                 InfoRow(
                     "State",

@@ -91,6 +91,11 @@ data class ConversationRow(
     val unread: Int,
     val isChannel: Boolean,
     val contactType: Int?,
+    /**
+     * Arrival order of the thread's newest message (its row id; 0 for a
+     * channel with none). What Chats sorts by — never the sender's clock.
+     */
+    val order: Long = 0,
 )
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -772,7 +777,9 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
                         kind = m.kind, key = m.peerKey,
                         title = ch?.name?.ifBlank { "Channel $idx" } ?: "Channel $idx",
                         subtitle = (m.senderName?.plus(": ") ?: "") + previewOf(m),
-                        timestamp = m.timestamp,
+                        // When it arrived here; the sender's clock can be days off.
+                        timestamp = m.receivedAt / 1000,
+                        order = m.id,
                         unread = ch?.unread ?: 0,
                         isChannel = true,
                         contactType = null,
@@ -792,7 +799,9 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
                             ?: c?.name?.ifBlank { null }
                             ?: m.peerKey.take(12),
                         subtitle = previewOf(m),
-                        timestamp = m.timestamp,
+                        // When it arrived here; the sender's clock can be days off.
+                        timestamp = m.receivedAt / 1000,
+                        order = m.id,
                         unread = c?.unread ?: 0,
                         isChannel = false,
                         contactType = c?.type,
@@ -816,7 +825,7 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
                 )
             }
         }
-        rows.sortedByDescending { it.timestamp }
+        rows.sortedByDescending { it.order }
     }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     /**

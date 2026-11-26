@@ -11,6 +11,21 @@ Every entry describes what is in **that tagged build**. A feature that landed af
 belongs in the next section, not this one — 0.3.0 was once credited with four features that
 shipped after it, which misled nobody so much as the author, three months later.
 
+## 0.11.4
+
+**Fixes**
+- **Messages from a node whose clock runs ahead jumped ahead of the conversation.** Threads and
+  the Chats list were ordered by the time the *sender's* clock claimed, which nothing checks. A
+  message stamped days in the future stayed at the bottom of its thread under every later reply,
+  and kept its thread at the top of Chats until that date came round. Both are now in the order
+  messages arrived on this phone, which depends on no clock at all. A bubble still shows the
+  time it was sent, unless that is later than it arrived; Message info shows both.
+- **Message privately: a lost acceptance could not be retried.** An acceptance is a channel post,
+  and channel posts can be lost. When one was, the other person's radio never added you, and
+  asking again did nothing, because the request read as already answered. Asking again now
+  brings back Accept and Decline. Accepting again re-sends the acceptance without re-adding the
+  contact, which would have reset the route and name the radio had learned for them.
+
 ## 0.11.3
 
 **Fixes**
