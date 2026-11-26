@@ -19,10 +19,16 @@ class DmRequestsTest {
         override val myKeyHex: String?,
         override val myName: String?,
         var addOk: Boolean = true,
+        val known: MutableSet<String> = mutableSetOf(),
     ) : DmRequests.Radio {
         val added = mutableListOf<Pair<String, String>>()
+        override fun hasContact(keyHex: String): Boolean = keyHex.lowercase() in known
         val posts = mutableListOf<Pair<Int, String>>()
-        override suspend fun addContact(keyHex: String, name: String): Boolean { added += keyHex to name; return addOk }
+        override suspend fun addContact(keyHex: String, name: String): Boolean {
+            added += keyHex to name
+            if (addOk) known += keyHex.lowercase()
+            return addOk
+        }
         override suspend fun sendChannel(index: Int, text: String): Boolean { posts += index to text; return true }
     }
 
@@ -58,17 +64,17 @@ class DmRequestsTest {
         val r = FakeRadio(me, "Bob")
         val dm = DmRequests(r)
         val request = DmRequest.request("Bob", "33".repeat(32))!!
-        assertEquals("33".repeat(32), dm.pendingAsker(request, "Amy", outgoing = false))
-        val msg = dm.accept(2, "Amy", "33".repeat(32))
+        assertEquals("33".repeat(32), dm.pendingAsker(request, "Amy", outgoing = false, receivedAtMs = now * 1000))
+        val msg = dm.accept(2, "Amy", "33".repeat(32), now + 5)
         assertEquals("Added Amy. You can message each other directly.", msg)
         assertEquals(DmRequest.accept("Amy", "33".repeat(32), me), r.posts.single().second)
-        assertNull(dm.pendingAsker(request, "Amy", outgoing = false), "answered requests lose their buttons")
+        assertNull(dm.pendingAsker(request, "Amy", outgoing = false, receivedAtMs = now * 1000), "answered requests lose their buttons")
     }
 
     @Test
     fun aFailedAddPostsNoAccept() = runTest {
         val r = FakeRadio(me, "Bob", addOk = false)
-        val msg = DmRequests(r).accept(2, "Amy", "33".repeat(32))
+        val msg = DmRequests(r).accept(2, "Amy", "33".repeat(32), now)
         assertTrue(msg.startsWith("Couldn't add Amy"))
         assertTrue(r.posts.isEmpty(), "an accept without the contact would mislead them")
     }
@@ -77,7 +83,7 @@ class DmRequestsTest {
     fun aRequestForSomeoneElseOffersNoButtonsButStillReadsAsALine() {
         val dm = DmRequests(FakeRadio(me, "Rob"))
         val request = DmRequest.request("Zed", bob)!!
-        assertNull(dm.pendingAsker(request, "Bob", outgoing = false))
+        assertNull(dm.pendingAsker(request, "Bob", outgoing = false, receivedAtMs = now * 1000))
         assertEquals("Bob asked Zed to message privately.", dm.line(request, "Bob", outgoing = false))
         assertNull(dm.line("just chatting", "Bob", outgoing = false))
     }
@@ -86,14 +92,14 @@ class DmRequestsTest {
     fun stateSurvivesARoundTrip() = runTest {
         val dm = DmRequests(FakeRadio(me, "Rob"))
         dm.ask(1, "Bob", now)
-        dm.decline("44".repeat(32))
+        dm.decline("44".repeat(32), now)
         val back = DmRequests(FakeRadio(me, "Rob"))
         back.outstandingRaw = dm.outstandingRaw
         back.handledRaw = dm.handledRaw
         assertEquals(dm.outstandingRaw, back.outstandingRaw)
         assertEquals(dm.handledRaw, back.handledRaw)
-        back.handledRaw = "junk\n" + "44".repeat(32)
-        assertEquals("44".repeat(32), back.handledRaw)
+        back.handledRaw = "junk\n" + "44".repeat(32) + "=$now"
+        assertEquals("44".repeat(32) + "=$now", back.handledRaw)
     }
 
     @Test
@@ -117,5 +123,72 @@ class DmRequestsTest {
         val accept = DmRequest.accept("Rob", me, bob)!!
         assertEquals("Bob accepted. You can message each other directly.", dm.onChannelPost("Bob", accept, now))
         assertEquals(listOf(bob to "Bob"), r.added)
+    }
+
+    // --- A lost accept (2026-11-26) ------------------------------------
+    //
+    // An accept is a channel post with no ACK. When it was lost, the
+    // requester never added us, and asking again used to do nothing: the
+    // new request read as already answered because "handled" was a set of
+    // keys. These pin both halves of the recovery.
+
+    private val amy = "33".repeat(32)
+
+    @Test
+    fun aRequestReceivedAfterWeAnsweredOffersTheButtonsAgain() = runTest {
+        val r = FakeRadio(me, "Bob")
+        val dm = DmRequests(r)
+        val request = DmRequest.request("Bob", amy)!!
+        dm.accept(2, "Amy", amy, now + 10)
+        assertNull(
+            dm.pendingAsker(request, "Amy", outgoing = false, receivedAtMs = now * 1000),
+            "the post we answered stays answered",
+        )
+        // Positive control: without it, a feature that never reopened
+        // anything would pass the line above.
+        assertEquals(
+            amy,
+            dm.pendingAsker(request, "Amy", outgoing = false, receivedAtMs = (now + 600) * 1000),
+            "asked again after our answer: a new question",
+        )
+    }
+
+    @Test
+    fun answeringAgainPostsTheAcceptWithoutReAddingThem() = runTest {
+        val r = FakeRadio(me, "Bob")
+        val dm = DmRequests(r)
+        assertEquals("Added Amy. You can message each other directly.", dm.accept(2, "Amy", amy, now))
+        val second = dm.accept(2, "Amy", amy, now + 600)
+        assertEquals("Answered Amy again. You can message each other directly.", second)
+        assertEquals(1, r.added.size, "re-adding would reset the route and name the radio learned")
+        assertEquals(listOf(DmRequest.accept("Amy", amy, me), DmRequest.accept("Amy", amy, me)), r.posts.map { it.second })
+    }
+
+    @Test
+    fun aDeclinedRequesterWhoAsksAgainIsAskedAboutAgain() {
+        val dm = DmRequests(FakeRadio(me, "Bob"))
+        val request = DmRequest.request("Bob", amy)!!
+        dm.decline(amy, now)
+        assertNull(dm.pendingAsker(request, "Amy", outgoing = false, receivedAtMs = (now - 30) * 1000))
+        assertEquals(amy, dm.pendingAsker(request, "Amy", outgoing = false, receivedAtMs = (now + 30) * 1000))
+    }
+
+    @Test
+    fun anAcceptFromSomeoneAlreadyAddedClosesTheRequestWithoutReAdding() = runTest {
+        val r = FakeRadio(me, "Rob", known = mutableSetOf(bob))
+        val dm = DmRequests(r)
+        dm.ask(2, "Bob", now)
+        val accept = DmRequest.accept("Rob", me, bob)!!
+        assertEquals("Bob accepted. You can message each other directly.", dm.onChannelPost("Bob", accept, now))
+        assertTrue(r.added.isEmpty())
+        assertFalse(dm.outstandingRaw.contains("bob"))
+    }
+
+    @Test
+    fun answersStoredBeforeTheyCarriedATimeStayAnsweredForever() {
+        val dm = DmRequests(FakeRadio(me, "Bob"))
+        dm.handledRaw = amy
+        val request = DmRequest.request("Bob", amy)!!
+        assertNull(dm.pendingAsker(request, "Amy", outgoing = false, receivedAtMs = Long.MAX_VALUE / 2))
     }
 }

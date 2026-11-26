@@ -471,7 +471,7 @@ final class MeshCoreStore: ObservableObject {
 
     /// The requester's key when this post asks us and is unanswered.
     func dmAsker(_ m: UiMessage) -> String? {
-        dmRequests?.pendingAsker(text: m.text, senderName: m.senderName, outgoing: m.outgoing)
+        dmRequests?.pendingAsker(text: m.text, senderName: m.senderName, outgoing: m.outgoing, receivedAtMs: m.source.receivedAtMs)
     }
 
     func canAskPrivately(_ m: UiMessage) -> Bool {
@@ -487,13 +487,13 @@ final class MeshCoreStore: ObservableObject {
 
     func acceptPrivately(channel index: Int32, name: String, keyHex: String) async -> String {
         guard let dm = dmRequests else { return "Not connected to a radio." }
-        let msg = (try? await dm.accept(index: index, requesterName: name, requesterKeyHex: keyHex)) ?? "Couldn't answer the request."
+        let msg = (try? await dm.accept(index: index, requesterName: name, requesterKeyHex: keyHex, nowSec: MeshCoreStore.nowSeconds())) ?? "Couldn't answer the request."
         objectWillChange.send()
         return msg
     }
 
     func declinePrivately(_ keyHex: String) {
-        dmRequests?.decline(requesterKeyHex: keyHex)
+        dmRequests?.decline(requesterKeyHex: keyHex, nowSec: MeshCoreStore.nowSeconds())
         objectWillChange.send()
     }
 

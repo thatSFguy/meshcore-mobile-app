@@ -240,4 +240,66 @@ object DmRequest {
             val NONE = Outstanding(emptyMap())
         }
     }
+
+    /**
+     * Requests to us that have been answered, by requester key → WHEN
+     * (our clock, epoch seconds).
+     *
+     * The time is the point. This used to be a set of keys, so once a
+     * requester had been answered, nothing they posted could offer the
+     * buttons again — and an accept is a channel post with no ACK. If it
+     * was lost, the requester's radio still lacked us (our direct messages
+     * to them were dropped), their app still said "waiting", and asking
+     * again did nothing on our side: the new request read as already
+     * answered. A request RECEIVED after we answered is a new question,
+     * so it opens again; the post we answered, and any before it, do not.
+     *
+     * Times are ours on both sides — when the post was stored and when we
+     * answered — never the sender's unauthenticated clock.
+     */
+    class Handled(private val entries: Map<String, Long>) {
+
+        /** Whether a request from [requesterKeyHex] received at [postReceivedSec] still wants an answer. */
+        fun isOpen(requesterKeyHex: String, postReceivedSec: Long): Boolean {
+            val at = entries[requesterKeyHex.trim().lowercase()] ?: return true
+            return postReceivedSec > at
+        }
+
+        /** After answering [requesterKeyHex] (accepted or declined) at [nowSec]. */
+        fun answered(requesterKeyHex: String, nowSec: Long): Handled {
+            val next = entries + (requesterKeyHex.trim().lowercase() to nowSec)
+            return Handled(
+                if (next.size <= MAX_ENTRIES) next
+                else next.entries.sortedByDescending { it.value }.take(MAX_ENTRIES).associate { it.toPair() },
+            )
+        }
+
+        /** One "key=seconds" string per entry, sorted, for storage. */
+        fun encode(): List<String> = entries.entries.map { "${it.key}=${it.value}" }.sorted()
+
+        override fun equals(other: Any?): Boolean = other is Handled && other.entries == entries
+        override fun hashCode(): Int = entries.hashCode()
+
+        companion object {
+            const val MAX_ENTRIES = 256
+            val NONE = Handled(emptyMap())
+
+            /**
+             * Read [encode]'s strings back. A bare key — how this was
+             * stored before it carried a time — is answered FOREVER,
+             * which is exactly what it meant then: nothing reopens that
+             * the old app had closed. Junk is dropped.
+             */
+            fun decode(stored: Collection<String>): Handled = Handled(
+                stored.mapNotNull { raw ->
+                    val line = raw.trim().lowercase()
+                    val key = line.substringBefore('=')
+                    if (key.length != KEY_HEX || !isHexDigits(key)) return@mapNotNull null
+                    val at = if ('=' in line) line.substringAfter('=').toLongOrNull() ?: return@mapNotNull null
+                    else Long.MAX_VALUE
+                    key to at
+                }.toMap(),
+            )
+        }
+    }
 }

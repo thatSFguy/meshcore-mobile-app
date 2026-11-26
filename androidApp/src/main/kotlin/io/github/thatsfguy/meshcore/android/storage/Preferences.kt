@@ -617,11 +617,16 @@ class Preferences(context: Context) {
 
     /**
      * Requests to us that have been answered (accepted or declined), by the
-     * requester's key, so the buttons do not come back on the next visit.
+     * requester's key and when, so the buttons do not come back for that
+     * post — but do for a request received later ([DmRequest.Handled]).
+     * Entries written before the time was kept are bare keys, read as
+     * answered forever.
      */
-    var dmRequestsHandled: Set<String>
-        get() = prefs.getStringSet("dm_requests_handled", emptySet())!!
-        set(v) { prefs.edit().putStringSet("dm_requests_handled", v.take(BlockList.MAX_ENTRIES).toSet()).apply() }
+    var dmRequestsHandled: io.github.thatsfguy.meshcore.presentation.DmRequest.Handled
+        get() = io.github.thatsfguy.meshcore.presentation.DmRequest.Handled.decode(
+            prefs.getStringSet("dm_requests_handled", emptySet())!!,
+        )
+        set(v) { prefs.edit().putStringSet("dm_requests_handled", v.encode().toSet()).apply() }
 
     // --- Message retention (PARITY §3) ---
 

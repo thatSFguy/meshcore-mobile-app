@@ -150,6 +150,8 @@ Reference docs:
 - **`PARITY.md`** — the live feature plan: surface-by-surface vs the mainstream app,
   what's done, what's out of scope and why, and where we deliberately differ. Supersedes
   SCOPE.md where they disagree.
+- **`SIMPLE_MODE.md`** — what Simple mode hides, the channel DM-request handshake (why it
+  exists, the lost-accept recovery, adverts), and what it does not promise.
 - **`SCOPE.md`** — the original v1 feature set (pruned from an existing client's inventory).
 - **`README.md`** — vision + non-goals; **`REUSE.md`** — what was copied from the sibling.
 

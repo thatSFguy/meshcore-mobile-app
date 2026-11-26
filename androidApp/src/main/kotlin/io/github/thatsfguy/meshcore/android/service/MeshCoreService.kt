@@ -190,7 +190,10 @@ class MeshCoreService : Service() {
         repository.onDmAccepted = { name, keyHex ->
             scope.launch {
                 val key = io.github.thatsfguy.meshcore.util.hexToBytesOrNull(keyHex) ?: return@launch
-                val added = runCatching {
+                // Already a contact (we asked again after a lost answer, or
+                // added them by code): re-adding would reset their route
+                // and advertised name, so only the request is closed.
+                val added = engine.contacts.value.containsKey(keyHex.lowercase()) || runCatching {
                     engine.addContactFromCard(key, name, io.github.thatsfguy.meshcore.protocol.Codes.ADV_TYPE_CHAT)
                 }.getOrDefault(false)
                 diagnostics.log("Inbox", "DM request accepted by $name — contact added: $added")

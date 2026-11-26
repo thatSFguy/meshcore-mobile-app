@@ -6,6 +6,7 @@ import io.github.thatsfguy.meshcore.presentation.DmRequest.Parsed
 import io.github.thatsfguy.meshcore.protocol.Codes
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -168,5 +169,48 @@ class DmRequestTest {
             "You accepted Alice's request to message privately.",
             DmRequest.describe(acc, "Bob", true, "Bob", bob),
         )
+    }
+
+    // --- Handled -------------------------------------------------------
+
+    @Test
+    fun handledIsKeyedByKeyAndTime() {
+        val k = "ab".repeat(32)
+        val h = DmRequest.Handled.NONE.answered(k.uppercase(), 1_000)
+        assertTrue(DmRequest.Handled.NONE.isOpen(k, 1), "never answered: open")
+        assertFalse(h.isOpen(k, 999))
+        assertFalse(h.isOpen(k, 1_000), "the post we answered, same second")
+        assertTrue(h.isOpen(k, 1_001), "received after the answer: open again")
+        assertTrue(h.isOpen("cd".repeat(32), 0), "another key is untouched")
+    }
+
+    @Test
+    fun handledDecodesHostileAndLegacyLines() {
+        val k = "ab".repeat(32)
+        val h = DmRequest.Handled.decode(
+            listOf(
+                k, // legacy: answered forever
+                "cd".repeat(32) + "=500",
+                "ef".repeat(32) + "=notanumber",
+                "zz".repeat(32) + "=1",
+                "ab=1",
+                "",
+                "12".repeat(33) + "=1",
+            ),
+        )
+        assertEquals(listOf(k + "=" + Long.MAX_VALUE, "cd".repeat(32) + "=500"), h.encode())
+        assertFalse(h.isOpen(k, Long.MAX_VALUE - 1))
+        assertEquals(h, DmRequest.Handled.decode(h.encode()))
+    }
+
+    @Test
+    fun handledKeepsTheNewestWhenFull() {
+        var h = DmRequest.Handled.NONE
+        repeat(DmRequest.Handled.MAX_ENTRIES + 5) { i ->
+            h = h.answered(i.toString(16).padStart(64, '0'), i.toLong())
+        }
+        assertEquals(DmRequest.Handled.MAX_ENTRIES, h.encode().size)
+        assertTrue(h.isOpen("0".repeat(64), 1), "the oldest was dropped")
+        assertFalse(h.isOpen((DmRequest.Handled.MAX_ENTRIES + 4).toString(16).padStart(64, '0'), 0))
     }
 }

@@ -307,7 +307,7 @@ fun ConversationScreen(
                         it, m.senderName, selfName, selfKeyHex,
                         io.github.thatsfguy.meshcore.presentation.DmRequest.Outstanding.NONE, 0,
                     ) as? io.github.thatsfguy.meshcore.presentation.DmRequest.Action.AskedMe
-                }?.takeIf { it.requesterKeyHex !in dmHandled }
+                }?.takeIf { dmHandled.isOpen(it.requesterKeyHex, m.receivedAt / 1000) }
                 MessageBubble(
                     m,
                     showSender = showSenders,

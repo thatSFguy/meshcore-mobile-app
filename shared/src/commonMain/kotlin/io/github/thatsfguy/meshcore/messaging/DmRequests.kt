@@ -26,12 +26,14 @@ class DmRequests(private val radio: Radio) {
     interface Radio {
         val myKeyHex: String?
         val myName: String?
+        /** Whether [keyHex] is already on the radio — then it is not added again. */
+        fun hasContact(keyHex: String): Boolean
         suspend fun addContact(keyHex: String, name: String): Boolean
         suspend fun sendChannel(index: Int, text: String): Boolean
     }
 
     private var outstanding: DmRequest.Outstanding = DmRequest.Outstanding.NONE
-    private var handled: Set<String> = emptySet()
+    private var handled: DmRequest.Handled = DmRequest.Handled.NONE
 
     /** Called after any state change; save [outstandingRaw] and [handledRaw]. */
     var onStateChanged: (() -> Unit)? = null
@@ -49,11 +51,11 @@ class DmRequests(private val radio: Radio) {
             )
         }
 
-    /** Requester keys whose request to us has been answered (accepted or declined). */
+    /** Requests to us that have been answered, and when: "key=epochSeconds" lines ([DmRequest.Handled]). */
     var handledRaw: String
-        get() = handled.sorted().joinToString("\n")
+        get() = handled.encode().joinToString("\n")
         set(value) {
-            handled = value.lines().map { it.trim().lowercase() }.filter { it.length == 64 }.toSet()
+            handled = DmRequest.Handled.decode(value.lines())
         }
 
     private fun changed() = onStateChanged?.invoke()
@@ -74,20 +76,30 @@ class DmRequests(private val radio: Radio) {
      * THEN answer on the same channel so their app adds us. If the add
      * fails nothing is posted — an accept without the contact would tell
      * them they can write to someone who can't read them.
+     *
+     * Someone already on the radio is NOT added again: the add writes a
+     * flood route, a zero timestamp and the channel's display name, which
+     * would throw away a route and an advertised name the radio learned.
+     * That is the case of a repeated request after our first accept was
+     * lost — they still need the answer, not a fresh contact.
      */
-    suspend fun accept(index: Int, requesterName: String, requesterKeyHex: String): String {
+    suspend fun accept(index: Int, requesterName: String, requesterKeyHex: String, nowSec: Long): String {
         val me = radio.myKeyHex ?: return "Not connected to a radio."
         val reply = DmRequest.accept(requesterName, requesterKeyHex, me)
         if (reply == null || !DmRequest.fits(radio.myName.orEmpty(), reply)) return "Can't answer a request from that name"
         val name = requesterName.trim()
-        val added = runCatching { radio.addContact(requesterKeyHex, name) }.getOrDefault(false)
-        if (!added) return "Couldn't add $name — is the radio's contact list full?"
+        val known = radio.hasContact(requesterKeyHex)
+        if (!known) {
+            val added = runCatching { radio.addContact(requesterKeyHex, name) }.getOrDefault(false)
+            if (!added) return "Couldn't add $name — is the radio's contact list full?"
+        }
         runCatching { radio.sendChannel(index, reply) }
-        markHandled(requesterKeyHex)
-        return "Added $name. You can message each other directly."
+        markHandled(requesterKeyHex, nowSec)
+        return if (known) "Answered $name again. You can message each other directly."
+        else "Added $name. You can message each other directly."
     }
 
-    fun decline(requesterKeyHex: String) = markHandled(requesterKeyHex)
+    fun decline(requesterKeyHex: String, nowSec: Long) = markHandled(requesterKeyHex, nowSec)
 
     /**
      * "My code": our contact card as a link, for a QR or a message
@@ -106,8 +118,8 @@ class DmRequests(private val radio: Radio) {
         )
     }
 
-    private fun markHandled(keyHex: String) {
-        handled = handled + keyHex.lowercase()
+    private fun markHandled(keyHex: String, nowSec: Long) {
+        handled = handled.answered(keyHex, nowSec)
         changed()
     }
 
@@ -120,7 +132,10 @@ class DmRequests(private val radio: Radio) {
         val me = radio.myKeyHex ?: return null
         val action = DmRequest.decide(parsed, senderName, null, me, outstanding, nowSec)
             as? DmRequest.Action.TheyAccepted ?: return null
-        val added = runCatching { radio.addContact(action.accepterKeyHex, action.accepterName) }.getOrDefault(false)
+        // Already a contact (we asked again after a lost answer, or added
+        // them by code): nothing to add, and re-adding would reset them.
+        val added = radio.hasContact(action.accepterKeyHex) ||
+            runCatching { radio.addContact(action.accepterKeyHex, action.accepterName) }.getOrDefault(false)
         if (!added) return "${action.accepterName} accepted, but the radio couldn't add them."
         outstanding = outstanding.answered(action.accepterName, nowSec)
         changed()
@@ -137,15 +152,17 @@ class DmRequests(private val radio: Radio) {
 
     /**
      * The requester's key when this post asks US and is still unanswered
-     * — the card then offers Accept / Decline. Null otherwise.
+     * — the card then offers Accept / Decline. Null otherwise. A request
+     * received after we last answered that key is unanswered: see
+     * [DmRequest.Handled]. [receivedAtMs] is when WE stored the post.
      */
-    fun pendingAsker(text: String, senderName: String?, outgoing: Boolean): String? {
+    fun pendingAsker(text: String, senderName: String?, outgoing: Boolean, receivedAtMs: Long): String? {
         if (outgoing) return null
         val parsed = DmRequest.parse(text) ?: return null
         val action = DmRequest.decide(
             parsed, senderName, radio.myName, radio.myKeyHex ?: return null, DmRequest.Outstanding.NONE, 0,
         ) as? DmRequest.Action.AskedMe ?: return null
-        return action.requesterKeyHex.takeIf { it !in handled }
+        return action.requesterKeyHex.takeIf { handled.isOpen(it, receivedAtMs / 1000) }
     }
 
     /** Whether a channel post's sender can be asked (a name we can address, and not already a contact by it). */
@@ -168,6 +185,8 @@ class DmRequests(private val radio: Radio) {
         fun over(engine: MeshCoreEngine, session: MessagingSession): DmRequests = DmRequests(object : Radio {
             override val myKeyHex: String? get() = engine.selfInfo.value?.publicKeyHex
             override val myName: String? get() = engine.selfInfo.value?.name
+            override fun hasContact(keyHex: String): Boolean =
+                engine.contacts.value.containsKey(keyHex.trim().lowercase())
             override suspend fun addContact(keyHex: String, name: String): Boolean {
                 val key = hexToBytesOrNull(keyHex) ?: return false
                 return engine.addContactFromCard(key, name, Codes.ADV_TYPE_CHAT)

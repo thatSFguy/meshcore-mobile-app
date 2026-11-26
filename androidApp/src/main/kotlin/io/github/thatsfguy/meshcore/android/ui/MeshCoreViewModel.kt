@@ -1671,9 +1671,9 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun nowSec() = System.currentTimeMillis() / 1000
 
-    /** Requester keys whose request to us has been answered. */
+    /** Requests to us that have been answered, and when. */
     private val dmHandledRevision = MutableStateFlow(0)
-    val dmRequestsHandled: StateFlow<Set<String>> = dmHandledRevision
+    val dmRequestsHandled: StateFlow<io.github.thatsfguy.meshcore.presentation.DmRequest.Handled> = dmHandledRevision
         .map { prefs.dmRequestsHandled }
         .stateIn(viewModelScope, SharingStarted.Eagerly, prefs.dmRequestsHandled)
 
@@ -1697,6 +1697,11 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
      * Accept a request: add the requester to the radio, then answer on the
      * same channel so their app adds us. Both are needed — each radio only
      * decrypts direct messages from its own contacts.
+     *
+     * Someone already on the radio is not added again — that write would
+     * reset their learned route and advertised name. It is the case of a
+     * repeated request after our first answer was lost: they need the
+     * answer, not a new contact (DmRequest.Handled).
      */
     fun acceptDmRequest(channelIndex: Int, requesterName: String, requesterKeyHex: String) {
         val svc = _service.value ?: return
@@ -1709,16 +1714,21 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
             return
         }
         viewModelScope.launch {
-            val added = runCatching {
-                svc.engine.addContactFromCard(key, requesterName.trim(), Codes.ADV_TYPE_CHAT)
-            }.getOrDefault(false)
-            if (!added) {
-                transientMessage.value = "Couldn't add ${requesterName.trim()} — is the radio's contact list full?"
-                return@launch
+            val name = requesterName.trim()
+            val known = svc.engine.contacts.value.containsKey(requesterKeyHex.trim().lowercase())
+            if (!known) {
+                val added = runCatching {
+                    svc.engine.addContactFromCard(key, name, Codes.ADV_TYPE_CHAT)
+                }.getOrDefault(false)
+                if (!added) {
+                    transientMessage.value = "Couldn't add $name — is the radio's contact list full?"
+                    return@launch
+                }
             }
             sendChannelMessage(channelIndex, reply)
             markDmRequestHandled(requesterKeyHex)
-            transientMessage.value = "Added ${requesterName.trim()}. You can message each other directly."
+            transientMessage.value = if (known) "Answered $name again. You can message each other directly."
+            else "Added $name. You can message each other directly."
         }
     }
 
@@ -1727,7 +1737,7 @@ class MeshCoreViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private fun markDmRequestHandled(requesterKeyHex: String) {
-        prefs.dmRequestsHandled = prefs.dmRequestsHandled + requesterKeyHex.lowercase()
+        prefs.dmRequestsHandled = prefs.dmRequestsHandled.answered(requesterKeyHex, nowSec())
         dmHandledRevision.value++
     }
 
