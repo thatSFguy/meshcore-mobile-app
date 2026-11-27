@@ -90,6 +90,11 @@ fun AboutSection(vm: MeshCoreViewModel) {
  * is a changelog you can't read in the field.
  */
 private val CHANGELOG: List<Pair<String, List<String>>> = listOf(
+    "0.11.5" to listOf(
+        "Message privately: a request from someone you had answered before 0.11.4 offers Accept " +
+            "and Decline again.",
+        "Diagnostics log why a request to you did or didn't offer Accept / Decline.",
+    ),
     "0.11.4" to listOf(
         "Threads and Chats are in the order messages arrived, so a node whose clock runs ahead " +
             "no longer puts its messages ahead of the conversation.",

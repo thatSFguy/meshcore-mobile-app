@@ -127,6 +127,14 @@ class MessageRepository(
      */
     @Volatile var dmOutstanding: () -> io.github.thatsfguy.meshcore.presentation.DmRequest.Outstanding =
         { io.github.thatsfguy.meshcore.presentation.DmRequest.Outstanding.NONE }
+
+    /**
+     * A direct-message request arrived on a channel: sender name and the
+     * parsed request, with when we stored it (epoch seconds). For the
+     * diagnostics log — see DmRequest.explain.
+     */
+    @Volatile var onDmRequestSeen:
+        ((String?, io.github.thatsfguy.meshcore.presentation.DmRequest.Parsed.Request, Long) -> Unit)? = null
     @Volatile var onDmAccepted: ((accepterName: String, accepterKeyHex: String) -> Unit)? = null
 
     /** Thread the UI currently displays ("dm|<key>" / "ch|<idx>") —
@@ -527,6 +535,10 @@ class MessageRepository(
                 // direct messages work both ways. Only for a request we
                 // actually sent — see DmRequest.decide. The message is still
                 // stored below, and the thread renders it as a line.
+                (io.github.thatsfguy.meshcore.presentation.DmRequest.parse(event.text)
+                    as? io.github.thatsfguy.meshcore.presentation.DmRequest.Parsed.Request)?.let { req ->
+                    onDmRequestSeen?.invoke(event.senderName, req, System.currentTimeMillis() / 1000)
+                }
                 (io.github.thatsfguy.meshcore.presentation.DmRequest.parse(event.text)
                     as? io.github.thatsfguy.meshcore.presentation.DmRequest.Parsed.Accept)?.let { reply ->
                     val action = io.github.thatsfguy.meshcore.presentation.DmRequest.decide(

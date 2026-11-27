@@ -21,7 +21,11 @@ import io.github.thatsfguy.meshcore.util.hexToBytesOrNull
  * State is two small strings the platform persists ([outstandingRaw],
  * [handledRaw]); [onStateChanged] says when to save them.
  */
-class DmRequests(private val radio: Radio) {
+class DmRequests(
+    private val radio: Radio,
+    /** Epoch seconds; a parameter so tests can fix it. */
+    private val nowSec: () -> Long = { kotlinx.datetime.Clock.System.now().epochSeconds },
+) {
 
     interface Radio {
         val myKeyHex: String?
@@ -35,8 +39,26 @@ class DmRequests(private val radio: Radio) {
     private var outstanding: DmRequest.Outstanding = DmRequest.Outstanding.NONE
     private var handled: DmRequest.Handled = DmRequest.Handled.NONE
 
-    /** Called after any state change; save [outstandingRaw] and [handledRaw]. */
+    /** Set when [handledRaw] converted old entries, which must be saved once. */
+    private var unsavedMigration = false
+
+    /**
+     * Called after any state change; save [outstandingRaw] and [handledRaw].
+     *
+     * The platform loads state first and attaches this after, so a
+     * conversion done while loading ([handledRaw]) is saved the moment it
+     * is attached. Unsaved, the old entries would be re-stamped at every
+     * launch, and a request received between two launches would read as
+     * answered at the second.
+     */
     var onStateChanged: (() -> Unit)? = null
+        set(value) {
+            field = value
+            if (value != null && unsavedMigration) {
+                unsavedMigration = false
+                value()
+            }
+        }
 
     /** Requests we made and still expect an answer to: "name=epochSeconds" lines. */
     var outstandingRaw: String
@@ -55,7 +77,12 @@ class DmRequests(private val radio: Radio) {
     var handledRaw: String
         get() = handled.encode().joinToString("\n")
         set(value) {
-            handled = DmRequest.Handled.decode(value.lines())
+            val lines = value.lines()
+            handled = DmRequest.Handled.decode(lines, legacySec = nowSec())
+            if (DmRequest.Handled.hasLegacy(lines)) {
+                unsavedMigration = true
+                onStateChanged?.let { unsavedMigration = false; it() }
+            }
         }
 
     private fun changed() = onStateChanged?.invoke()

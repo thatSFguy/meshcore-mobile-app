@@ -187,20 +187,65 @@ class DmRequestTest {
     @Test
     fun handledDecodesHostileAndLegacyLines() {
         val k = "ab".repeat(32)
-        val h = DmRequest.Handled.decode(
-            listOf(
-                k, // legacy: answered forever
-                "cd".repeat(32) + "=500",
-                "ef".repeat(32) + "=notanumber",
-                "zz".repeat(32) + "=1",
-                "ab=1",
-                "",
-                "12".repeat(33) + "=1",
-            ),
+        val stored = listOf(
+            k, // pre-0.11.4: a bare key
+            "cd".repeat(32) + "=500",
+            "ef".repeat(32) + "=notanumber",
+            "zz".repeat(32) + "=1",
+            "ab=1",
+            "",
+            "12".repeat(33) + "=1",
         )
-        assertEquals(listOf(k + "=" + Long.MAX_VALUE, "cd".repeat(32) + "=500"), h.encode())
-        assertFalse(h.isOpen(k, Long.MAX_VALUE - 1))
-        assertEquals(h, DmRequest.Handled.decode(h.encode()))
+        val h = DmRequest.Handled.decode(stored, legacySec = 9_000)
+        assertEquals(listOf("$k=9000", "cd".repeat(32) + "=500"), h.encode())
+        assertTrue(DmRequest.Handled.hasLegacy(stored))
+        assertFalse(DmRequest.Handled.hasLegacy(h.encode()), "converted once, then saved in the new form")
+        assertEquals(h, DmRequest.Handled.decode(h.encode(), legacySec = 1))
+    }
+
+    @Test
+    fun anOldAnswerClosesOldPostsButNotANewRequest() {
+        // Reported 2026-11-27: a request from a node answered before the
+        // update showed its line but no Accept. 0.11.4 read the old entry
+        // as answered FOREVER. Now: answered at the update.
+        val k = "ab".repeat(32)
+        val update = 1_764_200_000L
+        val h = DmRequest.Handled.decode(listOf(k), legacySec = update)
+        assertFalse(h.isOpen(k, update - 86_400), "a request already in the thread stays answered")
+        assertTrue(h.isOpen(k, update + 60), "a request after the update asks again")
+    }
+
+    @Test
+    fun explainSaysWhyThereAreNoButtons() {
+        val alice = "ab".repeat(32)
+        val bob = "cd".repeat(32)
+        val req = DmRequest.parse(DmRequest.request("Bob", alice)!!) as Parsed.Request
+        val none = DmRequest.Handled.NONE
+        assertEquals(
+            "from Alice (key abababab) to Bob: Accept / Decline offered",
+            DmRequest.explain(req, "Alice", "Bob", bob, none, 100),
+        )
+        assertEquals(
+            "from Alice (key abababab) to Bob: not for us",
+            DmRequest.explain(req, "Alice", "Carol", bob, none, 100),
+        )
+        assertEquals(
+            "from Alice (key abababab) to Bob: no buttons — our radio's key is not known yet",
+            DmRequest.explain(req, "Alice", "Bob", "", none, 100),
+        )
+        assertEquals(
+            "from Alice (key abababab) to Bob: no buttons — it carries our own key",
+            DmRequest.explain(req, "Alice", "Bob", alice, none, 100),
+        )
+        val answered = none.answered(alice, 200)
+        assertEquals(
+            "from Alice (key abababab) to Bob: no buttons — that key was answered at 200, and this post arrived at 150",
+            DmRequest.explain(req, "Alice", "Bob", bob, answered, 150),
+        )
+        assertEquals(
+            "from Alice (key abababab) to Bob: Accept / Decline offered (answered before, at 200; this is a new request)",
+            DmRequest.explain(req, "Alice", "Bob", bob, answered, 300),
+        )
     }
 
     @Test

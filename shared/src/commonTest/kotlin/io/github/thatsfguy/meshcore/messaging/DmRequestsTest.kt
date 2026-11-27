@@ -185,10 +185,27 @@ class DmRequestsTest {
     }
 
     @Test
-    fun answersStoredBeforeTheyCarriedATimeStayAnsweredForever() {
-        val dm = DmRequests(FakeRadio(me, "Bob"))
+    fun oldAnswersAreConvertedOnceAndSaved() {
+        // iOS loads state, THEN attaches onStateChanged. The conversion
+        // must be saved at that moment, or every launch re-stamps the old
+        // entries and a request received between launches reads as answered.
+        val update = now
+        val dm = DmRequests(FakeRadio(me, "Bob"), nowSec = { update })
         dm.handledRaw = amy
+        var saved = 0
+        dm.onStateChanged = { saved++ }
+        assertEquals(1, saved, "saved as soon as there is somewhere to save it")
+        assertEquals("$amy=$update", dm.handledRaw)
         val request = DmRequest.request("Bob", amy)!!
-        assertNull(dm.pendingAsker(request, "Amy", outgoing = false, receivedAtMs = Long.MAX_VALUE / 2))
+        assertNull(dm.pendingAsker(request, "Amy", outgoing = false, receivedAtMs = (update - 60) * 1000))
+        assertEquals(amy, dm.pendingAsker(request, "Amy", outgoing = false, receivedAtMs = (update + 60) * 1000))
+
+        // A second launch reading the saved form converts nothing.
+        val again = DmRequests(FakeRadio(me, "Bob"), nowSec = { update + 10_000 })
+        again.handledRaw = dm.handledRaw
+        var savedAgain = 0
+        again.onStateChanged = { savedAgain++ }
+        assertEquals(0, savedAgain)
+        assertEquals("$amy=$update", again.handledRaw, "not re-stamped")
     }
 }

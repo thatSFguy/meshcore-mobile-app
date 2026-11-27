@@ -619,13 +619,22 @@ class Preferences(context: Context) {
      * Requests to us that have been answered (accepted or declined), by the
      * requester's key and when, so the buttons do not come back for that
      * post — but do for a request received later ([DmRequest.Handled]).
-     * Entries written before the time was kept are bare keys, read as
-     * answered forever.
+     * Entries written before the time was kept (up to 0.11.3) are bare
+     * keys: the first read converts them to "answered now" and saves that,
+     * so they are converted once — see [DmRequest.Handled.decode].
      */
     var dmRequestsHandled: io.github.thatsfguy.meshcore.presentation.DmRequest.Handled
-        get() = io.github.thatsfguy.meshcore.presentation.DmRequest.Handled.decode(
-            prefs.getStringSet("dm_requests_handled", emptySet())!!,
-        )
+        get() {
+            val stored = prefs.getStringSet("dm_requests_handled", emptySet())!!
+            val handled = io.github.thatsfguy.meshcore.presentation.DmRequest.Handled.decode(
+                stored,
+                legacySec = System.currentTimeMillis() / 1000,
+            )
+            if (io.github.thatsfguy.meshcore.presentation.DmRequest.Handled.hasLegacy(stored)) {
+                prefs.edit().putStringSet("dm_requests_handled", handled.encode().toSet()).apply()
+            }
+            return handled
+        }
         set(v) { prefs.edit().putStringSet("dm_requests_handled", v.encode().toSet()).apply() }
 
     // --- Message retention (PARITY §3) ---

@@ -187,6 +187,15 @@ class MeshCoreService : Service() {
         }
         repository.onChannelSlotForgotten = { idx -> prefs.forgetChannelSlot(idx) }
         repository.dmOutstanding = { prefs.dmRequestsOutstanding }
+        repository.onDmRequestSeen = { sender, req, receivedSec ->
+            val me = engine.selfInfo.value
+            diagnostics.log(
+                "Inbox",
+                "DM request " + io.github.thatsfguy.meshcore.presentation.DmRequest.explain(
+                    req, sender, me?.name, me?.publicKeyHex.orEmpty(), prefs.dmRequestsHandled, receivedSec,
+                ),
+            )
+        }
         repository.onDmAccepted = { name, keyHex ->
             scope.launch {
                 val key = io.github.thatsfguy.meshcore.util.hexToBytesOrNull(keyHex) ?: return@launch

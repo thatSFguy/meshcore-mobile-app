@@ -122,7 +122,14 @@ Bob's Accept / Decline come back for it (and only for it — the post he already
 answered). Accepting again re-posts the acceptance and does **not** re-add Alice: re-adding would
 reset the route and advertised name Bob's radio has learned for her since. Bob sees *"Answered Alice
 again."* The same applies after a Decline: asking again asks again. (Fixed 2026-11-26. Before that,
-"answered" was remembered per person, and a second request read as already answered.)
+"answered" was remembered per person, and a second request read as already answered. Answers
+saved that way are converted once, on the update, to "answered at the time of the update",
+since Android 0.11.5 / iOS 0.2.2. 0.11.4 had kept them answered forever, which blocked
+the same retry for anyone answered before it.)
+
+With diagnostics on, every request addressed to you is logged with whether the buttons were
+offered and, if not, why: our key not known yet, our own key, or answered after this post
+arrived (`DmRequest.explain`).
 
 ## Adverts
 

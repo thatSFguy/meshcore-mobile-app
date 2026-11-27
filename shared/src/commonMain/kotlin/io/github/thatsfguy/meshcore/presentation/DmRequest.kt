@@ -175,6 +175,34 @@ object DmRequest {
     }
 
     /**
+     * Why a request does or does not offer Accept / Decline, for the
+     * diagnostics log. The thread's LINE needs only the name to match;
+     * the BUTTONS also need our key and an unanswered request, so a line
+     * reading "wants to message you" with no buttons is one of the later
+     * reasons here. Nothing secret: names and an 8-hex key prefix.
+     */
+    fun explain(
+        parsed: Parsed.Request,
+        senderName: String?,
+        myName: String?,
+        myKeyHex: String,
+        handled: Handled,
+        postReceivedSec: Long,
+    ): String {
+        val from = "from ${senderName?.trim().orEmpty().ifEmpty { "?" }} " +
+            "(key ${parsed.requesterKeyHex.take(PREFIX_HEX)}) to ${parsed.targetName}"
+        val me = canonicalKey(myKeyHex) ?: return "$from: no buttons — our radio's key is not known yet"
+        if (parsed.requesterKeyHex == me) return "$from: no buttons — it carries our own key"
+        val mine = myName?.let(::canonicalName) ?: return "$from: no buttons — our radio's name is not known yet"
+        if (canonicalName(parsed.targetName) != mine) return "$from: not for us"
+        val at = handled.answeredAt(parsed.requesterKeyHex)
+        if (at != null && postReceivedSec <= at) {
+            return "$from: no buttons — that key was answered at $at, and this post arrived at $postReceivedSec"
+        }
+        return "$from: Accept / Decline offered" + (at?.let { " (answered before, at $it; this is a new request)" } ?: "")
+    }
+
+    /**
      * The line a thread shows in place of the raw text, so a request reads
      * as what it is rather than as a hex blob.
      */
@@ -265,6 +293,9 @@ object DmRequest {
             return postReceivedSec > at
         }
 
+        /** When [requesterKeyHex] was last answered, or null if never. */
+        fun answeredAt(requesterKeyHex: String): Long? = entries[requesterKeyHex.trim().lowercase()]
+
         /** After answering [requesterKeyHex] (accepted or declined) at [nowSec]. */
         fun answered(requesterKeyHex: String, nowSec: Long): Handled {
             val next = entries + (requesterKeyHex.trim().lowercase() to nowSec)
@@ -285,21 +316,35 @@ object DmRequest {
             val NONE = Handled(emptyMap())
 
             /**
-             * Read [encode]'s strings back. A bare key — how this was
-             * stored before it carried a time — is answered FOREVER,
-             * which is exactly what it meant then: nothing reopens that
-             * the old app had closed. Junk is dropped.
+             * Read [encode]'s strings back; junk is dropped.
+             *
+             * A bare key is how this was stored before it carried a time
+             * (up to Android 0.11.3 / iOS 0.2.0). It is read as answered
+             * at [legacySec], which the caller sets to NOW and then saves
+             * ([hasLegacy]) — so it is converted exactly once. Requests
+             * already in the thread stay answered; one that arrives after
+             * the update asks again.
+             *
+             * 0.11.4 read them as answered FOREVER instead, on the theory
+             * that this was what they had meant. It locked out exactly the
+             * case the time was added for: anyone who had answered a node
+             * once could never see its buttons again (reported 2026-11-27,
+             * a request from an EdgeRelay node with no Accept).
              */
-            fun decode(stored: Collection<String>): Handled = Handled(
+            fun decode(stored: Collection<String>, legacySec: Long): Handled = Handled(
                 stored.mapNotNull { raw ->
                     val line = raw.trim().lowercase()
                     val key = line.substringBefore('=')
                     if (key.length != KEY_HEX || !isHexDigits(key)) return@mapNotNull null
                     val at = if ('=' in line) line.substringAfter('=').toLongOrNull() ?: return@mapNotNull null
-                    else Long.MAX_VALUE
+                    else legacySec
                     key to at
                 }.toMap(),
             )
+
+            /** Whether [stored] holds entries in the old, time-less form — save after [decode]. */
+            fun hasLegacy(stored: Collection<String>): Boolean =
+                stored.any { it.isNotBlank() && '=' !in it }
         }
     }
 }

@@ -7,6 +7,15 @@ Android's notes are in the repository's top-level `CHANGELOG.md`.
 
 Every entry describes what is in **that tagged build**.
 
+## 0.2.2
+
+**Fixes**
+- **Message privately: no Accept button for someone you had answered before 0.2.1.** 0.2.1
+  treated every request answered on an earlier version as answered forever, so anyone you had
+  accepted or declined once could never get the buttons again. Those old answers now count as
+  made at the moment you updated: requests already in the thread stay answered, and a new one
+  asks again.
+
 ## 0.2.1
 
 **Fixes**

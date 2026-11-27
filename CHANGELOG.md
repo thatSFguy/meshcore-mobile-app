@@ -11,6 +11,18 @@ Every entry describes what is in **that tagged build**. A feature that landed af
 belongs in the next section, not this one — 0.3.0 was once credited with four features that
 shipped after it, which misled nobody so much as the author, three months later.
 
+## 0.11.5
+
+**Fixes**
+- **Message privately: no Accept button for someone you had answered before 0.11.4.** 0.11.4
+  stopped a lost acceptance being permanent, but it treated every request answered on an
+  earlier version as answered forever. So anyone you had accepted or declined once could never
+  get the buttons again, which is the case that fix was for. Those old answers now count as
+  made at the moment you updated: requests already in the thread stay answered, and a new one
+  asks again.
+- With diagnostics on, each request addressed to you is logged with whether Accept / Decline
+  was offered, and if not, why.
+
 ## 0.11.4
 
 **Fixes**
